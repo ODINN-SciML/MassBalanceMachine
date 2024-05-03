@@ -1,0 +1,1 @@
+E01, E02, E03, E04, hof01, hosp, Bru, Bud, Gb2, FI01, B07, B08, B09, B10, B11, B12, B13, B14, B15, B16, B17, B18, B19, BB0, Skf00, Skf01, Ske02, Ske03, Ske04, Ske05, Br1, Br2, Br3, Br4, Br5, Br7, Oer01, D01, D02, D03, D05, D07, D09, D12, G02, G03, G04, Borth, Bor, Haab, S01, S02, S04, S05, Go1, K01, K02, K03, K04, K05, K06, K07, T01, T02, T03, T04, T05, T06, T07, T08
