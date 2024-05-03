@@ -1,5 +1,7 @@
 # Data Processing
 
+- ```Climate``` folder not included, as the data is too large to be on the repository. Data can be downloaded, with the right variables, timeframe, and coordinates, with the designated scripts. Be aware that it can take up to 2 hours to retrieve this data from the Copernicus website. 
+
 ## Code Organization
 
 1. ### Data (Pre)Processing
