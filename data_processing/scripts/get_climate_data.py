@@ -4,9 +4,9 @@ import pandas as pd
 import math
 
 # File directory and names
-file_dir = '.././Data/'
-file_name_in = 'Files/Iceland_Stake_Data_T_Attributes.csv'
-file_name_out = 'Files/Iceland_Stake_Data_Climate.csv'
+file_dir = '.././data/'
+file_name_in = 'files/Iceland_Stake_Data_T_Attributes.csv'
+file_name_out = 'files/Iceland_Stake_Data_Climate.csv'
 
 # Read stake data
 df = pd.read_csv(file_dir + file_name_in, index_col=False)
@@ -14,8 +14,8 @@ df = pd.read_csv(file_dir + file_name_in, index_col=False)
 # Open climate datasets
 # From https://cds.climate.copernicus.eu/cdsapp#!/dataset/reanalysis-era5-land-monthly-means?tab=overview
 # From https://cds.climate.copernicus.eu/cdsapp#!/dataset/reanalysis-era5-pressure-levels-monthly-means?tab=overview
-with xr.open_dataset(file_dir + 'Climate/ERA5_monthly_averaged_climate_data.nc') as ds_climate, \
-        xr.open_dataset(file_dir + 'Climate/ERA5_monthly_averaged_pressure_data.nc') as ds_geopotential:
+with xr.open_dataset(file_dir + 'climate/ERA5_monthly_averaged_climate_data.nc') as ds_climate, \
+        xr.open_dataset(file_dir + 'climate/ERA5_monthly_averaged_pressure_data.nc') as ds_geopotential:
 
     # Convert geopotential height to geometric height and add to dataset
     r_earth = 6378137.0

@@ -301,9 +301,9 @@ pyrightconfig.json
 
 # DATA FOLDERS
 
-Data/Stake Measurements/
+data/stake-measurements/
 
 .idea/
 
-Data/Climate/
+data/climate/
 

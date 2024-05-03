@@ -8,7 +8,7 @@ from pathlib import Path
 import os
 import logging
 
-file_dir_data = '.././Data/OGGM/'
+file_dir_data = '.././data/oggm/'
 
 # Check if directory exists
 if not os.path.exists(file_dir_data):
@@ -32,8 +32,8 @@ parent_path = os.path.dirname(Path().resolve())
 workspace_path = os.path.join(parent_path, 'Data', 'OGGM')
 
 # Define path to stake data CSV file
-df_path = os.path.join(parent_path, 'Data Processing', 'Data', 'Files', 'Iceland_Stake_Data_Merged.csv')
-df_path_output = os.path.join(parent_path, 'Data Processing', 'Data', 'Files', 'Iceland_Stake_Data_T_Attributes.csv')
+df_path = os.path.join(parent_path, 'data-processing', 'data', 'files', 'Iceland_Stake_Data_Merged.csv')
+df_path_output = os.path.join(parent_path, 'data-processing', 'data', 'files', 'Iceland_Stake_Data_T_Attributes.csv')
 
 # Read stake data CSV file
 df = pd.read_csv(df_path)

@@ -54,5 +54,5 @@ c.retrieve(
         ],
         'format': 'netcdf',  # File format
     },
-    'download.nc'  # Output file name
+    '.././data/climate/ERA5_monthly_averaged_pressure_data.nc'  # Output file name
 )
