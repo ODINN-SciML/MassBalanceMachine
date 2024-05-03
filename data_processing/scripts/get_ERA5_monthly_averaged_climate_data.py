@@ -55,5 +55,5 @@ c.retrieve(
         ],
         'format': 'netcdf.zip',  # File format
     },
-    'download.netcdf.zip'  # Output file name
+    '.././data/climate/ERA5_monthly_averaged_climate_data.zip'  # Output file name
 )
