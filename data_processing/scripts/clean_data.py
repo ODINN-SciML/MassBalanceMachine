@@ -11,12 +11,11 @@ df = pd.read_csv(file_dir + file_name_in)
 df.dropna(subset=['altitude_climate'], inplace=True)
 
 # Drop redundant columns
-columns_to_drop = ['bw_fld', 'bs_fld', 'ba_fld', 'rhow', 'rhos', 'ims', 'nswe', 'dw', 'imw', 'ds']
+columns_to_drop = ['bw_floating_date', 'bs_floating_date', 'ba_floating_date', 'rhow', 'rhos', 'ims', 'nswe', 'dw', 'imw', 'ds']
 
-# Check if any column exists in the DataFrame
-if any(col in df.columns for col in columns_to_drop):
-    # Drop the specified columns
-    df.drop(columns=columns_to_drop, inplace=True)
+for col in columns_to_drop:
+    if col in df.columns:
+        df.drop(columns=col, inplace=True)
 
 # Rename columns
 
