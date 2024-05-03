@@ -1,6 +1,7 @@
 # Data Processing
 
 - ```Climate``` folder not included, as the data is too large to be on the repository. Data can be downloaded, with the right variables, timeframe, and coordinates, with the designated scripts. Be aware that it can take up to 2 hours to retrieve this data from the Copernicus website. 
+- In the future, in an ideal situation, one could store stake data and  then automatically retrieve and match the corresponding RGI IDs. This  involves using a shape file obtained from the Randolph Glacier Inventory (version 7), specifically selecting the regional_files,  RGI2000-v7.0-G/, and then choosing the region of interest (which can also be automated). Following  this, one could automatically obtain climate, pressure data, and  topographical features based on the selected region, effectively  creating a comprehensive dataset. Only the stake data should be delivered manually by the user. 
 
 ## Code Organization
 
