@@ -2,7 +2,7 @@ import pandas as pd
 import os.path
 
 # File directory
-file_dir = '.././data/files/'
+file_dir = '.././Data/Files/'
 file_name_in = 'Iceland_Stake_Climate.csv'
 file_name_out = 'Iceland_Stake_WGMS.csv'
 

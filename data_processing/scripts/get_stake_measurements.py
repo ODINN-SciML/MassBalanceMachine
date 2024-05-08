@@ -4,8 +4,8 @@ import pandas as pd
 
 # Define the path to the directory containing icecap stakes,
 # and a path for the directory the stake measurements are saved
-icecap_dir = '.././data/stakes/' + 'VATN' #HOFS, VATN, LANG
-stake_dir = '.././data/stake-measurements/'
+icecap_dir = '.././Data/Stakes/' + 'VATN' #HOFS, VATN, LANG
+stake_dir = '.././Data/Stake Measurements/'
 
 # Check if the directory exists, if not, create it
 if not os.path.exists(icecap_dir):
