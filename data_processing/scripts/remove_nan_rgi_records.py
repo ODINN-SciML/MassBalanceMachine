@@ -1,9 +1,7 @@
 import pandas as pd
 
-file_dir = '.././data/files/'
-
 # File path for the stake data CSV file
-csv_file = file_dir + 'Iceland_Stake_Data_Merged.csv'
+csv_file = '.././Data/Files/Iceland_Stake_Data_Merged.csv'
 
 df = pd.read_csv(csv_file)
 
@@ -14,7 +12,7 @@ nan_glaciers = df[df['RGIId'].isna()]
 df = df[df['RGIId'].notna()]
 
 # File path for the new CSV file containing stakes without NaN glacier IDs
-nan_glaciers_csv_file = file_dir + 'Iceland_Stake_Data_Nan_Glaciers.csv'
+nan_glaciers_csv_file = '.././Data/Iceland_Stake_Data_Nan_Glaciers.csv'
 
 # Write the stake data with NaN glacier IDs to a new CSV file
 nan_glaciers.to_csv(nan_glaciers_csv_file, index=False)
