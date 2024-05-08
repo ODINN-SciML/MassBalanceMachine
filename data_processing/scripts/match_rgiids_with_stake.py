@@ -4,10 +4,10 @@ import pandas as pd
 import geopandas as gpd
 from shapely.geometry import Point
 
-file_dir_in = '.././Data/'
-file_dir_out = '.././Data/Stake Measurements RGIId/'
+file_dir_in = '.././data/'
+file_dir_out = '../data/stake-measurements-rgiid/'
 
-gdf = gpd.read_file(file_dir_in + 'QGISV6/06_rgi60_Iceland.shp')
+gdf = gpd.read_file(file_dir_in + 'qgisv6/06_rgi60_Iceland.shp')
 
 # Check if the directory exists
 if not os.path.exists(file_dir_out):
@@ -15,7 +15,7 @@ if not os.path.exists(file_dir_out):
     os.makedirs(file_dir_out)
 
 # For all icecaps, match the RGIId to the stake measurements via their location
-for icecap in glob.glob(file_dir_in + 'Stake Measurements Merged/*.csv'):
+for icecap in glob.glob(file_dir_in + 'stake-measurements-merged/*.csv'):
     df = pd.read_csv(icecap)
 
     # Convert points DataFrame to GeoDataFrame

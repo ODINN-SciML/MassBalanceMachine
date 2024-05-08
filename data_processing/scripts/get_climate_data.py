@@ -5,8 +5,8 @@ import math
 
 # File directory and names
 file_dir = '.././Data/'
-file_name_in = 'Files/Iceland_Stake_Data_T_Attributes.csv'
-file_name_out = 'Files/Iceland_Stake_Data_Climate.csv'
+file_name_in = '../Data/files/Iceland_Stake_Data_T_Attributes.csv'
+file_name_out = '../Data/files/Iceland_Stake_Data_Climate.csv'
 
 # Read stake data
 df = pd.read_csv(file_dir + file_name_in, index_col=False)
