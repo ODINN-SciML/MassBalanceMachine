@@ -8,13 +8,6 @@ from pathlib import Path
 import os
 import logging
 
-file_dir_data = '.././data/oggm/'
-
-# Check if directory exists
-if not os.path.exists(file_dir_data):
-    # If directory doesn't exist, create it
-    os.makedirs(file_dir_data)
-
 # Set pandas option to display all columns
 pd.set_option('display.max_columns', None)
 
@@ -28,12 +21,12 @@ cfg.PARAMS['continue_on_error'] = True
 log = logging.getLogger('.'.join(__name__.split('.')[:-1]))
 
 # Define workspace path to store OGGM data
-parent_path = os.path.dirname(Path().resolve())
-workspace_path = os.path.join(parent_path, 'Data', 'OGGM')
+parent_path = '.././'
+workspace_path = os.path.join(parent_path, 'OGGM', 'data', 'oggm')
 
 # Define path to stake data CSV file
-df_path = os.path.join(parent_path, 'data-processing', 'data', 'files', 'Iceland_Stake_Data_Merged.csv')
-df_path_output = os.path.join(parent_path, 'data-processing', 'data', 'files', 'Iceland_Stake_Data_T_Attributes.csv')
+df_path = os.path.join(parent_path, 'mbm', 'data', 'files', 'Iceland_Stake_Data_Reprojected.csv')
+df_path_output = os.path.join(parent_path, 'mbm', 'data', 'files', 'Iceland_Stake_Data_T_Attributes.csv')
 
 # Read stake data CSV file
 df = pd.read_csv(df_path)
@@ -81,6 +74,9 @@ lat_da = xr.DataArray(lat, dims='points')
 # Find nearest stake for each glacier directory
 stakes = [gdir_da.sel(x=lon, y=lat, method='nearest') for gdir_da, lon, lat in zip(gdirs_da, lon_da, lat_da)]
 
+# Save all the areas of the associated glacier
+areas = [(gdir.rgi_area_km2, gdir.rgi_id) for gdir in gdirs]
+
 # Convert stake data to pandas DataFrame
 stakes = [stake[voi].to_pandas() for stake in stakes]
 
@@ -91,3 +87,7 @@ for stake_data, rgi_id in zip(stakes, rgi_ids):
 
 # Write updated dataframe to CSV file
 df.to_csv(df_path_output, index=False)
+
+# Save the areas for each RGI in a separate CSV file
+areas_rgiids = pd.DataFrame(areas, columns=['area', 'rgiid'])
+areas_rgiids.to_csv(parent_path + 'mbm/data/files/areas_rgiids.csv', index=False)

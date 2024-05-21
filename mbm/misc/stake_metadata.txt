@@ -1,0 +1,21 @@
+Column definitions
+ar    : mass-balance year
+d1    : date of field visit in the fall of the previous year
+d2    : date of field visit in the spring
+d3    : date of field visit in the fall of the current year
+x     : x coordinate in spring (ISN93)
+y     : y coordinate in spring (ISN93)
+h     : elevation in spring (m a.s.l.)
+dw    : depth to the previous summer surface in the spring (d2) (m)
+rhow  : average density of winter snowpack, that is density of the snowpack above the previous summer surface in the spring (d2) (kg/m³)
+imw   : melting of glacier ice during winter (below the spring snow line, NULL otherwise, usually NULL) (m w.e.)
+ds    : depth to the previous summer surface in the fall (d3) (m)
+rhos  : average density of the snowpack above the previous summer surface in the fall (d3) (kg/m³)
+ims   : melting of glacier ice and snow/firn from earlier years during summer (below the ELA, NULL otherwise) (m w.e.)
+nswe  : total water equivalent of the new snow above the current summer surface in the fall (m w.e.)
+bw_str    : stratigraphic winter balance (m w.e.)
+bs_str    : stratigraphic summer balance (m w.e.)
+ba_str    : stratigraphic annual balance (m w.e.)
+bw_fld    : floating-date winter balance (m w.e.)
+bs_fld    : floating-date summer balance (m w.e.)
+ba_fld    : floating-date annual balance (m w.e.)
