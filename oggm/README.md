@@ -19,12 +19,13 @@ If you haven't already, please consult [How to install Linux on Windows with WSL
 When you run the code for the first time, the RGI directories for your RGI IDs are downloaded to the ```data``` folder this can take some while.
 
 ## File Structure
-
+```
 .
 ├── data                    # Data files
 │   └── OGGM                # OGGM, RGIV6 per Glacier
 ├── misc                    # Miscellaneous files
 └── scripts                 # Scripts
+```
 
 - ```scripts``` contains ```get_oggm_data.py``` that takes as input: ```Iceland_Stake_Data_Reprojected.csv``` and outputs: ```Iceland_Stake_Data_T_Attributes.csv```. For each RGI ID,
 the 'slope', 'slope factor', 'topo', 'aspect', and the 'distance from the border' are retrieved via OGGM for each individual stake. It also retrieves the total area for each glacier, needed for the hypsometry plot, and outputs this in: ```areas_rgiids.csv```.  
