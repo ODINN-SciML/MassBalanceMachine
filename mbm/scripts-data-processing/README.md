@@ -1,5 +1,20 @@
 # Data (Pre)Processing
 
+**Important Note**: the file structure that is followed by the scripts in this folder is as follows:
+
+```
+- oggm
+	- data
+		- oggm		# rgi glacier data fetched via oggm
+- mbm
+	- data
+		- files 	# this is where all your .csv files will go
+		- climate	# this is where your ERA5-Land and geopotential data will go
+	- scripts-data-processing
+		- get_climate_data.py
+		- transform_Data_to_wgms.py
+```
+
 The following scripts are the bare minimum for the data (pre)processing stage of the MassBalanceMachine. Topographical and climatological features are added to the dataset for each stake measurement. The scripts in this folder should be run in the following order: 
 
 1. ```get_oggm_data.py``` The script in the ```oggm``` folder, located outside the current working directory, retrieves topographical features for all stakes on the glaciers. These features include slope, aspect, slope factor, and distance from the border. Please consult [OGGM](https://docs.oggm.org/en/stable/) for more information on the topographical features. The script takes the file ```region_stake_data.csv``` as input and outputs ```region_stake_data_topo_attributes.csv```. 
