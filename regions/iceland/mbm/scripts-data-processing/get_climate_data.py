@@ -2,11 +2,11 @@
 This code is inspired by the work of Kamilla Hauknes Sjursen
 
 This script takes as input ERA5-Land monthly averaged climate data (pre-downloaded), and matches this with the locations
-of the stake measurements. The climate features are training features for the machine-learning model. Important is that 
+of the stake measurements. The climate features are training features for the machine-learning model. Important is that
 the climate data is already downloaded and saved in location: .././data/climate.
 
-Depending on the amount of variables, and the temporal scale, downloads of the climate data can take up hours. 
-Climate data can either be downloaded manually via the link below, or obtained via the script: 
+Depending on the amount of variables, and the temporal scale, downloads of the climate data can take up hours.
+Climate data can either be downloaded manually via the link below, or obtained via the script:
 get_ERA5_monthly_averaged_climate_data.py. This file should be first unzipped before running this script.
 
 @Author: Julian Biesheuvel
@@ -22,7 +22,7 @@ import os
 
 # File directory and names
 file_dir = '.././data/'
-file_name_in = 'files/region_stake_data_topo_attributes.csv'
+file_name_in = 'files/region_stake_data_t_attributes.csv'
 file_name_out = 'files/region_stake_data_climate.csv'
 
 full_path = os.path.join(file_dir, file_name_in)

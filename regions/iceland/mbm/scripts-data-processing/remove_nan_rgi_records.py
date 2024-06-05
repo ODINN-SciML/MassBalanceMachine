@@ -10,7 +10,7 @@ import pandas as pd
 import os
 
 # File path for the stake data CSV file
-csv_file = '.././data/files/region_stake_data_reprojected.csv'
+csv_file = '.././data/files/Iceland_Stake_Data_Reprojected.csv'
 
 # Check if the directory exists
 if not os.path.exists(csv_file):
@@ -25,7 +25,7 @@ nan_glaciers = df[df['RGIId'].isna()]
 df = df[df['RGIId'].notna()]
 
 # File path for the new CSV file containing stakes without NaN glacier IDs
-nan_glaciers_csv_file = '.././data/files/region_stake_data_nan_glaciers.csv'
+nan_glaciers_csv_file = '.././data/files/Iceland_Stake_Data_Nan_Glaciers.csv'
 
 # Write the stake data with NaN glacier IDs to a new CSV file
 nan_glaciers.to_csv(nan_glaciers_csv_file, index=False)

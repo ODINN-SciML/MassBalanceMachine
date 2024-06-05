@@ -1,8 +1,8 @@
 """
-This script in the last step of the data-processing pipeline cleans the data
+A script in the last step of the data-processing pipeline that cleans the data
 (i.e., remove redundant columns and records with NaN values).
 
-The script takes a list of columns as inputs, these are the columns that will be dropped. 
+The script takes a list of columns as inputs, these are the columns that will be dropped.
 
 @Author: Julian Biesheuvel
 Email: j.p.biesheuvel@student.tudelft.nl
