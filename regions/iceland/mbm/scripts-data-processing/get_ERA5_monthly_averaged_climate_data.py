@@ -1,3 +1,13 @@
+"""
+This script retrieves the monthly averaged ERA5 climate data from the Copernicus website.
+Variables, region, months, and years, of interest should be specified by the user. This
+file is for the climate data in Iceland.
+
+@Author: Julian Biesheuvel
+Email: j.p.biesheuvel@student.tudelft.nl
+Date Created: 04/06/2024
+"""
+
 import cdsapi
 
 c = cdsapi.Client()
@@ -6,6 +16,7 @@ c.retrieve(
     'reanalysis-era5-land-monthly-means',
     {
         'product_type': 'monthly_averaged_reanalysis',
+        # Define the climate variables you want to have in your dataset as training feature
         'variable': [
             '10m_u_component_of_wind', '10m_v_component_of_wind', '2m_dewpoint_temperature',
             '2m_temperature', 'forecast_albedo', 'snow_albedo',
@@ -16,6 +27,7 @@ c.retrieve(
             'surface_solar_radiation_downwards', 'surface_thermal_radiation_downwards', 'temperature_of_snow_layer',
             'total_precipitation',
         ],
+        # Define the years you want to have the climate data of
         'year': [
             '1950', '1951', '1952',
             '1953', '1954', '1955',
@@ -43,6 +55,7 @@ c.retrieve(
             '2019', '2020', '2021',
             '2022', '2023', '2024',
         ],
+        # Define what months you want to have the average data of
         'month': [
             '01', '02', '03',
             '04', '05', '06',
@@ -50,10 +63,14 @@ c.retrieve(
             '10', '11', '12',
         ],
         'time': '00:00',
+        # Define the coordinates of the region of interest. Order of the coordinates: latitude North, longitude West,
+        # latitude South, longitude East
         'area': [
             66.5, -24.53, 63,
             -13,
         ],
+        # Define the file format you want to download
         'format': 'netcdf.zip',
     },
+    # Define the output directory and the filename of the downloaded data
     '.././data/climate/ERA5_monthly_averaged_climate_data.zip')

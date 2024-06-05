@@ -1,3 +1,11 @@
+"""
+This script matches the stake measurement data with the RGI ID for each glacier on the icecap.
+
+@Author: Julian Biesheuvel
+Email: j.p.biesheuvel@student.tudelft.nl
+Date Created: 04/06/2024
+"""
+
 import os
 import glob
 import pandas as pd
@@ -7,12 +15,14 @@ from shapely.geometry import Point
 file_dir_in = '.././data/'
 file_dir_out = '../data/stake-measurements-rgiid/'
 
-gdf = gpd.read_file(file_dir_in + 'qgisv6/06_rgi60_Iceland.shp')
+# Data obtained from: https://nsidc.org/data/nsidc-0770/versions/6
+file_path = os.path.join(file_dir_in, 'qgisv6/06_rgi60_Iceland.shp')
 
 # Check if the directory exists
-if not os.path.exists(file_dir_out):
-    # Create the directory if it doesn't exist
-    os.makedirs(file_dir_out)
+if not os.path.exists(file_path):
+    raise FileNotFoundError(f'{file_path} does not exist')
+
+gdf = gpd.read_file(file_path)
 
 # For all icecaps, match the RGIId to the stake measurements via their location
 for icecap in glob.glob(file_dir_in + 'stake-measurements-merged/*.csv'):
@@ -25,11 +35,8 @@ for icecap in glob.glob(file_dir_in + 'stake-measurements-merged/*.csv'):
     # Perform a spatial joint for all the stake measurements that are within a section of the icecap that is associated with a RGIId
     joined_df = gpd.sjoin(points_gdf, gdf, how="left", predicate="within", lsuffix="_left", rsuffix="_right")
 
-    # Convert coordinates from ISN93 to wgs84
-    # joined_gdf = joined_df.to_crs(epsg=4326)
-
     # only keep the columns of the original df and the RGIId
-    columns_to_keep = list(df.columns.values)
+    columns_to_keep = df.columns.values.tolist()
     columns_to_keep.append('RGIId')
     joined_df = joined_df[columns_to_keep]
 

@@ -1,3 +1,17 @@
+"""
+This script fetches the topographical features (variables of interest), for each stake measurement available,
+via the OGGM library. 
+
+For now the best way of running this script is in its own environment, please see the README for instructions. 
+
+When running this script please provide the RGI region ID via the terminal. The RGI region IDs can be found here:
+https://rgitools.readthedocs.io/en/latest/dems.html#global-data-availability
+
+@Author: Julian Biesheuvel
+Email: j.p.biesheuvel@student.tudelft.nl
+Date Created: 04/06/2024
+"""
+
 import xarray as xr
 import numpy as np
 import pandas as pd
@@ -7,6 +21,18 @@ from oggm import cfg, utils, workflow, tasks, graphics
 from pathlib import Path
 import os
 import logging
+
+from argparse import ArgumentParser
+
+# Argument for the RGI region ID
+parser = ArgumentParser()
+parser.add_argument('-RGI', '--RGI', required=True, help='Provide the RGI region ID of the region of interest', type=str)
+
+args = parser.parse_args()
+RGI = args.RGI
+
+if not RGI:
+    raise ValueError("No RGI ID region provided. Please provide a RGI ID region for the region of interest.") 
 
 # Set pandas option to display all columns
 pd.set_option('display.max_columns', None)
@@ -22,14 +48,17 @@ log = logging.getLogger('.'.join(__name__.split('.')[:-1]))
 
 # Define workspace path to store OGGM data
 parent_path = '.././'
-workspace_path = os.path.join(parent_path, 'OGGM', 'data', 'oggm')
+workspace_path = '/data/oggm'
+
+if not os.path.exists(workspace_path):
+    os.makedirs(workspace_path)
 
 # Define path to stake data CSV file
-df_path = os.path.join(parent_path, 'mbm', 'data', 'files', 'Iceland_Stake_Data_Reprojected.csv')
-df_path_output = os.path.join(parent_path, 'mbm', 'data', 'files', 'Iceland_Stake_Data_T_Attributes.csv')
+df_path_input = os.path.join(parent_path, 'mbm/data/files/region_stake_data_reprojected.csv')
+df_path_output = os.path.join(parent_path, 'mbm/data/files/region_stake_data_topo_attributes.csv')
 
 # Read stake data CSV file
-df = pd.read_csv(df_path)
+df = pd.read_csv(df_path_input)
 
 # Get unique RGI IDs
 rgi_ids = df['RGIId'].unique().tolist()
@@ -38,7 +67,7 @@ rgi_ids = df['RGIId'].unique().tolist()
 cfg.PATHS['working_dir'] = workspace_path
 
 # Define RGI region and version
-rgi_region = '06'  # Iceland
+rgi_region = RGI
 rgi_version = '6'
 # Get RGI region file
 path = utils.get_rgi_region_file(region=rgi_region, version=rgi_version)
@@ -53,7 +82,6 @@ task_list = [tasks.gridded_attributes]
 # Execute tasks for each glacier directory
 for task in task_list:
     workflow.execute_entity_task(task, gdirs, print_log=False)
-
 
 # Variables of interest
 voi = ['topo', 'aspect', 'slope', 'slope_factor', 'dis_from_border']
@@ -90,4 +118,4 @@ df.to_csv(df_path_output, index=False)
 
 # Save the areas for each RGI in a separate CSV file
 areas_rgiids = pd.DataFrame(areas, columns=['area', 'rgiid'])
-areas_rgiids.to_csv(parent_path + 'mbm/data/files/areas_rgiids.csv', index=False)
+areas_rgiids.to_csv(os.path.join(parent_path, 'mbm/data/files/areas_rgiids.csv'), index=False)

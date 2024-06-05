@@ -1,8 +1,8 @@
 """
-This script transforms the dataset to a WGMS file dataset format, with all the columns that are in the 
-WGMS database. The dataset will be ready to be uploaded to the WGMS database. The WGMS ID will be assigned 
+This script transforms the dataset to a WGMS file dataset format, with all the columns that are in the
+WGMS database. The dataset will be ready to be uploaded to the WGMS database. The WGMS ID will be assigned
 by WGMS. Depending on the data that is available for the stake measurements the columns are either copied,
-or left blank. 
+or left blank.
 
 @Author: Julian Biesheuvel
 Email: j.p.biesheuvel@student.tudelft.nl
@@ -14,8 +14,8 @@ import os.path
 
 # File directory
 file_dir = '.././data/files/'
-file_name_in = 'region_stake_data_climate.csv' # Input file is the output file of the get_climate_data.py script
-file_name_out = 'region_stake_data_wgms.csv'
+file_name_in = 'region_stake_data_climate.csv'
+file_name_out = 'region_stake_wgms.csv'
 
 # File path for Iceland Stake Data
 file_path = os.path.join(file_dir, file_name_in)
@@ -30,22 +30,22 @@ df = pd.read_csv(file_path)
 # Construct WGMS data dictionary with the appropriate columns that are required for a WGMS dataset
 # Either copy the data from df to df_wgms by: COLUM_NAME: df['COLUMN_NAME'], or if not available: COLUMN_NAME: [None] * len(df)
 wgms_data = {
-    'POLITICAL_UNIT': ['LAND CODE'] * len(df),
-    'NAME': df[''],
-    'WGMS_ID': df[''],
-    'YEAR': df[''],
-    'POINT_ID': df[''],
-    'FROM_DATE': df[''],
-    'TO_DATE': df[''],
-    'POINT_LAT': df[''],
-    'POINT_LON': df[''],
-    'POINT_ELEVATION': df[''],
-    'POINT_BALANCE': df[''],
-    'POINT_BALANCE_UNCERTAINTY': df[''],
-    'DENSITY': df[''],
-    'DENSITY_UNCERTAINTY': df[''],
-    'BALANCE_CODE': df[''],
-    'REMARKS': df[''],
+    'POLITICAL_UNIT': ['IS'] * len(df),
+    'NAME': df['Name'],
+    'WGMS_ID': [None] * len(df),
+    'YEAR': df['yr'],
+    'POINT_ID': df['stake'],
+    'FROM_DATE': df['d1'],
+    'TO_DATE': df['d3'],
+    'POINT_LAT': df['lat'],
+    'POINT_LON': df['lon'],
+    'POINT_ELEVATION': df['elevation'],
+    'POINT_BALANCE': df['ba_stratigraphic'],
+    'POINT_BALANCE_UNCERTAINTY': [None] * len(df),
+    'DENSITY': df['rhow'],
+    'DENSITY_UNCERTAINTY': [None] * len(df),
+    'BALANCE_CODE': ['BA'] * len(df),
+    'REMARKS': [''] * len(df),
 }
 
 # Create DataFrame for WGMS data

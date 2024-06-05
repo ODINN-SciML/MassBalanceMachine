@@ -296,3 +296,23 @@ poetry.toml
 
 # LSP config files
 pyrightconfig.json
+
+# End of https://www.toptal.com/developers/gitignore/api/jupyternotebooks,pycharm,python
+
+# DATA FOLDERS
+
+mbm/stakes/
+
+mbm/data/stake-measurements/
+mbm/data/stake-measurements-merged/
+mbm/data/stake-measurements-rgiid/
+
+.idea/
+
+mbm/data/
+
+mbm/plots/
+
+mbm/qgisv6/
+
+oggm/data/
