@@ -1,4 +1,4 @@
-# MassBalanceMachine
+# MassBalanceMachine Iceland
 
 Global machine learning glacier mass balance modelling, capable of assimilating all sources of glaciological and remote sensing data.
 
@@ -16,5 +16,4 @@ Please read the ```README.md``` files in each folder for more information about 
 ## Contribution Guidelines 
 
 The MassBalanceMachine project is an open source project.
-
 
