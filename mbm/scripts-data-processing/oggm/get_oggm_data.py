@@ -54,7 +54,7 @@ if not os.path.exists(workspace_path):
     os.makedirs(workspace_path)
 
 # Define path to stake data CSV file
-df_path_input = os.path.join(parent_path, 'mbm/data/files/region_stake_data_reprojected.csv')
+df_path_input = os.path.join(parent_path, 'mbm/data/files/region_stake_data.csv')
 df_path_output = os.path.join(parent_path, 'mbm/data/files/region_stake_data_topo_attributes.csv')
 
 # Read stake data CSV file

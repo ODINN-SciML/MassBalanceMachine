@@ -3,13 +3,12 @@
 Global machine learning glacier mass balance modelling can assimilate all glaciological and remote sensing data sources.
 
 ## Project Structure 
-- The ```mbm``` folder contains the scripts for the following processes:
-  - The ```data-processing``` folder contains scripts for preprocessing and cleaning the glaciological stake measurement data before it is explored, visualised, and fed into the machine-learning model.
-    - **Note: please be aware that all scripts should be run manually, each with its input and output file. The location of these files should be adjusted to your environment, desired location, and file names. **
 
-- Please read the ```README.md``` files in each folder for more information about using the scripts and installation processes.
+- ```mbm``` contains the most important scripts, classes, and notebooks for the MassBalanceMachine project. New users can use these files to get started and can add their own files to meet their needs. 
+- ```regions``` contains MassBalanceMachine instances for different regions in the world. If the region you are interested in is not in this list you can, with a pull request, add this to the repository. Please make sure you do not upload any data files. 
+  - ```iceland```
 
 ## Contribution Guidelines 
 
-The MassBalanceMachine project is an open-source project.
+The MassBalanceMachine project is an open-source community project.
 
