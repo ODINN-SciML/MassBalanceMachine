@@ -10,13 +10,13 @@ This project is in ongoing development, and new features will be added over the 
 
 ## Installation and Usage
 
-Please see the ```README``` in the ```mbm``` folder for detailed instructions.
+Please see the ```README``` in the ```mbm``` folder for detailed instructions. 
 
 ## Project Structure 
 
 - ```mbm``` contains the most important scripts, classes, and notebooks for the MassBalanceMachine project. New users can use these files to get started and add more or change existing files to meet their needs. 
 - ```regions``` contains MassBalanceMachine instances for different regions in the world. If the region you are interested in is not on this list, you can, with a pull request, add this to the repository. Please make sure you do not upload any confidential or unpublished data. Regions that are covered: 
-  - ```Iceland```
+  - ```Iceland``` 
   - [COMING SOON] ```Switzerland ```
   - [COMING SOON] ``Norway``
 
