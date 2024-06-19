@@ -15,46 +15,94 @@ from sklearn.inspection import permutation_importance
 from model_methods import *
 
 
-# Function to plot histograms for both the training and test dataset
-def plot_histograms(ax, df_train, df_test, column, x_label):
-    hist_params = {
-        'alpha': 0.7,
-        'edgecolor': 'white',
-        'linewidth': 1
-    }
+def plot_fold_distribution(splits, df_X_train, plotting):
+    # Count number of annual and seasonal per fold
 
-    if column is not None:
-        df_train[column].plot.hist(ax=ax, label='Train', color='#4b9c8d', **hist_params)
-        df_test[column].plot.hist(ax=ax, label='Test', color='#4e8cd9', **hist_params)
-    else:
-        df_train.plot.hist(ax=ax, label='Train', color='#4b9c8d', **hist_params)
-        df_test.plot.hist(ax=ax, label='Test', color='#4e8cd9', **hist_params)
+    fig, axes = plt.subplots(1, 5, figsize=(20, 5), sharey=True)
 
-    ax.set_xlabel(x_label)
-    ax.set_ylabel('Frequency')
-    ax.set_axisbelow(True)
-    ax.yaxis.grid(color='gray', linestyle='dashed')
-    ax.xaxis.grid(color='white')
+    # Create a color map or list for the bars
+    colors = ['#4e8cd9', '#4b9c8d']
 
+    n_months_to_season = {5: 'summer', 7: 'winter', 12: 'annual'}
 
-def make_hist_plot(title, smb_type, df_train, df_test, temp_columns, prec_columns, plotting):
-    # Plot the frequencies for the SMB, elevation, years, mean t2m, cumulative total precipitation, for both the
-    # training and test dataset
-    fig, ax = plt.subplots(nrows=1, ncols=5, figsize=(16, 4), sharex='col', sharey=True)
+    for i, (train_index, val_index) in enumerate(splits):
+        ax = axes[i]
 
-    plot_histograms(ax[0], df_train, df_test, smb_type, 'SMB [m w.e.]')
-    plot_histograms(ax[1], df_train, df_test, 'elevation', 'Elevation [m]')
-    plot_histograms(ax[2], df_train, df_test, 'yr', 'Years')
-    plot_histograms(ax[3], df_train[temp_columns].mean(axis=1), df_test[temp_columns].mean(axis=1), None,
-                    'Mean t2m [K]')
-    plot_histograms(ax[4], df_train[prec_columns].sum(axis=1), df_test[prec_columns].sum(axis=1), None, 'Sum tp [m]')
+        n_months_train = df_X_train.iloc[train_index]['n_months']
+        n_months_val = df_X_train.iloc[val_index]['n_months']
 
-    fig.suptitle(f'{title}')
-    plt.tight_layout()
-    plt.legend()
+        # Counts
+        n_months_train_counts = dict(zip(*np.unique(n_months_train, return_counts=True)))
+        n_months_val_counts = dict(zip(*np.unique(n_months_val, return_counts=True)))
+
+        # n_months_values = sorted(set(n_months_train_counts.keys()).union(n_months_val_counts.keys()))
+        n_months_values = sorted(set(n_months_train_counts.keys()).union(n_months_val_counts.keys()))
+        season_names = [n_months_to_season[n_months] for n_months in n_months_values]
+
+        train_positions = np.arange(len(n_months_values))
+        val_positions = train_positions + 0.4
+
+        train_counts = [n_months_train_counts.get(x, 0) for x in n_months_values]
+        ax.bar(train_positions, train_counts, width=0.4, label='Train', color=colors[0], alpha=0.8)
+
+        val_counts = [n_months_val_counts.get(x, 0) for x in n_months_values]
+        ax.bar(val_positions, val_counts, width=0.4, label='Validation', color=colors[1], alpha=0.8)
+
+        # Annotate each bar with the respective count
+        for j in range(len(n_months_values)):
+            train_count = n_months_train_counts.get(n_months_values[j], 0)
+            val_count = n_months_val_counts.get(n_months_values[j], 0)
+            train_pos = train_positions[j]
+            val_pos = val_positions[j]
+
+            ax.text(train_pos, train_count + max(train_count, val_count) * 0.01, str(train_count),
+                    ha='center', va='bottom', fontsize=8, color='k')
+
+            ax.text(val_pos, val_count + max(train_count, val_count) * 0.01, str(val_count),
+                    ha='center', va='bottom', fontsize=8, color='k')
+
+        ax.set_title(f'Fold {i + 1}')
+        ax.set_ylabel('Count')
+        ax.set_xticks(train_positions + 0.2)
+        ax.set_xticklabels(season_names)
+        ax.yaxis.grid(linestyle='--')
+        ax.set_axisbelow(True)
+
+        if i == 0:
+            ax.legend()
+
     if plotting:
-        plt.savefig(f'.././data/plots/{title}_feature_dists.svg', dpi=600, format='svg')
+        plt.savefig(f'.././data/plots/model-training/distribution_folds.svg', dpi=600, format='svg',
+                    bbox_inches='tight')
+
+    plt.tight_layout()
     plt.show()
+
+
+# Get true values (means) and predicted values (aggregates)
+
+def get_ytrue_y_pred_agg(y_true, y_pred, X):
+    # Extract the metadata
+    metadata = X[:, -3:]  # Assuming last three columns are the metadata
+    unique_ids = np.unique(metadata[:, 0])  # Assuming ID is the first column
+    y_pred_agg_all = []
+    y_true_mean_all = []
+
+    # Loop over each unique ID to calculate MSE
+    for uid in unique_ids:
+        # Indexes for the current ID
+        indexes = metadata[:, 0] == uid
+        # Aggregate y_pred for the current ID
+        y_pred_agg = np.sum(y_pred[indexes])
+        y_pred_agg_all.append(y_pred_agg)
+        # True value is the mean of true values for the group
+        y_true_mean = np.mean(y_true[indexes])
+        y_true_mean_all.append(y_true_mean)
+
+    y_pred_agg_all_arr = np.array(y_pred_agg_all)
+    y_true_mean_all_arr = np.array(y_true_mean_all)
+
+    return y_true_mean_all_arr, y_pred_agg_all_arr
 
 
 def plot_prediction_validation(X, y, model, idc_list, title, plotting, fname):
@@ -86,11 +134,11 @@ def plot_prediction_validation(X, y, model, idc_list, title, plotting, fname):
     im = None
 
     # Iterate over each fold
-    for idx, (train_idx, test_idx) in enumerate(idc_list):
-        X_train, X_truth = X[train_idx], X[test_idx]
-        y_train, y_truth = y[train_idx], y[test_idx]
+    for idx, (train_idx, val_idx) in enumerate(idc_list):
+        X_train, X_val = X[train_idx], X[val_idx]
+        y_train, y_val = y[train_idx], y[val_idx]
         model.fit(X_train, y_train)
-        y_pred = model.predict(X_truth)
+        y_pred = model.predict(X_val)
 
         if num_rows > 1:
             row, col = divmod(idx, 5)
@@ -98,9 +146,11 @@ def plot_prediction_validation(X, y, model, idc_list, title, plotting, fname):
         else:
             ax = axs[idx]
 
+        y_val_agg, y_pred_agg = get_ytrue_y_pred_agg(y_val, y_pred, X_val)
+
         # Reshape the truth and predicted arrays
-        y_truth = y_truth.ravel()
-        y_pred = y_pred.ravel()
+        y_truth = y_val_agg.ravel()
+        y_pred = y_pred_agg.ravel()
 
         values = np.vstack([y_pred, y_truth])
         kernel = stats.gaussian_kde(values)(values)
@@ -133,7 +183,7 @@ def plot_prediction_validation(X, y, model, idc_list, title, plotting, fname):
     fig.colorbar(im.collections[0], ax=axs, location='right', pad=0.01)
 
     if plotting:
-        plt.savefig(f'.././data/plots/{fname}_validation_folds_{num_folds}.svg', dpi=600, format='svg',
+        plt.savefig(f'.././data/plots/model-training/{fname}_validation_folds_{num_folds}.svg', dpi=600, format='svg',
                     bbox_inches='tight')
     plt.show()
 
@@ -198,12 +248,14 @@ def plot_gsearch_results(grid, model_name, plotting):
 
     plt.legend()
     if plotting:
-        plt.savefig(f'.././data/plots/{model_name}_parameter_scores.svg', dpi=600, format='svg', bbox_inches='tight')
+        plt.savefig(f'.././data/plots/model-training/{model_name}_parameter_scores.svg', dpi=600, format='svg',
+                    bbox_inches='tight')
     plt.show()
 
 
 # Plot permutation importance
-def plot_permutation_importance(df_train_X_s, X_train_s, y_train_s, splits_s, best_model, plotting, model_name, max_features_plot=10):
+def plot_permutation_importance(df_train_X_s, X_train_s, y_train_s, splits_s, best_model, plotting, model_name,
+                                max_features_plot=10):
     fig, ax = plt.subplots(1, 5, figsize=(30, 10))
     for idx, (train_index, test_index) in enumerate(splits_s):
         # Loops over n_splits iterations and gets train and test splits in each fold
@@ -221,30 +273,36 @@ def plot_permutation_importance(df_train_X_s, X_train_s, y_train_s, splits_s, be
         ax[idx].set_title("Permutation Importance Fold " + str(idx + 1))
 
     if plotting:
-        plt.savefig(f'.././data/plots/{model_name}_feature_importance.svg', dpi=600, format='svg', bbox_inches='tight')
+        plt.savefig(f'.././data/plots/model-training/{model_name}_feature_importance.svg', dpi=600, format='svg',
+                    bbox_inches='tight')
     plt.show()
 
 
-def plot_prediction_per_season(plotting, name_model, X_train, y_train, model_splits, model):
-    y_test_annual, y_pred_annual = get_prediction_per_season(X_train, y_train, model_splits, model, months=12)
-    y_test_winter, y_pred_winter = get_prediction_per_season(X_train, y_train, model_splits, model, months=8)
-    y_test_summer, y_pred_summer = get_prediction_per_season(X_train, y_train, model_splits, model, months=6)
+def plot_prediction_per_season(plotting, name_model, X_data, y_data, model_splits, model):
+    y_test_annual, y_pred_annual = get_aggregated_predictions(X_data, y_data, model_splits,
+                                                                      model, 12)
+    y_test_winter, y_pred_winter = get_aggregated_predictions(X_data, y_data, model_splits,
+                                                                      model, 7)
+    y_test_summer, y_pred_summer = get_aggregated_predictions(X_data, y_data, model_splits,
+                                                                      model, 5)
 
     test_data = {
         'Annual': {
             'truth': y_test_annual,
             'pred': y_pred_annual,
+            'months': 12,
         },
         'Winter': {
             'truth': y_test_winter,
             'pred': y_pred_winter,
+            'months': 7,
         },
         'Summer': {
             'truth': y_test_summer,
             'pred': y_pred_summer,
+            'months': 5,
         }
     }
-
 
     fig, axs = plt.subplots(nrows=1, ncols=3, sharey=False, figsize=(16, 4))
 
@@ -254,7 +312,6 @@ def plot_prediction_per_season(plotting, name_model, X_train, y_train, model_spl
 
     # Iterate over each fold
     for (ax, season) in zip(axs, test_data.keys()):
-
         # Reshape the truth and predicted arrays
         y_truth = test_data[season]['truth'].ravel()
         y_pred = test_data[season]['pred'].ravel()
@@ -269,8 +326,8 @@ def plot_prediction_per_season(plotting, name_model, X_train, y_train, model_spl
         ax.axvline(x=0, color='k', alpha=0.8, linestyle='-.')
         ax.plot([values.min(), values.max()], [values.min(), values.max()], color='k', alpha=0.8)
 
-        ax.set_xlim([values.min(), values.max()])
-        ax.set_ylim([values.min(), values.max()])
+        # ax.set_xlim([values.min(), values.max()])
+        # ax.set_ylim([values.min(), values.max()])
         ax.set_title(f'{season}')
         ax.set_xlabel('Ground truth SMB [m w.e.]', fontsize=11)
         if season == 'Annual':
@@ -289,6 +346,7 @@ def plot_prediction_per_season(plotting, name_model, X_train, y_train, model_spl
     fig.colorbar(im.collections[0], ax=axs, location='right', pad=0.01)
 
     if plotting:
-        plt.savefig(f'.././data/plots/{name_model}_seasons_individual_prediction.svg', dpi=600, format='svg',
+        plt.savefig(f'.././data/plots/model-training/{name_model}_seasons_individual_prediction.svg', dpi=600,
+                    format='svg',
                     bbox_inches='tight')
     plt.show()
