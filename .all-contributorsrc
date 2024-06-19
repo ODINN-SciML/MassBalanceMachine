@@ -9,6 +9,19 @@
   "contributorsPerLine": 7,
   "contributors": [
     {
+      "login": "JulianBiesheuvel",
+      "name": "Julian",
+      "avatar_url": "https://avatars.githubusercontent.com/u/16390017?v=4",
+      "profile": "https://github.com/JulianBiesheuvel",
+      "contributions": [
+        "code",
+        "doc",
+        "maintenance",
+        "data",
+        "research"
+      ]
+    },
+    {
       "login": "khsjursen",
       "name": "khsjursen",
       "avatar_url": "https://avatars.githubusercontent.com/u/69296367?v=4",
@@ -18,7 +31,6 @@
         "code",
         "ideas",
         "data"
-      ]
-    }
+      }
   ]
 }
