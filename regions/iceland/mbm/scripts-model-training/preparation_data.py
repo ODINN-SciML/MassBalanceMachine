@@ -6,97 +6,165 @@ Email: j.p.biesheuvel@student.tudelft.nl
 Date Created: 04/06/2024
 """
 
-
 import numpy as np
 import pandas as pd
+import dask.dataframe as dd
 import sklearn
+import gc
 
 
-def create_train_test_data(df, seasons, datasets, random_seed):
-    # Process each season
+def make_train_test_split(dataset, n_splits):
+    # Select features for training
+    df_X_train = dataset.drop(['yr', 'SMB'], axis=1)
+
+    # Move id and n_months to the end of the dataframe (these are used as metadata)
+    # Columns to move to the end
+    metadata_columns = ['id', 'n_months', 'month']
+
+    # Reindex the DataFrame, moving the specified columns to the end
+    df_X_train = df_X_train[[col for col in df_X_train.columns if col not in metadata_columns] + metadata_columns]
+
+    # Select the targets for training
+    df_y_train = dataset[['SMB']]
+
+    # Get arrays of features+metadata and targets
+    X_train, y_train = df_X_train.values, df_y_train.values
+
+    # Get glacier IDs from training dataset (in the order of which they appear in training dataset).
+    # gp_s is an array with shape equal to the shape of X_train_s and y_train_s.
+    glacier_ids = np.array(dataset['id'].values)
+
+    # Use five folds
+    group_kf_s = sklearn.model_selection.GroupKFold(n_splits=n_splits)
+
+    # Split into folds according to group by glacier ID.
+    # For each unique glacier ID, indices in gp_s indicate which rows in X_train_s and y_train_s belong to the glacier.
+    splits = list(group_kf_s.split(X_train, y_train, glacier_ids))
+
+    return df_X_train, df_y_train, X_train, y_train, splits
+
+
+def create_train_test_data(df, seasons, vois_climate_columns, vois_topo_columns, smb_types, misc_columns,
+                           random_seed, num_samples=None):
+
+    if num_samples is not None:
+        df = df.sample(n=num_samples)
+
+    datasets = {}
+
+    winter_months = ['oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr']
+    summer_months = ['may', 'jun', 'jul', 'aug', 'sep']
+
+    winter_climate_columns = [voi for voi in sum(vois_climate_columns.values(), []) if voi[-3:] in winter_months]
+    summer_climate_columns = [voi for voi in sum(vois_climate_columns.values(), []) if voi[-3:] in summer_months]
+
     for season, info in seasons.items():
+        # Select relevant columns
+        list_climate_columns = sum(vois_climate_columns.values(), [])
+        combined_columns_to_keep = list_climate_columns + vois_topo_columns + smb_types + misc_columns
+        data = df[combined_columns_to_keep]
+
         # Remove records with NaN values for the respective surface mass balances
-        data = df[df[info['column']].notna()].reset_index(drop=True)
+        data = data[data[info['column']].notna()].reset_index(drop=True)
+
+        # Assign SMB and drop smb_types
+        data['SMB'] = data[info['column']]
+        data.drop(smb_types, axis=1, inplace=True)
+
+        # Adjust climate columns based on season
+        if season == 'winter':
+            data.loc[:, summer_climate_columns] = np.nan
+        elif season == 'summer':
+            data.loc[:, winter_climate_columns] = np.nan
 
         # Divide the dataset into 70/30 split for training and testing
-        train_data, test_data = sklearn.model_selection.train_test_split(data, test_size=0.3, random_state=random_seed,
-                                                                         shuffle=True)
+        train_data, test_data = sklearn.model_selection.train_test_split(
+            data,
+            test_size=0.3,
+            random_state=random_seed,
+            shuffle=True
+        )
 
         # Add number of months to each dataframe
         train_data['n_months'] = info['n_months']
         test_data['n_months'] = info['n_months']
+        train_data['id'] = np.arange(len(train_data))
+        test_data['id'] = np.arange(len(test_data))
 
-        # Store the datasets in the dictionary
-        datasets[season] = (train_data, test_data)
+        # Reshape dataset monthly
+        months = winter_months + summer_months if season == 'annual' else winter_months if season == 'winter' else summer_months
+        train_data = reshape_dataset_monthly(
+            train_data,
+            vois_topo_columns + misc_columns + ['n_months', 'id', 'SMB'],
+            vois_climate_columns,
+            months
+        )
+        test_data = reshape_dataset_monthly(
+            test_data,
+            vois_topo_columns + misc_columns + ['n_months', 'id', 'SMB'],
+            vois_climate_columns,
+            months
+        )
 
-        # Print basic statistics of the training and testing datasets
-        print(f"Amount of entries in train/test for {season} surface mass balances: {train_data.shape[0]}/{test_data.shape[0]}, train: df_{season}_train, and test: df_{season}_test")
+        # Store datasets in CSV files
+        train_data.to_csv(f'.././data/files/monthly/{season}_train_data.csv', index=False)
+        test_data.to_csv(f'.././data/files/monthly/{season}_test_data.csv', index=False)
 
-
-def prepare_dfs(data, smb_type, data_type, temp_columns, prec_columns, topo_cols, cols=None):
-    if cols is None: cols = []
-
-    columns_to_keep = []
-
-    tmp_temp_summer_cols = temp_columns[7:].append(temp_columns[0])
-    tmp_temp_winter_cols = temp_columns[0:7]
-
-    tmp_prec_summer_cols = prec_columns[7:].append(prec_columns[0])
-    tmp_prec_winter_cols = prec_columns[0:7]
-
-    match data_type:
-        case 'annual':
-            columns_to_keep = list(set(temp_columns + prec_columns + topo_cols + [smb_type, 'n_months'] + cols))
-        case 'winter':
-            data[tmp_temp_summer_cols] = np.nan
-            data[tmp_prec_summer_cols] = np.nan
-            columns_to_keep = list(set(topo_cols + [smb_type, 'n_months'] + cols))
-        case 'summer':
-            data[tmp_temp_winter_cols] = np.nan
-            data[tmp_prec_winter_cols] = np.nan
-            columns_to_keep = list(set(topo_cols + [smb_type, 'n_months'] + cols))
-
-    filtered_data = data[columns_to_keep]
-
-    filtered_data = filtered_data.rename(columns={smb_type: 'SMB'})
-
-    return filtered_data
-
-
-def make_train_test_split(model, random_seed):
-    # Select features for training -> t2m, tp, elevation, slope, aspect and height_difference
-    df_train_X = model['train'].drop(['SMB'], axis=1)
-
-    # Select the target variables -> Surface Mass Balance
-    df_train_y = model['train'][['SMB']]
-
-    # Get arrays of features and targets
-    X_train, y_train = df_train_X.values, df_train_y.values
-
-    # Use five folds for cross validation
-    k_fold = sklearn.model_selection.KFold(n_splits=5, shuffle=True, random_state=random_seed)
-    splits = list(k_fold.split(X_train, y_train))
-
-    return df_train_X, X_train, y_train , splits
-
-
-def create_model_data(seasons, models, datasets, temp_columns, prec_columns, topo_columns, name_model):
-    for season, info in seasons.items():
-        train = prepare_dfs(datasets[season][0], info['column'], season, temp_columns, prec_columns, topo_columns)
-        test = prepare_dfs(datasets[season][1], info['column'], season, temp_columns, prec_columns, topo_columns)
-
-        models[name_model][season] = {
-            'train': train,
-            'test': test
+        datasets[season] = {
+            'train': train_data,
+            'test': test_data,
         }
 
-    models[name_model]['all'] = {}
+        # Print basic statistics of the training and testing datasets
+        print(
+            f"Amount of entries in train/test for {season} surface mass balances: {train_data.shape[0]}/{test_data.shape[0]}, train: {season}_train, and test: {season}_test")
 
-    # Concatenate train and test data for all seasons
-    all_train = pd.concat([models[name_model][season]['train'] for season in seasons], ignore_index=True)
-    all_test = pd.concat([models[name_model][season]['test'] for season in seasons], ignore_index=True)
+        del train_data, test_data, data
+        gc.collect()
 
-    # Assign concatenated data to 'all' under 'model_1'
-    models[name_model]['all'] = {'train': all_train, 'test': all_test}
+    del df
+    gc.collect()
+
+    return datasets
 
 
+def reshape_dataset_monthly(df, id_vars, variables, months_order):
+    merged_df = None
+
+    for var in variables:
+        cols = [col for col in df.columns if col.startswith(var) or col in id_vars]
+        df_var = df[cols]
+
+        df_var = df_var.rename(columns=lambda col: col.split('_')[-1] if col not in id_vars else col)
+
+        df_melted = df_var.melt(id_vars=id_vars, var_name='month', value_name=var)
+        df_melted['month'] = pd.Categorical(df_melted['month'], categories=months_order, ordered=True)
+
+        if merged_df is None:
+            merged_df = df_melted
+        else:
+            merged_df = merged_df.merge(df_melted, on=id_vars + ['month'], how='left')
+
+        merged_df.dropna(subset=[var, 'month'], how='all', inplace=True)
+
+        del df_melted, df_var
+        gc.collect()
+
+    merged_df.sort_values(by=id_vars + ['month'], inplace=True)
+
+    return merged_df
+
+
+def create_model_data(df, seasons, vois_climate_columns, vois_topo_columns, smb_types, misc_columns, random_seed, num_samples=None):
+    datasets = create_train_test_data(df, seasons, vois_climate_columns, vois_topo_columns, smb_types, misc_columns,
+                                      random_seed, num_samples)
+
+    datasets['all'] = {
+        'train': pd.concat([datasets[season]['train'] for season in seasons], ignore_index=True),
+        'test': pd.concat([datasets[season]['test'] for season in seasons], ignore_index=True)
+    }
+
+    datasets['all']['train'].to_csv(f'.././data/files/monthly/all_train_data.csv', index=False)
+    datasets['all']['test'].to_csv(f'.././data/files/monthly/all_test_data.csv', index=False)
+
+    return datasets
