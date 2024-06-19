@@ -9,30 +9,42 @@
   "contributorsPerLine": 7,
   "contributors": [
     {
-      "login": "JulianBiesheuvel",
-      "name": "Julian",
-      "avatar_url": "https://avatars.githubusercontent.com/u/16390017?v=4",
-      "profile": "https://github.com/JulianBiesheuvel",
-      "contributions": [
-        "code",
-        "doc",
-        "maintenance",
-        "data",
-        "research"
-      ]
+        "login": "JulianBiesheuvel",
+        "name": "Julian",
+        "avatar_url": "https://avatars.githubusercontent.com/u/16390017?v=4",
+        "profile": "https://github.com/JulianBiesheuvel",
+        "contributions": [
+          "code",
+          "doc",
+          "maintenance",
+          "data",
+          "research"
+        ]
     },
     {
-      "login": "JordiBolibar",
-      "name": "Jordi Bolibar",
-      "avatar_url": "https://avatars.githubusercontent.com/u/2025815?v=4",
-      "profile": "https://jordibolibar.wordpress.com",
+      "login": "khsjursen",
+      "name": "khsjursen",
+      "avatar_url": "https://avatars.githubusercontent.com/u/69296367?v=4",
+      "profile": "https://github.com/khsjursen",
       "contributions": [
         "research",
-        "projectManagement",
-        "financial",
+        "code",
         "ideas",
-        "mentoring"
-      ]
-    }
+        "data"
+      },
+      {
+        "login": "JordiBolibar",
+        "name": "Jordi Bolibar",
+        "avatar_url": "https://avatars.githubusercontent.com/u/2025815?v=4",
+        "profile": "https://jordibolibar.wordpress.com",
+        "contributions": [
+          "research",
+          "projectManagement",
+          "financial",
+          "ideas",
+          "mentoring"
+        ]
+        }  
+    {
   ]
 }
