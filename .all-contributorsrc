@@ -1,4 +1,25 @@
 {
   "projectName": "MassBalanceMachine",
-  "projectOwner": "ODINN-SciML"
+  "projectOwner": "ODINN-SciML",
+  "files": [
+    "README.md"
+  ],
+  "commitType": "docs",
+  "commitConvention": "angular",
+  "contributorsPerLine": 7,
+  "contributors": [
+    {
+      "login": "JulianBiesheuvel",
+      "name": "Julian",
+      "avatar_url": "https://avatars.githubusercontent.com/u/16390017?v=4",
+      "profile": "https://github.com/JulianBiesheuvel",
+      "contributions": [
+        "code",
+        "doc",
+        "maintenance",
+        "data",
+        "research"
+      ]
+    }
+  ]
 }
