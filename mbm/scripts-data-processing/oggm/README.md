@@ -1,6 +1,6 @@
 # OGGM
 
-This folder is purely dedicated to OGGM, as running the code on a Windows machine requires a remote environment. Plans are to have this code with the other scripts in the data processing pipeline and automate this process with a Docker Image (and possibly with Kubernetes).
+This folder is purely dedicated to [OGGM](https://oggm.org/), as running the code on a **Windows** machine requires a remote environment. For Unix users, having a working Conda environment that is located in the ```mbm``` directory is sufficient. Plans are to have this code with the other scripts in the data processing pipeline and automate this process with a Docker Image (and possibly with Kubernetes).
 
 ## Installation for Windows Users
 
@@ -13,14 +13,14 @@ If you haven't already, please consult [How to install Linux on Windows with WSL
 2. Installing Anaconda on Linux:
    1. [Anaconda Docs](https://docs.anaconda.com/free/anaconda/install/linux/), or
    2. [Steps to Install Anaconda on Windows Ubuntu Terminal](https://docs.anaconda.com/free/anaconda/install/linux/)
-3. [Create a new Anaconda environment](https://conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html#creating-an-environment-from-an-environment-yml-file) from the ```oggm_env.yml```
-4. Access the remote environment, ```conda activate oggm_env``` via the terminal and start Jupyter Notebook if your OGGM code is in a Jupyter Notebook. If your code is a Python script, run your code with: ```python scripts/get_oggm_data.py```.
+3. [Create a new Anaconda environment](https://conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html#creating-an-environment-from-an-environment-yml-file) from the ```environment.yml``` file that is located in the ```mbm``` directory. 
+4. Access the remote environment, ```conda activate MassBalanceMachine``` via the terminal and start a Jupyter Notebook if your OGGM code is in a Jupyter Notebook. If your code is a Python script, run your code using: ```python scripts/get_oggm_data.py```.
 
-When you run the code for the first time, the RGI directories for your RGI IDs are downloaded to the ```data``` folder this can take some while.
+When you run the code for the first time, the RGI directories for your RGI IDs are downloaded to the ```data``` folder, and this can take some time.
 
 # Installation for Unix Users
 
-Given Anaconda is already installed on your machine, please follow the installation guide above from **step 3** and follow along. 
+If the MassBalanceMachine Conda environment from the ```environment.yml```, located in ```mbm```, file is already installed then no action is needed. Otherwise, please follow the installation guide provided in the ```mbm``` directory. 
 
 ## File Structure
 ```

@@ -1,9 +1,17 @@
 """
-This script contains functions for plotting the results of the mode.
+This script contains functions for data visualization and model evaluation.
 
-@Author: Julian Biesheuvel
+The functions are designed to support the following tasks:
+1. Plotting the distribution of samples across different seasons for each fold in cross-validation.
+2. Aggregating true and predicted values based on unique IDs in metadata.
+3. Plotting model predictions and evaluation metrics for each fold of cross-validation.
+4. Visualizing the results of hyperparameter tuning using grid search.
+5. Plotting permutation importance for feature evaluation.
+6. Visualizing model predictions per season and annual aggregation.
+
+Author: Julian Biesheuvel
 Email: j.p.biesheuvel@student.tudelft.nl
-Date Created: 04/06/2024
+Date Created: 19/06/2024
 """
 
 import matplotlib.pyplot as plt
@@ -16,7 +24,17 @@ from model_methods import *
 
 
 def plot_fold_distribution(splits, df_X_train, plotting):
-    # Count number of annual and seasonal per fold
+    """
+    Plots the distribution of samples across different seasons for each fold in a cross-validation.
+
+    Parameters:
+    splits (list of tuples): Train-test indices for each fold.
+    df_X_train (DataFrame): Training data containing the number of months.
+    plotting (bool): Whether to save and display the plot.
+
+    Returns:
+    None
+    """
 
     fig, axes = plt.subplots(1, 5, figsize=(20, 5), sharey=True)
 
@@ -82,6 +100,18 @@ def plot_fold_distribution(splits, df_X_train, plotting):
 # Get true values (means) and predicted values (aggregates)
 
 def get_ytrue_y_pred_agg(y_true, y_pred, X):
+    """
+    Aggregate true and predicted values based on unique IDs in metadata.
+
+    Parameters:
+    y_true (numpy.ndarray): True values.
+    y_pred (numpy.ndarray): Predicted values.
+    X (numpy.ndarray): Features including metadata.
+
+    Returns:
+    y_true_mean_all_arr (numpy.ndarray): Aggregated true values.
+    y_pred_agg_all_arr (numpy.ndarray): Aggregated predicted values.
+    """
     # Extract the metadata
     metadata = X[:, -3:]  # Assuming last three columns are the metadata
     unique_ids = np.unique(metadata[:, 0])  # Assuming ID is the first column
@@ -115,8 +145,8 @@ def plot_prediction_validation(X, y, model, idc_list, title, plotting, fname):
     model: Model object with 'fit' and 'predict' methods.
     idc_list (list): List of tuples containing train-test indices for each fold.
     title (str): Title for the plot.
-    plotting (bool): Whether to plot the model predictions
-    fname: Filename for the plot.
+    plotting (bool): Whether to plot the model predictions.
+    fname (str): Filename for saving the plot.
 
     Returns:
     None
@@ -190,14 +220,16 @@ def plot_prediction_validation(X, y, model, idc_list, title, plotting, fname):
 
 def plot_gsearch_results(grid, model_name, plotting):
     """
-    Plots the results of a grid search for hyperparameter tuning, displaying the mean test and train scores
-    with their standard deviations for each hyperparameter.
+    Plots the results of a grid search for hyperparameter tuning.
 
     Parameters:
-    - grid: Fitted GridSearchCV object containing the results of the hyperparameter search.
-    - model_name: Name of the model (string) to be included in the plot title.
-    """
+    grid: Fitted GridSearchCV object containing the results of the hyperparameter search.
+    model_name (str): Name of the model for plot title.
+    plotting (bool): Whether to save and display the plot.
 
+    Returns:
+    None
+    """
     # Extract results from the grid search
     results = grid.cv_results_
     means_test = results['mean_test_score']
@@ -253,9 +285,24 @@ def plot_gsearch_results(grid, model_name, plotting):
     plt.show()
 
 
-# Plot permutation importance
 def plot_permutation_importance(df_train_X_s, X_train_s, y_train_s, splits_s, best_model, plotting, model_name,
                                 max_features_plot=10):
+    """
+    Plots permutation importance for feature evaluation.
+
+    Parameters:
+    df_train_X_s (DataFrame): Training data features.
+    X_train_s (array-like): Training data features.
+    y_train_s (array-like): Training data target.
+    splits_s (list of tuples): Train-test splits.
+    best_model: Fitted model for permutation importance.
+    plotting (bool): Whether to save and display the plot.
+    model_name (str): Model name for plot filename.
+    max_features_plot (int): Maximum number of features to plot.
+
+    Returns:
+    None
+    """
     fig, ax = plt.subplots(1, 5, figsize=(30, 10))
     for idx, (train_index, test_index) in enumerate(splits_s):
         # Loops over n_splits iterations and gets train and test splits in each fold
@@ -279,6 +326,20 @@ def plot_permutation_importance(df_train_X_s, X_train_s, y_train_s, splits_s, be
 
 
 def plot_prediction_per_season(plotting, name_model, X_data, y_data, model_splits, model):
+    """
+    Plots model predictions per season and annual aggregation.
+
+    Parameters:
+    plotting (bool): Whether to save and display the plot.
+    name_model (str): Model name for plot filename.
+    X_data (array-like): Features.
+    y_data (array-like): Target variable.
+    model_splits (list of tuples): Train-test splits for each fold.
+    model: Model object with 'fit' and 'predict' methods.
+
+    Returns:
+    None
+    """
     y_test_annual, y_pred_annual = get_aggregated_predictions(X_data, y_data, model_splits,
                                                                       model, 12)
     y_test_winter, y_pred_winter = get_aggregated_predictions(X_data, y_data, model_splits,

@@ -1,42 +1,57 @@
-import numpy as np
+"""
+CustomXGBRegressor extends the XGBoost regressor to incorporate additional metadata in the learning process. The last three columns of the training dataset are treated as metadata rather than features.
 
+The custom mean squared error function (custom_mse_metadata) calculates gradients and hessians using both feature data and metadata, enhancing the model's learning capabilities. This custom objective captures metadata along with target and predicted values for gradient and hessian computation during training.
+
+The class includes a custom score function for evaluating validation performance in GridSearchCV. Parameters from XGBRegressor are customizable, and additional parameters can be passed via kwargs.
+Examples
+
+# >>> model = CustomXGBRegressor(n_estimators=500, learning_rate=0.05)
+# >>> model.fit(X_train, y_train)  # X_train includes metadata as the last 3 columns
+# >>> predictions = model.predict(X_test)  # X_test includes metadata as the last 3 columns
+
+Note: CustomXGBRegressor requires a custom MSE function, custom_mse_metadata, for gradient and hessian computation using metadata.
+
+@Author: Kamilla Haukens Sjursen, and adapted by Julian Biesheuvel
+Email: j.p.biesheuvel@student.tudelft.nl
+Date Created: 19/06/2024
+"""
+import numpy as np
 from xgboost import XGBRegressor
 from sklearn.utils.validation import check_is_fitted
-
 from model_methods import *
-
 
 class CustomXGBoostRegressor(XGBRegressor):
     """
-    CustomXGBRegressor is an extension of the XGBoost regressor that incorporates additional metadata into the learning process. The estimator
-    is tailored to handle training datasets where the last three columns are metadata rather than features.
-
-    The metadata is utilized in a custom mean squared error function. This function calculates gradients and hessians incorporating metadata,
-    allowing the model to learn from both standard feature data and additional information provided as metadata.
-
-    The custom objective closure captures metadata along with the target values and predicted values to compute the gradients and hessians needed
-    for the XGBoost training process.
-
-    The class contains a custom score function (custom mse) that is used in GridSearchCV to evaluate validation performance for each fold.
-    This is the default scorer for the class.
-
-    Parameters inherited from XGBRegressor are customizable and additional parameters can be passed via kwargs, which will be handled by the
-    XGBRegressor's __init__ method.
-
-    Examples
-    --------
-    # >>> model = CustomXGBRegressor(n_estimators=500, learning_rate=0.05)
-    # >>> model.fit(X_train, y_train)  # X_train includes metadata as the last 3 columns
-    # >>> predictions = model.predict(X_test)  # X_test includes metadata as the last 3 columns
-
-    Note: CustomXGBRegressor requires a custom MSE function, `custom_mse_metadata`, which computes the gradient and hessian using additional metadata.
+    A custom XGBoost Regressor that incorporates additional metadata during training and scoring.
+    
+    Attributes:
+        metadata_shape (int): The number of metadata columns in the input data.
     """
 
     def __init__(self, metadata_shape, **kwargs):
+        """
+        Initializes the CustomXGBoostRegressor with metadata shape and any additional keyword arguments.
+
+        Args:
+            metadata_shape (int): The number of metadata columns in the input data.
+            **kwargs: Additional keyword arguments to pass to the XGBRegressor constructor.
+        """
         super(CustomXGBoostRegressor, self).__init__(**kwargs)
         self.metadata_shape = metadata_shape
 
     def fit(self, X, y, **fit_params):
+        """
+        Fits the model using the provided features and target values.
+        
+        Args:
+            X (np.ndarray): The input data, including both features and metadata.
+            y (np.ndarray): The target values.
+            **fit_params: Additional fitting parameters to pass to the fit method of XGBRegressor.
+        
+        Returns:
+            self: The fitted estimator.
+        """
         # Split features from metadata
         metadata, features = X[:, -self.metadata_shape:], X[:, :-self.metadata_shape]
 
@@ -53,24 +68,46 @@ class CustomXGBoostRegressor(XGBRegressor):
         return self
 
     def predict(self, X):
+        """
+        Predicts target values for the given input data.
+        
+        Args:
+            X (np.ndarray): The input data, including both features and metadata.
+        
+        Returns:
+            np.ndarray: The predicted target values.
+        """
         # Check if the model is fitted
         check_is_fitted(self)
 
+        # Extract features from the input data
         features = X[:, :-self.metadata_shape]
 
         return super().predict(features)
 
     def score(self, X, y):
+        """
+        Computes the negative mean squared error of the predictions.
+        
+        Args:
+            X (np.ndarray): The input data, including both features and metadata.
+            y (np.ndarray): The true target values.
+        
+        Returns:
+            float: The negative mean squared error of the aggregated predictions.
+        """
+        # Get predictions
         y_pred = self.predict(X)
 
+        # Split metadata and features
         metadata, features = X[:, -self.metadata_shape:], X[:, :-self.metadata_shape]
 
         all_pred_agg = []
         all_true_mean = []
 
-        unique_ids = np.unique(metadata[:, 0])  # ID is first column of metadata
+        unique_ids = np.unique(metadata[:, 0])  # ID is the first column of metadata
 
-        # Loop over each unique ID to aggregate/get mean
+        # Loop over each unique ID to aggregate predictions and true values
         for uid in unique_ids:
             indexes = metadata[:, 0] == uid
 
@@ -83,12 +120,10 @@ class CustomXGBoostRegressor(XGBRegressor):
             all_pred_agg.append(y_pred_agg)
             all_true_mean.append(y_true_mean)
 
-            # mse += (y_pred_agg - y_true_mean) ** 2
-
         all_pred_agg = np.array(all_pred_agg)
         all_true_mean = np.array(all_true_mean)
 
-        # Compute mse
+        # Compute mean squared error
         mse = ((all_pred_agg - all_true_mean) ** 2).mean()
 
-        return -mse  # Return negative because GridSearchCV maximizes score
+        return -mse  # Return negative MSE because GridSearchCV maximizes score

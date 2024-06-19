@@ -1,96 +1,40 @@
 """
-This script contains functions training the XGBoost model.
+This script contains a custom XGBoost regressor that incorporates metadata into the learning process,
+along with functions for training and evaluating the model using a custom mean squared error function.
 
-The custom loss function is by Kamilla Hauknes Sjursen
+The custom loss function is by Kamilla Hauknes Sjursen.
 
-@Author: Julian Biesheuvel
+@Author: Kamilla Heuknes Sjursen and adapted by Julian Biesheuvel
 Email: j.p.biesheuvel@student.tudelft.nl
 Date Created: 04/06/2024
 """
 
 import xgboost as xgb
 import numpy as np
-import sklearn
-
 from sklearn.utils.validation import check_is_fitted
 
 
-def train_xgb_model(X, y, idc_list, params, scorer='neg_mean_squared_error', return_train=True):
-    # Define model object
-    xgb_model = xgb.XGBRegressor(tree_method='hist')
-
-    # Set up grid search
-    clf = sklearn.model_selection.GridSearchCV(
-        xgb_model,
-        params,
-        cv=idc_list,    # Int or iterator (default for int is k_fold)
-        verbose=True,   # Controls number of messages
-        n_jobs=4,       # No. of parallel jobs
-        scoring=scorer, # Can use multiple metrics
-        refit=True,     # Default True. For multiple metric evaluation, refit must be str denoting scorer to be used
-                        # to find the best parameters for refitting the estimator.
-        return_train_score=return_train  # Default False. If False, cv_results_ will not include training scores.
-    )
-
-    # Fit model to folds
-    clf.fit(X, y)
-
-    # Model object with the best fitted parameters (** to unpack parameter dict)
-    fitted_model = xgb.XGBRegressor(**clf.best_params_)
-
-    # Obtain the cross-validation score for each splot with the fitted model
-    cvl = sklearn.model_selection.cross_val_score(fitted_model, X, y, cv=idc_list, scoring='neg_mean_squared_error')
-
-    return clf, fitted_model, cvl
-
-
-# Custom objective function scikit learn api with metadata, to be used with custom XGBRegressor class
-
 def custom_mse_metadata(y_true, y_pred, metadata):
     """
-    Custom Mean Squared Error (MSE) objective function for evaluating monthly predictions with respect to
-    seasonally or annually aggregated observations.
-
-    For use in cases where predictions are done on a monthly timescale and need to be aggregated to be
-    compared with the true aggregated seasonal or annual value. Aggregations are performed according to a
-    unique ID provided by metadata. The function computes gradients and hessians
-    used in gradient boosting methods, specifically for use with the XGBoost library's custom objective
-    capabilities.
+    Custom Mean Squared Error (MSE) objective function for evaluating monthly predictions
+    with respect to seasonally or annually aggregated observations.
 
     Parameters
     ----------
     y_true : numpy.ndarray
-        True (seasonally or annually aggregated) values for each instance. For a unique ID,
-        values are repeated n_months times across the group, e.g. the annual mass balance for a group
-        of 12 monthly predictions with the same unique ID is repeated 12 times. Before calculating the
-        loss, the mean over the n unique IDs is taken.
-
+        True (aggregated) values for each instance.
     y_pred : numpy.ndarray
-        Predicted monthly values. These predictions will be aggregated according to the
-        unique ID before calculating the loss, e.g. 12 monthly predictions with the same unique ID is
-        aggregated for evaluation against the true annual value.
-
+        Predicted values.
     metadata : numpy.ndarray
-        An ND numpy array containing metadata for each monthly prediction. The first column is mandatory
-        and represents the ID of the aggregated group to which each instance belongs. Each group identified
-        by a unique ID will be aggregated together for the loss calculation. The following columns in the
-        metadata can include additional information for each instance that may be useful for tracking or further
-        processing but are not used in the loss calculation, e.g. number of months to be aggregated or the name
-        of the month.
-
-        ID (column 0): An integer that uniquely identifies the group which the instance belongs to.
+        Metadata for each instance. The first column represents the group ID for aggregation.
 
     Returns
     -------
     gradients : numpy.ndarray
-        The gradient of the loss with respect to the predictions y_pred. This array has the same shape
-        as y_pred.
-
+        The gradient of the loss with respect to y_pred.
     hessians : numpy.ndarray
-        The second derivative (hessian) of the loss with respect to the predictions y_pred. For MSE loss,
-        the hessian is constant and thus this array is filled with ones, having the same shape as y_pred.
+        The hessian of the loss with respect to y_pred, filled with ones for MSE.
     """
-
     # Initialize empty arrays for gradient and hessian
     gradients = np.zeros_like(y_pred)
     hessians = np.ones_like(y_pred)  # Ones in case of mse
@@ -116,12 +60,29 @@ def custom_mse_metadata(y_true, y_pred, metadata):
     return gradients, hessians
 
 
-# Get true values (means) and predicted values (aggregates)
 
 def get_ytrue_y_pred_agg(y_true, y_pred, X):
-    # Extract the metadata
-    metadata = X[:, -3:]  # Assuming last three columns are the metadata
-    unique_ids = np.unique(metadata[:, 0])  # Assuming ID is the first column
+    """
+    Get aggregated true and predicted values based on unique IDs in the metadata.
+
+    Parameters
+    ----------
+    y_true : numpy.ndarray
+        True target values.
+    y_pred : numpy.ndarray
+        Predicted target values.
+    X : numpy.ndarray
+        Input data with features and metadata.
+
+    Returns
+    -------
+    numpy.ndarray
+        Aggregated true values.
+    numpy.ndarray
+        Aggregated predicted values.
+    """
+    metadata = X[:, -3:]
+    unique_ids = np.unique(metadata[:, 0])
     y_pred_agg_all = []
     y_true_mean_all = []
 
@@ -143,6 +104,29 @@ def get_ytrue_y_pred_agg(y_true, y_pred, X):
 
 
 def get_aggregated_predictions(X, y, splits, model, season_month=12):
+    """
+    Get aggregated predictions and true values for each split.
+
+    Parameters
+    ----------
+    X : numpy.ndarray
+        Input data with features and metadata.
+    y : numpy.ndarray
+        True target values.
+    splits : list of tuples
+        List of (train_index, test_index) tuples for splitting the data.
+    model : CustomXGBoostRegressor
+        The model to be trained and used for prediction.
+    season_month : int, optional
+        The month to filter the data by, default is 12.
+
+    Returns
+    -------
+    numpy.ndarray
+        Aggregated true values.
+    numpy.ndarray
+        Aggregated predicted values.
+    """
     y_pred_list = []
     y_true_list = []
     unique_ids_list = []
