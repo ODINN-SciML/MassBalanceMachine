@@ -11,6 +11,7 @@ Global machine learning glacier mass balance modelling can assimilate all glacio
   <tbody>
     <tr>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/khsjursen"><img src="https://avatars.githubusercontent.com/u/69296367?v=4?s=100" width="100px;" alt="khsjursen"/><br /><sub><b>khsjursen</b></sub></a><br /><a href="#research-khsjursen" title="Research">🔬</a> <a href="#code-khsjursen" title="Code">💻</a> <a href="#ideas-khsjursen" title="Ideas, Planning, & Feedback">🤔</a> <a href="#data-khsjursen" title="Data">🔣</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/JulianBiesheuvel"><img src="https://avatars.githubusercontent.com/u/16390017?v=4?s=100" width="100px;" alt="Julian"/><br /><sub><b>Julian</b></sub></a><br /><a href="#code-JulianBiesheuvel" title="Code">💻</a> <a href="#doc-JulianBiesheuvel" title="Documentation">📖</a> <a href="#maintenance-JulianBiesheuvel" title="Maintenance">🚧</a> <a href="#data-JulianBiesheuvel" title="Data">🔣</a> <a href="#research-JulianBiesheuvel" title="Research">🔬</a></td>
     </tr>
   </tbody>
 </table>
