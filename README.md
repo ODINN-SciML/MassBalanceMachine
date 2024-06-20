@@ -24,7 +24,7 @@ Please see the ```README``` in the ```mbm``` folder for detailed instructions.
 
 The following features are on the roadmap to be implemented in the coming months: 
 
-- 🛰️ MassBalanceMachine uses (altimetry)  data as the target variable. 
+- 🛰️ MassBalanceMachine uses geodetic mass balance data as an extra target variable on top of glaciological data. This will help calibrate the bias/trend in long simulations where the cumulative mass balance matters.  
 - 🔄 MassBalanceMachine can do transfer learning for new regions, reducing the training time and making more accurate predictions. 
 
 ## Contributors
