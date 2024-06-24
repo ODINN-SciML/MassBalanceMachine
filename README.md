@@ -2,8 +2,8 @@
 
 Global machine learning glacier mass balance modelling that assimilates all glaciological and remote sensing data sources.
 
-- 🏔️ MassBalanceMachine takes meteorological and topographical features to predict the surface mass balance of glaciers for a region of interest. 
-- ❄️ MassBalanceMachine uses glaciological (stake) data as the target variable. 
+- 🏔️ MassBalanceMachine takes meteorological, topographical and/or other features to predict the surface mass balance of glaciers for a region of interest. 
+- ❄️ MassBalanceMachine uses glaciological (stake) and geodetic mass balance data as targets. 
 - 📅 MassBalanceMachine can make predictions on an annual, seasonal (summer and winter), and monthly temporal scale for any spatial resolution. 
 
 This project is in ongoing development, and new features will be added over the coming months. Please see the contribution guidelines for more information on contributing to this project. 
@@ -24,8 +24,9 @@ Please see the ```README``` in the ```mbm``` folder for detailed instructions.
 
 The following features are on the roadmap to be implemented in the coming months: 
 
-- 🛰️ MassBalanceMachine uses (altimetry)  data as the target variable. 
-- 🔄 MassBalanceMachine can do transfer learning for new regions, reducing the training time and making more accurate predictions. 
+- 🛰️ MassBalanceMachine uses geodetic mass balance data as an extra target variable on top of glaciological data. This will help calibrate the bias/trend in long simulations where the cumulative mass balance matters.  
+- 🔄 MassBalanceMachine can do transfer learning for new regions, reducing the training time and making more accurate predictions.
+- 📊 MassBalanceMachine can incorporate physical constraints, in order to merge physical knowledge with data-driven discovery. 
 
 ## Contributors
 
