@@ -29,9 +29,6 @@ class Dataset:
         Args:
             output_fname (string): the name of the output file containing the raw data with topographical data
             voi (string): A string containing the variables of interest
-
-        Returns:
-            topo_features (pandas dataframe): A pandas dataframe containing the topographical features and the raw data
         """
         output_fname = os.path.join(self.dir, output_fname)
 
@@ -43,6 +40,7 @@ class Dataset:
         data, for a list of variables of interest, for the specified RGI IDs.
 
         Args:
+            output_fname (string): the name of the output file containing the raw data with topographical data
             climate_data (netCDF4): A netCDF4 file containing the climate data for the region of interest
             geopotential_data (netCDF4): A netCDF4 file containing the geopotential data
             col_name_yr (string): A string containing the variable name of the column of the last measurement in the hydrological year
@@ -54,5 +52,15 @@ class Dataset:
 
 
     def convert_to_monthly(self, output_fname, vois_columns_climate, vois_topo_columns, smb_column_names, column_name_year):
+        """
+        Converts the climate and topographical data to monthly data
+
+        Args:
+            output_fname:
+            vois_columns_climate:
+            vois_topo_columns:
+            smb_column_names:
+            column_name_year:
+        """
         output_fname = os.path.join(self.dir, output_fname)
         self.df = convert_to_monthly(self.df, output_fname, vois_columns_climate, vois_topo_columns, smb_column_names, column_name_year)
