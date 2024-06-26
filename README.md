@@ -20,20 +20,22 @@ You can run the MassBalanceMachine core scripts and notebooks with the following
 ## Installation and Usage
 
 To run the scripts and the notebooks, install the environment and all the necessary packages using the `environment.yml` file with the following command:
+
 ```
 conda env create -f environment.yml
 ```
+
 Ensure you are using the Conda terminal and are in the same directory of the ```environment.yml``` file or put in the correct path to the file in the command above. Then activate the environment with:
 
 ```
 conda activate MassBalanceMachine
 ```
+
 All packages should now be installed correctly, and you are ready to use the MassBalanceMachine core (mbm).
 
 ### Installation for Windows Users
 
-
-**Note:** Topographical features are retrieved using OGGM, which for now requires a Linux environment. For Windows users it is not required to run the model training and evaluation in the remote environment. 
+**Note:** Topographical features are retrieved using OGGM, which for now requires a Linux environment. For Windows users it is not required to run the model training and evaluation in the remote environment.
 
 If you haven't already, please consult [How to install Linux on Windows with WSL](https://learn.microsoft.com/en-us/windows/wsl/install). A list of steps is provided for Windows users to run this code on their local machine in a remote environment:
 
@@ -51,7 +53,7 @@ If you haven't already, please consult [How to install Linux on Windows with WSL
 
 - ```mbm``` contains the most important scripts, classes, and notebooks for the MassBalanceMachine project. New users can use these files to get started and add more or change existing files to meet their needs.
 - ```regions``` contains MassBalanceMachine instances for different regions in the world. If the region you are interested in is not on this list, you can, with a pull request, add this to the repository. Please make sure you do not upload any confidential or unpublished data. Regions that are covered:
-  - ```Iceland```
+  - [WIP]```Iceland```
   - [COMING SOON] ```Switzerland```
   - [COMING SOON] ``Norway``
 
@@ -70,6 +72,7 @@ The following features are on the roadmap to be implemented in the coming months
 <!-- prettier-ignore-start -->
 
 <!-- markdownlint-disable -->
+
 <table>
   <tbody>
     <tr>

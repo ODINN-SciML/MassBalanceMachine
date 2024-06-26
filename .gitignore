@@ -2,4 +2,6 @@
 .idea
 
  __pycache__/
+ mbm/__pycache__/
+ mbm/data_processing/__pycache__/
  *.pyc
