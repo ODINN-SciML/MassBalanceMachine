@@ -19,7 +19,7 @@ You can run the MassBalanceMachine core scripts and notebooks with the following
 
 ## Installation and Usage
 
-To run the scripts and the notebooks, install the environment and all the necessary packages using the `environment.yml` file, located in the ```mbm``` folder, with the following command:
+To run the scripts and the notebooks, install the environment and all the necessary packages using the `environment.yml` file with the following command:
 
 ```
 conda env create -f environment.yml
