@@ -13,13 +13,13 @@ This project is in ongoing development, and new features will be added over the 
 You can run the MassBalanceMachine core scripts and notebooks with the following software installed:
 
 - [Python](https://www.python.org/downloads/)
-- Conda
+- Conda Environment (either of the following):
   - [Anaconda](https://docs.anaconda.com/anaconda/install/)
   - [Miniconda](https://docs.anaconda.com/miniconda/miniconda-install/)
 
 ## Installation and Usage
 
-To run the scripts and the notebooks, install the environment and all the necessary packages using the `environment.yml` file with the following command:
+To run the scripts and the notebooks, install the environment and all the necessary packages using the `environment.yml` file, located in the ```mbm``` folder, with the following command:
 
 ```
 conda env create -f environment.yml
