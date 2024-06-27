@@ -1,10 +1,10 @@
 # MassBalanceMachine
 
-Global machine learning glacier mass balance modelling that assimilates all glaciological and remote sensing data sources.
+A bridge between mass balance modelling and observations. Global machine learning glacier mass balance modelling that assimilates all glaciological and remote sensing data sources.
 
 - 🏔️ MassBalanceMachine takes meteorological, topographical and/or other features to predict the surface mass balance of glaciers for a region of interest.
 - ❄️ MassBalanceMachine uses glaciological (stake) and geodetic mass balance data as targets.
-- 📅 MassBalanceMachine can make predictions on an annual, seasonal (summer and winter), and monthly temporal scale for any spatial resolution.
+- 📅 MassBalanceMachine can make predictions or fill data gaps on an annual, seasonal (summer and winter), and monthly temporal scale for any spatial resolution.
 
 This project is in ongoing development, and new features will be added over the coming months. Please see the contribution guidelines for more information on contributing to this project.
 
@@ -56,6 +56,7 @@ If you haven't already, please consult [How to install Linux on Windows with WSL
   - [WIP]```Iceland```
   - [COMING SOON] ```Switzerland```
   - [COMING SOON] ``Norway``
+  - [ADD YOUR OWN REGION]. PRs welcome! Message us if you have questions 🙂
 
 ## Project Roadmap
 
