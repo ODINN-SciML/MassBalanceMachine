@@ -6,7 +6,7 @@ A bridge between mass balance modelling and observations. Global machine learnin
 - ❄️ MassBalanceMachine uses glaciological (stake) and geodetic mass balance data as targets.
 - 📅 MassBalanceMachine can make predictions or fill data gaps on an annual, seasonal (summer and winter), and monthly temporal scale for any spatial resolution.
 
-This project is in ongoing development, and new features will be added over the coming months. Please see the contribution guidelines for more information on contributing to this project.
+This project is in **ongoing development**, and new features will be added over the coming months. Please see the contribution guidelines for more information on contributing to this project.
 
 ## Requirements
 
@@ -51,7 +51,7 @@ If you haven't already, please consult [How to install Linux on Windows with WSL
 
 ## Project Structure
 
-- ```mbm``` contains the most important scripts, classes, and notebooks for the MassBalanceMachine project. New users can use these files to get started and add more or change existing files to meet their needs.
+- ```massbalancemachine``` contains the most important scripts, classes, and notebooks for the MassBalanceMachine project. New users can use these files to get started and add more or change existing files to meet their needs.
 - ```regions``` contains MassBalanceMachine instances for different regions in the world. If the region you are interested in is not on this list, you can, with a pull request, add this to the repository. Please make sure you do not upload any confidential or unpublished data. Regions that are covered:
   - [WIP]```Iceland```
   - [COMING SOON] ```Switzerland```
