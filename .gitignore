@@ -4,4 +4,8 @@
  __pycache__/
  massbalancemachine/__pycache__/
  massbalancemachine/data_processing/__pycache__/
- *.pyc
+ massbalancemachine/utils/__pycache__/
+
+ massbalancemachine.egg-info/
+
+ notebooks/.ipynb_checkpoints

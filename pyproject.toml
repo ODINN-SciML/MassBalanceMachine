@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "massbalancemachine"
+version = "0.0.1"
+description = "A bridge between mass balance modelling and observations. Global machine learning glacier mass balance modelling that assimilates all glaciological and remote sensing data sources."
+readme = "README.md"
+authors = [
+    { name = "Julian Biesheuvel", email = "j.p.biesheuvel@student.tudelft.nl" },
+]
+license = { file = "LICENSE" }
+
+[tool.setuptools.packages.find]
+include = ["massbalancemachine*"]
+namespaces = false
