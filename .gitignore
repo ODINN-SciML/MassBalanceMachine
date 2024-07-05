@@ -1,11 +1,11 @@
-.idea/
-.idea
+*.idea/
+*.idea
 
- __pycache__/
- massbalancemachine/__pycache__/
- massbalancemachine/data_processing/__pycache__/
- massbalancemachine/utils/__pycache__/
+__pycache__/
+massbalancemachine/__pycache__/
+massbalancemachine/data_processing/__pycache__/
+massbalancemachine/utils/__pycache__/
 
- notebooks/OGGM
+notebooks/OGGM/per_glacier/**
 
- notebooks/.ipynb_checkpoints
+notebooks/.ipynb_checkpoints
