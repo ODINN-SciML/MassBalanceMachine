@@ -6,6 +6,6 @@
  massbalancemachine/data_processing/__pycache__/
  massbalancemachine/utils/__pycache__/
 
- massbalancemachine.egg-info/
+ notebooks/OGGM
 
  notebooks/.ipynb_checkpoints

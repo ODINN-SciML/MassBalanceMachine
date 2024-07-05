@@ -84,7 +84,7 @@ def get_climate_features(df, output_fname, climate_data, geopotential_data, colu
 
             range_date = pd.date_range(
                 start=str(int(year) - 1) + '-09-01',
-                end=str(int(year)) + '-09-01', freq='ME'
+                end=str(int(year)) + '-09-01', freq='M'
             )
 
             # Select climate data for the point, or the nearest point to it in the range of the hydrological year
