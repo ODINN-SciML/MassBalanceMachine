@@ -1,0 +1,6 @@
+name: MassBalanceMachine
+channels:
+  - conda-forge
+dependencies:
+  - ipykernel
+  - poetry
