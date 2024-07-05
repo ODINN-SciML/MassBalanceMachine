@@ -26,9 +26,6 @@ import logging
 def get_topo_features(df, output_fname, voi, rgi_ids):
     rgi_ids_list = rgi_ids.dropna().unique().tolist()
 
-    # Set pandas option to display all columns
-    pd.set_option('display.max_columns', None)
-
     # Initialize OGGM configuration
     cfg.initialize(logging_level='WARNING')
     cfg.PARAMS['border'] = 10
@@ -36,8 +33,8 @@ def get_topo_features(df, output_fname, voi, rgi_ids):
     cfg.PARAMS['continue_on_error'] = True
 
     # Define workspace path to store OGGM data
-    parent_path = os.path.dirname(Path().resolve())
-    workspace_path = os.path.join(parent_path, 'OGGM')
+    current_path = os.getcwd()
+    workspace_path = os.path.join(current_path, 'OGGM')
 
     # Set working directory for OGGM
     cfg.PATHS['working_dir'] = workspace_path
@@ -56,7 +53,7 @@ def get_topo_features(df, output_fname, voi, rgi_ids):
     df[voi] = np.nan
 
     # Extract latitude and longitude from dataframe
-    lat, lon = df[df[rgi_ids.name].isin(rgi_ids_list)][['lat', 'lon']].values.T
+    lat, lon = df[df[rgi_ids.name].isin(rgi_ids_list)][['POINT_LAT', 'POINT_LON']].values.T
 
     # Load gridded data for each glacier directory
     g_dirs_dataset = [xr.open_dataset(gdir.get_filepath('gridded_data')).load() for gdir in g_dirs]

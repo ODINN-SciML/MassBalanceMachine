@@ -12,30 +12,50 @@ This project is in **ongoing development**, and new features will be added over 
 
 You can run the MassBalanceMachine core scripts and notebooks with the following software installed:
 
-- [Python](https://www.python.org/downloads/)
+- [Python](https://www.python.org/downloads/) (version 10 or higher is required)
 - Conda Environment (either of the following):
   - [Anaconda](https://docs.anaconda.com/anaconda/install/)
   - [Miniconda](https://docs.anaconda.com/miniconda/miniconda-install/)
 
-## Installation and Usage
+## Installation (for all users)
 
-To run the scripts and the notebooks, install the environment and all the necessary packages using the `environment.yml` file with the following command:
+To run the Jupyter Notebooks, you'll need to set up a Conda environment. Within this environment, Poetry will handle the installation of all necessary packages and dependencies. Follow these steps to create a new Conda environment named MassBalanceMachine:
 
 ```
-conda env create -f environment.yml
+conda create --name mbm_env --no-default-packages
+conda env update --name mbm_env --file environment.yml
 ```
 
-Ensure you are using the Conda terminal and are in the same directory of the ```environment.yml``` file or put in the correct path to the file in the command above. Then activate the environment with:
+Activate the MassBalanceMachine environment and install Poetry:
+
 
 ```
 conda activate MassBalanceMachine
 ```
 
-All packages should now be installed correctly, and you are ready to use the MassBalanceMachine core (mbm).
+Install all required packages and dependencies needed in the environment via poetry:
 
-### Installation for Windows Users
+```
+poetry install
+```
 
-**Note:** Topographical features are retrieved using OGGM, which for now requires a Linux environment. For Windows users it is not required to run the model training and evaluation in the remote environment.
+All packages and dependencies should now be installed correctly, and you are ready to use the MassBalanceMachine core (```massbalancemachine```). For example, by importing the packing in a Jupyter Notebook by: ```import massbalancemachine as mbm```. Make sure you have selected the right interpreter or kernel before that, in your editor of choice.
+
+**Note:** If you are working on a remote server running JupyterLab or Jupyter Notebook instead of locally, the virtual environment of the notebook will be different from the Conda environment. As an additional step, you need to create a new kernel that includes the Conda environment in Jupyter Notebook. Here’s how you can do it:
+
+```
+poetry run ipython kernel install --user --name=massbalancemachine
+```
+
+At last, select in the Jupyter Notebook in the top right corner the new installed kernel: massbalancemachine. You should now be ready to go and use ```massbalancemachine``` in your Jupyter Notebooks.
+
+### Known Installation Issues
+
+- Poetry occasionally flags duplicate package folders, but it simplifies dependency and version control in Python projects, ensuring seamless integration of libraries and packages, which can typically be resolved by locating and removing unwanted package versions from your Conda environment folder.
+
+### Additional Installation for Windows Users
+
+**Note:** Topographical and climatological features are retrieved using OGGM in the data processing stage, which for now requires a Unix environment. **However, it is not required to run the model training and evaluation in a remote environment**. Window users can either choose to work with the MassBalanceMachine for the entire project in a Unix environment, or just for the data processing part (this requires two times installing the Conda environment).
 
 If you haven't already, please consult [How to install Linux on Windows with WSL](https://learn.microsoft.com/en-us/windows/wsl/install). A list of steps is provided for Windows users to run this code on their local machine in a remote environment:
 
@@ -46,13 +66,17 @@ If you haven't already, please consult [How to install Linux on Windows with WSL
 2. Installing Anaconda on Linux:
    1. [Anaconda Docs](https://docs.anaconda.com/free/anaconda/install/linux/), or
    2. [Steps to Install Anaconda on Windows Ubuntu Terminal](https://docs.anaconda.com/free/anaconda/install/linux/)
-3. [Create a new Anaconda environment](https://conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html#creating-an-environment-from-an-environment-yml-file) from the ```environment.yml``` file that is located in the ```mbm``` directory.
-4. Access the remote environment, ```conda activate MassBalanceMachine``` via the terminal and start a Jupyter Notebook.
+3. Follow the steps as specified in the section: **Installation and Usage**.
+4. Access the remote environment in the terminal, select the right kernel or interpreter and run the Jupyter Notebook or Python scripts.
+
+## Usage
+
+After successfully installing the ```massbalancemachine``` package and the Conda environment, you can begin with the example notebooks located in the `notebooks` directory. These notebooks will guide you through how to use MassBalanceMachine, using WGMS data for the examples.
 
 ## Project Structure
 
-- ```massbalancemachine``` contains the most important scripts, classes, and notebooks for the MassBalanceMachine project. New users can use these files to get started and add more or change existing files to meet their needs.
-- ```regions``` contains MassBalanceMachine instances for different regions in the world. If the region you are interested in is not on this list, you can, with a pull request, add this to the repository. Please make sure you do not upload any confidential or unpublished data. Regions that are covered:
+- The ```massbalancemachine``` package contains the core components of MassBalanceMachine, including scripts, classes, and example Jupyter Notebooks that are essential for new users to start a MassBalanceMachine project. This core package, named massbalancemachine, can be imported into scripts and Jupyter Notebooks as needed.
+- ```regions``` contains additional scripts, classes, and Jupyter Notebooks that are tailored for MassBalanceMachine instances that operate in different regions in the world. If the region you are interested in is not on this list, you can, with a pull request, add this to the repository. Please make sure you do not upload any confidential or unpublished data. Regions that are covered so far:
   - [WIP]```Iceland```
   - [COMING SOON] ```Switzerland```
   - [COMING SOON] ``Norway``
@@ -94,4 +118,8 @@ The following features are on the roadmap to be implemented in the coming months
 
 ## Contribution Guidelines
 
-The MassBalanceMachine project is an open-source community project, welcoming new users to fork the repository, start adding new regions, or make changes to the existing code and make a pull request. We encourage you to contact one of the contributors listed above if you have any questions. You can also create new Git issues for new features or changes to existing features.
+- The MassBalanceMachine project is an open-source community initiative that welcomes new users to fork the repository, add new regions, or modify the existing code and submit a pull request.
+
+- **Currently, uploading data is not permitted**. Pull requests containing data will be rejected. In the future, data sharing will be supported.
+
+- If you have any questions, please contact one of the contributors listed above. You can also create new Git issues to propose new features or changes to existing ones.
