@@ -23,7 +23,7 @@ To run the Jupyter Notebooks, you'll need to set up a Conda environment. Within 
 
 ```
 conda create --name MassBalanceMachine --no-default-packages
-conda env update --name MassBalanceMachine
+conda env update --name MassBalanceMachine --file environment.yml
 ```
 
 Activate the MassBalanceMachine environment:
