@@ -26,8 +26,7 @@ conda create --name mbm_env --no-default-packages
 conda env update --name mbm_env --file environment.yml
 ```
 
-Activate the MassBalanceMachine environment and install Poetry:
-
+Activate the MassBalanceMachine environment:
 
 ```
 conda activate MassBalanceMachine
@@ -119,7 +118,5 @@ The following features are on the roadmap to be implemented in the coming months
 ## Contribution Guidelines
 
 - The MassBalanceMachine project is an open-source community initiative that welcomes new users to fork the repository, add new regions, or modify the existing code and submit a pull request.
-
 - **Currently, uploading data is not permitted**. Pull requests containing data will be rejected. In the future, data sharing will be supported.
-
 - If you have any questions, please contact one of the contributors listed above. You can also create new Git issues to propose new features or changes to existing ones.
