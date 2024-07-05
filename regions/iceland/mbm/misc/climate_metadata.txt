@@ -1,0 +1,22 @@
+u10 : 10m_u_component_of_wind
+v10 : 10m_v_component_of_wind
+t2m : 2m_temperature
+d2m : 2m_dewpoint_temperature
+rsn : snow_density
+es : snow_evaporation
+sf : snowfall
+sp : surface_pressure
+smlt : snowmelt
+tsn : temperature_of_snow_layer
+fal : forecast albedo
+asn : snow_albedo
+snowc : snow_cover
+sde : snow_depth
+sd : snow_depth_water_equivalent
+slhf : surface_latent_heat_flux
+ssr : surface_net_solar_radiation
+str : surface_net_thermal_radiation
+sshf : surface_sensible_heat_flux
+ssrd : surface_solar_radiation_downwards
+strd : 	surface_thermal_radiation_downwards
+tp : total_precipitation
