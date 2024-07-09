@@ -70,7 +70,9 @@ If you haven't already, please consult [How to install Linux on Windows with WSL
 
 ## Usage
 
-After successfully installing the ```massbalancemachine``` package and the Conda environment, you can begin with the example notebooks located in the `notebooks` directory. These notebooks will guide you through how to use MassBalanceMachine, using WGMS data in the examples. First, data is extracted from the [Open Global Glacier Model (OGGM)](https://github.com/OGGM/oggm), providing topographical and climate data for almost any glaciers on Earth. The example notebooks are focused on all glaciers, recorded in the WGMS database, in Norway. Example notebooks are available for the following topics:
+After installing the `massbalancemachine` package and setting up the Conda environment successfully, you can start exploring the example notebooks found in the `notebooks` directory. These notebooks are designed to walk you through using MassBalanceMachine with WGMS data, focusing initially on extracting data from the [Open Global Glacier Model (OGGM)](https://github.com/OGGM/oggm). This data includes comprehensive topographical and climate information for nearly all glaciers worldwide.
+
+Specifically, the example notebooks concentrate on glaciers documented in the WGMS database, particularly those in Norway. They cover various topics, including:
 
 1. **Data Pre-processing 🌍**: Users have two options for pre-processing their data. They can either follow a notebook that converts their data into the WGMS format (in this [notebook](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/data_processing_custom.ipynb)), or they can start with their data already in the WGMS format (in this [notebook](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/data_processing_wgms.ipynb)). In both cases, topographical and climate data are retrieved and matched with the stake measurements. Finally, the data is converted to a monthly resolution.
 2. **Data Exploration 🔍**: [WIP]
