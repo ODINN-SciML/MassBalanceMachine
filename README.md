@@ -23,7 +23,7 @@ To run the Jupyter Notebooks, you'll need to set up a Conda environment. Within 
 
 ```
 conda create --name MassBalanceMachine --no-default-packages
-conda env update --name MassBalanceMachine
+conda env update --name MassBalanceMachine --file environment.yml
 ```
 
 Activate the MassBalanceMachine environment:
@@ -40,13 +40,13 @@ poetry install
 
 All packages and dependencies should now be installed correctly, and you are ready to use the MassBalanceMachine core (```massbalancemachine```). For example, by importing the packing in a Jupyter Notebook by: ```import massbalancemachine as mbm```. Make sure you have selected the right interpreter or kernel before that, in your editor of choice.
 
-**Note:** If you are working on a remote server running JupyterLab or Jupyter Notebook instead of locally, the virtual environment of the notebook will be different from the Conda environment. As an additional step, you need to create a new kernel that includes the Conda environment in Jupyter Notebook. Here’s how you can do it:
+**Note:** If you are working on a remote server running JupyterLab or Jupyter Notebook (e.g. Binder) instead of locally, the virtual environment of the notebook will be different from the Conda environment. As an additional step, you need to create a new kernel that includes the Conda environment in Jupyter Notebook. Here’s how you can do it:
 
 ```
-poetry run ipython kernel install --user --name=massbalancemachine
+poetry run ipython kernel install --user --name=mbm_env
 ```
 
-At last, select in the Jupyter Notebook in the top right corner the new installed kernel: massbalancemachine. You should now be ready to go and use ```massbalancemachine``` in your Jupyter Notebooks.
+At last, make sure your Jupyter kernel (at the top right corcer of the notebook) has been configured to work with the 'mbm_env' Conda environment. You should now be ready to go and use ```massbalancemachine``` in your Jupyter Notebooks.
 
 ### Known Installation Issues
 
@@ -70,13 +70,18 @@ If you haven't already, please consult [How to install Linux on Windows with WSL
 
 ## Usage
 
-After successfully installing the ```massbalancemachine``` package and the Conda environment, you can begin with the example notebooks located in the `notebooks` directory. These notebooks will guide you through how to use MassBalanceMachine, using WGMS data for the examples.
+After successfully installing the ```massbalancemachine``` package and the Conda environment, you can begin with the example notebooks located in the `notebooks` directory. These notebooks will guide you through how to use MassBalanceMachine, using WGMS data in the examples. First, data is extracted from the [Open Global Glacier Model (OGGM)](https://github.com/OGGM/oggm), providing topographical and climate data for almost any glaciers on Earth. The example notebooks are focused on all glaciers, recorded in the WGMS database, in Norway. Example notebooks are available for the following topics:
+
+1. **Data Pre-processing 🌍**: Users have two options for pre-processing their data. They can either follow a notebook that converts their data into the WGMS format (in this [notebook](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/data_processing_custom.ipynb)), or they can start with their data already in the WGMS format (in this [notebook](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/data_processing_wgms.ipynb)). In both cases, topographical and climate data are retrieved and matched with the stake measurements. Finally, the data is converted to a monthly resolution.
+2. **Data Exploration 🔍**: [WIP]
+3. **Model Training 🚀**: [WIP]
+4. **Model Testing 🎯** [WIP]
 
 ## Project Structure
 
 - The ```massbalancemachine``` package contains the core components of MassBalanceMachine, including scripts, classes, and example Jupyter Notebooks that are essential for new users to start a MassBalanceMachine project. This core package, named massbalancemachine, can be imported into scripts and Jupyter Notebooks as needed.
 - ```regions``` contains additional scripts, classes, and Jupyter Notebooks that are tailored for MassBalanceMachine instances that operate in different regions in the world. If the region you are interested in is not on this list, you can, with a pull request, add this to the repository. Please make sure you do not upload any confidential or unpublished data. Regions that are covered so far:
-  - [WIP]```Iceland```
+  - [WIP] ```Iceland```
   - [COMING SOON] ```Switzerland```
   - [COMING SOON] ``Norway``
   - [ADD YOUR OWN REGION]. PRs welcome! Message us if you have questions 🙂
