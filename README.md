@@ -74,7 +74,7 @@ After installing the `massbalancemachine` package and setting up the Conda envir
 
 Specifically, the example notebooks concentrate on glaciers documented in the WGMS database, particularly those in Norway. They cover various topics, including:
 
-1. **Data Pre-processing 🌍**: Users have two options for pre-processing their data. They can either follow a notebook that converts their data into the WGMS format (in this [notebook](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/data_processing_custom.ipynb)), or they can start with their data already in the WGMS format (in this [notebook](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/data_processing_wgms.ipynb)). In both cases, topographical and climate data are retrieved and matched with the stake measurements. Finally, the data is converted to a monthly resolution, ready to be used as training data for the model.
+1. **Data Pre-processing 🌍**: Users have two options for preparing their data. They can choose to follow a notebook that converts their data into the WGMS format (available [here](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/data_processing_custom.ipynb)), or they can start with their data already formatted in the WGMS standard (found [here](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/data_processing_wgms.ipynb)). In both workflows, topographical and climate data are fetched and aligned with the stake measurements. Subsequently, the data is aggregated to a monthly resolution, preparing it for use as training data for the model.
 2. **Data Exploration 🔍**: [WIP]
 3. **Model Training 🚀**: [WIP]
 4. **Model Testing 🎯** [WIP]
