@@ -23,14 +23,12 @@ import os
 from dateutil import parser
 
 
-# TODO: Put these URLs listed in this method in the documentation
-def get_climate_features(df, output_fname, climate_data, geopotential_data, column_name_year):
+def get_climate_features(df, output_fname, climate_data, geopotential_data):
     # Check if the climate input file exists
     if not os.path.exists(climate_data) and not os.path.exists(geopotential_data):
         raise FileNotFoundError(f'Either climate data or geopotential data, or both, do not exist')
 
     # Open climate datasets
-    # Climate data retrieved from: https://cds.climate.copernicus.eu/cdsapp#!/dataset/reanalysis-era5-land-monthly-means?tab=overview
     with xr.open_dataset(climate_data) as ds_c, \
             xr.open_dataset(geopotential_data) as ds_g:
 
@@ -68,11 +66,10 @@ def get_climate_features(df, output_fname, climate_data, geopotential_data, colu
         climate_per_point = np.full((len(df), len(monthly_climate_vars)), np.nan)
         altitude_per_point = np.full((len(df), 1), np.nan)
 
-        stake_lat = df.lat.round(2)
-        stake_lon = df.lon.round(2)
+        stake_lat = df['POINT_LAT']
+        stake_lon = df['POINT_LON']
 
-        #TODO make this work for other data formats or just the years (YYYY) (int)
-        stake_date = pd.to_datetime(df[column_name_year], format="%d/%m/%Y", errors='coerce')
+        stake_date = pd.to_datetime(df['YEAR'], format="%Y", errors='coerce')
         stake_year = np.array([date.year for date in stake_date])
 
         # Iterate through stake data, and get the climate variables and altitude for this point
@@ -84,7 +81,7 @@ def get_climate_features(df, output_fname, climate_data, geopotential_data, colu
 
             range_date = pd.date_range(
                 start=str(int(year) - 1) + '-09-01',
-                end=str(int(year)) + '-09-01', freq='M'
+                end=str(int(year)) + '-09-01', freq='ME'
             )
 
             # Select climate data for the point, or the nearest point to it in the range of the hydrological year
@@ -110,7 +107,7 @@ def get_climate_features(df, output_fname, climate_data, geopotential_data, colu
         df_point_climate.dropna(subset=['altitude_climate'], inplace=True)
 
         # Take the difference between the geopotential height and the elevation of the stake measurement
-        df_point_climate['height_diff'] = df_point_climate['altitude_climate'] - df_point_climate['elevation']
+        df_point_climate['height_diff'] = df_point_climate['altitude_climate'] - df_point_climate['POINT_ELEVATION']
 
         # Write to CSV
         df_point_climate.to_csv(output_fname, index=False)

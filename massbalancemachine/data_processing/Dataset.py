@@ -17,7 +17,7 @@ import os
 
 from get_climate_data import get_climate_features
 from get_topo_data import get_topo_features
-from transform_to_monthly import convert_to_monthly
+from transform_to_monthly import convert_to_monthly, prepare_dataset
 
 
 class Dataset:
@@ -53,8 +53,8 @@ class Dataset:
         # Drop data records that do not have a From or To data available
         data = data.dropna(subset=['FROM_DATE', 'TO_DATE'])
         # Drop data records that have an invalid From or To data (e.g., day=99)
-        data = data[~data['FROM_DATE'].str.endswith('99')]
-        data = data[~data['TO_DATE'].str.endswith('99')]
+        data = data[~data['FROM_DATE'].astype(str).str.endswith('99')]
+        data = data[~data['TO_DATE'].astype(str).str.endswith('99')]
 
         return data
 
@@ -69,32 +69,29 @@ class Dataset:
 
         self.data = get_topo_features(self.data, output_fname, voi, self.RGIIds)
 
-    def get_climate_features(self, output_fname, climate_data, geopotential_data, column_name_year):
+    def get_climate_features(self, climate_data, geopotential_data):
         """
         By specifying which source of reanalysis to use (e.g. ERA5, W5E5, MeteoSwiss…) it fetches all the climate
         data, for a list of variables of interest, for the specified RGI IDs.
 
         Args:
-            output_fname (string): the name of the output file containing the raw data with topographical data
             climate_data (netCDF4): A netCDF4 file containing the climate data for the region of interest
             geopotential_data (netCDF4): A netCDF4 file containing the geopotential data
-            col_name_yr (string): A string containing the variable name of the column of the last measurement in the hydrological year
-            column_name_year (string/int): A string or int of the hydrological year, either just the year: YYYY, or any other format DD-MM-YYYY
         """
-        output_fname = os.path.join(self.dir, output_fname)
+        output_fname = os.path.join(self.dir, 'region_climate_features.csv')
 
-        self.data = get_climate_features(self.data, output_fname, climate_data, geopotential_data, column_name_year)
+        self.data = get_climate_features(self.data, output_fname, climate_data, geopotential_data)
 
-    def convert_to_monthly(self, output_fname, vois_columns_climate, vois_topo_columns, smb_column_names, column_name_year):
+    def convert_to_monthly(self, vois_climate, vois_topographical):
         """
-        Converts the climate and topographical data to monthly data
+        Converts seasonal or annual stake record data to a monthly resolution, accounting for a variable period for the SMB target data.
 
         Args:
-            output_fname:
-            vois_columns_climate:
-            vois_topo_columns:
-            smb_column_names:
-            column_name_year:
+            vois_climate: variables of interest from the climate data
+            vois_topographical: variables of interest from the topographical data
+
         """
-        output_fname = os.path.join(self.dir, output_fname)
-        self.data = convert_to_monthly(self.data, output_fname, vois_columns_climate, vois_topo_columns, smb_column_names, column_name_year)
+        output_fname = os.path.join(self.dir, 'region_monthly.csv')
+
+        self.data = prepare_dataset(self.data, vois_climate)
+        self.data = convert_to_monthly(self.data, vois_climate, vois_topographical, output_fname)
