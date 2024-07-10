@@ -1,3 +1,0 @@
-# MassBalanceMachine Regions
-
-Please add for each new region that is not yet in the list of regions a folder with the ```mbm``` core and add to your needs. Inspiration for a more complete project, using ```mbm```, please see the other already available regions. Please be aware that regions can have deprecated/old code that is no longer used in the newest version of the MassBalanceMachine core. Therefore, please first check the MassBalanceMachine core for the newest code before you start coding. 
