@@ -45,6 +45,7 @@ joblib = "^1.4.2"
 progressbar2 = "^4.4.2"
 oggm = "^1.6.1"
 xgboost = "^2.1.0"
+contextily = "^1.6.0"
 
 [build-system]
 requires = ["poetry-core"]

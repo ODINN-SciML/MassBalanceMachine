@@ -70,7 +70,7 @@ def get_topo_features(df, output_fname, voi, rgi_ids):
 
     # Update dataframe with stake data
     for stake_data, rgi_id in zip(stakes, rgi_ids_list):
-        rgi_records = df[rgi_ids == rgi_id]
+        rgi_records = df.loc[rgi_ids == rgi_id]
         df.loc[rgi_records.index, voi] = stake_data[voi].values
 
     # Write updated dataframe to CSV file
