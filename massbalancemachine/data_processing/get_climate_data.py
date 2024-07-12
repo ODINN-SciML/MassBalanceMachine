@@ -98,16 +98,16 @@ def get_climate_features(df, output_fname, climate_data, geopotential_data):
 
         # Create DataFrames from arrays
         df_climate = pd.DataFrame(data=climate_per_point, columns=monthly_climate_vars)
-        df_altitude = pd.DataFrame(data=altitude_per_point, columns=['altitude_climate'])
+        df_altitude = pd.DataFrame(data=altitude_per_point, columns=['ALTITUDE_CLIMATE'])
 
         # Concatenate DataFrames
         df_point_climate = pd.concat([df, df_climate, df_altitude], axis=1)
 
         # Drop records that do not have any geopotential height available
-        df_point_climate.dropna(subset=['altitude_climate'], inplace=True)
+        df_point_climate.dropna(subset=['ALTITUDE_CLIMATE'], inplace=True)
 
         # Take the difference between the geopotential height and the elevation of the stake measurement
-        df_point_climate['height_diff'] = df_point_climate['altitude_climate'] - df_point_climate['POINT_ELEVATION']
+        df_point_climate['ELEVATION_DIFFERENCE'] = df_point_climate['ALTITUDE_CLIMATE'] - df_point_climate['POINT_ELEVATION']
 
         # Write to CSV
         df_point_climate.to_csv(output_fname, index=False)

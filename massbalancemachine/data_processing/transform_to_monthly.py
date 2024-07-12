@@ -92,18 +92,15 @@ def convert_to_monthly(df, vois_climate, vois_topographical, output_fname):
         reshaped_data = np.reshape(row[columns_to_keep].values, (len(months), len(vois_climate)), order='F')
 
         # Create a MultiIndex for the new DataFrame, these are the columns to keep in the new dataframe
-        index_names = ['MONTH', 'ID', 'YEAR', 'N_MONTHS', 'POINT_BALANCE']
+        index_names = ['MONTH', 'ID', 'YEAR', 'N_MONTHS', 'POINT_LON', 'POINT_LAT', 'POINT_BALANCE', 'ALTITUDE_CLIMATE', 'ELEVATION_DIFFERENCE']
         index_names.extend(vois_topographical)
 
         indices = [
             months,
             [row['ID']],
-            [str(row['YEAR'])],
-            [str(row['N_MONTHS'])],
-            [str(row['POINT_BALANCE'])]
         ]
 
-        for voi_topo in vois_topographical:
+        for voi_topo in index_names:
             indices.append([str(row[voi_topo])])
 
         index_multi = pd.MultiIndex.from_product(
