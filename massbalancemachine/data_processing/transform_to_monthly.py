@@ -81,31 +81,34 @@ def convert_to_monthly(df, vois_climate, vois_topographical, output_fname):
     """
 
     # Helper function to process each row
+
+    # We go over each row of the dataframe, we get the data range in months for this recording,
+    # make a mask with all the column names that apply to this selection of months (in combination with
+    # the available climate variables), retrieve those values of these combinations of months and variables
+    # from the row and reshape it so that we have the number of months as the number of records and the
+    # number of climate variables as columns. Of the original data we want to keep certain columns, that we want to
+    # match with the new columns (that are representing the months for the same measurement and stake) (like idvars in melt).
+    # We make a dataframe of this selection of rows, and concatenate the dataframes into one.
     def process_row(row):
-        # Get the months for the current row
         months = row['MONTHS']
 
-        # Identify columns corresponding to the months in the current row
-        columns_to_keep = [col for col in df.columns if any(col.endswith(month) for month in months)]
+        if len(months) > 12: months = months[:12]
 
-        # Reshape the data for the current row to a 2D array (months x climate variables)
-        reshaped_data = np.reshape(row[columns_to_keep].values, (len(months), len(vois_climate)), order='F')
+        mask = [f"{climate_var}_{month}" for climate_var in vois_climate for month in months]
+
+        # Extract data based on the mask and reshape into a 7x4 matrix (len(months) x len(vois_climate))
+        reshaped_data = np.reshape(row[mask].values, (len(months), len(vois_climate)), order='F')
 
         # Create a MultiIndex for the new DataFrame, these are the columns to keep in the new dataframe
-        index_names = ['MONTH', 'ID', 'YEAR', 'N_MONTHS', 'POINT_LON', 'POINT_LAT', 'POINT_BALANCE', 'ALTITUDE_CLIMATE', 'ELEVATION_DIFFERENCE']
+        index_names = ['MONTH', 'POINT_ID', 'YEAR', 'N_MONTHS', 'POINT_LON', 'POINT_LAT', 'POINT_BALANCE',
+                       'ALTITUDE_CLIMATE', 'ELEVATION_DIFFERENCE']
         index_names.extend(vois_topographical)
 
-        indices = [
-            months,
-            [row['ID']],
-        ]
-
-        for voi_topo in index_names:
-            indices.append([str(row[voi_topo])])
+        data = [months] + [[row[col]] for col in index_names[1:]]
 
         index_multi = pd.MultiIndex.from_product(
-            indices,
-            names = index_names
+            data,
+            names=index_names
         )
 
         # Create a DataFrame using the reshaped data and the MultiIndex
@@ -115,6 +118,8 @@ def convert_to_monthly(df, vois_climate, vois_topographical, output_fname):
     # Apply the helper function to each row and concatenate the results
     monthly_dfs = df.apply(process_row, axis=1)
     concatenated_df = pd.concat(monthly_dfs.tolist()).reset_index()
+    # Drop records without a point mass balance value
+    concatenated_df = concatenated_df.dropna(subset=["POINT_BALANCE"])
 
     concatenated_df.to_csv(output_fname, index=False)
 
