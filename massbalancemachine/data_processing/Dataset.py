@@ -75,8 +75,8 @@ class Dataset:
         data, for a list of variables of interest, for the specified RGI IDs.
 
         Args:
-            climate_data (netCDF4): A netCDF4 file containing the climate data for the region of interest
-            geopotential_data (netCDF4): A netCDF4 file containing the geopotential data
+            climate_data (netCDF4): A netCDF-3 file containing the climate data for the region of interest
+            geopotential_data (netCDF4): A netCDF-3 file containing the geopotential data
         """
         output_fname = os.path.join(self.dir, 'region_climate_features.csv')
 

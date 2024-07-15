@@ -38,7 +38,10 @@ def prepare_dataset(df, vois_climate):
     # Generate monthly ranges and convert to month names
     df['MONTHS'] = df.apply(lambda row: pd.date_range(start=row['FROM_DATE'], end=row['TO_DATE'], freq='MS').strftime(
         '%b').str.lower().tolist(), axis=1)
+
     df['N_MONTHS'] = df['MONTHS'].apply(len)
+
+    df['N_MONTHS'] = df['N_MONTHS'].apply(lambda x: x - 1)
 
     # Add ID column, that keeps track what records belong to each other when melted
     df['ID'] = np.arange(len(df))
@@ -92,15 +95,15 @@ def convert_to_monthly(df, vois_climate, vois_topographical, output_fname):
     def process_row(row):
         months = row['MONTHS']
 
-        if len(months) > 12: months = months[:12]
+        # if len(months) > 12: months = months[:12]
 
         mask = [f"{climate_var}_{month}" for climate_var in vois_climate for month in months]
 
-        # Extract data based on the mask and reshape into a 7x4 matrix (len(months) x len(vois_climate))
+        # Extract data based on the mask and reshape into a #monthsx#climate_vars matrix (len(months) x len(vois_climate))
         reshaped_data = np.reshape(row[mask].values, (len(months), len(vois_climate)), order='F')
 
         # Create a MultiIndex for the new DataFrame, these are the columns to keep in the new dataframe
-        index_names = ['MONTH', 'POINT_ID', 'YEAR', 'N_MONTHS', 'POINT_LON', 'POINT_LAT', 'POINT_BALANCE',
+        index_names = ['MONTH', 'ID','POINT_ID', 'YEAR', 'N_MONTHS', 'POINT_LON', 'POINT_LAT', 'POINT_BALANCE',
                        'ALTITUDE_CLIMATE', 'ELEVATION_DIFFERENCE']
         index_names.extend(vois_topographical)
 
