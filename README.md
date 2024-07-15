@@ -54,7 +54,7 @@ At last, make sure your Jupyter kernel (at the top right corcer of the notebook)
 
 ### Additional Installation for Windows Users
 
-**Note:** Topographical and climatological features are retrieved using OGGM in the data processing stage, which for now requires a Unix environment. **However, it is not required to run the model training and evaluation in a remote environment**. Window users can either choose to work with the MassBalanceMachine for the entire project in a Unix environment, or just for the data processing part (this requires two times installing the Conda environment).
+**Note:** Topographical features are retrieved using OGGM in the data processing stage, which for now requires a Unix environment. **However, it is not required to run the model training and evaluation in a remote environment**. Window users can either choose to work with the MassBalanceMachine for the entire project in a Unix environment, or just for the data processing part (this requires two times installing the Conda environment).
 
 If you haven't already, please consult [How to install Linux on Windows with WSL](https://learn.microsoft.com/en-us/windows/wsl/install). A list of steps is provided for Windows users to run this code on their local machine in a remote environment:
 
@@ -70,9 +70,9 @@ If you haven't already, please consult [How to install Linux on Windows with WSL
 
 ## Usage
 
-After installing the `massbalancemachine` package and setting up the Conda environment successfully, you can start exploring the example notebooks found in the `notebooks` directory. These notebooks are designed to walk you through using MassBalanceMachine with WGMS data, focusing initially on extracting data from the [Open Global Glacier Model (OGGM)](https://github.com/OGGM/oggm). This data includes comprehensive topographical and climate information for nearly all glaciers worldwide.
+After installing the `massbalancemachine` package and setting up the Conda environment successfully, you can start exploring the example notebooks found in the `notebooks` directory. These notebooks are designed to walk you through using MassBalanceMachine with WGMS data, focusing initially on extracting data from the [Open Global Glacier Model (OGGM)](https://github.com/OGGM/oggm). This data includes comprehensive topographical information for nearly all glaciers worldwide.
 
-Specifically, the example notebooks concentrate on glaciers documented in the WGMS database, particularly those in Norway. They cover various topics, including:
+Specifically, the example notebooks concentrate on glaciers documented in the WGMS database, particularly those in Iceland. They cover various topics, including:
 
 1. **Data Pre-processing 🌍**: Users have two options for preparing their data. They can choose to follow a notebook that converts their data into the WGMS format (available [here](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/data_processing_custom.ipynb)), or they can start with their data already formatted in the WGMS standard (found [here](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/data_processing_wgms.ipynb)). In both workflows, topographical and climate data are fetched and aligned with the stake measurements. Subsequently, the data is aggregated to a monthly resolution, preparing it for use as training data for the model.
 2. **Data Exploration 🔍**: [WIP]
