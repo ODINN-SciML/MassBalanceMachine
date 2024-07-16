@@ -129,7 +129,7 @@ def plot_cumulative_smb(df, save_img=None):
 
     # Save the plot if desired
     if save_img is not None:
-        plt.savefig(save_img[1] + f'timeseries_stakes.{save_img[0]}', dpi=600, format=f'{save_img[0]}',
+        plt.savefig(save_img[1] + f'timeseries_cumsum_smb.{save_img[0]}', dpi=600, format=f'{save_img[0]}',
                     bbox_inches='tight')
 
     plt.show()
