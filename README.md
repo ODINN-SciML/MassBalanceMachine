@@ -12,7 +12,6 @@ This project is in **ongoing development**, and new features will be added over 
 
 You can run the MassBalanceMachine core scripts and notebooks with the following software installed:
 
-- [Python](https://www.python.org/downloads/) (version 10 or higher is required)
 - Conda Environment (either of the following):
   - [Anaconda](https://docs.anaconda.com/anaconda/install/)
   - [Miniconda](https://docs.anaconda.com/miniconda/miniconda-install/)
@@ -22,14 +21,13 @@ You can run the MassBalanceMachine core scripts and notebooks with the following
 To run the Jupyter Notebooks, you'll need to set up a Conda environment. Within this environment, Poetry will handle the installation of all necessary packages and dependencies. Follow these steps to create a new Conda environment named MassBalanceMachine:
 
 ```
-conda create --name MassBalanceMachine --no-default-packages
-conda env update --name MassBalanceMachine --file environment.yml
+conda env create -f environment.yml
 ```
 
 Activate the MassBalanceMachine environment:
 
 ```
-conda activate MassBalanceMachine
+conda activate MassBalanceMachine # for linux and unix users alternatively: source activate MassBalanceMachine
 ```
 
 Install all required packages and dependencies needed in the environment via poetry:
@@ -46,7 +44,7 @@ All packages and dependencies should now be installed correctly, and you are rea
 poetry run ipython kernel install --user --name=mbm_env
 ```
 
-At last, make sure your Jupyter kernel (at the top right corcer of the notebook) has been configured to work with the 'mbm_env' Conda environment. You should now be ready to go and use ```massbalancemachine``` in your Jupyter Notebooks.
+At last, make sure your Jupyter kernel, select in the top right corner of the notebook, or via the Launcher (sometimes this requires a refresh),has been configured to work with the 'mbm_env' Conda environment. You should now be ready to go and use ```massbalancemachine``` in your Jupyter Notebooks.
 
 ### Known Installation Issues
 
