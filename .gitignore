@@ -4,7 +4,7 @@
 __pycache__/
 massbalancemachine/__pycache__/
 massbalancemachine/data_processing/__pycache__/
-massbalancemachine/utils/__pycache__/
+massbalancemachine/data_utils/__pycache__/
 
 notebooks/OGGM/per_glacier/**
 
