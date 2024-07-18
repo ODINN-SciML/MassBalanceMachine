@@ -28,12 +28,11 @@ class Dataset:
     Attributes:
         data (pandas dataframe): A pandas dataframe containing the raw data
         dir_path (string): Path to the directory containing the raw data, and save intermediate results
-        RGIIds (pandas column): A pandas column containing the RGI IDs of the raw data
     """
-    def __init__(self, *, data=None, data_path='', column_name_RGIIDs='RGIId'):
+    def __init__(self, *, data=None, data_path=''):
         self.data = self.check_dates(data=data.copy())
         self.dir = data_path
-        self.RGIIds = data[column_name_RGIIDs]
+        self.RGIIds = data['RGIId']
 
     @staticmethod
     def check_dates(data):
