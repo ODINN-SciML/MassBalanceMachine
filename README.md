@@ -63,7 +63,7 @@ If you haven't already, please consult [How to install Linux on Windows with WSL
 2. Installing Anaconda on Linux:
    1. [Anaconda Docs](https://docs.anaconda.com/free/anaconda/install/linux/), or
    2. [Steps to Install Anaconda on Windows Ubuntu Terminal](https://docs.anaconda.com/free/anaconda/install/linux/)
-3. Follow the steps as specified in the section: **Installation and Usage**.
+3. Follow the steps as specified in the section: **Installation**.
 4. Access the remote environment in the terminal, select the right kernel or interpreter and run the Jupyter Notebook or Python scripts.
 
 ## Usage
@@ -73,8 +73,8 @@ After installing the `massbalancemachine` package and setting up the Conda envir
 Specifically, the example notebooks concentrate on glaciers documented in the WGMS database, particularly those in Iceland. They cover various topics, including:
 
 1. **Data Pre-processing 🌍**: Users have two options for preparing their data. They can choose to follow a notebook that converts their data into the WGMS format (available [here](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/data_processing_custom.ipynb)), or they can start with their data already formatted in the WGMS standard (found [here](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/data_processing_wgms.ipynb)). In both workflows, topographical and climate data are fetched and aligned with the stake measurements. Subsequently, the data is aggregated to a monthly resolution, preparing it for use as training data for the model.
-2. **[Data Exploration](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/date_exploration.ipynb) 🔍**: Users can gain deeper insights into their stake dataset through visualization and exploration, which they obtain during preprocessing.
-3. **Model Training 🚀**: [WIP]
+2. **Data Exploration 🔍**: Users can gain deeper insights into their data by visualizing time series of the available stake measurements, which are related to either the region-wide surface mass balance or the point surface mass balance. The example is available [here](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/date_exploration.ipynb).
+3. **Model Training 🚀**: Users can choose from two models. One option is the XGBoost model, with an example available in this [notebook](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/xgboost_model_training.ipynb). The other option is a neural network, which will be released in the future. Both models are customized to handle the monthly resolution of the data. In the notebooks, the models will be trained using the data obtained earlier.
 4. **Model Testing 🎯** [WIP]
 
 ## Project Structure
@@ -123,5 +123,5 @@ The following features are on the roadmap to be implemented in the coming months
 ## Contribution Guidelines
 
 - The MassBalanceMachine project is an open-source community initiative that welcomes new users to fork the repository, add new regions, or modify the existing code and submit a pull request.
-- **Currently, uploading data is not permitted**. Pull requests containing data will be rejected. In the future, data sharing will be supported.
+- **Currently, uploading data is not allowed unless it is accompanied by a license that explicitly permits open access, allowing it to be shared and used by others.**. Pull requests containing data will be rejected. In the future, data sharing will be supported.
 - If you have any questions, please contact one of the contributors listed above. You can also create new Git issues to propose new features or changes to existing ones.

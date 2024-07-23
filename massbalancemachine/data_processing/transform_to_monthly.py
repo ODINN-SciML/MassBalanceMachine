@@ -1,130 +1,127 @@
 """
-This script transforms annual and seasonal data records into to monthly data records, each with
+This method transforms annual and seasonal data records into to monthly data records, each with
 their respective months, e.g., a record for a period winter will be melted in the monthly data records consisting of
 the following months: 'oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr' (depending on the FROM and TO date).
 We account for a variable period for the SMB target data, which gives more flexibility.
 
 @Author: Julian Biesheuvel
 Email: j.p.biesheuvel@student.tudelft.nl
-Date Created: 10/07/2024
+Date Created: 21/07/2024
 """
 
-import re
 import pandas as pd
 import numpy as np
 
 
-def prepare_dataset(df, vois_climate):
-    """
-    Prepares a dataset by formatting dates, generating monthly ranges, and masking climate columns that are not in
-    the date ranges as specified.
-
-    Args:
-        - df (pandas.DataFrame): The input DataFrame containing the data to be processed. It must include
-        'FROM_DATE' and 'TO_DATE' columns formatted as strings (YYYYMMDD).
-        - vois_climate (list of str): A list of variable of interest (VOI) prefixes to match climate-related columns in the DataFrame.
-
-    Returns:
-        - df (pandas.DataFrame): The processed DataFrame with the following modifications:
-            - 'FROM_DATE' and 'TO_DATE' columns converted to datetime objects.
-            - 'MONTHS' column added, containing lists of month names (abbreviated to three lower-case letters) within the date range for each row.
-            - 'N_MONTHS' column added, containing the number of months in the 'MONTHS' column for each row.
-            - 'ID' column added, containing unique identifiers for each row.
-            - Climate columns not corresponding to the months within the date range for each row are set to NaN.
-    """
-    df['FROM_DATE'] = pd.to_datetime(df['FROM_DATE'], format='%Y%m%d')
-    df['TO_DATE'] = pd.to_datetime(df['TO_DATE'], format='%Y%m%d')
-
-    # Generate monthly ranges and convert to month names
-    df['MONTHS'] = df.apply(lambda row: pd.date_range(start=row['FROM_DATE'], end=row['TO_DATE'], freq='MS').strftime(
-        '%b').str.lower().tolist(), axis=1)
-
-    df['N_MONTHS'] = df['MONTHS'].apply(len)
-
-    df['N_MONTHS'] = df['N_MONTHS'].apply(lambda x: x - 1)
-
-    # Add ID column, that keeps track what records belong to each other when melted
-    df['ID'] = np.arange(len(df))
-
-    # Find climate columns matching the pattern
-    pattern = '|'.join([f'{voi}_[a-zA-Z]*' for voi in vois_climate])
-    vois_climate_columns = [col for col in df.columns if re.match(pattern, col)]
-
-    # Function to create a mask of columns to set NaN
-    def create_nan_mask(row, columns):
-        # Columns to keep based on the current row's MONTHS
-        keep_columns = [col for col in columns if any(col.endswith(month) for month in row['MONTHS'])]
-        # Create a mask where True indicates the column should be set to NaN
-        mask = [col not in keep_columns for col in columns]
-        return mask
-
-    # Apply the mask to each row in a vectorized way
-    masks = df['MONTHS'].apply(lambda months: create_nan_mask({'MONTHS': months}, vois_climate_columns))
-
-    # Convert the masks to a DataFrame
-    mask_df = pd.DataFrame(masks.tolist(), index=df.index, columns=vois_climate_columns)
-
-    # Apply the mask to set the values to NaN
-    df[vois_climate_columns] = df[vois_climate_columns].mask(mask_df)
-
-    return df
-
-
-# TODO: This code has a lot of potential to be optimized (vectorising?)
-def convert_to_monthly(df, vois_climate, vois_topographical, output_fname):
+def transform_to_monthly(
+    df: pd.DataFrame,
+    vois_climate: list[str],
+    vois_topographical: list[str],
+    output_fname: str,
+) -> pd.DataFrame:
     """
     Converts the DataFrame to a monthly format based on climate-related columns.
 
     Args:
-        - df (pandas.DataFrame): Input DataFrame with date ranges and climate-related columns.
-        - vois_climate (list of str): List of climate variable prefixes.
+        df (pd.DataFrame): Input DataFrame with date ranges and climate-related columns + all other columns
+            and data from the previous steps.
+        vois_climate (list[str]): List of climate variable prefixes.
+        vois_topographical (list[str]): List of topographical variable prefixes.
+        output_fname (str): Name of the output CSV file.
 
     Returns:
-        - df (pandas.DataFrame): Transformed DataFrame in a monthly format.
+        pd.DataFrame: Original DataFrame (for consistency with previous implementation).
     """
 
-    # Helper function to process each row
+    # Convert dates to datetime
+    df = _convert_dates_to_datetime(df)
 
-    # We go over each row of the dataframe, we get the data range in months for this recording,
-    # make a mask with all the column names that apply to this selection of months (in combination with
-    # the available climate variables), retrieve those values of these combinations of months and variables
-    # from the row and reshape it so that we have the number of months as the number of records and the
-    # number of climate variables as columns. Of the original data we want to keep certain columns, that we want to
-    # match with the new columns (that are representing the months for the same measurement and stake) (like idvars in melt).
-    # We make a dataframe of this selection of rows, and concatenate the dataframes into one.
-    def process_row(row):
-        months = row['MONTHS']
+    # Generate monthly ranges based on the FROM and TO dates available
+    df = _generate_monthly_ranges(df)
 
-        # if len(months) > 12: months = months[:12]
+    # Add a unique ID column to the dataframe to identify columns of the same data range
+    df = _add_id_column(df)
 
-        mask = [f"{climate_var}_{month}" for climate_var in vois_climate for month in months]
+    # Explode the dataframe based on the date range
+    df_exploded = _explode_dataframe(df)
 
-        # Extract data based on the mask and reshape into a #monthsx#climate_vars matrix (len(months) x len(vois_climate))
-        reshaped_data = np.reshape(row[mask].values, (len(months), len(vois_climate)), order='F')
+    # Get the column names for the new dataframe
+    column_names = _get_column_names(vois_topographical)
 
-        # Create a MultiIndex for the new DataFrame, these are the columns to keep in the new dataframe
-        index_names = ['MONTH', 'ID','POINT_ID', 'YEAR', 'N_MONTHS', 'POINT_LON', 'POINT_LAT', 'POINT_BALANCE',
-                       'ALTITUDE_CLIMATE', 'ELEVATION_DIFFERENCE']
-        index_names.extend(vois_topographical)
+    # Create the final dataframe with the new exploded climate data
+    result_df = _create_result_dataframe(df_exploded, column_names, vois_climate)
 
-        data = [months] + [[row[col]] for col in index_names[1:]]
+    result_df.to_csv(output_fname, index=False)
 
-        index_multi = pd.MultiIndex.from_product(
-            data,
-            names=index_names
-        )
+    return result_df
 
-        # Create a DataFrame using the reshaped data and the MultiIndex
-        monthly_df = pd.DataFrame(data=reshaped_data, index=index_multi, columns=vois_climate)
-        return monthly_df
 
-    # Apply the helper function to each row and concatenate the results
-    monthly_dfs = df.apply(process_row, axis=1)
-    concatenated_df = pd.concat(monthly_dfs.tolist()).reset_index()
-    # Drop records without a point mass balance value
-    concatenated_df = concatenated_df.dropna(subset=["POINT_BALANCE"])
+def _convert_dates_to_datetime(df: pd.DataFrame) -> pd.DataFrame:
+    """Convert 'FROM_DATE' and 'TO_DATE' columns to datetime format."""
+    df["FROM_DATE"] = pd.to_datetime(df["FROM_DATE"], format="%Y%m%d")
+    df["TO_DATE"] = pd.to_datetime(df["TO_DATE"], format="%Y%m%d")
+    return df
 
-    concatenated_df.to_csv(output_fname, index=False)
 
-    return concatenated_df
+def _generate_monthly_ranges(df: pd.DataFrame) -> pd.DataFrame:
+    """Generate monthly ranges and convert to month names."""
+    df["MONTHS"] = df.apply(
+        lambda row: pd.date_range(start=row["FROM_DATE"], end=row["TO_DATE"], freq="MS")
+        .strftime("%b")
+        .str.lower()
+        .tolist(),
+        axis=1,
+    )
+    df["N_MONTHS"] = df["MONTHS"].apply(len) - 1
+    return df
 
+
+def _add_id_column(df: pd.DataFrame) -> pd.DataFrame:
+    """Add an ID column to keep track of records when melted."""
+    df["ID"] = np.arange(len(df))
+    return df
+
+
+def _explode_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """Explode the DataFrame based on the 'MONTHS' column."""
+    df_exploded = df.explode("MONTHS")
+    return df_exploded.reset_index(drop=True)
+
+
+def _get_column_names(vois_topographical: list[str]) -> list[str]:
+    """Get the list of column names to keep in the final DataFrame."""
+    column_names = [
+        "MONTHS",
+        "ID",
+        "RGIId",
+        "POINT_ID",
+        "YEAR",
+        "N_MONTHS",
+        "POINT_LON",
+        "POINT_LAT",
+        "POINT_BALANCE",
+        "ALTITUDE_CLIMATE",
+        "ELEVATION_DIFFERENCE",
+    ]
+    column_names.extend(vois_topographical)
+    return column_names
+
+
+def _get_climate_values(
+    row: pd.Series, vois_climate: list[str], column_names: list[str]
+) -> np.ndarray:
+    """Get climate values for a specific row and month."""
+    cols = [f'{voi}_{row["MONTHS"]}' for voi in vois_climate]
+    all_cols = column_names + cols
+    return row[all_cols].values
+
+
+def _create_result_dataframe(
+    df_exploded: pd.DataFrame, column_names: list[str], vois_climate: list[str]
+) -> pd.DataFrame:
+    """Create the final result DataFrame."""
+    climate_records = df_exploded.apply(
+        lambda row: _get_climate_values(row, vois_climate, column_names), axis=1
+    ).tolist()
+    final_column_names = column_names + vois_climate
+    return pd.DataFrame(climate_records, columns=final_column_names)

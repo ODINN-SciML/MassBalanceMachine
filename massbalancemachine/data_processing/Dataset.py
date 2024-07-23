@@ -1,96 +1,154 @@
 """
-This dataset class is part of the massbalancemachine package and is designed for user data processing.
-After cleaning and processing, the dataset becomes ready for use in the model training and evaluation pipeline.
+The Dataset class is part of the massbalancemachine package and is designed for user data processing, preparing
+the data for the model training and testing.
 
-Users provide stake measurement data, which must include at least the latitude and longitude coordinates,
-surface mass balance (either seasonal or annual), the start and end dates of the measurement, and a label
-indicating whether the measurement is seasonal or annual. Additional topographical and meteorological features,
-as well as RGI IDs (if not initially available), are then added to the dataset. Finally, the dataset is converted
-to a monthly resolution.
+Users provide stake measurement data, which must be in a WGMS-like format (if not, please see the data preprocessing
+notebook).
 
 @Author: Julian Biesheuvel
 Email: j.p.biesheuvel@student.tudelft.nl
-Date Created: 04/07/2024
+Date Created: 21/07/2024
 """
 
 import os
-
+import logging
+import pandas as pd
 from get_climate_data import get_climate_features
-from get_topo_data import get_topo_features
-from transform_to_monthly import convert_to_monthly, prepare_dataset
+from get_topo_data import get_topographical_features
+from transform_to_monthly import transform_to_monthly
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
 
 
 class Dataset:
     """
-    A dataset class that retrieves both the climate and topography data add them to the dataset and
-    transforms them to WGMS format.
+    A dataset class that retrieves both the climate and topography data, adds them to the dataset and
+    transforms the data to a monthly time resolution.
 
     Attributes:
-        data (pandas dataframe): A pandas dataframe containing the raw data
-        dir_path (string): Path to the directory containing the raw data, and save intermediate results
+        data (pd.DataFrame): A pandas dataframe containing the raw data
+        region (str): The name of the region, for saving the files accordingly
+        data_dir (str): Path to the directory containing the raw data, and save intermediate results
+        RGIIds (pd.Series): Series of RGI IDs from the data
     """
-    def __init__(self, *, data=None, data_path=''):
-        self.data = self.check_dates(data=data.copy())
-        self.dir = data_path
-        self.RGIIds = data['RGIId']
 
-    @staticmethod
-    def check_dates(data):
-        """
-            Cleans the input DataFrame by removing rows with missing or invalid dates.
+    def __init__(self, *, data: pd.DataFrame, region_name: str, data_path: str):
+        self.data = self._check_dates(data=data.copy())
+        self.region = region_name
+        self.data_dir = data_path
+        self.RGIIds = self.data["RGIId"]
 
-            This method performs the following operations on the input DataFrame:
-            1. Drops rows where the 'FROM_DATE' or 'TO_DATE' columns have missing (NaN) values.
-            2. Drops rows where the 'FROM_DATE' or 'TO_DATE' columns have invalid dates (specifically, where the day is represented as '99').
-
-            Args:
-                data (pd.DataFrame): The input DataFrame containing date columns 'FROM_DATE' and 'TO_DATE'.
-
-            Returns:
-                pd.DataFrame: The cleaned DataFrame with invalid or incomplete date records removed.
-        """
-        # Drop data records that do not have a From or To data available
-        data = data.dropna(subset=['FROM_DATE', 'TO_DATE'])
-        # Drop data records that have an invalid From or To data (e.g., day=99)
-        data = data[~data['FROM_DATE'].astype(str).str.endswith('99')]
-        data = data[~data['TO_DATE'].astype(str).str.endswith('99')]
-
-        return data
-
-    def get_topo_features(self, voi):
+    def get_topo_features(self, *, vois: list[str]) -> None:
         """
         Fetches all the topographical data, for a list of variables of interest, using OGGM for the specified RGI IDs
 
         Args:
-            voi (string): A string containing the variables of interest
+            vois (list[str]): A string containing the topographical variables of interest
         """
-        output_fname = os.path.join(self.dir, 'region_topographical_features.csv')
+        output_fname = self._get_output_filename("topographical_features")
+        self.data = get_topographical_features(self.data, output_fname, vois, self.RGIIds)
 
-        self.data = get_topo_features(self.data, output_fname, voi, self.RGIIds)
-
-    def get_climate_features(self, climate_data, geopotential_data):
+    def get_climate_features(self, *, climate_data: str, geopotential_data: str) -> None:
         """
-        By specifying which source of reanalysis to use (e.g. ERA5, W5E5, MeteoSwiss…) it fetches all the climate
-        data, for a list of variables of interest, for the specified RGI IDs.
+        Fetches all the climate data, for a list of variables of interest, for the specified RGI IDs.
 
         Args:
-            climate_data (netCDF4): A netCDF-3 file containing the climate data for the region of interest
-            geopotential_data (netCDF4): A netCDF-3 file containing the geopotential data
+            climate_data (str): A netCDF-3 file location containing the climate data for the region of interest
+            geopotential_data (str): A netCDF-3 file location containing the geopotential data
         """
-        output_fname = os.path.join(self.dir, 'region_climate_features.csv')
-
+        output_fname = self._get_output_filename("climate_features")
         self.data = get_climate_features(self.data, output_fname, climate_data, geopotential_data)
 
-    def convert_to_monthly(self, vois_climate, vois_topographical):
+    def convert_to_monthly(self, *, vois_climate: list[str], vois_topographical: list[str]) -> None:
         """
-        Converts seasonal or annual stake record data to a monthly resolution, accounting for a variable period for the SMB target data.
+        Converts a variable period for the SMB target data measurement to a monthly time resolution.
 
         Args:
-            vois_climate: variables of interest from the climate data
-            vois_topographical: variables of interest from the topographical data
-
+            vois_climate (list[str]): variables of interest from the climate data
+            vois_topographical (list[str]): variables of interest from the topographical data
         """
-        output_fname = os.path.join(self.dir, 'region_monthly.csv')
+        output_fname = self._get_output_filename("monthly_dataset")
+        self.data = transform_to_monthly(self.data, vois_climate, vois_topographical, output_fname)
 
-        self.data = prepare_dataset(self.data, vois_climate)
-        self.data = convert_to_monthly(self.data, vois_climate, vois_topographical, output_fname)
+    def _get_output_filename(self, feature_type: str) -> str:
+        """
+        Generates the output filename for a given feature type.
+
+        Args:
+            feature_type (str): The type of feature (e.g., "topographical_features", "climate_features", "monthly")
+
+        Returns:
+            str: The full path to the output file
+        """
+        return os.path.join(self.data_dir, f"{self.region}_{feature_type}.csv")
+
+    @staticmethod
+    def _check_dates(data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Cleans the input DataFrame by removing rows with missing or invalid dates.
+
+        Args:
+            data (pd.DataFrame): The input DataFrame containing date columns 'FROM_DATE' and 'TO_DATE'.
+
+        Returns:
+            pd.DataFrame: The cleaned DataFrame with invalid or incomplete date records removed.
+
+        Raises:
+            KeyError: If required columns are missing from the DataFrame.
+            Exception: For any other error during date processing.
+        """
+        required_columns = ["FROM_DATE", "TO_DATE"]
+        Dataset._validate_columns(data, required_columns)
+
+        try:
+            data = Dataset._remove_missing_dates(data, required_columns)
+            data = Dataset._convert_and_filter_dates(data)
+            return data
+        except Exception as e:
+            logging.error(f"Error processing dates: {e}")
+            raise
+
+    @staticmethod
+    def _validate_columns(data: pd.DataFrame, required_columns: list[str]) -> None:
+        """
+        Validates that all required columns are present in the DataFrame.
+
+        Args:
+            data (pd.DataFrame): The input DataFrame
+            required_columns (list[str]): List of required column names
+
+        Raises:
+            KeyError: If any required column is missing
+        """
+        if not all(col in data.columns for col in required_columns):
+            logging.error(f"Missing one of the required columns: {required_columns}")
+            raise KeyError(f"Required columns {required_columns} are not present in the DataFrame.")
+
+    @staticmethod
+    def _remove_missing_dates(data: pd.DataFrame, date_columns: list[str]) -> pd.DataFrame:
+        """
+        Removes rows with missing dates from the DataFrame.
+
+        Args:
+            data (pd.DataFrame): The input DataFrame
+            date_columns (list[str]): List of date column names
+
+        Returns:
+            pd.DataFrame: DataFrame with rows containing missing dates removed
+        """
+        return data.dropna(subset=date_columns)
+
+    @staticmethod
+    def _convert_and_filter_dates(data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Converts date columns to string and filters out invalid dates.
+
+        Args:
+            data (pd.DataFrame): The input DataFrame
+
+        Returns:
+            pd.DataFrame: DataFrame with date columns converted and invalid dates filtered out
+        """
+        data = data.astype({"FROM_DATE": str, "TO_DATE": str})
+        return data[~data["FROM_DATE"].str.endswith("99") & ~data["TO_DATE"].str.endswith("99")]
