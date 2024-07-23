@@ -9,3 +9,6 @@ massbalancemachine/utils/__pycache__/
 notebooks/OGGM/**
 
 notebooks/.ipynb_checkpoints
+
+*.tox/
+*.tox
