@@ -1,115 +1,223 @@
 """
-This code is inspired by the work of Kamilla Hauknes Sjursen
+This code is taken, and refactored, and inspired from the work performed by: Kamilla Hauknes Sjursen
 
-This script takes as input ERA5-Land monthly averaged climate data (pre-downloaded), and matches this with the locations
-of the stake measurements. The climate features are training features for the machine-learning model. Important is that 
-the climate data is already downloaded and saved in location: .././data/climate.
+This method fetches the meteorological features (variables of interest), for each stake measurement available,
+via the provided NETCDF-3 files fetched from the ERA5Land Reanalysis (monthly averaged) database.
 
-Depending on the amount of variables, and the temporal scale, downloads of the climate data can take up hours. 
-Climate data can either be downloaded manually via the link below, or obtained via the script: 
-get_ERA5_monthly_averaged_climate_data.py. This file should be first unzipped before running this script.
+Depending on the amount of variables, and the temporal scale, downloads of the climate data can take up hours.
+Climate data can either be downloaded manually via the link provided in the notebook.
 
 @Author: Julian Biesheuvel
 Email: j.p.biesheuvel@student.tudelft.nl
-Date Created: 04/06/2024
+Date Created: 21/07/2024
 """
 
+import os
+from calendar import month_abbr
 import xarray as xr
 import numpy as np
 import pandas as pd
-import math
-import os
-
-from dateutil import parser
 
 
-def get_climate_features(df, output_fname, climate_data, geopotential_data):
-    # Check if the climate input file exists
-    if not os.path.exists(climate_data) and not os.path.exists(geopotential_data):
-        raise FileNotFoundError(f'Either climate data or geopotential data, or both, do not exist')
+def get_climate_features(
+    df: pd.DataFrame, output_fname: str, climate_data: str, geopotential_data: str
+) -> pd.DataFrame:
+    """
+    Takes as input ERA5-Land monthly averaged climate data (pre-downloaded), and matches this with the locations
+    of the stake measurements.
 
-    # Open climate datasets
-    with xr.open_dataset(climate_data) as ds_c, \
-            xr.open_dataset(geopotential_data) as ds_g:
+    Args:
+        df (pd.DataFrame): DataFrame containing stake measurement locations and years.
+        output_fname (str): Path to the output CSV file.
+        climate_data (str): Path to the ERA5-Land climate data file.
+        geopotential_data (str): Path to the geopotential data file.
 
-        ds_climate = ds_c.load()
-        ds_geopotential = ds_g.load()
+    Returns:
+        pd.DataFrame: The updated DataFrame with climate and altitude features.
+    """
 
-        # Convert geopotential height to geometric height and add to dataset
-        r_earth = 6367.47 * 10e3  # [m] (Grib1 radius)
-        g = 9.80665  # [m/s^2]
-        ds_geopotential_metric = ds_geopotential.assign(
-            altitude_climate=lambda ds_geo: r_earth * ((ds_geopotential.z / g) / (r_earth - (ds_geopotential.z / g)))
-        )
+    # Check if the input files exist.
+    if not os.path.exists(climate_data) or not os.path.exists(geopotential_data):
+        raise FileNotFoundError(f"Climate data or geopotential data do not exist.")
 
-        # Get latitude and longitude
-        lat = ds_climate.latitude
-        lon = ds_climate.longitude
+    # Load the two climate datasets
+    ds_climate, ds_geopotential = _load_datasets(climate_data, geopotential_data)
 
-        # Data retrieved from: https://ecmwf-projects.github.io/copernicus-training-c3s/reanalysis-climatology.html
-        # Adjust longitude coordinates so that the coordinates range from -180 to 180, instead of 0 to 360
-        ds_180 = ds_geopotential_metric.assign_coords(
-            longitude=(((ds_geopotential_metric.longitude + 180) % 360) - 180)).sortby('longitude')
+    # Get latitudes and longitudes from the climate dataset.
+    lat, lon = ds_climate.latitude, ds_climate.longitude
 
-        ds_geopotential_cropped = ds_180.sel(longitude=lon, latitude=lat, method='nearest')
+    # Convert the longitudes
+    ds_180 = _adjust_longitude(ds_geopotential)
 
-        # Reduce expver dimension
-        ds_climate = ds_climate.reduce(np.nansum, 'expver')
+    # Crop the geopotential height to the region of interest
+    ds_geopotential_cropped = _crop_geopotential(ds_180, lat, lon)
 
-        # Create list of climate name variables and months combined for one hydrological year
-        climate_vars = list(ds_climate.keys())
-        months_names = ['_oct', '_nov', '_dec', '_jan', '_feb', '_mar', '_apr', '_may', '_jun', '_jul', '_aug', '_sep']
-        monthly_climate_vars = [f'{climate_var}{month_name:02}' for climate_var in climate_vars for month_name in
-                                months_names]
+    # Calculate the geopotential height in meters
+    ds_geopotential_metric = _calculate_geopotential_height(ds_geopotential_cropped)
 
-        # Initialize arrays for the climate variable per data point and altitude
-        climate_per_point = np.full((len(df), len(monthly_climate_vars)), np.nan)
-        altitude_per_point = np.full((len(df), 1), np.nan)
+    # Reduce expver dimension
+    ds_climate = ds_climate.reduce(np.nansum, "expver")
 
-        stake_lat = df['POINT_LAT']
-        stake_lon = df['POINT_LON']
+    # Create a date range for one hydrological year
+    df = _add_date_range(df)
 
-        stake_date = pd.to_datetime(df['YEAR'], format="%Y", errors='coerce')
-        stake_year = np.array([date.year for date in stake_date])
+    # Get the climate data for the latitudes and longitudes and date ranges as
+    # specified
+    climate_df = _process_climate_data(ds_climate, df)
+    # Get the geopotential height for the latitudes and longitudes as specified,
+    # for the locations of the stake measurements.
+    altitude_df = _process_altitude_data(ds_geopotential_metric, df)
 
-        # Iterate through stake data, and get the climate variables and altitude for this point
-        for idx, (lat, lon, year) in enumerate(zip(stake_lat, stake_lon, stake_year)):
+    # Combine the climate data with the altitude climate data
+    df = _combine_dataframes(df, climate_df, altitude_df)
+    # Add a new feature to the dataframe that is the height difference between the elevation
+    # of the stake and the recorded height of the climate.
+    df = _calculate_elevation_difference(df)
 
-            # Some years are float NaNs, these cannot be processed and therefore will be skipped
-            if math.isnan(year):
-                continue
+    df.to_csv(output_fname, index=False)
 
-            range_date = pd.date_range(
-                start=str(int(year) - 1) + '-09-01',
-                end=str(int(year)) + '-09-01', freq='ME'
-            )
+    return df
 
-            # Select climate data for the point, or the nearest point to it in the range of the hydrological year
-            climate_data_point = ds_climate.sel(latitude=lat, longitude=lon, time=range_date, method='nearest')
 
-            # Convert selected data to Dataframe and save it
-            if climate_data_point.dims:
-                climate_points = climate_data_point.to_dataframe().drop(columns=['latitude', 'longitude'])
-                climate_per_point[idx, :] = climate_points.to_numpy().flatten(order='F')
+def _load_datasets(climate_data: str, geopotential_data: str) -> tuple:
+    """Load climate and geopotential datasets."""
+    with xr.open_dataset(climate_data) as dataset_climate, xr.open_dataset(
+        geopotential_data
+    ) as dataset_geopotential:
+        return dataset_climate.load(), dataset_geopotential.load()
 
-                # Select altitude data
-                altitude_point = ds_geopotential_cropped.sel(latitude=lat, longitude=lon, method='nearest')
-                altitude_per_point[idx] = altitude_point.altitude_climate.values[0]
 
-        # Create DataFrames from arrays
-        df_climate = pd.DataFrame(data=climate_per_point, columns=monthly_climate_vars)
-        df_altitude = pd.DataFrame(data=altitude_per_point, columns=['ALTITUDE_CLIMATE'])
+def _calculate_geopotential_height(ds_geopotential: xr.Dataset) -> xr.Dataset:
+    """Calculate geopotential height in meters."""
+    r_earth = 6367.47 * 10e3  # [m] (Grib1 radius)
+    g = 9.80665  # [m/s^2]
+    return ds_geopotential.assign(
+        altitude_climate=lambda ds_geo: r_earth
+        * (ds_geo.z / g)
+        / (r_earth - (ds_geo.z / g))
+    )
 
-        # Concatenate DataFrames
-        df_point_climate = pd.concat([df, df_climate, df_altitude], axis=1)
 
-        # Drop records that do not have any geopotential height available
-        df_point_climate.dropna(subset=['ALTITUDE_CLIMATE'], inplace=True)
+def _adjust_longitude(ds: xr.Dataset) -> xr.Dataset:
+    """Adjust longitude coordinates to range from -180 to 180."""
+    return ds.assign_coords(longitude=(((ds.longitude + 180) % 360) - 180)).sortby(
+        "longitude"
+    )
 
-        # Take the difference between the geopotential height and the elevation of the stake measurement
-        df_point_climate['ELEVATION_DIFFERENCE'] = df_point_climate['ALTITUDE_CLIMATE'] - df_point_climate['POINT_ELEVATION']
 
-        # Write to CSV
-        df_point_climate.to_csv(output_fname, index=False)
+def _crop_geopotential(
+    ds: xr.Dataset, lat: xr.DataArray, lon: xr.DataArray
+) -> xr.Dataset:
+    """Crop geometric height to grid of climate data."""
+    return ds.sel(longitude=lon, latitude=lat, method="nearest")
 
-        return df_point_climate
+
+def _generate_climate_variable_names(ds_climate: xr.Dataset) -> list:
+    """Generate list of climate variable names for one hydrological year."""
+    climate_variables = list(ds_climate.keys())
+    months_names = [f"_{month.lower()}" for month in month_abbr[10:] + month_abbr[1:10]]
+    return [
+        f"{climate_var}{month_name}"
+        for climate_var in climate_variables
+        for month_name in months_names
+    ]
+
+
+def _create_date_range(year: int):
+    """Create a date range for a given year."""
+    if pd.isna(year):
+        return None
+    year = int(year)
+    return pd.date_range(start=f"{year - 1}-09-01", end=f"{year}-09-01", freq="ME")
+
+
+def _add_date_range(df: pd.DataFrame) -> pd.DataFrame:
+    """Add date range to DataFrame."""
+    df["range_date"] = df["YEAR"].apply(_create_date_range)
+    return df
+
+
+def _process_climate_data(ds_climate: xr.Dataset, df: pd.DataFrame) -> pd.DataFrame:
+    """Process climate data for all points and times."""
+
+    # Create DataArrays for latitude and longitude
+    lat_da = xr.DataArray(df["POINT_LAT"].values, dims="points")
+    lon_da = xr.DataArray(df["POINT_LON"].values, dims="points")
+
+    # Create a 2D array of dates ranges
+    date_array = np.array([r.values for r in df["range_date"].values])
+    time_da = xr.DataArray(date_array, dims=["points", "time"])
+
+    climate_data_points = ds_climate.sel(
+        latitude=lat_da,
+        longitude=lon_da,
+        time=time_da,
+        method="nearest",
+    )
+
+    # Create a dataframe from the DataArray
+    climate_df = (
+        climate_data_points.to_dataframe()
+        .drop(columns=["latitude", "longitude"])
+        .reset_index()
+    )
+
+    # Drop columns
+    climate_df = climate_df.drop(columns=["points", "time"])
+
+    # Get the number of rows and columns
+    num_rows, num_cols = climate_df.shape
+
+    # Reshape the DataFrame to a 3D array (groups, 12, columns)
+    reshaped_array = climate_df.to_numpy().reshape(-1, 12, num_cols)
+
+    # Transpose and reshape to get the desired flattening effect
+    result_array = reshaped_array.transpose(0, 2, 1).reshape(-1, 12 * num_cols)
+
+    # Convert back to a DataFrame if needed
+    result_df = pd.DataFrame(result_array)
+    # Set the new column names for the dataframe (climate variables X months
+    # of the hydrological year)
+    result_df.columns = _generate_climate_variable_names(ds_climate)
+
+    return result_df
+
+
+def _process_altitude_data(
+    ds_geopotential: xr.Dataset, df: pd.DataFrame
+) -> pd.DataFrame:
+    """Process altitude data for all points."""
+
+    # 1. Create DataArrays for latitude and longitude
+    lat_da = xr.DataArray(df["POINT_LAT"].values, dims="points")
+    lon_da = xr.DataArray(df["POINT_LON"].values, dims="points")
+
+    altitude_data_points = ds_geopotential.sel(
+        latitude=lat_da,
+        longitude=lon_da,
+        method="nearest",
+    )
+
+    return altitude_data_points.to_dataframe()
+
+
+def _combine_dataframes(
+    df: pd.DataFrame, climate_df: pd.DataFrame, altitude_df: pd.DataFrame
+) -> pd.DataFrame:
+    """Combine DataFrames and add altitude data."""
+    df = df.drop(columns=["range_date"]).reset_index(drop=True)
+    climate_df = climate_df.reset_index(drop=True)
+    altitude_df = altitude_df.drop(columns=["latitude", "longitude", "z"]).reset_index(
+        drop=True
+    )
+
+    df = pd.concat([df, climate_df, altitude_df], axis=1)
+    df["ALTITUDE_CLIMATE"] = altitude_df.altitude_climate.values
+    df.dropna(subset=["ALTITUDE_CLIMATE"], inplace=True)
+    return df
+
+
+def _calculate_elevation_difference(df: pd.DataFrame) -> pd.DataFrame:
+    """Calculate the difference between geopotential height and stake measurement elevation."""
+    df["ELEVATION_DIFFERENCE"] = df["ALTITUDE_CLIMATE"] - df["POINT_ELEVATION"]
+    return df

@@ -1,0 +1,5 @@
+2024-07-23T13:25:19; gridded_attributes; OSError; [Errno -101] NetCDF: HDF error: '/mnt/c/Users/Jbies/OneDrive/AES/MSc Thesis/MassBalanceMachine/notebooks/OGGM/per_glacier/RGI60-06/RGI60-06.00/RGI60-06.00232/gridded_data.nc'
+2024-07-23T13:38:21; gridded_attributes; OSError; [Errno -101] NetCDF: HDF error: '/mnt/c/Users/Jbies/OneDrive/AES/MSc Thesis/MassBalanceMachine/notebooks/OGGM/per_glacier/RGI60-06/RGI60-06.00/RGI60-06.00232/gridded_data.nc'
+2024-07-23T15:17:50; gridded_attributes; OSError; [Errno -101] NetCDF: HDF error: '/mnt/c/Users/Jbies/OneDrive/AES/MSc Thesis/MassBalanceMachine/notebooks/OGGM/per_glacier/RGI60-06/RGI60-06.00/RGI60-06.00232/gridded_data.nc'
+2024-07-23T15:18:44; gridded_attributes; OSError; [Errno -101] NetCDF: HDF error: '/mnt/c/Users/Jbies/OneDrive/AES/MSc Thesis/MassBalanceMachine/notebooks/OGGM/per_glacier/RGI60-06/RGI60-06.00/RGI60-06.00232/gridded_data.nc'
+2024-07-23T15:21:07; gridded_attributes; OSError; [Errno -101] NetCDF: HDF error: '/mnt/c/Users/Jbies/OneDrive/AES/MSc Thesis/MassBalanceMachine/notebooks/OGGM/per_glacier/RGI60-06/RGI60-06.00/RGI60-06.00232/gridded_data.nc'

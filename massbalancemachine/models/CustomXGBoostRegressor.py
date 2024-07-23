@@ -11,9 +11,10 @@ import pandas as pd
 
 from xgboost import XGBRegressor
 from sklearn.utils.validation import check_is_fitted
+from massbalancemachine.models import Model
 
 
-class CustomXGBoostRegressor(XGBRegressor):
+class CustomXGBoostRegressor(Model, XGBRegressor):
     """
     A custom XGBoost regressor that extends the XGBRegressor class.
 
@@ -30,6 +31,7 @@ class CustomXGBoostRegressor(XGBRegressor):
         Args:
             **kwargs: Keyword arguments to be passed to the parent XGBRegressor class.
         """
+        super(Model, self).__init__(**kwargs)
         super(CustomXGBoostRegressor, self).__init__(**kwargs)
 
     def fit(self, X, y, **fit_params):
