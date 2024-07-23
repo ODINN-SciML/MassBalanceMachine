@@ -6,6 +6,6 @@ massbalancemachine/__pycache__/
 massbalancemachine/data_processing/__pycache__/
 massbalancemachine/utils/__pycache__/
 
-notebooks/OGGM/per_glacier/**
+notebooks/OGGM/**
 
 notebooks/.ipynb_checkpoints
