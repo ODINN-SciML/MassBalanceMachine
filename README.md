@@ -1,3 +1,4 @@
+ [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 # MassBalanceMachine
 
 A bridge between mass balance modelling and observations. Global machine learning glacier mass balance modelling that assimilates all glaciological and remote sensing data sources.
