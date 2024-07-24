@@ -39,7 +39,27 @@ The `data_processing` package includes the `Dataset` class and methods to retrie
 
 ### 2. Data Loader
 
-[WIP]
+The `dataloader` package includes the `DataLoader` class that includes methods to split the data into a train and test dataset and create data partitions (splits) for cross validation.
+
+#### Methods
+
+`set_train_test_split(self, *, test_size: float = 0.3, random_seed: int = None, shuffle: bool = True) -> Tuple[Iterator[Any], Iterator[Any]]`
+
+* What it does: Splits the dataset into training and testing sets based on indices.
+* Input:
+  * `test_size`: Proportion of the dataset to include in the test split
+  * `random_seed`: Seed for the random number generator
+  * `shuffle`: Whether to shuffle the data before splitting
+* Output: A tuple of two iterators (train_iterator, test_iterator) containing indices for training and testing data
+
+`get_cv_split(self, *, n_splits: int = 5) -> Dict[str, Any]`
+
+* What it does: Creates a cross-validation split of the training data using GroupKFold.
+* Input:
+  * `n_splits`: Number of splits for cross-validation
+* Output: A dictionary containing:
+  * `glacier_ids`: Array of glacier IDs for the training data
+  * `splits`: List of (train, val) index pairs for each fold
 
 ### 3. Models
 
