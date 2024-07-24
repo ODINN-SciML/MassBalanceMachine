@@ -12,3 +12,6 @@ notebooks/.ipynb_checkpoints
 
 *.tox/
 *.tox
+
+*.site/
+site/
