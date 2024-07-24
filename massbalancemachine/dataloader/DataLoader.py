@@ -1,111 +1,152 @@
 """
+The DataLoader class is part of the massbalancemachine package and is designed for handling dataset operations
+for the different models that are available in the massbalancemachine package. It provides functionality for train-test splitting and cross-validation, specifically
+tailored for glacier mass balance datasets.
+
+Users can load their data into this class to prepare it for model training and testing. The class uses pandas
+for data manipulation and scikit-learn for splitting operations.
+
 @Author: Julian Biesheuvel
 Email: j.p.biesheuvel@student.tudelft.nl
-Date Created: 04/06/2024
+Date Created: 24/07/2024
 """
+
+from typing import Any, Iterator, Tuple, Dict, List
 
 import numpy as np
 import pandas as pd
-
-from sklearn.cluster import DBSCAN
-from sklearn.model_selection import GroupKFold
-from sklearn.model_selection import StratifiedKFold
-from sklearn.model_selection import train_test_split
-
-from massbalancemachine.data_processing import Dataset
+from sklearn.model_selection import GroupKFold, train_test_split
 
 
 class DataLoader:
-    def __init__(self, dataset: Dataset):
-        self.dataset = dataset
+    """
+    A class for loading and preprocessing glacier surface mass balance data for machine learning tasks.
+
+    This class provides methods for splitting data into train and test sets, and creating
+    cross-validation splits. It's designed to work with pandas DataFrames and maintains
+    consistency across different splits by using iterators and seeds.
+
+    Attributes:
+        data (pd.DataFrame): The input dataset.
+        n_splits (int): Number of splits for cross-validation.
+        random_seed (int): Seed for random operations to ensure reproducibility.
+        test_size (float): Proportion of the dataset to include in the test split.
+        cv_split (dict): Stores cross-validation split information.
+        train_iterator (Iterator): Iterator for training data indices.
+        test_iterator (Iterator): Iterator for test data indices.
+    """
+
+    def __init__(self, data: pd.DataFrame):
+        """
+        Initialize the DataLoader with the provided dataset.
+
+        Args:
+            data (pd.DataFrame): The input dataset to be processed.
+        """
+        self.data = data
+        self.n_splits = None
+        self.random_seed = None
+        self.test_size = None
         self.cv_split = None
         self.train_iterator = None
         self.test_iterator = None
 
-    def set_train_test_split(self, *, test_size=.3, random_seed=42, shuffle=True):
-        # Retrieve the data from the massbalancemachine dataset
-        df = self.dataset.data
+    def set_train_test_split(
+        self, *, test_size: float = 0.3, random_seed: int = None, shuffle: bool = True
+    ) -> Tuple[Iterator[Any], Iterator[Any]]:
+        """
+        Split the dataset into training and testing sets.
 
-        # Get the indices of the data, that will be split
-        indices = np.arange(len(df))
+        Args:
+            test_size (float): Proportion of the dataset to include in the test split.
+            random_seed (int): Seed for the random number generator.
+            shuffle (bool): Whether to shuffle the data before splitting.
 
-        # Split the dataset for training and testing
+        Returns:
+            Tuple[Iterator[Any], Iterator[Any]]: Iterators for training and testing indices.
+        """
+
+        # Save the test size and random seed as attributes of the dataloader
+        # object
+        self.test_size = test_size
+        self.random_seed = random_seed or np.random.randint(0, 2**32 - 1)
+
+        # Create a train test set based on indices, not the actual data
+        indices = np.arange(len(self.data))
         train_indices, test_indices = train_test_split(
-            indices,
-            test_size=test_size,
-            random_state=random_seed,
-            shuffle=shuffle
+            indices, test_size=test_size, random_state=self.random_seed, shuffle=shuffle
         )
 
-        # Create iterators
-        train_iterator = iter(train_indices)
-        test_iterator = iter(test_indices)
+        # Make it iterators and set as an attribute of the class
+        self.train_iterator = iter(train_indices)
+        self.test_iterator = iter(test_indices)
 
-        # Set the instance parameters to their new values
-        self.train_iterator = train_iterator
-        self.test_iterator = test_iterator
+        return self.train_iterator, self.test_iterator
 
-    def get_cv_split(self, *, n_splits=5):
-        # Retrieve the data from the massbalancemachine dataset
-        indices_train_data = list(self.train_iterator)
-        df = self.dataset.data.iloc[indices_train_data]
+    def get_cv_split(self, *, n_splits: int = 5) -> Dict[str, Any]:
+        """
+        Create a cross-validation split of the training data.
 
-        years = df['YEAR']
+        This method orchestrates the process of creating a cross-validation split,
+        using GroupKFold to ensure that data from the same glacier is not split
+        across different folds.
 
-        # Select features for training
-        df_X = df.drop(['YEAR', 'POINT_BALANCE', 'RGIId'], axis=1)
+        Args:
+            n_splits (int): Number of splits for cross-validation.
 
-        # Select the targets for training
-        df_y = df[['POINT_BALANCE']]
+        Returns:
+            Dict[str, Any]: A dictionary containing glacier IDs and CV split information.
 
-        # Get arrays of features+metadata and targets
-        X, y = df_X.values, df_y.values
+        Raises:
+            ValueError: If train_iterator is None (i.e., if set_train_test_split hasn't been called).
+        """
 
-        # Get glacier IDs from training dataset (in the order of which they appear in training dataset).
-        # gp_s is an array with shape equal to the shape of X_train_s and y_train_s.
-        glacier_ids = df['ID'].values
+        # Save the number of splits as an attribute of this class
+        self.n_splits = n_splits
 
-        # Use GroupKFold for splitting
-        group_kf_s = GroupKFold(n_splits=n_splits)
+        # Check if there is already a train iterator, this is needed to make
+        # the splits for CV
+        self._validate_train_iterator()
 
-        # Split into folds according to group by glacier ID
-        splits = group_kf_s.split(X, y, glacier_ids)
+        # Based on the indices of the data, obtain the actual data
+        train_data = self._get_train_data()
 
-        cv_split = {
-            'glacier_ids': glacier_ids,
-            'random_n_folds': splits,
-            'space': self.__class__._get_custom_folds(df_X, 'space'),
-            'time': self.__class__._get_custom_folds(df_X, 'time', years),
-            'spacetime': self.__class__._get_custom_folds(df_X, 'spacetime',years)
+        # From the training data get the features, targets, and glacier IDS
+        X, y, glacier_ids = self._prepare_data_for_cv(train_data)
+
+        # Create the cross validation splits
+        splits = self._create_group_kfold_splits(X, y, glacier_ids)
+
+        self.cv_split = {
+            "glacier_ids": glacier_ids,
+            "splits": splits,
         }
 
-        self.cv_split = cv_split
+        return self.cv_split
+
+    def _validate_train_iterator(self) -> None:
+        """Validate that the train_iterator has been set."""
+        if self.train_iterator is None:
+            raise ValueError("train_iterator is None. Call set_train_test_split first.")
+
+    def _get_train_data(self) -> pd.DataFrame:
+        """Retrieve the training data using the train_iterator."""
+        train_indices = list(self.train_iterator)
+        return self.data.iloc[train_indices]
 
     @staticmethod
-    def _get_custom_folds(df, type_split, n_folds=5, years=None):
-        X = None
+    def _prepare_data_for_cv(
+        train_data: pd.DataFrame,
+    ) -> Tuple[pd.DataFrame, pd.Series, np.ndarray]:
+        """Prepare the training data for cross-validation."""
+        X = train_data.drop(["YEAR", "POINT_BALANCE", "RGIId", "ID"], axis=1)
+        y = train_data["POINT_BALANCE"]
+        glacier_ids = train_data["ID"].values
+        return X, y, glacier_ids
 
-        # Match the type of folds are desired
-        match type_split:
-            case 'space':
-                X = df[['POINT_LAT', 'POINT_LON']]
-            case 'time':
-                X = years
-            case 'spacetime':
-                X = pd.concat([df, years], axis=1)
-
-        # Perform clustering with DBSCAN
-        epsilon = 0.01
-        min_samples = 5
-        dbscan = DBSCAN(eps=epsilon, min_samples=min_samples)
-        df['cluster_labels'] = dbscan.fit_predict(X)
-
-        # Filter out noise points (cluster label -1 indicates noise in DBSCAN)
-        df = df[df['cluster_labels'] != -1]
-
-        # Create the folds
-        n_folds = n_folds
-        df['fold'] = -1
-        stratified_kf = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=42)
-
-        return stratified_kf
+    def _create_group_kfold_splits(
+        self, X: pd.DataFrame, y: pd.Series, glacier_ids: np.ndarray
+    ) -> List[Tuple[np.ndarray, np.ndarray]]:
+        """Create GroupKFold splits based on glacier IDs."""
+        group_kf = GroupKFold(n_splits=self.n_splits)
+        return list(group_kf.split(X, y, glacier_ids))
