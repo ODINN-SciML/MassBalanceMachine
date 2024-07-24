@@ -11,10 +11,12 @@ import pandas as pd
 
 from xgboost import XGBRegressor
 from sklearn.utils.validation import check_is_fitted
-from massbalancemachine.models import Model
+
+from massbalancemachine.dataloader import DataLoader
+from massbalancemachine.models.Model import Model
 
 
-class CustomXGBoostRegressor(Model, XGBRegressor):
+class CustomXGBoostRegressor(XGBRegressor, Model):
     """
     A custom XGBoost regressor that extends the XGBRegressor class.
 
@@ -31,8 +33,8 @@ class CustomXGBoostRegressor(Model, XGBRegressor):
         Args:
             **kwargs: Keyword arguments to be passed to the parent XGBRegressor class.
         """
-        super(Model, self).__init__(**kwargs)
-        super(CustomXGBoostRegressor, self).__init__(**kwargs)
+        super(XGBRegressor).__init__(**kwargs)
+        super(Model).__init__(self)
 
     def fit(self, X, y, **fit_params):
         """
@@ -61,7 +63,7 @@ class CustomXGBoostRegressor(Model, XGBRegressor):
         self.set_params(objective=custom_objective)
 
         # Call fit method from parent class (XGBRegressor)
-        super().fit(features, y, **fit_params)
+        super(XGBRegressor).fit(features, y, **fit_params)
 
         return self
 
@@ -106,6 +108,13 @@ class CustomXGBoostRegressor(Model, XGBRegressor):
         check_is_fitted(self)
 
         return super().predict(features)
+
+    def perform_gridsearch(self, dataloader: DataLoader, random=True, loss='reg:squarederror', score='reg:squarederror',
+                           **params):
+        pass
+
+    def monthly_loss(self, metric='MSE'):
+        pass
 
     @staticmethod
     def _create_features_metadata(X):

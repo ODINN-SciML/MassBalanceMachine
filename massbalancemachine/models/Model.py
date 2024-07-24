@@ -3,13 +3,14 @@ from massbalancemachine.dataloader import DataLoader
 
 
 class Model(ABC):
-    def __init__(self, **params):
-        # TODO
-        default_params = {
-            ...
-        }
-        default_params.update(params)
-        self.params = default_params
+    def __init__(self): #**params
+        pass
+        # # TODO
+        # default_params = {
+        #     ...
+        # }
+        # default_params.update(params)
+        # self.params = default_params
 
     @abstractmethod
     def fit(self, dataloader: DataLoader, loss='reg:squarederror'):

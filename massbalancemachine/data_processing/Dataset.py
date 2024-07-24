@@ -34,7 +34,7 @@ class Dataset:
     """
 
     def __init__(self, *, data: pd.DataFrame, region_name: str, data_path: str):
-        self.data = self._check_dates(data=data.copy())
+        self.data = self._clean_data(data=data.copy())
         self.region = region_name
         self.data_dir = data_path
         self.RGIIds = self.data["RGIId"]
@@ -84,20 +84,20 @@ class Dataset:
         return os.path.join(self.data_dir, f"{self.region}_{feature_type}.csv")
 
     @staticmethod
+    def _clean_data(data: pd.DataFrame) -> pd.DataFrame:
+        """Cleans the input Dataframe by removing rows with missing or invalid dates, and
+        removes rows with invalid POINT_BALANCE values."""
+        # Fist, check if there are any faulty dates, if there are throw these out.
+        corrected_data = Dataset._check_dates(data=data)
+
+        # Second, drop all records without a POINT_BALANCE (e.g. NaN)
+        corrected_data.dropna(subset=['POINT_BALANCE'], inplace=True)
+
+        return corrected_data
+
+    @staticmethod
     def _check_dates(data: pd.DataFrame) -> pd.DataFrame:
-        """
-        Cleans the input DataFrame by removing rows with missing or invalid dates.
-
-        Args:
-            data (pd.DataFrame): The input DataFrame containing date columns 'FROM_DATE' and 'TO_DATE'.
-
-        Returns:
-            pd.DataFrame: The cleaned DataFrame with invalid or incomplete date records removed.
-
-        Raises:
-            KeyError: If required columns are missing from the DataFrame.
-            Exception: For any other error during date processing.
-        """
+        """Cleans the input DataFrame by removing rows with missing or invalid dates."""
         required_columns = ["FROM_DATE", "TO_DATE"]
         Dataset._validate_columns(data, required_columns)
 
@@ -111,44 +111,18 @@ class Dataset:
 
     @staticmethod
     def _validate_columns(data: pd.DataFrame, required_columns: list[str]) -> None:
-        """
-        Validates that all required columns are present in the DataFrame.
-
-        Args:
-            data (pd.DataFrame): The input DataFrame
-            required_columns (list[str]): List of required column names
-
-        Raises:
-            KeyError: If any required column is missing
-        """
+        """Validates that all required columns are present in the DataFrame."""
         if not all(col in data.columns for col in required_columns):
             logging.error(f"Missing one of the required columns: {required_columns}")
             raise KeyError(f"Required columns {required_columns} are not present in the DataFrame.")
 
     @staticmethod
     def _remove_missing_dates(data: pd.DataFrame, date_columns: list[str]) -> pd.DataFrame:
-        """
-        Removes rows with missing dates from the DataFrame.
-
-        Args:
-            data (pd.DataFrame): The input DataFrame
-            date_columns (list[str]): List of date column names
-
-        Returns:
-            pd.DataFrame: DataFrame with rows containing missing dates removed
-        """
+        """Removes rows with missing dates from the DataFrame."""
         return data.dropna(subset=date_columns)
 
     @staticmethod
     def _convert_and_filter_dates(data: pd.DataFrame) -> pd.DataFrame:
-        """
-        Converts date columns to string and filters out invalid dates.
-
-        Args:
-            data (pd.DataFrame): The input DataFrame
-
-        Returns:
-            pd.DataFrame: DataFrame with date columns converted and invalid dates filtered out
-        """
+        """Converts date columns to string and filters out invalid dates."""
         data = data.astype({"FROM_DATE": str, "TO_DATE": str})
         return data[~data["FROM_DATE"].str.endswith("99") & ~data["TO_DATE"].str.endswith("99")]
