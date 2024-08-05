@@ -1,7 +1,8 @@
 import pandas as pd
 import numpy as np
-
+import pyproj
 from scripts.wgs84_ch1903 import *
+from scipy.spatial.distance import cdist
 
 # Converts .dat files to .csv
 def processDatFile(fileName, path_dat, path_csv):
@@ -76,3 +77,19 @@ def LV03toWGS84(df):
     df['height'] = height
     df.drop(['x_pos', 'y_pos', 'z_pos'], axis=1, inplace=True)
     return df
+
+def latlon_to_laea(lat, lon):
+    # Define the transformer: WGS84 to ETRS89 / LAEA Europe
+    transformer = pyproj.Transformer.from_crs("epsg:4326", "epsg:3035")
+
+    # Perform the transformation
+    easting, northing = transformer.transform(lat, lon)
+    return easting, northing
+
+def closest_point(point, points):
+    """ Find closest point from a list of points. """
+    return points[cdist([point], points).argmin()]
+
+def match_value(df, col1, x, col2):
+    """ Match value x from col1 row to value in col2. """
+    return df[df[col1] == x][col2].values[0]
