@@ -33,8 +33,7 @@ class CustomXGBoostRegressor(XGBRegressor, Model):
         Args:
             **kwargs: Keyword arguments to be passed to the parent XGBRegressor class.
         """
-        super(XGBRegressor).__init__(**kwargs)
-        super(Model).__init__(self)
+        super().__init__(**kwargs)
 
     def fit(self, X, y, **fit_params):
         """
@@ -44,6 +43,7 @@ class CustomXGBoostRegressor(XGBRegressor, Model):
         a custom objective function that uses metadata.
 
         Args:
+            **kwargs:
             X (pd.DataFrame): The input features including metadata columns.
             y (array-like): The target values.
             **fit_params: Additional parameters to be passed to the parent fit method.
@@ -63,7 +63,7 @@ class CustomXGBoostRegressor(XGBRegressor, Model):
         self.set_params(objective=custom_objective)
 
         # Call fit method from parent class (XGBRegressor)
-        super(XGBRegressor).fit(features, y, **fit_params)
+        super().fit(features, y, **fit_params)
 
         return self
 
@@ -108,13 +108,6 @@ class CustomXGBoostRegressor(XGBRegressor, Model):
         check_is_fitted(self)
 
         return super().predict(features)
-
-    def perform_gridsearch(self, dataloader: DataLoader, random=True, loss='reg:squarederror', score='reg:squarederror',
-                           **params):
-        pass
-
-    def monthly_loss(self, metric='MSE'):
-        pass
 
     @staticmethod
     def _create_features_metadata(X):
