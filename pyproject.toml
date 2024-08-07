@@ -12,7 +12,7 @@ packages = [
 
 [tool.poetry.dependencies]
 python = ">=3.10,<3.13"
-numpy = "^2.0.0"
+numpy = "1.26.0"
 scipy = "^1.14.0"
 pandas = "^2.2.2"
 shapely = "^2.0.5"

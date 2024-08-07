@@ -48,8 +48,8 @@ class DataLoader:
         self.random_seed = None
         self.test_size = None
         self.cv_split = None
-        self.train_iterator = None
-        self.test_iterator = None
+        self.train_indices = None
+        self.test_indices = None
 
     def set_train_test_split(
         self, *, test_size: float = 0.3, random_seed: int = None, shuffle: bool = True
@@ -69,7 +69,7 @@ class DataLoader:
         # Save the test size and random seed as attributes of the dataloader
         # object
         self.test_size = test_size
-        self.random_seed = random_seed or np.random.randint(0, 2**32 - 1)
+        self.random_seed = random_seed or np.random.seed()
 
         # Create a train test set based on indices, not the actual data
         indices = np.arange(len(self.data))
@@ -78,10 +78,10 @@ class DataLoader:
         )
 
         # Make it iterators and set as an attribute of the class
-        self.train_iterator = iter(train_indices)
-        self.test_iterator = iter(test_indices)
+        self.train_indices = train_indices
+        self.test_indices = test_indices
 
-        return self.train_iterator, self.test_iterator
+        return iter(self.train_indices), iter(self.test_indices)
 
     def get_cv_split(self, *, n_splits: int = 5) -> Dict[str, Any]:
         """
@@ -124,14 +124,18 @@ class DataLoader:
 
         return self.cv_split
 
+    def get_train_test_indices(self):
+        """Return the train and test indices."""
+        return self.train_indices, self.test_indices
+
     def _validate_train_iterator(self) -> None:
         """Validate that the train_iterator has been set."""
-        if self.train_iterator is None:
+        if self.train_indices is None:
             raise ValueError("train_iterator is None. Call set_train_test_split first.")
 
     def _get_train_data(self) -> pd.DataFrame:
         """Retrieve the training data using the train_iterator."""
-        train_indices = list(self.train_iterator)
+        train_indices = self.train_indices
         return self.data.iloc[train_indices]
 
     @staticmethod
