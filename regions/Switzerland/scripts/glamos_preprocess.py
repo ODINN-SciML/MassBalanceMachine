@@ -93,3 +93,56 @@ def closest_point(point, points):
 def match_value(df, col1, x, col2):
     """ Match value x from col1 row to value in col2. """
     return df[df[col1] == x][col2].values[0]
+
+
+def remove_close_points(df_gl):
+    df_gl_cleaned = pd.DataFrame()
+    for year in df_gl.YEAR.unique():
+        for period in ['annual', 'winter']:
+            df_gl_y = df_gl[(df_gl.YEAR == year) & (df_gl.PERIOD == period)]
+            if len(df_gl_y) <= 1:
+                continue
+
+            # Calculate distances to other points:
+            df_gl_y['x'], df_gl_y['y'] = latlon_to_laea(
+                df_gl_y['POINT_LAT'], df_gl_y['POINT_LON'])
+
+            distance = cdist(df_gl_y[['x', 'y']], df_gl_y[['x', 'y']],
+                             'euclidean')
+            df_gl_y['point'] = [
+                (x, y)
+                for x, y in zip(df_gl_y['POINT_LAT'], df_gl_y['POINT_LON'])
+            ]
+
+            indices_to_merge = []
+            for i in range(len(df_gl_y)):
+                row = df_gl_y.iloc[i]
+                # search points with a distance less than 10m
+                index_closest = np.where(distance[i, :] < 10)[0]
+
+                # if not just itself:
+                if len(index_closest) > 1:
+                    # save the indices to merge
+                    indices_to_merge.append(index_closest)
+
+            # Convert numpy arrays to tuples and use a set to remove duplicates
+            unique_indices = list(set(tuple(row) for row in indices_to_merge))
+
+            # Convert tuples back to numpy arrays
+            unique_indices = [np.array(row) for row in unique_indices]
+
+            # Remove surplus points:
+            indices_to_drop = []
+            for index in unique_indices:
+                mean_MB = df_gl_y.iloc[index].POINT_BALANCE.mean()
+                df_gl_y.iloc[index[0]]['POINT_BALANCE'] = mean_MB
+                indices_to_drop.append(index[1:])
+
+            if len(indices_to_drop) > 0:
+                indices_to_drop = df_gl_y.index[np.concatenate(
+                    indices_to_drop)]
+                df_gl_y.drop(index=indices_to_drop, inplace=True)
+                # print('{}: Dropped points: {}, {}'.format(period, len(indices_to_drop), list(indices_to_drop)))
+            df_gl_cleaned = pd.concat([df_gl_cleaned, df_gl_y])
+    print('Number of points dropped:', len(df_gl) - len(df_gl_cleaned))
+    return df_gl_cleaned
