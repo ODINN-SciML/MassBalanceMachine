@@ -15,6 +15,7 @@ from typing import Any, Iterator, Tuple, Dict, List
 
 import numpy as np
 import pandas as pd
+from numpy import ndarray
 from sklearn.model_selection import GroupKFold, train_test_split
 
 
@@ -31,7 +32,7 @@ class DataLoader:
         n_splits (int): Number of splits for cross-validation.
         random_seed (int): Seed for random operations to ensure reproducibility.
         test_size (float): Proportion of the dataset to include in the test split.
-        cv_split (dict): Stores cross-validation split information.
+        cv_split (tuple[list[tuple[ndarray, ndarray]]]): Stores cross-validation split information.
         train_iterator (Iterator): Iterator for training data indices.
         test_iterator (Iterator): Iterator for test data indices.
     """
@@ -83,7 +84,7 @@ class DataLoader:
 
         return iter(self.train_indices), iter(self.test_indices)
 
-    def get_cv_split(self, *, n_splits: int = 5) -> Dict[str, Any]:
+    def get_cv_split(self, *, n_splits: int = 5) -> tuple[list[tuple[ndarray, ndarray]]]:
         """
         Create a cross-validation split of the training data.
 
@@ -95,7 +96,7 @@ class DataLoader:
             n_splits (int): Number of splits for cross-validation.
 
         Returns:
-            Dict[str, Any]: A dictionary containing glacier IDs and CV split information.
+            tuple[list[tuple[ndarray, ndarray]]]: A dictionary containing glacier IDs and CV split information.
 
         Raises:
             ValueError: If train_iterator is None (i.e., if set_train_test_split hasn't been called).
@@ -117,10 +118,7 @@ class DataLoader:
         # Create the cross validation splits
         splits = self._create_group_kfold_splits(X, y, glacier_ids)
 
-        self.cv_split = {
-            "glacier_ids": glacier_ids,
-            "splits": splits,
-        }
+        self.cv_split = splits,
 
         return self.cv_split
 
