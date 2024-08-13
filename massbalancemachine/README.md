@@ -1,10 +1,12 @@
 # MassBalanceMachine Core
 
-The MassBalanceMachine core consists of the following sub-packages:
+In this README, for all packages included in the `massbalancemachine`, all methods that are relevant to the user are listed together with their input and output. The MassBalanceMachine core consists of the following sub-packages:
 
 ### 1. Data Processing
 
 The `data_processing` package includes the `Dataset` class and methods to retrieve topographical and meteorological data, and transform the dataset to a monthly resolution.
+
+#### Dataset
 
 #### Methods
 
@@ -37,35 +39,7 @@ The `data_processing` package includes the `Dataset` class and methods to retrie
     * `vois_topographical`: List of strings representing topographical variables of interest
   * Output: None (updates `self.data` with monthly resolution data)
 
-### 2. Data Loader
-
-The `dataloader` package includes the `DataLoader` class that includes methods to split the data into a train and test dataset and create data partitions (splits) for cross validation.
-
-#### Methods
-
-`set_train_test_split(self, *, test_size: float = 0.3, random_seed: int = None, shuffle: bool = True) -> Tuple[Iterator[Any], Iterator[Any]]`
-
-* What it does: Splits the dataset into training and testing sets based on indices.
-* Input:
-  * `test_size`: Proportion of the dataset to include in the test split
-  * `random_seed`: Seed for the random number generator
-  * `shuffle`: Whether to shuffle the data before splitting
-* Output: A tuple of two iterators (train_iterator, test_iterator) containing indices for training and testing data
-
-`get_cv_split(self, *, n_splits: int = 5) -> Dict[str, Any]`
-
-* What it does: Creates a cross-validation split of the training data using GroupKFold.
-* Input:
-  * `n_splits`: Number of splits for cross-validation
-* Output: A dictionary containing:
-  * `glacier_ids`: Array of glacier IDs for the training data
-  * `splits`: List of (train, val) index pairs for each fold
-
-### 3. Models
-
-[WIP]
-
-### 4. Utils
+#### Utils
 
 The `utils` package includes methods for data exploration and data pre-processing. These methods do not have to be called with a `Dataset` object, but can be directly called from the `massbalancemachine` package, for example: `massbalancemachine.plot_stake_timeseries()`.
 
@@ -109,3 +83,81 @@ The `utils` package includes methods for data exploration and data pre-processin
     * `data`: Pandas DataFrame containing stake measurements with 'POINT\_LON' and 'POINT\_LAT' columns
     * `glacier_outlines`: GeoDataFrame containing glacier outlines with 'RGIId' column
   * Output: GeoDataFrame with original data and added 'RGIId' column for each stake measurement
+
+### 2. Data Loader
+
+The `dataloader` package includes the `DataLoader` class that includes methods to split the data into a train and test dataset and create data partitions (splits) for cross validation.
+
+#### Methods
+
+`set_train_test_split(self, *, test_size: float = 0.3, random_seed: int = None, shuffle: bool = True) -> Tuple[Iterator[Any], Iterator[Any]]`
+
+* What it does: Splits the dataset into training and testing sets based on indices.
+* Input:
+  * `test_size` (float): Proportion of the dataset to include in the test split.
+  * `random_seed` (int, optional): Seed for the random number generator. If None, a random seed is used.
+  * `shuffle` (bool): Whether to shuffle the data before splitting.
+* Output: A tuple of two iterators:
+  * `train_iterator`: Iterator for the indices of the training data.
+  * `test_iterator`: Iterator for the indices of the testing data.
+
+`get_cv_split(self, *, n_splits: int = 5) -> Tuple[List[Tuple[ndarray, ndarray]]]`
+
+* What it does: Creates a cross-validation split of the training data using GroupKFold.
+* Input:
+  * `n_splits` (int): Number of splits for cross-validation.
+* Output: A tuple containing:
+  * A list of tuples, where each tuple represents a fold and contains:
+    * `train_indices` (ndarray): Indices for the training data in the fold.
+    * `val_indices` (ndarray): Indices for the validation data in the fold.
+* Raises:
+  * `ValueError`: If `train_indices` is None (i.e., if `set_train_test_split` hasn't been called).
+
+### 3. Models
+
+The `models` package includes different machine learning models. Users can create a new instance of one of these models and then train it with their data.
+
+#### 3.1 CustomXGBoostRegressor
+
+#### Methods
+
+`gridsearch(self, parameters: Dict[str, Union[list, np.ndarray]], splits: Dict[str, Union[list, np.ndarray]], features: pd.DataFrame, targets: np.ndarray, num_jobs: int = -1) -> None`
+
+* What it does: Performs a grid search for hyperparameter tuning using GridSearchCV.
+* Input:
+  * `parameters` (dict): A dictionary of parameters to search over.
+  * `splits` (dict): A dictionary containing cross-validation split information.
+  * `features` (pd.DataFrame): The input features for training.
+  * `targets` (np.ndarray): The target values for training.
+  * `num_jobs` (int, optional): The number of parallel jobs to run. Defaults to -1 (uses all processors).
+* Output: None
+* Sets:
+  * `self.param_search` (GridSearchCV): The fitted GridSearchCV object.
+
+`randomsearch(self, parameters: Dict[str, Union[list, np.ndarray]], n_iter: int, splits: Dict[str, Union[list, np.ndarray]], features: pd.DataFrame, targets: np.ndarray, num_jobs: int = -1) -> None`
+
+* What it does: Performs a randomized search for hyperparameter tuning using RandomizedSearchCV.
+* Input:
+  * `parameters` (dict): A dictionary of parameters and their distributions to sample from.
+  * `n_iter` (int): Number of parameter settings that are sampled.
+  * `splits` (dict): A dictionary containing cross-validation split information.
+  * `features` (pd.DataFrame): The input features for training.
+  * `targets` (np.ndarray): The target values for training.
+  * `num_jobs` (int, optional): The number of parallel jobs to run. Defaults to -1 (uses all processors).
+* Output: None
+* Sets:
+  * `self.param_search` (RandomizedSearchCV): The fitted RandomizedSearchCV object.
+
+`save_model(self, fname: str) -> None`
+
+* What it does: Saves a grid search or randomized search CV instance to a file.
+* Input:
+  * `fname` (str): The filename to save the model.
+* Output: None
+
+`load_model(cls, fname: str) -> Union[GridSearchCV, RandomizedSearchCV]`
+
+* What it does: Loads a grid search or randomized search CV instance from a file.
+* Input:
+  * `fname` (str): The filename from which to load the model.
+* Output: The loaded GridSearchCV or RandomizedSearchCV object.
