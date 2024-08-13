@@ -41,7 +41,7 @@ class Dataset:
         self.data_dir = data_path
         self.RGIIds = self.data["RGIId"]
 
-    def get_topo_features(self, *, vois: list[str]) -> None:
+    def get_topo_features(self, *, vois: "list[str]") -> None:
         """
         Fetches all the topographical data, for a list of variables of interest, using OGGM for the specified RGI IDs
 
@@ -52,8 +52,11 @@ class Dataset:
         self.data = get_topographical_features(self.data, output_fname, vois,
                                                self.RGIIds)
 
-    def get_climate_features(self, *, climate_data: str,
-                             geopotential_data: str) -> None:
+    def get_climate_features(self,
+                             *,
+                             climate_data: str,
+                             geopotential_data: str,
+                             change_units: bool = False) -> None:
         """
         Fetches all the climate data, for a list of variables of interest, for the specified RGI IDs.
 
@@ -63,10 +66,10 @@ class Dataset:
         """
         output_fname = self._get_output_filename("climate_features")
         self.data = get_climate_features(self.data, output_fname, climate_data,
-                                         geopotential_data)
+                                         geopotential_data, change_units)
 
-    def convert_to_monthly(self, *, vois_climate: list[str],
-                           vois_topographical: list[str]) -> None:
+    def convert_to_monthly(self, *, vois_climate: "list[str]",
+                           vois_topographical: "list[str]") -> None:
         """
         Converts a variable period for the SMB target data measurement to a monthly time resolution.
 
@@ -118,7 +121,7 @@ class Dataset:
 
     @staticmethod
     def _validate_columns(data: pd.DataFrame,
-                          required_columns: list[str]) -> None:
+                          required_columns: "list[str]") -> None:
         """Validates that all required columns are present in the DataFrame."""
         if not all(col in data.columns for col in required_columns):
             logging.error(
@@ -129,7 +132,7 @@ class Dataset:
 
     @staticmethod
     def _remove_missing_dates(data: pd.DataFrame,
-                              date_columns: list[str]) -> pd.DataFrame:
+                              date_columns: "list[str]") -> pd.DataFrame:
         """Removes rows with missing dates from the DataFrame."""
         return data.dropna(subset=date_columns)
 
