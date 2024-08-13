@@ -212,8 +212,11 @@ def _combine_dataframes(
     )
 
     df = pd.concat([df, climate_df, altitude_df], axis=1)
-    df["ALTITUDE_CLIMATE"] = altitude_df.altitude_climate.values
+    #df["ALTITUDE_CLIMATE"] = altitude_df.altitude_climate.values
+    # rename column
+    df.rename(columns={"altitude_climate": "ALTITUDE_CLIMATE"}, inplace=True)
     df.dropna(subset=["ALTITUDE_CLIMATE"], inplace=True)
+
     return df
 
 

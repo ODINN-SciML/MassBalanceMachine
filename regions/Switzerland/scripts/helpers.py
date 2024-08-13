@@ -11,6 +11,9 @@ path_PMB_GLAMOS_csv_w = path_PMB_GLAMOS_csv + 'winter/'
 path_PMB_GLAMOS_csv_w_clean = path_PMB_GLAMOS_csv + 'winter_clean/'
 path_PMB_GLAMOS_csv_a = path_PMB_GLAMOS_csv + 'annual/'
 
+# ERA5-Land
+path_ERA5_raw = '../../../data/ERA5Land/raw/'
+
 
 def createPath(path):
     if not os.path.exists(path):
