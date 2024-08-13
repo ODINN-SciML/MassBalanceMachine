@@ -53,8 +53,11 @@ class DataLoader:
         self.test_indices = None
 
     def set_train_test_split(
-        self, *, test_size: float = 0.3, random_seed: int = None, shuffle: bool = True
-    ) -> Tuple[Iterator[Any], Iterator[Any]]:
+            self,
+            *,
+            test_size: float = 0.3,
+            random_seed: int = None,
+            shuffle: bool = True) -> Tuple[Iterator[Any], Iterator[Any]]:
         """
         Split the dataset into training and testing sets.
 
@@ -75,8 +78,10 @@ class DataLoader:
         # Create a train test set based on indices, not the actual data
         indices = np.arange(len(self.data))
         train_indices, test_indices = train_test_split(
-            indices, test_size=test_size, random_state=self.random_seed, shuffle=shuffle
-        )
+            indices,
+            test_size=test_size,
+            random_state=self.random_seed,
+            shuffle=shuffle)
 
         # Make it iterators and set as an attribute of the class
         self.train_indices = train_indices
@@ -84,7 +89,10 @@ class DataLoader:
 
         return iter(self.train_indices), iter(self.test_indices)
 
-    def get_cv_split(self, *, n_splits: int = 5) -> tuple[list[tuple[ndarray, ndarray]]]:
+    def get_cv_split(
+            self,
+            *,
+            n_splits: int = 5) -> "tuple[list[tuple[ndarray, ndarray]]]":
         """
         Create a cross-validation split of the training data.
 
@@ -129,7 +137,8 @@ class DataLoader:
     def _validate_train_iterator(self) -> None:
         """Validate that the train_iterator has been set."""
         if self.train_indices is None:
-            raise ValueError("train_iterator is None. Call set_train_test_split first.")
+            raise ValueError(
+                "train_iterator is None. Call set_train_test_split first.")
 
     def _get_train_data(self) -> pd.DataFrame:
         """Retrieve the training data using the train_iterator."""
@@ -147,8 +156,8 @@ class DataLoader:
         return X, y, glacier_ids
 
     def _create_group_kfold_splits(
-        self, X: pd.DataFrame, y: pd.Series, glacier_ids: np.ndarray
-    ) -> List[Tuple[np.ndarray, np.ndarray]]:
+            self, X: pd.DataFrame, y: pd.Series,
+            glacier_ids: np.ndarray) -> List[Tuple[np.ndarray, np.ndarray]]:
         """Create GroupKFold splits based on glacier IDs."""
         group_kf = GroupKFold(n_splits=self.n_splits)
         return list(group_kf.split(X, y, glacier_ids))
