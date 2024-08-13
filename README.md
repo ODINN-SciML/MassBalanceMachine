@@ -76,15 +76,14 @@ Specifically, the example notebooks concentrate on glaciers documented in the WG
 1. **Data Pre-processing 🌍**: Users have two options for preparing their data. They can choose to follow a notebook that converts their data into the WGMS format (available [here](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/data_preprocessing.ipynb)), or they can start with their data already formatted in the WGMS standard (found [here](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/data_processing_wgms.ipynb)). In both workflows, topographical and climate data are fetched and aligned with the stake measurements. Subsequently, the data is aggregated to a monthly resolution, preparing it for use as training data for the model.
    - **Note:** If the OGGM cluster is shut down, users will be unable to retrieve topographical features for their region of interest. If you encounter a 403 error in your notebook while trying to retrieve these features, it likely means that the OGGM cluster is down. You can check the status of the cluster on their [Slack channel](https://oggm.org/2022/10/11/Welcome-to-the-OGGM-Slack/).
 2. **Data Exploration 🔍**: Users can gain deeper insights into their data by visualizing time series of the available stake measurements, which are related to either the region-wide surface mass balance or the point surface mass balance. The example is available [here](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/date_exploration.ipynb).
-3. **Model Training 🚀**: Users can choose from two models. One option is the XGBoost model, with an example available in this [notebook](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/xgboost_model_training.ipynb). The other option is a neural network, which will be released in the future. Both models are customized to handle the monthly resolution of the data. In the notebooks, the models will be trained using the data obtained earlier.
-4. **Model Testing 🎯** [WIP]
+3. **Model Training 🚀 & Testing 🎯**: Users can choose from two models. One option is the XGBoost model, with an example available in this [notebook](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/model_training_xgboost.ipynb). The other option is a neural network, which will be released in the future. Both models are customized to handle the monthly resolution of the data. In the notebooks, the models will be trained using the data obtained earlier.
 
 ## Project Structure
 
 - The ```massbalancemachine``` package contains the core components of MassBalanceMachine, including scripts, classes, and example Jupyter Notebooks that are essential for new users to start a MassBalanceMachine project. This core package, named massbalancemachine, can be imported into scripts and Jupyter Notebooks as needed.
 - ```regions``` contains additional scripts, classes, and Jupyter Notebooks that are tailored for MassBalanceMachine instances that operate in different regions in the world. If the region you are interested in is not on this list, you can, with a pull request, add this to the repository. Please make sure you do not upload any confidential or unpublished data. Regions that are covered so far:
   - [WIP] ```Iceland```
-  - [COMING SOON] ```Switzerland```
+  - [WIP] ```Switzerland```
   - [COMING SOON] ``Norway``
   - [ADD YOUR OWN REGION]. PRs welcome! Message us if you have questions 🙂
 
@@ -99,25 +98,21 @@ The following features are on the roadmap to be implemented in the coming months
 ## Contributors
 
 <!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
-
 <!-- prettier-ignore-start -->
-
 <!-- markdownlint-disable -->
-
 <table>
   <tbody>
     <tr>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/JulianBiesheuvel"><img src="https://avatars.githubusercontent.com/u/16390017?v=4?s=100" width="100px;" alt="Julian"/><br /><sub><b>Julian</b></sub></a><br /><a href="#code-JulianBiesheuvel" title="Code">💻</a> <a href="#doc-JulianBiesheuvel" title="Documentation">📖</a> <a href="#maintenance-JulianBiesheuvel" title="Maintenance">🚧</a> <a href="#data-JulianBiesheuvel" title="Data">🔣</a> <a href="#research-JulianBiesheuvel" title="Research">🔬</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/khsjursen"><img src="https://avatars.githubusercontent.com/u/69296367?v=4?s=100" width="100px;" alt="khsjursen"/><br /><sub><b>khsjursen</b></sub></a><br /><a href="#research-khsjursen" title="Research">🔬</a> <a href="#code-khsjursen" title="Code">💻</a> <a href="#ideas-khsjursen" title="Ideas, Planning, & Feedback">🤔</a> <a href="#data-khsjursen" title="Data">🔣</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://jordibolibar.wordpress.com"><img src="https://avatars.githubusercontent.com/u/2025815?v=4?s=100" width="100px;" alt="Jordi Bolibar"/><br /><sub><b>Jordi Bolibar</b></sub></a><br /><a href="#research-JordiBolibar" title="Research">🔬</a> <a href="#projectManagement-JordiBolibar" title="Project Management">📆</a> <a href="#financial-JordiBolibar" title="Financial">💵</a> <a href="#ideas-JordiBolibar" title="Ideas, Planning, & Feedback">🤔</a> <a href="#mentoring-JordiBolibar" title="Mentoring">🧑‍🏫</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/marvande"><img src="https://avatars.githubusercontent.com/u/22401294?v=4?s=100" width="100px;" alt="Marijn  "/><br /><sub><b>Marijn  </b></sub></a><br /><a href="#ideas-marvande" title="Ideas, Planning, & Feedback">🤔</a> <a href="#data-marvande" title="Data">🔣</a> <a href="#research-marvande" title="Research">🔬</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/marvande"><img src="https://avatars.githubusercontent.com/u/22401294?v=4?s=100" width="100px;" alt="Marijn  "/><br /><sub><b>Marijn  </b></sub></a><br /><a href="#ideas-marvande" title="Ideas, Planning, & Feedback">🤔</a> <a href="#data-marvande" title="Data">🔣</a> <a href="#research-marvande" title="Research">🔬</a> <a href="#code-marvande" title="Code">💻</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/zekollari"><img src="https://avatars.githubusercontent.com/u/19975538?v=4?s=100" width="100px;" alt="zekollari"/><br /><sub><b>zekollari</b></sub></a><br /><a href="#research-zekollari" title="Research">🔬</a> <a href="#financial-zekollari" title="Financial">💵</a> <a href="#ideas-zekollari" title="Ideas, Planning, & Feedback">🤔</a> <a href="#mentoring-zekollari" title="Mentoring">🧑‍🏫</a></td>
     </tr>
   </tbody>
 </table>
 
 <!-- markdownlint-restore -->
-
 <!-- prettier-ignore-end -->
 
 <!-- ALL-CONTRIBUTORS-LIST:END -->

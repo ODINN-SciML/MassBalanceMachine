@@ -7,7 +7,7 @@ massbalancemachine/data_processing/__pycache__/
 massbalancemachine/utils/__pycache__/
 
 notebooks/OGGM/**
-
+notebooks/models
 notebooks/.ipynb_checkpoints
 
 *.tox/
@@ -15,3 +15,7 @@ notebooks/.ipynb_checkpoints
 
 *.site/
 site/
+
+notebooks/example_data/iceland/files/iceland_climate_features.csv
+notebooks/example_data/iceland/files/iceland_monthly_dataset.csv
+notebooks/example_data/iceland/files/iceland_topographical_features.csv
