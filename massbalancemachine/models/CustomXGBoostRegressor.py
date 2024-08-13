@@ -1,22 +1,28 @@
 """
 This code is taken, and refactored, and inspired from the work performed by: Kamilla Hauknes Sjursen
 
+The CustomXGBoostRegressor class inherits from the XGBoost Regressor and is adapted to account for a monthly resolution.
+
 @Author: Julian Biesheuvel
 Email: j.p.biesheuvel@student.tudelft.nl
-Date Created: 18/07/2024
+Date Created: 09/08/2024
 """
+
+from typing import Union, Dict, Tuple
+from pathlib import Path
+from contextlib import contextmanager
+
+import dill
 
 import numpy as np
 import pandas as pd
 
 from xgboost import XGBRegressor
+from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 from sklearn.utils.validation import check_is_fitted
 
-from massbalancemachine.dataloader import DataLoader
-from massbalancemachine.models.Model import Model
 
-
-class CustomXGBoostRegressor(XGBRegressor, Model):
+class CustomXGBoostRegressor(XGBRegressor):
     """
     A custom XGBoost regressor that extends the XGBRegressor class.
 
@@ -34,8 +40,90 @@ class CustomXGBoostRegressor(XGBRegressor, Model):
             **kwargs: Keyword arguments to be passed to the parent XGBRegressor class.
         """
         super().__init__(**kwargs)
+        self.param_search = None
 
-    def fit(self, X, y, **fit_params):
+    def gridsearch(
+        self,
+        parameters: Dict[str, Union[list, np.ndarray]],
+        splits: Dict[str, Union[list, np.ndarray]],
+        features: pd.DataFrame,
+        targets: np.ndarray,
+        num_jobs: int = -1,
+    ) -> None:
+        """
+        Perform a grid search for hyperparameter tuning.
+
+        This method uses GridSearchCV to exhaustively search through a specified parameter grid.
+
+        Args:
+            parameters (dict): A dictionary of parameters to search over.
+            splits (tuple[list[tuple[ndarray, ndarray]]]): A dictionary containing cross-validation split information.
+            features (pandas.DataFrame): The input features for training.
+            targets (array-like): The target values for training.
+            num_jobs (int, optional): The number of jobs to run in parallel. -1 means using all processors. Defaults to -1.
+
+        Sets:
+            self.param_search (GridSearchCV): The fitted GridSearchCV object.
+        """
+        clf = GridSearchCV(
+            estimator=self,
+            param_grid=parameters,
+            cv=splits,
+            verbose=1,
+            n_jobs=num_jobs,
+            scoring=None,  # Uses default in CustomXGBRegressor()
+            refit=True,
+            error_score="raise",
+            return_train_score=True,
+        )
+
+        clf.fit(features, targets)
+        self.param_search = clf
+
+    def randomsearch(
+        self,
+        parameters: Dict[str, Union[list, np.ndarray]],
+        n_iter: int,
+        splits: Dict[str, Union[list, np.ndarray]],
+        features: pd.DataFrame,
+        targets: np.ndarray,
+        num_jobs: int = -1,
+    ) -> None:
+        """
+        Perform a randomized search for hyperparameter tuning.
+
+        This method uses RandomizedSearchCV to search a subset of the specified parameter space.
+
+        Args:
+            parameters (dict): A dictionary of parameters and their distributions to sample from.
+            n_iter (int): Number of parameter settings that are sampled.
+            splits (tuple[list[tuple[ndarray, ndarray]]]): A dictionary containing cross-validation split information.
+            features (pandas.DataFrame): The input features for training.
+            targets (array-like): The target values for training.
+            num_jobs (int, optional): The number of jobs to run in parallel. -1 means using all processors. Defaults to -1.
+
+        Sets:
+            self.param_search (RandomizedSearchCV): The fitted RandomizedSearchCV object.
+        """
+        clf = RandomizedSearchCV(
+            estimator=self,
+            param_distributions=parameters,
+            n_iter=n_iter,
+            cv=splits,
+            verbose=1,
+            n_jobs=num_jobs,
+            scoring=None,  # Uses default in CustomXGBRegressor()
+            refit=True,
+            error_score="raise",
+            return_train_score=True,
+        )
+
+        clf.fit(features, targets)
+        self.param_search = clf
+
+    def fit(
+        self, X: pd.DataFrame, y: np.array, **fit_params
+    ) -> "CustomXGBoostRegressor":
         """
         Fit the model to the training data.
 
@@ -62,12 +150,13 @@ class CustomXGBoostRegressor(XGBRegressor, Model):
         # Set custom objective
         self.set_params(objective=custom_objective)
 
-        # Call fit method from parent class (XGBRegressor)
+        # Call the git function from the XGBoost library with the custom
+        # objective function
         super().fit(features, y, **fit_params)
 
         return self
 
-    def score(self, X, y):
+    def score(self, X: pd.DataFrame, y: np.array) -> float:
         """
         Compute the mean squared error of the model on the given test data and labels.
 
@@ -87,14 +176,16 @@ class CustomXGBoostRegressor(XGBRegressor, Model):
 
         # Get the aggregated predictions and the mean score based on the true labels, and predicted labels
         # based on the metadata.
-        y_pred_agg, y_true_mean, _, _ = self._create_metadata_scores(metadata, y, y_pred)
+        y_pred_agg, y_true_mean, _, _ = self._create_metadata_scores(
+            metadata, y, y_pred
+        )
 
         # Calculate MSE
         mse = ((y_pred_agg - y_true_mean) ** 2).mean()
 
         return -mse  # Return negative because GridSearchCV maximizes score
 
-    def predict(self, features):
+    def predict(self, features: pd.DataFrame) -> np.ndarray:
         """
         Predict using the fitted model.
 
@@ -109,8 +200,35 @@ class CustomXGBoostRegressor(XGBRegressor, Model):
 
         return super().predict(features)
 
+    @classmethod
+    @contextmanager
+    def model_file(cls, fname: str, mode: str):
+        """Context manager to handle model file and directory operations"""
+        models_dir = Path("./models")
+        # Check if the directory already exists
+        models_dir.mkdir(exist_ok=True)
+        file_path = models_dir / fname
+        try:
+            with open(file_path, mode) as f:
+                yield f
+        except IOError:
+            print(f"Error accessing file: {file_path}")
+            raise
+
+    def save_model(self, fname: str) -> None:
+        """Save a grid search or randomized search CV instance to a file"""
+        with self.model_file(fname, "wb") as f:
+            dill.dump(self.param_search, f)
+
+    @classmethod
+    def load_model(cls, fname: str) -> GridSearchCV | RandomizedSearchCV:
+        """Load a grid search or randomized search CV instance from a file"""
+        with cls.model_file(fname, "rb") as f:
+            return dill.load(f)
+
     @staticmethod
-    def _create_features_metadata(X):
+    def _create_features_metadata(
+            X: pd.DataFrame) -> Tuple[np.array, np.ndarray]:
         """
         Split the input DataFrame into features and metadata.
 
@@ -123,7 +241,7 @@ class CustomXGBoostRegressor(XGBRegressor, Model):
                 - metadata (array-like): The metadata values.
         """
         # Split features from metadata
-        metadata_columns = ['POINT_ID', 'ID', 'N_MONTHS', 'MONTH']
+        metadata_columns = ["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS"]
         # Get feature columns by subtracting metadata columns from all columns
         feature_columns = X.columns.difference(metadata_columns)
 
@@ -137,7 +255,9 @@ class CustomXGBoostRegressor(XGBRegressor, Model):
         return features, metadata
 
     @staticmethod
-    def _custom_mse_metadata(y_true, y_pred, metadata):
+    def _custom_mse_metadata(
+        y_true: np.array, y_pred: np.array, metadata: np.array
+    ) -> Tuple[np.array, np.array]:
         """
         Compute custom gradients and hessians for the MSE loss, taking into account metadata.
 
@@ -157,7 +277,9 @@ class CustomXGBoostRegressor(XGBRegressor, Model):
 
         # Get the aggregated predictions and the mean score based on the true labels, and predicted labels
         # based on the metadata.
-        y_pred_agg, y_true_mean, grouped_ids, df_metadata = CustomXGBoostRegressor._create_metadata_scores(metadata, y_true, y_pred)
+        y_pred_agg, y_true_mean, grouped_ids, df_metadata = (
+            CustomXGBoostRegressor._create_metadata_scores(
+                metadata, y_true, y_pred))
 
         # Compute gradients
         gradients_agg = y_pred_agg - y_true_mean
@@ -166,13 +288,18 @@ class CustomXGBoostRegressor(XGBRegressor, Model):
         gradient_map = dict(zip(grouped_ids.groups.keys(), gradients_agg))
 
         # Assign gradients to corresponding indices
-        df_metadata['gradient'] = df_metadata['ID'].map(gradient_map)
-        gradients[df_metadata.index] = df_metadata['gradient'].values
+        df_metadata["gradient"] = df_metadata["ID"].map(gradient_map)
+        gradients[df_metadata.index] = df_metadata["gradient"].values
 
         return gradients, hessians
 
     @staticmethod
-    def _create_metadata_scores(metadata, y1, y2):
+    def _create_metadata_scores(metadata: np.array,
+                                y1: np.array,
+                                y2) -> Tuple[np.array,
+                                             np.array,
+                                             pd.core.groupby.generic.DataFrameGroupBy,
+                                             pd.DataFrame]:
         """
         Create aggregated scores based on metadata.
 
@@ -188,11 +315,13 @@ class CustomXGBoostRegressor(XGBRegressor, Model):
                 - grouped_ids (pd.GroupBy): Grouped data by ID.
                 - df_metadata (pd.DataFrame): DataFrame of metadata.
         """
-        df_metadata = pd.DataFrame(metadata, columns=['ID', 'N_MONTHS', 'MONTH'])
+        df_metadata = pd.DataFrame(
+            metadata, columns=["RGIId", "ID", "N_MONTHS", "MONTHS"]
+        )
 
         # Aggregate y_pred and y_true for each group
-        grouped_ids = df_metadata.assign(y_true=y1, y_pred=y2).groupby('ID')
-        y_pred_agg = grouped_ids['y_pred'].sum().values
-        y_true_mean = grouped_ids['y_true'].mean().values
+        grouped_ids = df_metadata.assign(y_true=y1, y_pred=y2).groupby("ID")
+        y_pred_agg = grouped_ids["y_pred"].sum().values
+        y_true_mean = grouped_ids["y_true"].mean().values
 
         return y_pred_agg, y_true_mean, grouped_ids, df_metadata
