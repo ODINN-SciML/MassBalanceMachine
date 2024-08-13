@@ -52,15 +52,20 @@ def transformDates(df_or):
 
     df['date_fix0'] = [np.nan for i in range(len(df))]
     df['date_fix1'] = [np.nan for i in range(len(df))]
-
+    
     # transform rest of date columns who have missing years:
     for i in range(len(df)):
         year = df.date0.iloc[i].year
         df.date_fix0.iloc[i] = '10' + '-' + '01' + '-' + str(year)
         df.date_fix1.iloc[i] = '09' + '-' + '30' + '-' + str(year + 1)
+    
     # hydrological dates
     df.date_fix0  = pd.to_datetime(df.date_fix0)
     df.date_fix1  = pd.to_datetime(df.date_fix1)
+    
+    # dates in wgms format:
+    df['date0'] = df.date0.apply(lambda x: x.strftime('%Y%m%d'))
+    df['date1'] = df.date1.apply(lambda x: x.strftime('%Y%m%d'))
     return df
 
 def LV03toWGS84(df):

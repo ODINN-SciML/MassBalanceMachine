@@ -15,8 +15,8 @@ import numpy as np
 
 def transform_to_monthly(
     df: pd.DataFrame,
-    vois_climate: list[str],
-    vois_topographical: list[str],
+    vois_climate: "list[str]",
+    vois_topographical: "list[str]",
     output_fname: str,
 ) -> pd.DataFrame:
     """
@@ -49,7 +49,8 @@ def transform_to_monthly(
     column_names = _get_column_names(vois_topographical)
 
     # Create the final dataframe with the new exploded climate data
-    result_df = _create_result_dataframe(df_exploded, column_names, vois_climate)
+    result_df = _create_result_dataframe(df_exploded, column_names,
+                                         vois_climate)
 
     result_df.to_csv(output_fname, index=False)
 
@@ -66,10 +67,9 @@ def _convert_dates_to_datetime(df: pd.DataFrame) -> pd.DataFrame:
 def _generate_monthly_ranges(df: pd.DataFrame) -> pd.DataFrame:
     """Generate monthly ranges and convert to month names."""
     df["MONTHS"] = df.apply(
-        lambda row: pd.date_range(start=row["FROM_DATE"], end=row["TO_DATE"], freq="MS")
-        .strftime("%b")
-        .str.lower()
-        .tolist(),
+        lambda row: pd.date_range(
+            start=row["FROM_DATE"], end=row["TO_DATE"], freq="MS").strftime(
+                "%b").str.lower().tolist(),
         axis=1,
     )
     df["N_MONTHS"] = df["MONTHS"].apply(len) - 1
@@ -88,7 +88,7 @@ def _explode_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     return df_exploded.reset_index(drop=True)
 
 
-def _get_column_names(vois_topographical: list[str]) -> list[str]:
+def _get_column_names(vois_topographical: "list[str]") -> "list[str]":
     """Get the list of column names to keep in the final DataFrame."""
     column_names = [
         "MONTHS",
@@ -107,21 +107,20 @@ def _get_column_names(vois_topographical: list[str]) -> list[str]:
     return column_names
 
 
-def _get_climate_values(
-    row: pd.Series, vois_climate: list[str], column_names: list[str]
-) -> np.ndarray:
+def _get_climate_values(row: pd.Series, vois_climate: "list[str]",
+                        column_names: "list[str]") -> np.ndarray:
     """Get climate values for a specific row and month."""
     cols = [f'{voi}_{row["MONTHS"]}' for voi in vois_climate]
     all_cols = column_names + cols
     return row[all_cols].values
 
 
-def _create_result_dataframe(
-    df_exploded: pd.DataFrame, column_names: list[str], vois_climate: list[str]
-) -> pd.DataFrame:
+def _create_result_dataframe(df_exploded: pd.DataFrame,
+                             column_names: "list[str]",
+                             vois_climate: "list[str]") -> pd.DataFrame:
     """Create the final result DataFrame."""
     climate_records = df_exploded.apply(
-        lambda row: _get_climate_values(row, vois_climate, column_names), axis=1
-    ).tolist()
+        lambda row: _get_climate_values(row, vois_climate, column_names),
+        axis=1).tolist()
     final_column_names = column_names + vois_climate
     return pd.DataFrame(climate_records, columns=final_column_names)
