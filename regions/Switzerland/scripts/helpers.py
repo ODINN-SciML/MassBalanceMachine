@@ -40,13 +40,10 @@ vois_units = {
     'str': 'J m-2'
 }
 
-
 # sets the same random seed everywhere so that it is reproducible
 def seed_all(seed):
     if not seed:
         seed = 10
-        # print("[ Using Seed : ", seed, " ]")
-
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     torch.cuda.manual_seed(seed)
