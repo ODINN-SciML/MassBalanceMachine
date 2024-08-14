@@ -16,6 +16,7 @@ import dill
 
 import numpy as np
 import pandas as pd
+import random as rd
 
 from xgboost import XGBRegressor
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
@@ -32,7 +33,7 @@ class CustomXGBoostRegressor(XGBRegressor):
     period and should therefore take be into account when evaluating the score/loss.
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, random_seed: int = 42, **kwargs):
         """
         Initialize the CustomXGBoostRegressor.
 
@@ -41,6 +42,11 @@ class CustomXGBoostRegressor(XGBRegressor):
         """
         super().__init__(**kwargs)
         self.param_search = None
+        self.random_seed = random_seed
+        
+        # initialise seeds for other important functions
+        rd.seed(self.random_seed)
+        np.random.seed(self.random_seed)
 
     def gridsearch(
         self,
@@ -116,14 +122,15 @@ class CustomXGBoostRegressor(XGBRegressor):
             refit=True,
             error_score="raise",
             return_train_score=True,
+            random_state= self.random_seed
         )
 
         clf.fit(features, targets)
+
         self.param_search = clf
 
-    def fit(
-        self, X: pd.DataFrame, y: np.array, **fit_params
-    ) -> "CustomXGBoostRegressor":
+    def fit(self, X: pd.DataFrame, y: np.array,
+            **fit_params) -> "CustomXGBoostRegressor":
         """
         Fit the model to the training data.
 
@@ -177,11 +184,10 @@ class CustomXGBoostRegressor(XGBRegressor):
         # Get the aggregated predictions and the mean score based on the true labels, and predicted labels
         # based on the metadata.
         y_pred_agg, y_true_mean, _, _ = self._create_metadata_scores(
-            metadata, y, y_pred
-        )
+            metadata, y, y_pred)
 
         # Calculate MSE
-        mse = ((y_pred_agg - y_true_mean) ** 2).mean()
+        mse = ((y_pred_agg - y_true_mean)**2).mean()
 
         return -mse  # Return negative because GridSearchCV maximizes score
 
@@ -255,9 +261,8 @@ class CustomXGBoostRegressor(XGBRegressor):
         return features, metadata
 
     @staticmethod
-    def _custom_mse_metadata(
-        y_true: np.array, y_pred: np.array, metadata: np.array
-    ) -> Tuple[np.array, np.array]:
+    def _custom_mse_metadata(y_true: np.array, y_pred: np.array,
+                             metadata: np.array) -> Tuple[np.array, np.array]:
         """
         Compute custom gradients and hessians for the MSE loss, taking into account metadata.
 
@@ -269,7 +274,9 @@ class CustomXGBoostRegressor(XGBRegressor):
         Returns:
             tuple: A tuple containing:
                 - gradients (array-like): The computed gradients.
-                - hessians (array-like): The computed hessians.
+                - hessians (array-like): The second derivative (hessian) of the loss with respect to 
+                the predictions y_pred. For MSE loss, 
+                the hessian is constant and thus this array is filled with ones, having the same shape as y_pred. 
         """
         # Initialize gradients and hessians
         gradients = np.zeros_like(y_pred)
@@ -294,12 +301,10 @@ class CustomXGBoostRegressor(XGBRegressor):
         return gradients, hessians
 
     @staticmethod
-    def _create_metadata_scores(metadata: np.array,
-                                y1: np.array,
-                                y2) -> Tuple[np.array,
-                                             np.array,
-                                             pd.core.groupby.generic.DataFrameGroupBy,
-                                             pd.DataFrame]:
+    def _create_metadata_scores(
+        metadata: np.array, y1: np.array, y2
+    ) -> Tuple[np.array, np.array, pd.core.groupby.generic.DataFrameGroupBy,
+               pd.DataFrame]:
         """
         Create aggregated scores based on metadata.
 
@@ -316,8 +321,7 @@ class CustomXGBoostRegressor(XGBRegressor):
                 - df_metadata (pd.DataFrame): DataFrame of metadata.
         """
         df_metadata = pd.DataFrame(
-            metadata, columns=["RGIId", "ID", "N_MONTHS", "MONTHS"]
-        )
+            metadata, columns=["RGIId", "ID", "N_MONTHS", "MONTHS"])
 
         # Aggregate y_pred and y_true for each group
         grouped_ids = df_metadata.assign(y_true=y1, y_pred=y2).groupby("ID")
