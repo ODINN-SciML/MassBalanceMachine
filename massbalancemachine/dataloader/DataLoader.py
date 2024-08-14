@@ -125,8 +125,7 @@ class DataLoader:
 
         # Create the cross validation splits
         splits = self._create_group_kfold_splits(X, y, glacier_ids)
-
-        self.cv_split = splits,
+        self.cv_split = splits
 
         return self.cv_split
 
