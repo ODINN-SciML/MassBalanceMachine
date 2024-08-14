@@ -150,7 +150,7 @@ class CustomXGBoostRegressor(XGBRegressor):
         # Set custom objective
         self.set_params(objective=custom_objective)
 
-        # Call the git function from the XGBoost library with the custom
+        # Call the fit function from the XGBoost library with the custom
         # objective function
         super().fit(features, y, **fit_params)
 
