@@ -37,7 +37,7 @@ class DataLoader:
         test_iterator (Iterator): Iterator for test data indices.
     """
 
-    def __init__(self, data: pd.DataFrame):
+    def __init__(self, data: pd.DataFrame, random_seed: int = 42):
         """
         Initialize the DataLoader with the provided dataset.
 
@@ -46,7 +46,7 @@ class DataLoader:
         """
         self.data = data
         self.n_splits = None
-        self.random_seed = None
+        self.random_seed = random_seed
         self.test_size = None
         self.cv_split = None
         self.train_indices = None
@@ -56,14 +56,13 @@ class DataLoader:
             self,
             *,
             test_size: float = 0.3,
-            random_seed: int = None,
+            # random_seed: int = None,
             shuffle: bool = True) -> Tuple[Iterator[Any], Iterator[Any]]:
         """
         Split the dataset into training and testing sets.
 
         Args:
             test_size (float): Proportion of the dataset to include in the test split.
-            random_seed (int): Seed for the random number generator.
             shuffle (bool): Whether to shuffle the data before splitting.
 
         Returns:
@@ -73,7 +72,7 @@ class DataLoader:
         # Save the test size and random seed as attributes of the dataloader
         # object
         self.test_size = test_size
-        self.random_seed = random_seed or np.random.seed()
+        # self.random_seed = random_seed or np.random.seed()
 
         # Create a train test set based on indices, not the actual data
         indices = np.arange(len(self.data))
