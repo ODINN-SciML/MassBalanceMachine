@@ -1,6 +1,6 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-![massbalancemachine](./mbm_banner.png)
+![massbalancemachine](./mbm_banner.svg)
 
 # MassBalanceMachine
 
