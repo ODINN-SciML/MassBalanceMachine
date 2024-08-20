@@ -16,7 +16,7 @@ from typing import Any, Iterator, Tuple, Dict, List
 import numpy as np
 import pandas as pd
 from numpy import ndarray
-from sklearn.model_selection import GroupKFold, train_test_split
+from sklearn.model_selection import GroupKFold, KFold, train_test_split
 
 
 class DataLoader:
@@ -53,11 +53,12 @@ class DataLoader:
         self.test_indices = None
 
     def set_train_test_split(
-            self,
-            *,
-            test_size: float = 0.3,
-            # random_seed: int = None,
-            shuffle: bool = True) -> Tuple[Iterator[Any], Iterator[Any]]:
+        self,
+        *,
+        test_size: float = 0.3,
+        # random_seed: int = None,
+        shuffle: bool = True
+    ) -> Tuple[Iterator[Any], Iterator[Any]]:
         """
         Split the dataset into training and testing sets.
 
@@ -72,7 +73,6 @@ class DataLoader:
         # Save the test size and random seed as attributes of the dataloader
         # object
         self.test_size = test_size
-        # self.random_seed = random_seed or np.random.seed()
 
         # Create a train test set based on indices, not the actual data
         indices = np.arange(len(self.data))
@@ -91,16 +91,18 @@ class DataLoader:
     def get_cv_split(
             self,
             *,
-            n_splits: int = 5) -> "tuple[list[tuple[ndarray, ndarray]]]":
+            n_splits: int = 5,
+            type_fold: str = 'random') -> "tuple[list[tuple[ndarray, ndarray]]]":
         """
         Create a cross-validation split of the training data.
 
         This method orchestrates the process of creating a cross-validation split,
-        using GroupKFold to ensure that data from the same glacier is not split
+        using either a random or group-based strategy. For groups, it uses scikit-learn's GroupKFold to ensure that data from the same glacier is not split
         across different folds.
 
         Args:
             n_splits (int): Number of splits for cross-validation.
+            type_fold (str): Type of cross-validation fold. Options are 'random', 'group-rgi', or 'group-stake'.
 
         Returns:
             tuple[list[tuple[ndarray, ndarray]]]: A dictionary containing glacier IDs and CV split information.
@@ -120,10 +122,10 @@ class DataLoader:
         train_data = self._get_train_data()
 
         # From the training data get the features, targets, and glacier IDS
-        X, y, glacier_ids = self._prepare_data_for_cv(train_data)
+        X, y, glacier_ids, stake_ids = self._prepare_data_for_cv(train_data)
 
         # Create the cross validation splits
-        splits = self._create_group_kfold_splits(X, y, glacier_ids)
+        splits = self._create_group_kfold_splits(X, y, glacier_ids, stake_ids, type_fold)
         self.cv_split = splits
 
         return self.cv_split
@@ -150,12 +152,23 @@ class DataLoader:
         """Prepare the training data for cross-validation."""
         X = train_data.drop(["YEAR", "POINT_BALANCE", "RGIId", "ID"], axis=1)
         y = train_data["POINT_BALANCE"]
-        glacier_ids = train_data["ID"].values
-        return X, y, glacier_ids
+        glacier_ids = train_data["RGIId"].values
+        stake_ids = train_data["ID"].values
+        return X, y, glacier_ids, stake_ids
 
     def _create_group_kfold_splits(
-            self, X: pd.DataFrame, y: pd.Series,
-            glacier_ids: np.ndarray) -> List[Tuple[np.ndarray, np.ndarray]]:
+            self, X: pd.DataFrame, y: pd.Series, glacier_ids: np.ndarray,
+            stake_ids: np.ndarray,
+            type_fold: str) -> List[Tuple[np.ndarray, np.ndarray]]:
         """Create GroupKFold splits based on glacier IDs."""
-        group_kf = GroupKFold(n_splits=self.n_splits)
-        return list(group_kf.split(X, y, glacier_ids))
+        if type_fold == 'group-rgi':
+            group_kf = GroupKFold(n_splits=self.n_splits)
+            return list(group_kf.split(X, y, glacier_ids))
+        elif type_fold == 'group-stake':
+            group_kf = GroupKFold(n_splits=self.n_splits)
+            return list(group_kf.split(X, y, stake_ids))
+        else:
+            # random Fold
+            kf = KFold(n_splits=self.n_splits, shuffle = True, random_state=self.random_seed)
+            return list(kf.split(X, y))
+            
