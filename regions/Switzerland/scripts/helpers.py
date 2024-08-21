@@ -3,6 +3,8 @@ from os.path import isfile, join
 import numpy as np
 import random as rd
 import torch
+from matplotlib import pyplot as plt
+from matplotlib.colors import to_hex
 
 # Paths
 path_PMB_GLAMOS_raw = '../../../data/GLAMOS/point/raw/'
@@ -80,3 +82,21 @@ def updateDic(dic, key, value):
         dic[key].append(value)
 
     return dic
+
+def get_cmap_hex(cmap, length):
+    """
+    Function to get a get a list of colours as hex codes
+
+    :param cmap:    name of colourmap
+    :type cmap:     str
+
+    :return:        list of hex codes
+    :rtype:         list
+    """
+    # Get cmap
+    rgb = plt.get_cmap(cmap)(np.linspace(0, 1, length))
+
+    # Convert to hex
+    hex_codes = [to_hex(rgb[i,:]) for i in range(rgb.shape[0])]
+
+    return hex_codes
