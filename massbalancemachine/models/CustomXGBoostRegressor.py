@@ -17,10 +17,11 @@ import dill
 import numpy as np
 import pandas as pd
 import random as rd
-
+import cupy as cp
 from xgboost import XGBRegressor
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 from sklearn.utils.validation import check_is_fitted
+from sklearn.metrics import mean_squared_error, mean_absolute_error
 
 
 class CustomXGBoostRegressor(XGBRegressor):
@@ -33,7 +34,7 @@ class CustomXGBoostRegressor(XGBRegressor):
     period and should therefore take be into account when evaluating the score/loss.
     """
 
-    def __init__(self, random_seed: int = 42, **kwargs):
+    def __init__(self, **kwargs):
         """
         Initialize the CustomXGBoostRegressor.
 
@@ -42,11 +43,6 @@ class CustomXGBoostRegressor(XGBRegressor):
         """
         super().__init__(**kwargs)
         self.param_search = None
-        self.random_seed = random_seed
-        
-        # initialise seeds for other important functions
-        rd.seed(self.random_seed)
-        np.random.seed(self.random_seed)
 
     def gridsearch(
         self,
@@ -94,6 +90,7 @@ class CustomXGBoostRegressor(XGBRegressor):
         features: pd.DataFrame,
         targets: np.ndarray,
         num_jobs: int = -1,
+        random_seed: int = 42,
     ) -> None:
         """
         Perform a randomized search for hyperparameter tuning.
@@ -122,8 +119,7 @@ class CustomXGBoostRegressor(XGBRegressor):
             refit=True,
             error_score="raise",
             return_train_score=True,
-            random_state= self.random_seed
-        )
+            random_state=random_seed)
 
         clf.fit(features, targets)
 
@@ -149,6 +145,11 @@ class CustomXGBoostRegressor(XGBRegressor):
 
         # Separate the features from the metadata provided in the dataset
         features, metadata = self._create_features_metadata(X)
+
+        # If running on GPU need to be converted to cupy
+        if 'cuda' in self.get_params()['device']:
+            features = cp.array(features)
+            y = cp.array(y)
 
         # Define closure that captures metadata for use in custom objective
         def custom_objective(y_true, y_pred):
@@ -178,6 +179,10 @@ class CustomXGBoostRegressor(XGBRegressor):
         # Separate the features from the metadata provided in the dataset
         features, metadata = self._create_features_metadata(X)
 
+        # If running on GPU need to be converted to cupy
+        if 'cuda' in self.get_params()['device']:
+            features = cp.array(features)
+
         # Make a prediction based on the features available in the dataset
         y_pred = self.predict(features)
 
@@ -205,6 +210,30 @@ class CustomXGBoostRegressor(XGBRegressor):
         check_is_fitted(self)
 
         return super().predict(features)
+
+    def evalMetrics(self, metadata, y_pred: np.array,
+                    y_target: np.array) -> Tuple[float, float, float]:
+        """
+        Compute three evaluation metrics of the model on the given test data and labels.
+
+        Args:
+            X (pd.DataFrame): The input features including metadata columns.
+            y (array-like): The true labels.
+
+        Returns:
+            Tuple[float, float, float]: The mean squared error, root mean squared error and mean absolute error.
+        """
+
+        # Get the aggregated predictions and the mean score based on the true labels, and predicted labels
+        # based on the metadata.
+        y_pred_agg, y_true_mean, _, _ = self._create_metadata_scores(
+            metadata, y_target, y_pred)
+
+        mse = mean_squared_error(y_true_mean, y_pred_agg)
+        rmse = mean_squared_error(y_true_mean, y_pred_agg, squared=False)
+        mae = mean_absolute_error(y_true_mean, y_pred_agg)
+
+        return mse, rmse, mae
 
     @classmethod
     @contextmanager
@@ -248,6 +277,7 @@ class CustomXGBoostRegressor(XGBRegressor):
         """
         # Split features from metadata
         metadata_columns = ["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS"]
+
         # Get feature columns by subtracting metadata columns from all columns
         feature_columns = X.columns.difference(metadata_columns)
 
