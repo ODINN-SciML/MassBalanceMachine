@@ -120,7 +120,7 @@ class CustomXGBoostRegressor(XGBRegressor):
             error_score="raise",
             return_train_score=True,
             random_state=random_seed)
-   
+
         clf.fit(features, targets)
 
         self.param_search = clf
@@ -204,14 +204,14 @@ class CustomXGBoostRegressor(XGBRegressor):
             features (pd.DataFrame): The input features.
 
         Returns:
-            array-like: The predicted values.
+            array-like: The predicted values (in monthly format).
         """
         # Check if the model is fitted
         check_is_fitted(self)
 
         return super().predict(features)
 
-    def evalMetrics(self, metadata, y_pred: np.array,
+    def evalMetrics(self, metadata: np.array, y_pred: np.array,
                     y_target: np.array) -> Tuple[float, float, float]:
         """
         Compute three evaluation metrics of the model on the given test data and labels.
@@ -234,6 +234,32 @@ class CustomXGBoostRegressor(XGBRegressor):
         mae = mean_absolute_error(y_true_mean, y_pred_agg)
 
         return mse, rmse, mae
+
+    def aggrPredict(self, metadata: np.array,
+                    features: pd.DataFrame) -> np.ndarray:
+        """
+        Makes predictions in aggregated format using the fitted model.
+        Args:
+            features (pd.DataFrame): The input features.
+
+        Returns:
+            array-like: The predicted values (in monthly format).
+        """
+        # Check if the model is fitted
+        check_is_fitted(self)
+
+        # Predictions in monthly format
+        y_pred = super().predict(features)
+
+        # Aggregate to meas ID level (annual or seasonal, etc.)
+        meta_data_columns = ["RGIId", "ID", "N_MONTHS", "MONTHS", "PERIOD"]
+        df_metadata = pd.DataFrame(metadata, columns=meta_data_columns)
+
+        # Aggregate y_pred and y_true for each group
+        grouped_ids = df_metadata.assign(y_pred=y_pred).groupby("ID")
+        y_pred_agg = grouped_ids["y_pred"].sum().values
+
+        return y_pred_agg
 
     @classmethod
     @contextmanager
@@ -276,7 +302,9 @@ class CustomXGBoostRegressor(XGBRegressor):
                 - metadata (array-like): The metadata values.
         """
         # Split features from metadata
-        metadata_columns = ["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD"]
+        metadata_columns = [
+            "RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD"
+        ]
 
         # Get feature columns by subtracting metadata columns from all columns
         feature_columns = X.columns.difference(metadata_columns)
@@ -351,8 +379,7 @@ class CustomXGBoostRegressor(XGBRegressor):
                 - df_metadata (pd.DataFrame): DataFrame of metadata.
         """
         meta_data_columns = ["RGIId", "ID", "N_MONTHS", "MONTHS", "PERIOD"]
-        df_metadata = pd.DataFrame(
-            metadata, columns=meta_data_columns)
+        df_metadata = pd.DataFrame(metadata, columns=meta_data_columns)
 
         # Aggregate y_pred and y_true for each group
         grouped_ids = df_metadata.assign(y_true=y1, y_pred=y2).groupby("ID")
