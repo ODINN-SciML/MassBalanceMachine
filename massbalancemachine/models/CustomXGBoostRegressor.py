@@ -120,7 +120,7 @@ class CustomXGBoostRegressor(XGBRegressor):
             error_score="raise",
             return_train_score=True,
             random_state=random_seed)
-
+   
         clf.fit(features, targets)
 
         self.param_search = clf
@@ -276,7 +276,7 @@ class CustomXGBoostRegressor(XGBRegressor):
                 - metadata (array-like): The metadata values.
         """
         # Split features from metadata
-        metadata_columns = ["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS"]
+        metadata_columns = ["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD"]
 
         # Get feature columns by subtracting metadata columns from all columns
         feature_columns = X.columns.difference(metadata_columns)
@@ -350,8 +350,9 @@ class CustomXGBoostRegressor(XGBRegressor):
                 - grouped_ids (pd.GroupBy): Grouped data by ID.
                 - df_metadata (pd.DataFrame): DataFrame of metadata.
         """
+        meta_data_columns = ["RGIId", "ID", "N_MONTHS", "MONTHS", "PERIOD"]
         df_metadata = pd.DataFrame(
-            metadata, columns=["RGIId", "ID", "N_MONTHS", "MONTHS"])
+            metadata, columns=meta_data_columns)
 
         # Aggregate y_pred and y_true for each group
         grouped_ids = df_metadata.assign(y_true=y1, y_pred=y2).groupby("ID")

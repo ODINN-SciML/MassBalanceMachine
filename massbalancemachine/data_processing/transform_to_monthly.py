@@ -97,6 +97,7 @@ def _get_column_names(vois_topographical: "list[str]") -> "list[str]":
         "POINT_ID",
         "YEAR",
         "N_MONTHS",
+        "PERIOD",  
         "POINT_LON",
         "POINT_LAT",
         "POINT_BALANCE",
