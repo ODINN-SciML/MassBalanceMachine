@@ -68,18 +68,25 @@ class Dataset:
         self.data = get_climate_features(self.data, output_fname, climate_data,
                                          geopotential_data, change_units)
 
-    def convert_to_monthly(self, *, vois_climate: "list[str]",
-                           vois_topographical: "list[str]") -> None:
+    def convert_to_monthly(
+        self,
+        *,
+        vois_climate: "list[str]",
+        vois_topographical: "list[str]",
+        meta_data_columns=["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS"]
+    ) -> None:
         """
         Converts a variable period for the SMB target data measurement to a monthly time resolution.
 
         Args:
             vois_climate (list[str]): variables of interest from the climate data
             vois_topographical (list[str]): variables of interest from the topographical data
+            meta_data_columns (list[str]): metadata columns 
         """
         output_fname = self._get_output_filename("monthly_dataset")
-        self.data = transform_to_monthly(self.data, vois_climate,
-                                         vois_topographical, output_fname)
+        self.data = transform_to_monthly(self.data, meta_data_columns,
+                                         vois_climate, vois_topographical,
+                                         output_fname)
 
     def _get_output_filename(self, feature_type: str) -> str:
         """
