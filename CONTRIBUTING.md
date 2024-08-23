@@ -11,7 +11,7 @@
 - [Submitting Pull Requests](#repeat-submitting-pull-requests)
 - [Writing Commit Messages](#memo-writing-commit-messages)
 - [Code Review](#white_check_mark-code-review)
-- [Coding Style](#nail_care-coding-style)
+- [Coding Style](#coding-style)
 
 > **This guide serves to set clear expectations for everyone involved with the project so that we can improve it together while also creating a welcoming space for everyone to participate. Following these guidelines will help ensure a positive experience for contributors and maintainers.**
 
@@ -93,41 +93,8 @@ Please [write a great commit message](https://chris.beams.io/posts/git-commit/).
 1. Do not end the subject line with a period
 1. Use the imperative mood in the subject line (example: "Fix networking issue")
 1. Wrap the body at about 72 characters
-1. Use the body to explain **why**, *not what and how* (the code shows that!)
+1. Use the body to explain **why**, *not what and how* (the code shows that!) (please follow the template for this!)
 1. If applicable, prefix the title with the relevant component name. (examples: "[Docs] Fix typo", "[Profile] Fix missing avatar")
-
-```
-[TAG] Short summary of changes in 50 chars or less
-
-Add a more detailed explanation here, if necessary. Possibly give 
-some background about the issue being fixed, etc. The body of the 
-commit message can be several paragraphs. Further paragraphs come 
-after blank lines and please do proper word-wrap.
-
-Wrap it to about 72 characters or so. In some contexts, 
-the first line is treated as the subject of the commit and the 
-rest of the text as the body. The blank line separating the summary 
-from the body is critical (unless you omit the body entirely); 
-various tools like `log`, `shortlog` and `rebase` can get confused 
-if you run the two together.
-
-Explain the problem that this commit is solving. Focus on why you
-are making this change as opposed to how or what. The code explains 
-how or what. Reviewers and your future self can read the patch, 
-but might not understand why a particular solution was implemented.
-Are there side effects or other unintuitive consequences of this
-change? Here's the place to explain them.
-
- - Bullet points are okay, too
-
- - A hyphen or asterisk should be used for the bullet, preceded
-   by a single space, with blank lines in between
-
-Note the fixed or relevant GitHub issues at the end:
-
-Resolves: #123
-See also: #456, #789
-```
 
 ## :white_check_mark: Code Review
 
@@ -139,7 +106,7 @@ See also: #456, #789
 
 - Kindly note any violations to the guidelines specified in this document. 
 
-## :nail_care: Coding Style
+## Coding Style
 
 Consistency is the most important. Following the existing style, formatting, and naming conventions of the file you are modifying and of the overall project. Failure to do so will result in a prolonged review process that has to focus on updating the superficial aspects of your code, rather than improving its functionality and performance.
 
