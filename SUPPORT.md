@@ -15,5 +15,9 @@ Please seek support in the following ways:
 Please **do not** do any the following:
 
 1. :x: Do not open duplicate issues or litter an existing issue with +1's.
+   
+2. :x: Do not reach out to the author or contributor on Twitter (or other social media) by tweeting or sending a direct message.
+   
+3. :x: Do not email the author or contributor.
 
 These are not appropriate avenues for seeking help or support with an open-source project. Please follow the guidelines in the previous section. Public questions get public answers, which benefits everyone in the community.
