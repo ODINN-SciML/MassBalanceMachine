@@ -25,7 +25,7 @@ Before [creating an issue](https://help.github.com/en/github/managing-your-work-
 
 ### :beetle: Bug Reports and Other Issues
 
-A great way to contribute to the project is to send a detailed issue when you encounter a problem. We always appreciate a well-written, thorough bug report. :v:
+A great way to contribute to the project is to send a detailed issue when you encounter a problem. We always appreciate a well-written, thorough bug report.
 
 In short, since you are most likely a developer, **provide a ticket that you would like to receive**.
 
