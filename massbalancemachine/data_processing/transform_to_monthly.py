@@ -15,6 +15,7 @@ import numpy as np
 
 def transform_to_monthly(
     df: pd.DataFrame,
+    meta_data_columns: "list[str]",
     vois_climate: "list[str]",
     vois_topographical: "list[str]",
     output_fname: str,
@@ -25,6 +26,7 @@ def transform_to_monthly(
     Args:
         df (pd.DataFrame): Input DataFrame with date ranges and climate-related columns + all other columns
             and data from the previous steps.
+        meta_data_columns (list[str]): List of metadata columns.
         vois_climate (list[str]): List of climate variable prefixes.
         vois_topographical (list[str]): List of topographical variable prefixes.
         output_fname (str): Name of the output CSV file.
@@ -46,7 +48,7 @@ def transform_to_monthly(
     df_exploded = _explode_dataframe(df)
 
     # Get the column names for the new dataframe
-    column_names = _get_column_names(vois_topographical)
+    column_names = _get_column_names(meta_data_columns, vois_topographical)
 
     # Create the final dataframe with the new exploded climate data
     result_df = _create_result_dataframe(df_exploded, column_names,
@@ -88,21 +90,17 @@ def _explode_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     return df_exploded.reset_index(drop=True)
 
 
-def _get_column_names(vois_topographical: "list[str]") -> "list[str]":
+def _get_column_names(meta_data_columns: "list[str]", vois_topographical: "list[str]") -> "list[str]":
     """Get the list of column names to keep in the final DataFrame."""
     column_names = [
-        "MONTHS",
-        "ID",
-        "RGIId",
-        "POINT_ID",
         "YEAR",
-        "N_MONTHS",
         "POINT_LON",
         "POINT_LAT",
         "POINT_BALANCE",
         "ALTITUDE_CLIMATE",
         "ELEVATION_DIFFERENCE",
     ]
+    column_names.extend(meta_data_columns)
     column_names.extend(vois_topographical)
     return column_names
 

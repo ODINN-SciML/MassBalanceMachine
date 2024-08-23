@@ -16,7 +16,7 @@ from typing import Any, Iterator, Tuple, Dict, List
 import numpy as np
 import pandas as pd
 from numpy import ndarray
-from sklearn.model_selection import GroupKFold, KFold, train_test_split
+from sklearn.model_selection import GroupKFold, KFold, train_test_split, GroupShuffleSplit
 
 
 class DataLoader:
@@ -37,12 +37,18 @@ class DataLoader:
         test_iterator (Iterator): Iterator for test data indices.
     """
 
-    def __init__(self, data: pd.DataFrame, random_seed: int = 42):
+    def __init__(self,
+                 data: pd.DataFrame,
+                 meta_data_columns=[
+                     "RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS"
+                 ],
+                 random_seed: int = 42):
         """
         Initialize the DataLoader with the provided dataset.
-
         Args:
             data (pd.DataFrame): The input dataset to be processed.
+            meta_data_columns (list): List of columns that contain metadata.
+            random_seed (int): Seed for random operations to ensure reproducibility.
         """
         self.data = data
         self.n_splits = None
@@ -51,6 +57,7 @@ class DataLoader:
         self.cv_split = None
         self.train_indices = None
         self.test_indices = None
+        self.meta_data_columns = meta_data_columns
 
     def set_train_test_split(
         self,
@@ -75,12 +82,23 @@ class DataLoader:
         self.test_size = test_size
 
         # Create a train test set based on indices, not the actual data
-        indices = np.arange(len(self.data))
-        train_indices, test_indices = train_test_split(
-            indices,
-            test_size=test_size,
-            random_state=self.random_seed,
-            shuffle=shuffle)
+
+        # Split data so that years of stakes are in the same group
+        # I.e, one year of a stake is not split amongst test and train set
+
+        # From the data get the features, targets, and glacier IDS
+        X, y, glacier_ids, stake_meas_id = self._prepare_data_for_cv(
+            self.data, self.meta_data_columns)
+        gss = GroupShuffleSplit(n_splits=1,
+                                test_size=test_size,
+                                random_state=self.random_seed)
+        train_indices, test_indices = next(gss.split(X, y, stake_meas_id))
+
+        # Check that the intersection train and test ids is empty
+        train_stake_meas_id = stake_meas_id[train_indices]
+        test_stake_meas_id = stake_meas_id[test_indices]
+        assert (len(np.intersect1d(train_stake_meas_id,
+                                   test_stake_meas_id)) == 0)
 
         # Make it iterators and set as an attribute of the class
         self.train_indices = train_indices
@@ -88,11 +106,24 @@ class DataLoader:
 
         return iter(self.train_indices), iter(self.test_indices)
 
+    def set_custom_train_test_indices(self, train_indices: np.array,
+                                      test_indices: np.array):
+        """
+        Function to set custom training and testing indices.
+
+        Args:
+            train_indices (list): List of training indices.
+            test_indices (list): List of testing indices.
+        """
+        self.train_indices = train_indices
+        self.test_indices = test_indices
+
     def get_cv_split(
             self,
             *,
             n_splits: int = 5,
-            type_fold: str = 'random') -> "tuple[list[tuple[ndarray, ndarray]]]":
+            type_fold: str = 'random'
+    ) -> "tuple[list[tuple[ndarray, ndarray]]]":
         """
         Create a cross-validation split of the training data.
 
@@ -102,7 +133,7 @@ class DataLoader:
 
         Args:
             n_splits (int): Number of splits for cross-validation.
-            type_fold (str): Type of cross-validation fold. Options are 'random', 'group-rgi', or 'group-stake'.
+            type_fold (str): Type of cross-validation fold. Options are 'random', 'group-rgi', or 'group-meas-id'.
 
         Returns:
             tuple[list[tuple[ndarray, ndarray]]]: A dictionary containing glacier IDs and CV split information.
@@ -122,10 +153,12 @@ class DataLoader:
         train_data = self._get_train_data()
 
         # From the training data get the features, targets, and glacier IDS
-        X, y, glacier_ids, stake_ids = self._prepare_data_for_cv(train_data)
+        X, y, glacier_ids, stake_meas_id = self._prepare_data_for_cv(
+            train_data, self.meta_data_columns)
 
         # Create the cross validation splits
-        splits = self._create_group_kfold_splits(X, y, glacier_ids, stake_ids, type_fold)
+        splits = self._create_group_kfold_splits(X, y, glacier_ids,
+                                                 stake_meas_id, type_fold)
         self.cv_split = splits
 
         return self.cv_split
@@ -147,28 +180,30 @@ class DataLoader:
 
     @staticmethod
     def _prepare_data_for_cv(
-        train_data: pd.DataFrame,
+            train_data: pd.DataFrame, meta_data_columns: list
     ) -> Tuple[pd.DataFrame, pd.Series, np.ndarray]:
         """Prepare the training data for cross-validation."""
-        X = train_data.drop(["YEAR", "POINT_BALANCE", "RGIId", "ID"], axis=1)
+        X = train_data.drop(meta_data_columns, axis=1)
         y = train_data["POINT_BALANCE"]
         glacier_ids = train_data["RGIId"].values
-        stake_ids = train_data["ID"].values
-        return X, y, glacier_ids, stake_ids
+        stake_meas_id = train_data[
+            "ID"].values  # unique value per stake measurement
+        return X, y, glacier_ids, stake_meas_id
 
     def _create_group_kfold_splits(
             self, X: pd.DataFrame, y: pd.Series, glacier_ids: np.ndarray,
-            stake_ids: np.ndarray,
+            stake_meas_id: np.ndarray,
             type_fold: str) -> List[Tuple[np.ndarray, np.ndarray]]:
         """Create GroupKFold splits based on glacier IDs."""
         if type_fold == 'group-rgi':
             group_kf = GroupKFold(n_splits=self.n_splits)
             return list(group_kf.split(X, y, glacier_ids))
-        elif type_fold == 'group-stake':
+        elif type_fold == 'group-meas-id':
             group_kf = GroupKFold(n_splits=self.n_splits)
-            return list(group_kf.split(X, y, stake_ids))
+            return list(group_kf.split(X, y, stake_meas_id))
         else:
             # random Fold
-            kf = KFold(n_splits=self.n_splits, shuffle = True, random_state=self.random_seed)
+            kf = KFold(n_splits=self.n_splits,
+                       shuffle=True,
+                       random_state=self.random_seed)
             return list(kf.split(X, y))
-            
