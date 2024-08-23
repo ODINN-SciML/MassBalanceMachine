@@ -1,4 +1,4 @@
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) ![GitHub contributors](https://img.shields.io/github/contributors/ODINN-SciML/MassBalanceMachine?style=social)
 
 ![massbalancemachine](./mbm_banner-01.svg)
 
@@ -10,7 +10,7 @@ A bridge between mass balance modelling and observations. Global machine learnin
 - ❄️ MassBalanceMachine uses glaciological (stake) and geodetic mass balance data as targets.
 - 📅 MassBalanceMachine can make predictions or fill data gaps on an annual, seasonal (summer and winter), and monthly temporal scale for any spatial resolution.
 
-This project is in **ongoing development**, and new features will be added over the coming months. Please see the contribution guidelines for more information on contributing to this project.
+This project is in **ongoing development**, and new features will be added over the coming months. Please see the [contribution guidelines](##-Contribution-Guidelines) for more information on contributing to this project.
 
 ## Requirements
 
@@ -20,7 +20,7 @@ You can run the MassBalanceMachine core scripts and notebooks with the following
   - [Anaconda](https://docs.anaconda.com/anaconda/install/)
   - [Miniconda](https://docs.anaconda.com/miniconda/miniconda-install/)
 
-## Installation (for all users)
+## 🛠️ Installation (for all users)
 
 To run the Jupyter Notebooks, you'll need to set up a Conda environment. Within this environment, Poetry will handle the installation of all necessary packages and dependencies. Follow these steps to create a new Conda environment named MassBalanceMachine:
 
@@ -48,7 +48,7 @@ All packages and dependencies should now be installed correctly, and you are rea
 poetry run ipython kernel install --user --name=mbm_env
 ```
 
-At last, make sure your Jupyter kernel, select in the top right corner of the notebook, or via the Launcher (sometimes this requires a refresh),has been configured to work with the 'mbm_env' Conda environment. You should now be ready to go and use ```massbalancemachine``` in your Jupyter Notebooks.
+Finally, ensure that your Jupyter kernel is set to use the 'mbm_env' Conda environment. You can select the kernel from the top right corner of the notebook or through the Launcher (you might need to refresh for the changes to take effect). With this setup, you should be ready to use the `massbalancemachine` package in your Jupyter Notebooks.
 
 ### Known Installation Issues
 
@@ -70,7 +70,7 @@ If you haven't already, please consult [How to install Linux on Windows with WSL
 3. Follow the steps as specified in the section: **Installation**.
 4. Access the remote environment in the terminal, select the right kernel or interpreter and run the Jupyter Notebook or Python scripts.
 
-## Usage
+## 🖥️ Usage & Getting Started
 
 After installing the `massbalancemachine` package and setting up the Conda environment successfully, you can start exploring the example notebooks found in the `notebooks` directory. These notebooks are designed to walk you through using MassBalanceMachine with WGMS data, focusing initially on extracting data from the [Open Global Glacier Model (OGGM)](https://github.com/OGGM/oggm). This data includes comprehensive topographical information for nearly all glaciers worldwide.
 
@@ -81,22 +81,22 @@ Specifically, the example notebooks concentrate on glaciers documented in the WG
 2. **Data Exploration 🔍**: Users can gain deeper insights into their data by visualizing time series of the available stake measurements, which are related to either the region-wide surface mass balance or the point surface mass balance. The example is available [here](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/date_exploration.ipynb).
 3. **Model Training 🚀 & Testing 🎯**: Users can choose from two models. One option is the XGBoost model, with an example available in this [notebook](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/model_training_xgboost.ipynb). The other option is a neural network, which will be released in the future. Both models are customized to handle the monthly resolution of the data. In the notebooks, the models will be trained using the data obtained earlier.
 
-## Project Structure
+## 🗂️ Project Structure
 
-- The ```massbalancemachine``` package contains the core components of MassBalanceMachine, including scripts, classes, and example Jupyter Notebooks that are essential for new users to start a MassBalanceMachine project. This core package, named massbalancemachine, can be imported into scripts and Jupyter Notebooks as needed.
+- The ```massbalancemachine``` package contains the core components of MassBalanceMachine, including scripts, and classes, that are essential for new users to start a MassBalanceMachine project. This core package, named massbalancemachine, can be imported into scripts and Jupyter Notebooks as needed.
 - ```regions``` contains additional scripts, classes, and Jupyter Notebooks that are tailored for MassBalanceMachine instances that operate in different regions in the world. If the region you are interested in is not on this list, you can, with a pull request, add this to the repository. Please make sure you do not upload any confidential or unpublished data. Regions that are covered so far:
   - [WIP] ```Iceland```
   - [WIP] ```Switzerland```
   - [COMING SOON] ``Norway``
   - [ADD YOUR OWN REGION]. PRs welcome! Message us if you have questions 🙂
 
-## Project Roadmap
+## 🗺️ Project Roadmap
 
 The following features are on the roadmap to be implemented in the coming months:
 
 - 🛰️ MassBalanceMachine uses geodetic mass balance data as an extra target variable on top of glaciological data. This will help calibrate the bias/trend in long simulations where the cumulative mass balance matters.
 - 🔄 MassBalanceMachine can do transfer learning for new regions, reducing the training time and making more accurate predictions.
-- 📊 MassBalanceMachine can incorporate physical constraints, in order to merge physical knowledge with data-driven discovery.
+- 📊 MassBalanceMachine can incorporate physical constraints, to merge physical knowledge with data-driven discovery.
 
 ## Contributors
 
@@ -124,8 +124,13 @@ The following features are on the roadmap to be implemented in the coming months
 
 <!-- ALL-CONTRIBUTORS-LIST:END -->
 
-## Contribution Guidelines
+## 📝 Contribution Guidelines
+Here are some basic contribution guidelines outlined below. For a more comprehensive set of instructions, please refer to the [contribution guidelines](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/CONTRIBUTING.md) file in this repository.
 
 - The MassBalanceMachine project is an open-source community initiative that welcomes new users to fork the repository, add new regions, or modify the existing code and submit a [pull request](https://github.com/ODINN-SciML/MassBalanceMachine/pulls).
 - **Currently, uploading data is not allowed unless it is accompanied by a license that explicitly permits open access, allowing it to be shared and used by others.** Pull requests containing data will be rejected. In the future, data sharing will be supported.
-- If you have any questions, please contact one of the contributors listed above. You can also create new Git issues via the [issue tracker](https://github.com/ODINN-SciML/MassBalanceMachine/issues) to propose new features, changes to existing ones, or report bugs.
+- If you have any questions, please contact one of the contributors listed above. You can also create new Git issues via the [issue tracker](https://github.com/ODINN-SciML/MassBalanceMachine/issues) to propose new features, and changes to existing ones, or report bugs.
+
+## Support
+
+For support and assistance, please refer to the [support](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/SUPPORT.md) file in this repository.
