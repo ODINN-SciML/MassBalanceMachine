@@ -18,3 +18,8 @@ A clear and concise description of any alternative solutions or features you've 
 
 **Additional context**
 Add any other context or screenshots about the feature request here.
+
+Note the fixed or relevant GitHub issues at the end:
+
+Resolves: #123
+See also: #456, #789
