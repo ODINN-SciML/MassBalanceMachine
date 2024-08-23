@@ -1,4 +1,4 @@
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![GitHub contributors](https://img.shields.io/github/contributors/ODINN-SciML/MassBalanceMachine?style=social)](##-Contributors)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![GitHub contributors](https://img.shields.io/github/contributors/ODINN-SciML/MassBalanceMachine?style=social)](https://github.com/ODINN-SciML/MassBalanceMachine/tree/main?tab=readme-ov-file#contributors)
 
 ![massbalancemachine](./mbm_banner-01.svg)
 
