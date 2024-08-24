@@ -20,7 +20,7 @@ You can run the MassBalanceMachine core scripts and notebooks with the following
   - [Anaconda](https://docs.anaconda.com/anaconda/install/)
   - [Miniconda](https://docs.anaconda.com/miniconda/miniconda-install/)
 
-## 🛠️ Installation (for all users)
+## Installation (for all users)
 
 To run the Jupyter Notebooks, you'll need to set up a Conda environment. Within this environment, Poetry will handle the installation of all necessary packages and dependencies. Follow these steps to create a new Conda environment named MassBalanceMachine:
 
@@ -70,7 +70,7 @@ If you haven't already, please consult [How to install Linux on Windows with WSL
 3. Follow the steps as specified in the section: **Installation**.
 4. Access the remote environment in the terminal, select the right kernel or interpreter and run the Jupyter Notebook or Python scripts.
 
-## 🖥️ Usage & Getting Started
+## Usage & Getting Started
 
 After installing the `massbalancemachine` package and setting up the Conda environment successfully, you can start exploring the example notebooks found in the `notebooks` directory. These notebooks are designed to walk you through using MassBalanceMachine with WGMS data, focusing initially on extracting data from the [Open Global Glacier Model (OGGM)](https://github.com/OGGM/oggm). This data includes comprehensive topographical information for nearly all glaciers worldwide.
 
@@ -81,7 +81,7 @@ Specifically, the example notebooks concentrate on glaciers documented in the WG
 2. **Data Exploration 🔍**: Users can gain deeper insights into their data by visualizing time series of the available stake measurements, which are related to either the region-wide surface mass balance or the point surface mass balance. The example is available [here](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/date_exploration.ipynb).
 3. **Model Training 🚀 & Testing 🎯**: Users can choose from two models. One option is the XGBoost model, with an example available in this [notebook](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/model_training_xgboost.ipynb). The other option is a neural network, which will be released in the future. Both models are customized to handle the monthly resolution of the data. In the notebooks, the models will be trained using the data obtained earlier.
 
-## 🗂️ Project Structure
+## Project Structure
 
 - The ```massbalancemachine``` package contains the core components of MassBalanceMachine, including scripts, and classes, that are essential for new users to start a MassBalanceMachine project. This core package, named massbalancemachine, can be imported into scripts and Jupyter Notebooks as needed.
 - ```regions``` contains additional scripts, classes, and Jupyter Notebooks that are tailored for MassBalanceMachine instances that operate in different regions in the world. If the region you are interested in is not on this list, you can, with a pull request, add this to the repository. Please make sure you do not upload any confidential or unpublished data. Regions that are covered so far:
@@ -90,7 +90,7 @@ Specifically, the example notebooks concentrate on glaciers documented in the WG
   - [COMING SOON] ``Norway``
   - [ADD YOUR OWN REGION]. PRs welcome! Message us if you have questions 🙂
 
-## 🗺️ Project Roadmap
+## Project Roadmap
 
 The following features are on the roadmap to be implemented in the coming months:
 
@@ -124,7 +124,7 @@ The following features are on the roadmap to be implemented in the coming months
 
 <!-- ALL-CONTRIBUTORS-LIST:END -->
 
-## 📝 Contribution Guidelines
+## Contribution Guidelines
 Here are some basic contribution guidelines outlined below. For a more comprehensive set of instructions, please refer to the [contribution guidelines](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/CONTRIBUTING.md) file in this repository.
 
 - The MassBalanceMachine project is an open-source community initiative that welcomes new users to fork the repository, add new regions, or modify the existing code and submit a [pull request](https://github.com/ODINN-SciML/MassBalanceMachine/pulls).
