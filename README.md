@@ -10,7 +10,7 @@ A bridge between mass balance modelling and observations. Global machine learnin
 - ❄️ MassBalanceMachine uses glaciological (stake) and geodetic mass balance data as targets.
 - 📅 MassBalanceMachine can make predictions or fill data gaps on an annual, seasonal (summer and winter), and monthly temporal scale for any spatial resolution.
 
-This project is in **ongoing development**, and new features will be added over the coming months. Please see the [contribution guidelines](##-Contribution-Guidelines) for more information on contributing to this project.
+This project is in **ongoing development**, and new features will be added over the coming months. Please see the [contribution guidelines](##Contribution-Guidelines) for more information on contributing to this project.
 
 ## Requirements
 
