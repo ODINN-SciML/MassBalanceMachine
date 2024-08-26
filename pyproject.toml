@@ -46,6 +46,7 @@ oggm = "^1.6.1"
 xgboost = "^2.1.0"
 contextily = "^1.6.0"
 dill = "^0.3.8"
+pdoc = "^14.6.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.2"
@@ -53,7 +54,6 @@ pylint = "^3.2.5"
 black = "^24.4.2"
 autopep8 = "^2.3.1"
 tox = "^4.16.0"
-mkdocs = "^1.6.0"
 pandera = "^0.20.3"
 
 [build-system]
