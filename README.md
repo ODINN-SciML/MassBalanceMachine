@@ -10,7 +10,8 @@ A bridge between mass balance modelling and observations. Global machine learnin
 - ❄️ MassBalanceMachine uses glaciological (stake) and geodetic mass balance data as targets.
 - 📅 MassBalanceMachine can make predictions or fill data gaps on an annual, seasonal (summer and winter), and monthly temporal scale for any spatial resolution.
 
-This project is in **ongoing development**, and new features will be added over the coming months. Please see the [contribution guidelines](#contribution-guidelines) for more information on contributing to this project.
+> [!IMPORTANT]  
+> This project is in **ongoing development**, and new features will be added over the coming months. Please see the [contribution guidelines](#contribution-guidelines) for more information on contributing to this project.
 
 ## Requirements
 
@@ -42,11 +43,12 @@ poetry install
 
 All packages and dependencies should now be installed correctly, and you are ready to use the MassBalanceMachine core (```massbalancemachine```). For example, by importing the packing in a Jupyter Notebook by: ```import massbalancemachine as mbm```. Make sure you have selected the right interpreter or kernel before that, in your editor of choice.
 
-**Note:** If you are working on a remote server running JupyterLab or Jupyter Notebook (e.g. Binder) instead of locally, the virtual environment of the notebook will be different from the Conda environment. As an additional step, you need to create a new kernel that includes the Conda environment in Jupyter Notebook. Here’s how you can do it:
+> [!TIP]
+> If you are working on a remote server running JupyterLab or Jupyter Notebook (e.g. Binder) instead of locally, the virtual environment of the notebook will be different from the Conda environment. As an additional step, you need to create a new kernel that includes the Conda environment in Jupyter Notebook. Here’s how you can do it:
 
-```
-poetry run ipython kernel install --user --name=mbm_env
-```
+> ```
+> poetry run ipython kernel install --user --name=mbm_env
+> ```
 
 Finally, ensure that your Jupyter kernel is set to use the 'mbm_env' Conda environment. You can select the kernel from the top right corner of the notebook or through the Launcher (you might need to refresh for the changes to take effect). With this setup, you should be ready to use the `massbalancemachine` package in your Jupyter Notebooks.
 
@@ -56,7 +58,8 @@ Finally, ensure that your Jupyter kernel is set to use the 'mbm_env' Conda envir
 
 ### Additional Installation for Windows Users
 
-**Note:** Topographical features are retrieved using OGGM in the data processing stage, which for now requires a Unix environment. **However, it is not required to run the model training and evaluation in a remote environment**. Window users can either choose to work with the MassBalanceMachine for the entire project in a Unix environment, or just for the data processing part (this requires two times installing the Conda environment).
+> [!NOTE]  
+> Topographical features are retrieved using OGGM in the data processing stage, which for now requires a Unix environment. **However, it is not required to run the model training and evaluation in a remote environment**. Window users can either choose to work with the MassBalanceMachine for the entire project in a Unix environment, or just for the data processing part (this requires two times installing the Conda environment)
 
 If you haven't already, please consult [How to install Linux on Windows with WSL](https://learn.microsoft.com/en-us/windows/wsl/install). A list of steps is provided for Windows users to run this code on their local machine in a remote environment:
 
