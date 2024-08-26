@@ -298,7 +298,7 @@ class CustomXGBoostRegressor(XGBRegressor):
     def load_model(cls, fname: str) -> GridSearchCV | RandomizedSearchCV:
         """Load a grid search or randomized search CV instance from a file"""
         with cls.model_file(fname, "rb") as f:
-            return dill.load(f)
+            return dill.load(f) # returns the grid search instance (self.param_search)
 
     @staticmethod
     def _create_features_metadata(
@@ -319,10 +319,13 @@ class CustomXGBoostRegressor(XGBRegressor):
         # Split features from metadata
         # Get feature columns by subtracting metadata columns from all columns
         feature_columns = X.columns.difference(meta_data_columns)
+        
+        # remove POINT_BALANCE and YEAR from feature columns
+        feature_columns = feature_columns.drop(['POINT_BALANCE', 'YEAR', 'POINT_LAT', 'POINT_LON']) 
 
         # Convert feature_columns to a list (if needed)
         feature_columns = list(feature_columns)
-
+        
         # Extract metadata and features
         metadata = X[meta_data_columns].values
         features = X[feature_columns].values
