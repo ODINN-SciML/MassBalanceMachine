@@ -8,7 +8,7 @@ Email: j.p.biesheuvel@student.tudelft.nl
 Date Created: 09/08/2024
 """
 
-from typing import Union, Dict, Tuple
+from typing import Union, Dict, Tuple, List
 from pathlib import Path
 from contextlib import contextmanager
 
@@ -16,7 +16,6 @@ import dill
 
 import numpy as np
 import pandas as pd
-import random as rd
 import cupy as cp
 from xgboost import XGBRegressor
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
@@ -33,22 +32,25 @@ class CustomXGBoostRegressor(XGBRegressor):
     As the dataset has a monthly resolution, multiple records belong to one time
     period and should therefore take be into account when evaluating the score/loss.
     """
+    meta_data_columns: List[str] = ["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS"]
 
     def __init__(self,
-                 meta_data_columns=[
-                     "RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS"
-                 ],
                  **kwargs):
         """
         Initialize the CustomXGBoostRegressor.
 
         Args:
-            meta_data_columns (list): The metadata columns of the dataset.
             **kwargs: Keyword arguments to be passed to the parent XGBRegressor class.
         """
         super().__init__(**kwargs)
-        self.param_search = None
-        self.meta_data_columns = meta_data_columns
+
+    @staticmethod
+    def set_meta_data_columns(meta_data_columns: List[str]):
+        CustomXGBoostRegressor.meta_data_columns.extend(meta_data_columns)
+
+    @staticmethod
+    def get_meta_data_columns():
+        return CustomXGBoostRegressor.meta_data_columns
 
     def gridsearch(
         self,
@@ -105,6 +107,7 @@ class CustomXGBoostRegressor(XGBRegressor):
         This method uses RandomizedSearchCV to search a subset of the specified parameter space.
 
         Args:
+            random_seed (int): random seed to reproduce predictions
             parameters (dict): A dictionary of parameters and their distributions to sample from.
             n_iter (int): Number of parameter settings that are sampled.
             splits (tuple[list[tuple[ndarray, ndarray]]]): A dictionary containing cross-validation split information.
@@ -153,7 +156,7 @@ class CustomXGBoostRegressor(XGBRegressor):
 
         # Separate the features from the metadata provided in the dataset
         features, metadata = self._create_features_metadata(
-            X, self.meta_data_columns)
+            X, self.get_meta_data_columns())
 
         # If running on GPU need to be converted to cupy
         if 'cuda' in self.get_params()['device']:
@@ -163,7 +166,7 @@ class CustomXGBoostRegressor(XGBRegressor):
         # Define closure that captures metadata for use in custom objective
         def custom_objective(y_true, y_pred):
             return self._custom_mse_metadata(y_true, y_pred, metadata,
-                                             self.meta_data_columns)
+                                             self.get_meta_data_columns())
 
         # Set custom objective
         self.set_params(objective=custom_objective)
@@ -188,7 +191,7 @@ class CustomXGBoostRegressor(XGBRegressor):
 
         # Separate the features from the metadata provided in the dataset
         features, metadata = self._create_features_metadata(
-            X, self.meta_data_columns)
+            X, self.get_meta_data_columns())
 
         # If running on GPU need to be converted to cupy
         if 'cuda' in self.get_params()['device']:
@@ -200,7 +203,7 @@ class CustomXGBoostRegressor(XGBRegressor):
         # Get the aggregated predictions and the mean score based on the true labels, and predicted labels
         # based on the metadata.
         y_pred_agg, y_true_mean, _, _ = self._create_metadata_scores(
-            metadata, y, y_pred, self.meta_data_columns)
+            metadata, y, y_pred, self.get_meta_data_columns())
 
         # Calculate MSE
         mse = ((y_pred_agg - y_true_mean)**2).mean()
@@ -222,7 +225,7 @@ class CustomXGBoostRegressor(XGBRegressor):
 
         return super().predict(features)
 
-    def evalMetrics(self, metadata: np.array, y_pred: np.array,
+    def eval_Metrics(self, metadata: np.array, y_pred: np.array,
                     y_target: np.array) -> Tuple[float, float, float]:
         """
         Compute three evaluation metrics of the model on the given test data and labels.
@@ -241,7 +244,7 @@ class CustomXGBoostRegressor(XGBRegressor):
             metadata,
             y_target,
             y_pred,
-            meta_data_columns=self.meta_data_columns)
+            meta_data_columns=self.get_meta_data_columns())
 
         mse = mean_squared_error(y_true_mean, y_pred_agg)
         rmse = mean_squared_error(y_true_mean, y_pred_agg, squared=False)
@@ -249,7 +252,7 @@ class CustomXGBoostRegressor(XGBRegressor):
 
         return mse, rmse, mae
 
-    def aggrPredict(self, metadata: np.array, meta_data_columns: list,
+    def aggr_Predict(self, metadata: np.array, meta_data_columns: list,
                     features: pd.DataFrame) -> np.ndarray:
         """
         Makes predictions in aggregated format using the fitted model.
