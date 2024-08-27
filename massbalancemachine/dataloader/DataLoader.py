@@ -190,20 +190,33 @@ class DataLoader:
             "ID"].values  # unique value per stake measurement
         return X, y, glacier_ids, stake_meas_id
 
-    def _create_group_kfold_splits(
-            self, X: pd.DataFrame, y: pd.Series, glacier_ids: np.ndarray,
+    from typing import List, Tuple
+    import pandas as pd
+    import numpy as np
+    from sklearn.model_selection import GroupKFold, KFold
+
+    def create_group_kfold_splits(
+            self,
+            X: pd.DataFrame,
+            y: pd.Series,
+            glacier_ids: np.ndarray,
             stake_meas_id: np.ndarray,
-            type_fold: str) -> List[Tuple[np.ndarray, np.ndarray]]:
-        """Create GroupKFold splits based on glacier IDs."""
-        if type_fold == 'group-rgi':
-            group_kf = GroupKFold(n_splits=self.n_splits)
-            return list(group_kf.split(X, y, glacier_ids))
-        elif type_fold == 'group-meas-id':
-            group_kf = GroupKFold(n_splits=self.n_splits)
-            return list(group_kf.split(X, y, stake_meas_id))
-        else:
-            # random Fold
-            kf = KFold(n_splits=self.n_splits,
-                       shuffle=True,
-                       random_state=self.random_seed)
-            return list(kf.split(X, y))
+            type_fold: str,
+    ) -> List[Tuple[np.ndarray, np.ndarray]]:
+        """Create KFold splits based on the specified fold type."""
+        fold_types = {
+            "group-rgi": (GroupKFold, glacier_ids),
+            "group-meas-id": (GroupKFold, stake_meas_id),
+            "random": (KFold, None)
+        }
+
+        FoldClass, groups = fold_types.get(type_fold, (KFold, None))
+
+        kf = FoldClass(n_splits=self.n_splits)
+
+        if isinstance(kf, KFold) and type_fold == "random":
+            kf.shuffle = True
+            kf.random_state = self.random_seed
+
+        split_args = [X, y, groups] if groups is not None else [X, y]
+        return list(kf.split(*split_args))
