@@ -46,6 +46,8 @@ oggm = "^1.6.1"
 xgboost = "^2.1.0"
 contextily = "^1.6.0"
 dill = "^0.3.8"
+# cupy = "^13.2.0"
+cupy-cuda11x = "^13.3.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.2"
