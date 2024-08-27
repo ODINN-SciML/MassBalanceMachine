@@ -4,3 +4,5 @@ channels:
 dependencies:
   - python==3.10
   - poetry
+  - cudatoolkit
+  - cupy

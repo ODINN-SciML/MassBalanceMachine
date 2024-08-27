@@ -46,7 +46,6 @@ oggm = "^1.6.1"
 xgboost = "^2.1.0"
 contextily = "^1.6.0"
 dill = "^0.3.8"
-# cupy = "^13.2.0"
 pdoc = "^14.6.1"
 
 [tool.poetry.group.dev.dependencies]
