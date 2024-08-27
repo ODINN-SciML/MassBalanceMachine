@@ -1,0 +1,9 @@
+site_name: MassBalanceMachine
+nav:
+  - Home: index.md
+  - About:
+      - Contribution: about/contribution.md
+      - License: about/license.md
+  - User Guide:
+      - Overview: user_guide/overview.md
+theme: readthedocs
