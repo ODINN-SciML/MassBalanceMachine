@@ -190,12 +190,7 @@ class DataLoader:
             "ID"].values  # unique value per stake measurement
         return X, y, glacier_ids, stake_meas_id
 
-    from typing import List, Tuple
-    import pandas as pd
-    import numpy as np
-    from sklearn.model_selection import GroupKFold, KFold
-
-    def create_group_kfold_splits(
+    def _create_group_kfold_splits(
             self,
             X: pd.DataFrame,
             y: pd.Series,
