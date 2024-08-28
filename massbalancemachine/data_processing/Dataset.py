@@ -14,8 +14,9 @@ import os
 import logging
 import pandas as pd
 from get_climate_data import get_climate_features
-from get_topo_data import get_topographical_features
+from get_topo_data import get_topographical_features, get_glacier_mask
 from transform_to_monthly import transform_to_monthly
+from create_glacier_grid import create_glacier_grid
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s - %(levelname)s - %(message)s")
@@ -41,16 +42,20 @@ class Dataset:
         self.data_dir = data_path
         self.RGIIds = self.data["RGIId"]
 
-    def get_topo_features(self, *, vois: "list[str]") -> None:
+    def get_topo_features(self,
+                          *,
+                          vois: "list[str]",
+                          custom_working_dir: str = '') -> None:
         """
         Fetches all the topographical data, for a list of variables of interest, using OGGM for the specified RGI IDs
 
         Args:
             vois (list[str]): A string containing the topographical variables of interest
+            custom_working_dir (str, optional): The path to the custom working directory for OGGM data. Default to ''
         """
         output_fname = self._get_output_filename("topographical_features")
         self.data = get_topographical_features(self.data, output_fname, vois,
-                                               self.RGIIds)
+                                               self.RGIIds, custom_working_dir)
 
     def get_climate_features(self,
                              *,
@@ -63,6 +68,7 @@ class Dataset:
         Args:
             climate_data (str): A netCDF-3 file location containing the climate data for the region of interest
             geopotential_data (str): A netCDF-3 file location containing the geopotential data
+            change_units (bool, optional): A boolean indicating whether to change the units of the climate data. Default to False.
         """
         output_fname = self._get_output_filename("climate_features")
         self.data = get_climate_features(self.data, output_fname, climate_data,
@@ -87,6 +93,40 @@ class Dataset:
         self.data = transform_to_monthly(self.data, meta_data_columns,
                                          vois_climate, vois_topographical,
                                          output_fname)
+
+    def get_glacier_mask(self, custom_working_dir=''):
+        """Creates an xarray that contains different variables from OGGM, 
+            mapped over the glacier outline. The glacier mask is also returned.
+            
+        Args:
+            custom_working_dir (str, optional): working directory for the OGGM data. Defaults to ''.
+        Returns:
+            ds (xr.Dataset): the glacier data from OGGM masked over the glacier outline
+            glacier_indices (np.array): indices of glacier pixels in OGGM grid
+            gdir (oggm.GlacierDirectory): the OGGM glacier directory
+            
+        """
+        ds, glacier_indices, gdir = get_glacier_mask(self.data,
+                                                     custom_working_dir)
+        return ds, glacier_indices, gdir
+
+    def create_glacier_grid(self, custom_working_dir=''):
+        """Creates a dataframe with the glacier grid data, 
+            which contains the glacier data from OGGM mapped over the glacier outline in yearly format.
+
+        Args:
+            custom_working_dir (str, optional): working directory for the OGGM data. Defaults to ''.
+
+        Returns:
+            df_grid (pd.DataFrame): yearly dataframe with the glacier grid data.
+        """
+        # Get glacier mask from OGGM
+        ds, glacier_indices, gdir = get_glacier_mask(self.data,
+                                                     custom_working_dir)
+        years = self.data['YEAR'].unique()
+        rgi_gl = self.data['RGIId'].unique()[0]
+        df_grid = create_glacier_grid(ds, years, glacier_indices, gdir, rgi_gl)
+        return df_grid
 
     def _get_output_filename(self, feature_type: str) -> str:
         """
