@@ -14,13 +14,13 @@ import config
 
 import xarray as xr
 import pandas as pd
-
+import numpy as np
 from oggm import cfg, workflow, tasks
 
-
-def get_topographical_features(
-    df: pd.DataFrame, output_fname: str, voi: list[str], rgi_ids: pd.Series
-) -> pd.DataFrame:
+def get_topographical_features(df: pd.DataFrame, output_fname: str,
+                               voi: "list[str]",
+                               rgi_ids: pd.Series,
+                               custom_working_dir:str) -> pd.DataFrame:
     """
     Retrieves topographical features for each stake location using the OGGM library and updates the given
     DataFrame with these features.
@@ -30,7 +30,7 @@ def get_topographical_features(
         output_fname (str): The path to the output CSV file where the updated DataFrame will be saved.
         voi (list of str): A list of variables of interest (e.g., ['slope', 'aspect']) to retrieve from the gridded data.
         rgi_ids (pd.Series): A Series of RGI IDs corresponding to the stake locations in the DataFrame.
-
+        custom_working_dir (str): The path to the custom working directory for OGGM data.
     Returns:
         pd.DataFrame: The updated DataFrame with topographical features added.
 
@@ -44,7 +44,7 @@ def get_topographical_features(
     rgi_ids_list = _get_unique_rgi_ids(rgi_ids)
 
     # Initialize the OGGM Config
-    _initialize_oggm_config()
+    _initialize_oggm_config(custom_working_dir)
 
     # Initialize the OGGM Glacier Directory, given the available RGI IDs
     glacier_directories = _initialize_glacier_directories(rgi_ids_list)
@@ -66,37 +66,61 @@ def get_topographical_features(
 
     # Based on the stake location, find the nearest point on the glacier with
     # recorded topographical features
-    _retrieve_topo_features(
-        data, glacier_directories, gdirs_gridded, grouped_stakes, voi
-    )
+    _retrieve_topo_features(data, glacier_directories, gdirs_gridded,
+                            grouped_stakes, voi)
 
     # Check if the dataframe is not empty (i.e. no points were found)
     if data.empty:
         raise ValueError(
             "DataFrame is empty, no stakes were found for the region of interest. Please check if your \n"
-            "RGIIDs are correct, and your coordinates are in the correct CRS."
-        )
+            "RGIIDs are correct, and your coordinates are in the correct CRS.")
 
     data.to_csv(output_fname, index=False)
 
     return data
 
 
+def get_glacier_mask(df:pd.DataFrame, custom_working_dir:str):
+    """Gets glacier xarray from OGGM and masks it over the glacier outline."""
+    
+    # Initialize the OGGM Config
+    _initialize_oggm_config(custom_working_dir)
+    
+    # Initialize the OGGM Glacier Directory, given the available RGI IDs
+    rgi_id = df.RGIId.unique()
+    gdirs = _initialize_glacier_directories(rgi_id)
+    
+    # Get oggm data for that RGI ID
+    for gdir in gdirs:
+        if gdir.rgi_id == rgi_id[0]:
+            break
+    with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
+        ds = ds.load()
+        
+    # Create glacier mask
+    ds = ds.assign(masked_slope=ds['glacier_mask'] * ds['slope'])
+    ds = ds.assign(masked_elev=ds['glacier_mask'] * ds['topo'])
+    ds = ds.assign(masked_aspect=ds['glacier_mask'] * ds['aspect'])
+    ds = ds.assign(masked_dis=ds['glacier_mask'] * ds['dis_from_border'])
+    glacier_indices = np.where(ds['glacier_mask'].values == 1)
+    return ds, glacier_indices, gdir
+    
 def _get_unique_rgi_ids(rgi_ids: pd.Series) -> list:
     """Get the list of unique RGI IDs."""
     return rgi_ids.dropna().unique().tolist()
 
 
-def _initialize_oggm_config():
+def _initialize_oggm_config(custom_working_dir):
     """Initialize OGGM configuration."""
     cfg.initialize(logging_level="WARNING")
     cfg.PARAMS["border"] = 10
     cfg.PARAMS["use_multiprocessing"] = True
     cfg.PARAMS["continue_on_error"] = True
-
-    current_path = os.getcwd()
-    workspace_path = os.path.join(current_path, "OGGM")
-    cfg.PATHS["working_dir"] = workspace_path
+    if len(custom_working_dir) == 0:
+        current_path = os.getcwd()
+        cfg.PATHS["working_dir"] = os.path.join(current_path, "OGGM")
+    else:
+        cfg.PATHS["working_dir"] = custom_working_dir
 
 
 def _initialize_glacier_directories(rgi_ids_list: list) -> list:
@@ -110,33 +134,31 @@ def _initialize_glacier_directories(rgi_ids_list: list) -> list:
         prepro_border=10,
     )
 
-    workflow.execute_entity_task(
-        tasks.gridded_attributes, glacier_directories, print_log=True
-    )
+    workflow.execute_entity_task(tasks.gridded_attributes,
+                                 glacier_directories,
+                                 print_log=True)
     return glacier_directories
 
 
 def _filter_dataframe(df: pd.DataFrame, rgi_ids_list: list) -> pd.DataFrame:
     """Filter the DataFrame to include only the RGI IDs of interest and select only lat/lon columns."""
-    return df.loc[df["RGIId"].isin(rgi_ids_list), ["RGIId", "POINT_LAT", "POINT_LON"]]
+    return df.loc[df["RGIId"].isin(rgi_ids_list),
+                  ["RGIId", "POINT_LAT", "POINT_LON"]]
 
 
 def _group_stakes_by_rgi_id(
-    filtered_df: pd.DataFrame,
-) -> pd.api.typing.DataFrameGroupBy:
+    filtered_df: pd.DataFrame, ) -> pd.api.typing.DataFrameGroupBy:
     """Group latitude and longitude by RGI ID."""
     return filtered_df.groupby("RGIId", sort=False)
 
 
-def _load_gridded_data(
-    glacier_directories: list, grouped_stakes: pd.api.typing.DataFrameGroupBy
-) -> list:
+def _load_gridded_data(glacier_directories: list,
+                       grouped_stakes: pd.api.typing.DataFrameGroupBy) -> list:
     """Load gridded data for each glacier directory."""
     grouped_rgi_ids = set(grouped_stakes.groups.keys())
     return [
         xr.open_dataset(gdir.get_filepath("gridded_data")).load()
-        for gdir in glacier_directories
-        if gdir.rgi_id in grouped_rgi_ids
+        for gdir in glacier_directories if gdir.rgi_id in grouped_rgi_ids
     ]
 
 
@@ -150,13 +172,13 @@ def _retrieve_topo_features(
     """Find the nearest recorded point with topographical features on the glacier for each stake."""
 
     for gdir, gdir_grid in zip(glacier_directories, gdirs_gridded):
-        lat = grouped_stakes.get_group(gdir.rgi_id)[["POINT_LAT"]].values.flatten()
-        lon = grouped_stakes.get_group(gdir.rgi_id)[["POINT_LON"]].values.flatten()
+        lat = grouped_stakes.get_group(gdir.rgi_id)[["POINT_LAT"
+                                                     ]].values.flatten()
+        lon = grouped_stakes.get_group(gdir.rgi_id)[["POINT_LON"
+                                                     ]].values.flatten()
 
-        topo_data = (
-            gdir_grid.sel(x=lon, y=lat, method="nearest")[voi]
-            .to_dataframe()
-            .reset_index(drop=True)
-        )
+        topo_data = (gdir_grid.sel(
+            x=lon, y=lat,
+            method="nearest")[voi].to_dataframe().reset_index(drop=True))
 
         df.loc[df["RGIId"] == gdir.rgi_id, voi] = topo_data[voi]

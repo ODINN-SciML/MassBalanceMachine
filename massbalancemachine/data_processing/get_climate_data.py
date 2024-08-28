@@ -46,7 +46,8 @@ def get_climate_features(
         raise FileNotFoundError(f"Climate data or geopotential data do not exist.")
 
     # Load the two climate datasets
-    ds_climate, ds_geopotential = _load_datasets(climate_data, geopotential_data)
+    ds_climate, ds_geopotential = _load_datasets(climate_data,
+                                                 geopotential_data)
 
     # Makes things easier down the line
     # Change temperature to Celsius and precipitation to m.w.e
@@ -221,6 +222,7 @@ def _combine_dataframes(
     )
 
     df = pd.concat([df, climate_df, altitude_df], axis=1)
+    #df["ALTITUDE_CLIMATE"] = altitude_df.altitude_climate.values
     # rename column
     df.rename(columns={"altitude_climate": "ALTITUDE_CLIMATE"}, inplace=True)
     df.dropna(subset=["ALTITUDE_CLIMATE"], inplace=True)
