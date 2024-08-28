@@ -47,7 +47,7 @@ def get_climate_features(df: pd.DataFrame, output_fname: str,
     # Load the two climate datasets
     ds_climate, ds_geopotential = _load_datasets(climate_data,
                                                  geopotential_data)
-    
+        
     # Makes things easier down the line
     # Change temperature to Celsius and precipitation to m.w.e
     if change_units:
@@ -152,7 +152,6 @@ def _process_climate_data(ds_climate: xr.Dataset,
     # Create DataArrays for latitude and longitude
     lat_da = xr.DataArray(df["POINT_LAT"].values, dims="points")
     lon_da = xr.DataArray(df["POINT_LON"].values, dims="points")
-
     # Create a 2D array of dates ranges
     date_array = np.array([r.values for r in df["range_date"].values])
     time_da = xr.DataArray(date_array, dims=["points", "time"])
