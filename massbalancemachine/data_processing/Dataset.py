@@ -79,7 +79,7 @@ class Dataset:
         *,
         vois_climate: "list[str]",
         vois_topographical: "list[str]",
-        meta_data_columns=["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS"]
+        meta_data_columns:"list[str]"=["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS"]
     ) -> None:
         """
         Converts a variable period for the SMB target data measurement to a monthly time resolution.
@@ -94,7 +94,7 @@ class Dataset:
                                          vois_climate, vois_topographical,
                                          output_fname)
 
-    def get_glacier_mask(self, custom_working_dir=''):
+    def get_glacier_mask(self, custom_working_dir:str='') -> "tuple[xr.Dataset, tuple[np.array, np.array], oggm.GlacierDirectory]":
         """Creates an xarray that contains different variables from OGGM, 
             mapped over the glacier outline. The glacier mask is also returned.
             
@@ -110,7 +110,7 @@ class Dataset:
                                                      custom_working_dir)
         return ds, glacier_indices, gdir
 
-    def create_glacier_grid(self, custom_working_dir=''):
+    def create_glacier_grid(self, custom_working_dir:str='')->pd.DataFrame:
         """Creates a dataframe with the glacier grid data, 
             which contains the glacier data from OGGM mapped over the glacier outline in yearly format.
 
