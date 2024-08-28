@@ -11,14 +11,16 @@ Date Created: 21/07/2024
 """
 
 import os
+import config
 import logging
 import pandas as pd
 from get_climate_data import get_climate_features
 from get_topo_data import get_topographical_features
 from transform_to_monthly import transform_to_monthly
 
-logging.basicConfig(level=logging.INFO,
-                    format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 
@@ -34,8 +36,7 @@ class Dataset:
         RGIIds (pd.Series): Series of RGI IDs from the data
     """
 
-    def __init__(self, *, data: pd.DataFrame, region_name: str,
-                 data_path: str):
+    def __init__(self, *, data: pd.DataFrame, region_name: str, data_path: str):
         self.data = self._clean_data(data=data.copy())
         self.region = region_name
         self.data_dir = data_path
@@ -49,31 +50,32 @@ class Dataset:
             vois (list[str]): A string containing the topographical variables of interest
         """
         output_fname = self._get_output_filename("topographical_features")
-        self.data = get_topographical_features(self.data, output_fname, vois,
-                                               self.RGIIds)
+        self.data = get_topographical_features(
+            self.data, output_fname, vois, self.RGIIds
+        )
 
-    def get_climate_features(self,
-                             *,
-                             climate_data: str,
-                             geopotential_data: str,
-                             change_units: bool = False) -> None:
+    def get_climate_features(
+        self, *, climate_data: str, geopotential_data: str, change_units: bool = False
+    ) -> None:
         """
         Fetches all the climate data, for a list of variables of interest, for the specified RGI IDs.
 
         Args:
             climate_data (str): A netCDF-3 file location containing the climate data for the region of interest
             geopotential_data (str): A netCDF-3 file location containing the geopotential data
+            change_units (bool): A boolean indicating whether to change the units of the data
         """
         output_fname = self._get_output_filename("climate_features")
-        self.data = get_climate_features(self.data, output_fname, climate_data,
-                                         geopotential_data, change_units)
+        self.data = get_climate_features(
+            self.data, output_fname, climate_data, geopotential_data, change_units
+        )
 
     def convert_to_monthly(
         self,
         *,
         vois_climate: "list[str]",
         vois_topographical: "list[str]",
-        meta_data_columns=["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS"]
+        meta_data_columns=None,
     ) -> None:
         """
         Converts a variable period for the SMB target data measurement to a monthly time resolution.
@@ -81,12 +83,14 @@ class Dataset:
         Args:
             vois_climate (list[str]): variables of interest from the climate data
             vois_topographical (list[str]): variables of interest from the topographical data
-            meta_data_columns (list[str]): metadata columns 
+            meta_data_columns (list[str]): metadata columns
         """
+        if meta_data_columns is None:
+            meta_data_columns = config.META_DATA
         output_fname = self._get_output_filename("monthly_dataset")
-        self.data = transform_to_monthly(self.data, meta_data_columns,
-                                         vois_climate, vois_topographical,
-                                         output_fname)
+        self.data = transform_to_monthly(
+            self.data, meta_data_columns, vois_climate, vois_topographical, output_fname
+        )
 
     def _get_output_filename(self, feature_type: str) -> str:
         """
@@ -104,11 +108,12 @@ class Dataset:
     def _clean_data(data: pd.DataFrame) -> pd.DataFrame:
         """Cleans the input Dataframe by removing rows with missing or invalid dates, and
         removes rows with invalid POINT_BALANCE values."""
-        # Fist, check if there are any faulty dates, if there are throw these out.
+        # Fist, check if there are any faulty dates, if there are throw these
+        # out.
         corrected_data = Dataset._check_dates(data=data)
 
         # Second, drop all records without a POINT_BALANCE (e.g. NaN)
-        corrected_data.dropna(subset=['POINT_BALANCE'], inplace=True)
+        corrected_data.dropna(subset=["POINT_BALANCE"], inplace=True)
 
         return corrected_data
 
@@ -127,19 +132,18 @@ class Dataset:
             raise
 
     @staticmethod
-    def _validate_columns(data: pd.DataFrame,
-                          required_columns: "list[str]") -> None:
+    def _validate_columns(data: pd.DataFrame, required_columns: "list[str]") -> None:
         """Validates that all required columns are present in the DataFrame."""
         if not all(col in data.columns for col in required_columns):
-            logging.error(
-                f"Missing one of the required columns: {required_columns}")
+            logging.error(f"Missing one of the required columns: {required_columns}")
             raise KeyError(
                 f"Required columns {required_columns} are not present in the DataFrame."
             )
 
     @staticmethod
-    def _remove_missing_dates(data: pd.DataFrame,
-                              date_columns: "list[str]") -> pd.DataFrame:
+    def _remove_missing_dates(
+        data: pd.DataFrame, date_columns: "list[str]"
+    ) -> pd.DataFrame:
         """Removes rows with missing dates from the DataFrame."""
         return data.dropna(subset=date_columns)
 
@@ -147,5 +151,6 @@ class Dataset:
     def _convert_and_filter_dates(data: pd.DataFrame) -> pd.DataFrame:
         """Converts date columns to string and filters out invalid dates."""
         data = data.astype({"FROM_DATE": str, "TO_DATE": str})
-        return data[~data["FROM_DATE"].str.endswith("99")
-                    & ~data["TO_DATE"].str.endswith("99")]
+        return data[
+            ~data["FROM_DATE"].str.endswith("99") & ~data["TO_DATE"].str.endswith("99")
+        ]
