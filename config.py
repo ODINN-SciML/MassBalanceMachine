@@ -2,7 +2,7 @@ from typing import List
 
 SEED: int = 30
 BASE_URL: str = "https://cluster.klima.uni-bremen.de/~oggm/gdirs/oggm_v1.6/L3-L5_files/2023.1/elev_bands/W5E5_w_data/"
-META_DATA: List[str] = ["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS"]
+META_DATA: List[str] = ["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD"]
 TEST_SIZE: float = 0.3
 N_SPLITS: int = 5
 NUM_JOBS: int = -1
