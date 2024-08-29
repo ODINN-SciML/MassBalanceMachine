@@ -128,7 +128,7 @@ def convert_to_wgms(
     wgms_data_columns: dict,
     data: pd.DataFrame,
     date_columns: list[str],
-    smb_columns: list[str]
+    smb_columns: list[str],
 ) -> pd.DataFrame:
     """
     Convert dataset to WGMS-like format with individual records for each measurement period.
