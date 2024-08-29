@@ -10,6 +10,7 @@ Date Created: 21/07/2024
 """
 
 import os
+import config
 
 import xarray as xr
 import pandas as pd
@@ -124,7 +125,7 @@ def _initialize_oggm_config(custom_working_dir):
 
 def _initialize_glacier_directories(rgi_ids_list: list) -> list:
     """Initialize glacier directories."""
-    base_url = "https://cluster.klima.uni-bremen.de/~oggm/gdirs/oggm_v1.6/L3-L5_files/2023.1/elev_bands/W5E5_w_data/"
+    base_url = config.BASE_URL
     glacier_directories = workflow.init_glacier_directories(
         rgi_ids_list,
         reset=False,
