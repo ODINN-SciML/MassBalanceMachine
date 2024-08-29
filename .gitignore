@@ -10,5 +10,7 @@ notebooks/OGGM/**
 notebooks/models
 notebooks/.ipynb_checkpoints
 
+regions/Switzerland/models/**
+
 *.tox/
 *.tox

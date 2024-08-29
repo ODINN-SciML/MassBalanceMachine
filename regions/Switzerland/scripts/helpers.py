@@ -3,6 +3,8 @@ from os.path import isfile, join
 import numpy as np
 import random as rd
 import torch
+import gc
+
 from matplotlib import pyplot as plt
 from matplotlib.colors import to_hex
 
@@ -21,9 +23,6 @@ path_glacier_grid = '../../../data/GLAMOS/glacier-wide/grid/'
 
 # ERA5-Land
 path_ERA5_raw = '../../../data/ERA5Land/raw/'
-
-# Constants:
-SEED = 5
 
 vois_climate_long_name = {
     't2m': 'Temperature',
@@ -103,3 +102,7 @@ def get_cmap_hex(cmap, length):
     hex_codes = [to_hex(rgb[i,:]) for i in range(rgb.shape[0])]
 
     return hex_codes
+
+def free_up_cuda():
+    gc.collect()
+    torch.cuda.empty_cache()
