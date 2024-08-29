@@ -124,7 +124,7 @@ class DataLoader:
         self.test_indices = test_indices
 
     def get_cv_split(
-        self, *, n_splits: int = 5, type_fold: str = "random"
+        self, *, n_splits: int = None, type_fold: str = "random"
     ) -> list[tuple[ndarray, ndarray]]:
         """
         Create a cross-validation split of the training data.
@@ -145,7 +145,8 @@ class DataLoader:
         """
 
         # Save the number of splits as an attribute of this class
-        self.n_splits = n_splits
+        if n_splits is not None:
+            self.n_splits = n_splits
 
         # Check if there is already a train iterator, this is needed to make
         # the splits for CV
