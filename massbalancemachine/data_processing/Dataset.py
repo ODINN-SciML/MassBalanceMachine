@@ -127,7 +127,8 @@ class Dataset:
         # Get glacier mask from OGGM
         ds, glacier_indices, gdir = get_glacier_mask(self.data,
                                                      custom_working_dir)
-        years = self.data['YEAR'].unique()
+        years_stake = self.data['YEAR'].unique()
+        years = range(years_stake.min(), years_stake.max() + 1)
         rgi_gl = self.data['RGIId'].unique()[0]
         df_grid = create_glacier_grid(ds, years, glacier_indices, gdir, rgi_gl)
         return df_grid
