@@ -14,6 +14,7 @@ import os
 import config
 import logging
 import pandas as pd
+import xarray as xr
 from get_climate_data import get_climate_features
 from get_topo_data import get_topographical_features, get_glacier_mask
 from transform_to_monthly import transform_to_monthly
