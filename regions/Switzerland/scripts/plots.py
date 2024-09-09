@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from cmcrameri import cm
 import pandas as pd
+from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 
 from scripts.helpers import *
 
@@ -38,13 +39,13 @@ def predVSTruth(ax, grouped_ids, mae, rmse, pearson_corr):
         ), (r"$\mathrm{\rho_{xgb}}=%.3f$" % (pearson_corr, ))))
 
     marker_xgb = 'o'
-    #colors = get_cmap_hex(cm.glasgow, 2)
-    palette = sns.color_palette("magma_r", as_cmap=True)
+    colors = get_cmap_hex(cm.glasgow, 2)
+    #palette = sns.color_palette("magma_r", as_cmap=True)
     sns.scatterplot(
         grouped_ids,
         x="target",
         y="pred",
-        palette=palette,
+        palette=cm.devon_r,
         hue='YEAR',
         ax=ax,
         # alpha=0.8,
@@ -68,6 +69,58 @@ def predVSTruth(ax, grouped_ids, mae, rmse, pearson_corr):
     ax.axhline(0, color="grey", linestyle="-", linewidth=0.2)
     ax.grid()
     plt.tight_layout()
+
+
+def plotMeanPred(grouped_ids, ax):
+    mean = grouped_ids.groupby('YEAR')['target'].mean().values
+    std = grouped_ids.groupby('YEAR')['target'].std().values
+    years = grouped_ids.YEAR.unique()
+    ax = plt.subplot(1, 2, 2)
+    ax.fill_between(
+        years,
+        mean - std,
+        mean + std,
+        color="orange",
+        alpha=0.3,
+    )
+    ax.plot(years, mean, color="orange", label="mean target")
+    ax.scatter(years, mean, color="orange", marker='x')
+    ax.plot(years,
+            grouped_ids.groupby('YEAR')['pred'].mean().values,
+            color=color_xgb,
+            label="mean pred",
+            linestyle='--')
+    ax.scatter(years,
+               grouped_ids.groupby('YEAR')['pred'].mean().values,
+               color=color_xgb,
+               marker='x')
+    ax.fill_between(
+        years,
+        grouped_ids.groupby('YEAR')['pred'].mean().values -
+        grouped_ids.groupby('YEAR')['pred'].std().values,
+        grouped_ids.groupby('YEAR')['pred'].mean().values +
+        grouped_ids.groupby('YEAR')['pred'].std().values,
+        color=color_xgb,
+        alpha=0.3,
+    )
+
+    mae, rmse, pearson_corr = mean_absolute_error(
+        grouped_ids.groupby('YEAR')['pred'].mean().values,
+        mean), mean_squared_error(
+            grouped_ids.groupby('YEAR')['pred'].mean().values,
+            mean,
+            squared=False), np.corrcoef(
+                grouped_ids.groupby('YEAR')['pred'].mean().values, mean)[0, 1]
+    legend_xgb = "\n".join((r"$\mathrm{MAE}=%.3f, \mathrm{RMSE}=%.3f,$ " % (
+        mae,
+        rmse,
+    ), (r"$\mathrm{\rho}=%.3f$" % (pearson_corr, ))))
+    ax.text(0.03,
+            0.98,
+            legend_xgb,
+            transform=ax.transAxes,
+            verticalalignment="top",
+            fontsize=20)
 
 
 def FIPlot(best_estimator, feature_columns, vois_climate):
@@ -137,8 +190,11 @@ def plotNumMeasPerYear(data_gl, glacierName):
     fig, ax = plt.subplots(1, 1, figsize=(15, 5))
     num_gl_yr = data_gl.groupby(['YEAR',
                                  'PERIOD']).size().unstack().reset_index()
-    num_gl_yr.plot(x='YEAR', kind='bar', stacked=True, ax=ax,
-               colormap='flare_r')
+    num_gl_yr.plot(x='YEAR',
+                   kind='bar',
+                   stacked=True,
+                   ax=ax,
+                   colormap='flare_r')
     ax.set_ylabel('Number of measurements')
     ax.set_title(f'Number of measurements per year: {glacierName}',
                  fontsize=14)
