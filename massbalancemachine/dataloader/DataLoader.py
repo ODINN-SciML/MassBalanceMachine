@@ -125,7 +125,7 @@ class DataLoader:
 
     def get_cv_split(
         self, *, n_splits: int = 5, type_fold: str = "random"
-    ) -> list[tuple[ndarray, ndarray]]:
+    ) -> "list[tuple[ndarray, ndarray]]":
         """
         Create a cross-validation split of the training data.
 

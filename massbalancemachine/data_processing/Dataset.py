@@ -14,6 +14,7 @@ import os
 import config
 import logging
 import pandas as pd
+import xarray as xr
 from get_climate_data import get_climate_features
 from get_topo_data import get_topographical_features, get_glacier_mask
 from transform_to_monthly import transform_to_monthly
@@ -127,7 +128,8 @@ class Dataset:
         # Get glacier mask from OGGM
         ds, glacier_indices, gdir = get_glacier_mask(self.data,
                                                      custom_working_dir)
-        years = self.data['YEAR'].unique()
+        years_stake = self.data['YEAR'].unique()
+        years = range(years_stake.min(), years_stake.max() + 1)
         rgi_gl = self.data['RGIId'].unique()[0]
         df_grid = create_glacier_grid(ds, years, glacier_indices, gdir, rgi_gl)
         return df_grid
