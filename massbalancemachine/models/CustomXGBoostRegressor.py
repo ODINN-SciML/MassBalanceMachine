@@ -329,7 +329,7 @@ class CustomXGBoostRegressor(XGBRegressor):
         )
         # Convert feature_columns to a list (if needed)
         feature_columns = list(feature_columns)
-        # print(f"Feature columns: {feature_columns}")
+        #print(f"Feature columns: {feature_columns}")
 
         # Extract metadata and features
         metadata = X[meta_data_columns].values
