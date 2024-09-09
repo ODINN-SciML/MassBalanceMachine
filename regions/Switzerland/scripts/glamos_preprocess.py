@@ -144,7 +144,6 @@ def remove_close_points(df_gl):
                 (x, y)
                 for x, y in zip(df_gl_y['POINT_LAT'], df_gl_y['POINT_LON'])
             ]
-
             indices_to_merge = []
             for i in range(len(df_gl_y)):
                 row = df_gl_y.iloc[i]
@@ -169,11 +168,15 @@ def remove_close_points(df_gl):
                 df_gl_y.iloc[index[0]]['POINT_BALANCE'] = mean_MB
                 indices_to_drop.append(index[1:])
 
-            if len(indices_to_drop) > 0:
+            if len(indices_to_drop) > 1:
                 indices_to_drop = df_gl_y.index[np.concatenate(
                     indices_to_drop)]
                 df_gl_y.drop(index=indices_to_drop, inplace=True)
                 # print('{}: Dropped points: {}, {}'.format(period, len(indices_to_drop), list(indices_to_drop)))
             df_gl_cleaned = pd.concat([df_gl_cleaned, df_gl_y])
-    print('Number of points dropped:', len(df_gl) - len(df_gl_cleaned))
-    return df_gl_cleaned
+    if len(df_gl_cleaned)>0:
+        print('Number of points dropped:', len(df_gl) - len(df_gl_cleaned))
+        return df_gl_cleaned
+    else:
+        print('Number of points dropped:', 0)
+        return df_gl

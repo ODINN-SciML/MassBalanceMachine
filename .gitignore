@@ -11,6 +11,6 @@ notebooks/models
 notebooks/.ipynb_checkpoints
 
 regions/Switzerland/models/**
-
+regions/Switzerland/results
 *.tox/
 *.tox
