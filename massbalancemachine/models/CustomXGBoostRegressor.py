@@ -243,8 +243,11 @@ class CustomXGBoostRegressor(XGBRegressor):
         mse = mean_squared_error(y_true_mean, y_pred_agg)
         rmse = root_mean_squared_error(y_true_mean, y_pred_agg)
         mae = mean_absolute_error(y_true_mean, y_pred_agg)
+        
+        # Pearson correlation
+        pearson_corr = np.corrcoef(y_true_mean, y_pred_agg)[0, 1]
 
-        return mse, rmse, mae
+        return mse, rmse, mae, pearson_corr
 
     def aggrPredict(
         self, metadata: np.array, meta_data_columns: list, features: pd.DataFrame
@@ -320,13 +323,13 @@ class CustomXGBoostRegressor(XGBRegressor):
         # Get feature columns by subtracting metadata columns from all columns
         feature_columns = X.columns.difference(meta_data_columns)
 
-        # remove POINT_BALANCE and YEAR from feature columns
+        # remove columns that are not used in metadata or features
         feature_columns = feature_columns.drop(
-            ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"]
+            config.NOT_METADATA_NOT_FEATURES
         )
-
         # Convert feature_columns to a list (if needed)
         feature_columns = list(feature_columns)
+        # print(f"Feature columns: {feature_columns}")
 
         # Extract metadata and features
         metadata = X[meta_data_columns].values
