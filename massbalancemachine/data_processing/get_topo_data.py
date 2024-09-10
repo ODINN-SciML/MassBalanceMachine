@@ -91,9 +91,12 @@ def get_glacier_mask(df:pd.DataFrame, custom_working_dir:str):
     gdirs = _initialize_glacier_directories(rgi_id)
     
     # Get oggm data for that RGI ID
+    oggm_rgis = [gdir.rgi_id for gdir in gdirs]
+    if rgi_id[0] not in oggm_rgis:
+        raise ValueError("RGI ID not found in OGGM data")
     for gdir in gdirs:
         if gdir.rgi_id == rgi_id[0]:
-            break
+                break
     with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
         ds = ds.load()
         
@@ -136,7 +139,7 @@ def _initialize_glacier_directories(rgi_ids_list: list) -> list:
 
     workflow.execute_entity_task(tasks.gridded_attributes,
                                  glacier_directories,
-                                 print_log=True)
+                                 print_log=False)
     return glacier_directories
 
 
