@@ -4,26 +4,26 @@
 
 ### Contents
 
-- [Asking Questions](#bulb-asking-questions)
-- [Opening an Issue](#inbox_tray-opening-an-issue)
-- [Feature Requests](#love_letter-feature-requests)
-- [Triaging Issues](#mag-triaging-issues)
-- [Submitting Pull Requests](#repeat-submitting-pull-requests)
-- [Writing Commit Messages](#memo-writing-commit-messages)
-- [Code Review](#white_check_mark-code-review)
+- [Asking Questions](#asking-questions)
+- [Opening an Issue](#opening-an-issue)
+- [Feature Requests](#feature-requests)
+- [Triaging Issues](#triaging-issues)
+- [Submitting Pull Requests](#submitting-pull-requests)
+- [Writing Commit Messages](#writing-commit-messages)
+- [Code Review](#code-review)
 - [Coding Style](#coding-style)
 
 > **This guide serves to set clear expectations for everyone involved with the project so that we can improve it together while also creating a welcoming space for everyone to participate. Following these guidelines will help ensure a positive experience for contributors and maintainers.**
 
-## :bulb: Asking Questions
+## Asking Questions
 
 See our [Support Guide](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/SUPPORT.md). In short, GitHub issues are not the appropriate place to debug your specific project, but should be reserved for filing bugs and feature requests.
 
-## :inbox_tray: Opening an Issue
+## Opening an Issue
 
 Before [creating an issue](https://help.github.com/en/github/managing-your-work-on-github/creating-an-issue), check if you are using the latest version of the project. If you are not up-to-date, see if updating fixes your issue first.
 
-### :beetle: Bug Reports and Other Issues
+### Bug Reports and Other Issues
 
 A great way to contribute to the project is to send a detailed issue when you encounter a problem. We always appreciate a well-written, thorough bug report.
 
@@ -39,7 +39,7 @@ In short, since you are most likely a developer, **provide a ticket that you wou
 
 - **Use [GitHub-flavored Markdown](https://help.github.com/en/github/writing-on-github/basic-writing-and-formatting-syntax).** Especially put code blocks and console outputs in backticks (```). This improves readability.
 
-## :love_letter: Feature Requests
+## Feature Requests
 
 Feature requests are welcome! While we will consider all requests, we cannot guarantee your request will be accepted. We want to avoid [feature creep](https://en.wikipedia.org/wiki/Feature_creep). Your idea may be great, but also out-of-scope for the project. If accepted, we cannot make any commitments regarding the timeline for implementation and release. However, you are welcome to submit a pull request to help!
 
@@ -49,11 +49,11 @@ Feature requests are welcome! While we will consider all requests, we cannot gua
 
 - Be precise about the proposed outcome of the feature and how it relates to existing features. Include implementation details if possible.
 
-## :mag: Triaging Issues
+## Triaging Issues
 
 You can triage issues which may include reproducing bug reports or asking for additional information, such as version numbers or reproduction instructions. Any help you can provide to quickly resolve an issue is very much appreciated!
 
-## :repeat: Submitting Pull Requests
+## Submitting Pull Requests
 
 We **love** pull requests! Before [forking the repo](https://help.github.com/en/github/getting-started-with-github/fork-a-repo) and [creating a pull request](https://help.github.com/en/github/collaborating-with-issues-and-pull-requests/proposing-changes-to-your-work-with-pull-requests) for non-trivial changes, it is usually best to first open an issue to discuss the changes, or discuss your intended approach for solving the problem in the comments for an existing issue.
 
@@ -83,7 +83,7 @@ We **love** pull requests! Before [forking the repo](https://help.github.com/en/
 
 - Use spaces, not tabs.
 
-## :memo: Writing Commit Messages
+## Writing Commit Messages
 
 Please [write a great commit message](https://chris.beams.io/posts/git-commit/).
 
@@ -96,7 +96,7 @@ Please [write a great commit message](https://chris.beams.io/posts/git-commit/).
 1. Use the body to explain **why**, *not what and how* (the code shows that!) (please follow the template for this!)
 1. If applicable, prefix the title with the relevant component name. (examples: "[Docs] Fix typo", "[Profile] Fix missing avatar")
 
-## :white_check_mark: Code Review
+## Code Review
 
 - **Review the code, not the author.** Look for and suggest improvements without disparaging or insulting the author. Provide actionable feedback and explain your reasoning.
 
