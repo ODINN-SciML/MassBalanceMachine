@@ -5,7 +5,7 @@ import pandas as pd
 from sklearn.model_selection import GroupKFold, KFold, train_test_split, GroupShuffleSplit
 
 
-def getMonthlyDataLoader(glacierName, vois_climate, voi_topographical):
+def getMonthlyDataLoaderOneGl(glacierName, vois_climate, voi_topographical):
     # Load stakes data from GLAMOS
     data_glamos = pd.read_csv(path_PMB_GLAMOS_csv + 'CH_wgms_dataset.csv')
     
@@ -17,8 +17,7 @@ def getMonthlyDataLoader(glacierName, vois_climate, voi_topographical):
     rgi_gl = rgi_df.loc[glacierName]['rgi_id.v6']
     data_gl = data_glamos[data_glamos.RGIId == rgi_gl]
     
-    # change mm w.e. to m w.e.
-    data_gl['POINT_BALANCE'] = data_gl['POINT_BALANCE'] / 1000
+    
     dataset_gl = mbm.Dataset(data=data_gl,
                             region_name='CH',
                             data_path=path_PMB_GLAMOS_csv)
@@ -46,17 +45,17 @@ def getMonthlyDataLoader(glacierName, vois_climate, voi_topographical):
     return dataloader_gl
 
 
-def getCVSplits(dataloader_gl):
-    # Split into training and test years with train_test_split
-    train_years, test_years = train_test_split(
-        dataloader_gl.data.YEAR.unique(),
+def getCVSplits(dataloader_gl, test_split_on = 'YEAR'):
+    # Split into training and test splits with train_test_split
+    train_splits, test_splits = train_test_split(
+        dataloader_gl.data[test_split_on].unique(),
         test_size=0.2,
         random_state=config.SEED)
 
-    train_indices = dataloader_gl.data[dataloader_gl.data.YEAR.isin(
-        train_years)].index
-    test_indices = dataloader_gl.data[dataloader_gl.data.YEAR.isin(
-        test_years)].index
+    train_indices = dataloader_gl.data[dataloader_gl.data[test_split_on].isin(
+        train_splits)].index
+    test_indices = dataloader_gl.data[dataloader_gl.data[test_split_on].isin(
+        test_splits)].index
 
     dataloader_gl.set_custom_train_test_indices(train_indices, test_indices)
 
@@ -70,24 +69,23 @@ def getCVSplits(dataloader_gl):
     y_test = df_X_test['POINT_BALANCE'].values
     test_meas_id = df_X_test['ID'].unique()
     
-    # Years in training and test set
-    train_years = df_X_train.YEAR.unique()
-    test_years = df_X_test.YEAR.unique()
+    # Values split in training and test set
+    train_splits = df_X_train[test_split_on].unique()
+    test_splits = df_X_test[test_split_on].unique()
     
     # Create the CV splits based on the training dataset. The default value for the number of splits is 5.
     splits = dataloader_gl.get_cv_split(n_splits=5, type_fold='group-meas-id')
     
-
     test_set = {
         'df_X': df_X_test,
         'y': y_test,
         'meas_id': test_meas_id,
-        'years': test_years
+        'splits_vals': test_splits
     }
     train_set = {
         'df_X': df_X_train,
         'y': y_train,
-        'years': train_years,
+        'splits_vals': train_splits,
         'meas_id': train_meas_id,
     }
 

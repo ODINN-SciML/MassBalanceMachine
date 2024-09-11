@@ -31,7 +31,7 @@ def visualiseSplits(y_test, y_train, splits, colors=[color_xgb, color_tim]):
         ax[i + 1].set_title('CV train Fold ' + str(i + 1))
 
 
-def predVSTruth(ax, grouped_ids, mae, rmse, pearson_corr):
+def predVSTruth(ax, grouped_ids, mae, rmse, pearson_corr, hue = 'YEAR'):
     legend_xgb = "\n".join(
         (r"$\mathrm{MAE_{xgb}}=%.3f, \mathrm{RMSE_{xgb}}=%.3f,$ " % (
             mae,
@@ -39,14 +39,17 @@ def predVSTruth(ax, grouped_ids, mae, rmse, pearson_corr):
         ), (r"$\mathrm{\rho_{xgb}}=%.3f$" % (pearson_corr, ))))
 
     marker_xgb = 'o'
-    colors = get_cmap_hex(cm.glasgow, 2)
+    colors = get_cmap_hex(cm.devon, len(grouped_ids[hue].unique()))
     #palette = sns.color_palette("magma_r", as_cmap=True)
+    palette = sns.color_palette(colors, as_cmap=True)
+    if hue == 'YEAR':
+        palette = cm.devon_r
     sns.scatterplot(
         grouped_ids,
         x="target",
         y="pred",
-        palette=cm.devon_r,
-        hue='YEAR',
+        palette=palette,
+        hue=hue,
         ax=ax,
         # alpha=0.8,
         marker=marker_xgb)
