@@ -54,7 +54,7 @@ Finally, ensure that your Jupyter kernel is set to use the 'mbm_env' Conda envir
 
 ### Known Installation Issues
 
-- Poetry occasionally flags duplicate package folders, but it simplifies dependency and version control in Python projects, ensuring seamless integration of libraries and packages, which can typically be resolved by locating and removing unwanted package versions from your Conda environment folder.
+- Poetry sometimes identifies duplicate package folders, but it streamlines dependency and version management in Python projects, ensuring smooth library and package integration. Any duplicate packages can usually be resolved by locating and removing the unnecessary versions from your Conda environment folder.
 
 ### Additional Installation for Windows Users
 
@@ -82,7 +82,7 @@ Specifically, the example notebooks concentrate on glaciers documented in the WG
 1. **Data Pre-processing 🌍**: Users have two options for preparing their data. They can choose to follow a notebook that converts their data into the WGMS format (available [here](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/data_preprocessing.ipynb)), or they can start with their data already formatted in the WGMS standard (found [here](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/data_processing_wgms.ipynb)). In both workflows, topographical and climate data are fetched and aligned with the stake measurements. Subsequently, the data is aggregated to a monthly resolution, preparing it for use as training data for the model.
    - **Note:** If the OGGM cluster is shut down, users will be unable to retrieve topographical features for their region of interest. If you encounter a 403 error in your notebook while trying to retrieve these features, it likely means that the OGGM cluster is down. You can check the status of the cluster on their [Slack channel](https://oggm.org/2022/10/11/Welcome-to-the-OGGM-Slack/).
 2. **Data Exploration 🔍**: Users can gain deeper insights into their data by visualizing time series of the available stake measurements, which are related to either the region-wide surface mass balance or the point surface mass balance. The example is available [here](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/date_exploration.ipynb).
-3. **Model Training 🚀 & Testing 🎯**: Users can choose from two models. One option is the XGBoost model, with an example available in this [notebook](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/model_training_xgboost.ipynb). The other option is a neural network, which will be released in the future. Both models are customized to handle the monthly resolution of the data. In the notebooks, the models will be trained using the data obtained earlier.
+3. **Model Training 🚀 & Testing 🎯**: Users can choose from two models. One option is the XGBoost model, with an example available in this [notebook](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/model_training_xgboost.ipynb). The other option is a neural network, which will be released in the future. Both models are customized to handle the monthly resolution of the data. In the notebooks, the models will be trained and tested using the data obtained earlier. Additionally, results are visualised.
 
 ## Project Structure
 

@@ -11,6 +11,11 @@ Date Created: 21/07/2024
 """
 
 import os
+
+import numpy as np
+import xarray as xr
+import oggm
+
 import config
 import logging
 import pandas as pd
@@ -82,7 +87,7 @@ class Dataset:
         *,
         vois_climate: "list[str]",
         vois_topographical: "list[str]",
-        meta_data_columns:"list[str]"=["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS"]
+        meta_data_columns:"list[str]"=None
     ) -> None:
         """
         Converts a variable period for the SMB target data measurement to a monthly time resolution.
