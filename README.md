@@ -20,6 +20,7 @@ You can run the MassBalanceMachine core scripts and notebooks with the following
 - Conda Environment (either of the following):
   - [Anaconda](https://docs.anaconda.com/anaconda/install/)
   - [Miniconda](https://docs.anaconda.com/miniconda/miniconda-install/)
+  - [Micromamba](https://mamba.readthedocs.io/en/latest/installation/micromamba-installation.html) (recommended)
 
 ## Installation (for all users)
 
@@ -27,6 +28,10 @@ To run the Jupyter Notebooks, you'll need to set up a Conda environment. Within 
 
 ```
 conda env create -f environment.yml
+```
+or if you are using micromamba:
+```
+micromamba env create -f environment.yml
 ```
 
 Activate the MassBalanceMachine environment:
