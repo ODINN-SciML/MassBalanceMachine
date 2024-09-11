@@ -34,7 +34,7 @@ def plot_stake_timeseries(df: pd.DataFrame, save_img=None, stakeIDs=None) -> Non
     stake_timeseries = _get_stake_timeseries(df)
     stats_timeseries = _get_stats_stake_timeseries(df)
 
-    # Create the figure and axis for plotting
+    # Create the figure and axis for plot
     _, ax = plt.subplots(figsize=(16, 8))
 
     # Plot a zero line for reference
