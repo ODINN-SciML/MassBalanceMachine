@@ -92,8 +92,6 @@ class CustomXGBoostRegressor(XGBRegressor):
         splits: Dict[str, Union[list, np.ndarray]],
         features: pd.DataFrame,
         targets: np.ndarray,
-        num_jobs: int = None,
-        random_seed: int = None,
     ) -> None:
         """
         Perform a randomized search for hyperparameter tuning.
@@ -128,7 +126,6 @@ class CustomXGBoostRegressor(XGBRegressor):
         )
 
         clf.fit(features, targets)
-
         self.param_search = clf
 
     def fit(
@@ -201,9 +198,12 @@ class CustomXGBoostRegressor(XGBRegressor):
 
         # Calculate MSE
         mse = ((y_pred_agg - y_true_mean) ** 2).mean()
-
-        return -mse  # Return negative because GridSearchCV maximizes score
-
+        rmse = np.sqrt(mse)
+        if config.LOSS == 'MSE':
+            return -mse # Return negative because GridSearchCV maximizes score
+        if config.LOSS == 'RMSE':
+            return -rmse
+    
     def predict(self, features: pd.DataFrame) -> np.ndarray:
         """
         Predict using the fitted model.
