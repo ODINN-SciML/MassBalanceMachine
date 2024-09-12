@@ -3,7 +3,7 @@ import seaborn as sns
 from cmcrameri import cm
 import pandas as pd
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
-
+import config
 from scripts.helpers import *
 
 colors = get_cmap_hex(cm.batlow, 2)
@@ -15,23 +15,27 @@ color_tim = '#c51b7d'
 def visualiseSplits(y_test, y_train, splits, colors=[color_xgb, color_tim]):
     # Visualise the cross validation splits
     fig, ax = plt.subplots(1, 6, figsize=(20, 5))
-    ax[0].hist(y_train, bins=20, color=colors[0])
+    ax[0].hist(y_train, bins=20, color=colors[0], density=False, alpha=0.5)
     ax[0].set_title('Train & Test PMB')
-    ax[0].hist(y_test, bins=20, color=colors[1])
-
+    ax[0].hist(y_test, bins=20, color=colors[1], density=False, alpha=0.5)
+    ax[0].set_ylabel('Frequency')
     for i, (train_idx, val_idx) in enumerate(splits):
         # Check that there is no overlap between the training, val and test IDs
-        # train_meas_id = df_X_train.iloc[train_idx]['ID'].unique()
-        # val_meas_id = df_X_train.iloc[val_idx]['ID'].unique()
-        # assert len(set(train_meas_id).intersection(set(val_meas_id))) == 0
-        # assert(len(set(train_meas_id).intersection(set(test_meas_id))) == 0)
-        # assert(len(set(val_meas_id).intersection(set(test_meas_id))) == 0)
-        ax[i + 1].hist(y_train[train_idx], bins=20, color=colors[0])
-        ax[i + 1].hist(y_train[val_idx], bins=20, color=colors[1])
+        ax[i + 1].hist(y_train[train_idx],
+                       bins=20,
+                       color=colors[0],
+                       density=False,
+                       alpha=0.5)
+        ax[i + 1].hist(y_train[val_idx],
+                       bins=20,
+                       color=colors[1],
+                       density=False,
+                       alpha=0.5)
         ax[i + 1].set_title('CV train Fold ' + str(i + 1))
+    plt.tight_layout()
 
 
-def predVSTruth(ax, grouped_ids, mae, rmse, pearson_corr, hue = 'YEAR'):
+def predVSTruth(ax, grouped_ids, mae, rmse, pearson_corr, hue='YEAR'):
     legend_xgb = "\n".join(
         (r"$\mathrm{MAE_{xgb}}=%.3f, \mathrm{RMSE_{xgb}}=%.3f,$ " % (
             mae,
@@ -39,19 +43,19 @@ def predVSTruth(ax, grouped_ids, mae, rmse, pearson_corr, hue = 'YEAR'):
         ), (r"$\mathrm{\rho_{xgb}}=%.3f$" % (pearson_corr, ))))
 
     marker_xgb = 'o'
-    colors = get_cmap_hex(cm.devon, len(grouped_ids[hue].unique()))
-    #palette = sns.color_palette("magma_r", as_cmap=True)
-    palette = sns.color_palette(colors, as_cmap=True)
-    if hue == 'YEAR':
-        palette = cm.devon_r
+    # colors = get_cmap_hex(cm.devon, len(grouped_ids[hue].unique())+2)
+    # palette = sns.color_palette(colors, as_cmap=True)
+    # if hue == 'YEAR':
+    #     palette = cm.devon_r
     sns.scatterplot(
         grouped_ids,
         x="target",
         y="pred",
-        palette=palette,
-        hue=hue,
+        # palette=palette,
+        # hue=hue,
         ax=ax,
         # alpha=0.8,
+        color=color_xgb,
         marker=marker_xgb)
 
     ax.set_ylabel('Predicted PMB [m w.e.]', fontsize=20)
@@ -78,7 +82,6 @@ def plotMeanPred(grouped_ids, ax):
     mean = grouped_ids.groupby('YEAR')['target'].mean().values
     std = grouped_ids.groupby('YEAR')['target'].std().values
     years = grouped_ids.YEAR.unique()
-    ax = plt.subplot(1, 2, 2)
     ax.fill_between(
         years,
         mean - std,
@@ -106,6 +109,8 @@ def plotMeanPred(grouped_ids, ax):
         color=color_xgb,
         alpha=0.3,
     )
+    # rotate x-axis labels
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
 
     mae, rmse, pearson_corr = mean_absolute_error(
         grouped_ids.groupby('YEAR')['pred'].mean().values,
@@ -202,3 +207,98 @@ def plotNumMeasPerYear(data_gl, glacierName):
     ax.set_title(f'Number of measurements per year: {glacierName}',
                  fontsize=14)
     plt.tight_layout()
+
+
+def plotGridSearchParams(custom_xgboost, param_grid):
+    dfCVResults = pd.DataFrame(custom_xgboost.param_search.cv_results_)
+    mask_raisonable = dfCVResults['mean_train_score'] >= -10
+    dfCVResults_ = dfCVResults[mask_raisonable]
+    fig = plt.figure(figsize=(15, 5))
+    for i, param in enumerate(param_grid.keys()):
+
+        dfParam = dfCVResults_.groupby(f'param_{param}')[[
+            'split0_test_score', 'split1_test_score', 'split2_test_score',
+            'split3_test_score', 'split4_test_score', 'mean_test_score',
+            'std_test_score', 'rank_test_score', 'split0_train_score',
+            'split1_train_score', 'split2_train_score', 'split3_train_score',
+            'split4_train_score', 'mean_train_score', 'std_train_score'
+        ]].mean()
+
+        mean_test = abs(dfParam[[f'split{i}_test_score'
+                             for i in range(5)]].mean(axis=1))
+        std_test = abs(dfParam[[f'split{i}_test_score'
+                            for i in range(5)]].std(axis=1))
+
+        mean_train = abs(dfParam[[f'split{i}_train_score'
+                              for i in range(5)]].mean(axis=1))
+        std_train = abs(dfParam[[f'split{i}_train_score'
+                             for i in range(5)]].std(axis=1))
+
+        # plot mean values with std
+        ax = plt.subplot(1, len(param_grid.keys()), i + 1)
+        ax.scatter(x=mean_test.index,
+                   y=mean_test.values,
+                   marker='x',
+                   color=color_tim)
+        ax.plot(mean_test.index,
+                mean_test,
+                color=color_tim,
+                label='validation')
+        ax.fill_between(mean_test.index,
+                        mean_test - std_test,
+                        mean_test + std_test,
+                        alpha=0.2,
+                        color=color_tim)
+
+        ax.scatter(x=mean_train.index,
+                   y=mean_train.values,
+                   marker='x',
+                   color=color_xgb)
+        ax.plot(mean_train.index, mean_train, color=color_xgb, label='train')
+        ax.fill_between(mean_train.index,
+                        mean_train - std_train,
+                        mean_train + std_train,
+                        alpha=0.2,
+                        color=color_xgb)
+        ax.set_ylabel(f'{config.LOSS} {loss_units[config.LOSS]}')
+        ax.set_title(param)
+        ax.legend()
+
+    plt.suptitle('Grid search results')
+    plt.tight_layout()
+
+
+def plotGridSearchScore(custom_xgboost):
+    dfCVResults = pd.DataFrame(custom_xgboost.param_search.cv_results_)
+    mask_raisonable = dfCVResults['mean_train_score'] >= -10
+    dfCVResults = dfCVResults[mask_raisonable]
+
+    fig = plt.figure(figsize=(10, 5))
+    mean_train = abs(dfCVResults.mean_train_score)
+    std_train = abs(dfCVResults.std_train_score)
+    mean_test = abs(dfCVResults.mean_test_score)
+    std_test = abs(dfCVResults.std_test_score)
+    
+    plt.plot(mean_train,
+             label='train',
+             color=color_xgb)
+    plt.plot(mean_test,
+             label='validation',
+             color=color_tim)
+
+    # add std
+    plt.fill_between(
+        dfCVResults.index,
+        mean_train - std_train,
+        mean_train + std_train,
+        alpha=0.2,
+        color=color_xgb)
+    plt.fill_between(dfCVResults.index,
+                     mean_test -std_test,
+                     mean_test + std_test,
+                     alpha=0.2,
+                     color=color_tim)
+    plt.xlabel('Iteration')
+    plt.ylabel(f'{config.LOSS} {loss_units[config.LOSS]}')
+    plt.title('Grid search score over iterations')
+    plt.legend()
