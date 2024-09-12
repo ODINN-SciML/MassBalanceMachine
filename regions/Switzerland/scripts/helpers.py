@@ -46,6 +46,11 @@ vois_units = {
     'str': 'J m-2'
 }
 
+loss_units = {
+    'RMSE': '[m w.e.]',
+    'MSE': '[]'
+}
+
 
 # sets the same random seed everywhere so that it is reproducible
 def seed_all(seed):
