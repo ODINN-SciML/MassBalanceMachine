@@ -101,6 +101,7 @@ def _get_column_names(
         "POINT_BALANCE",
         "ALTITUDE_CLIMATE",
         "ELEVATION_DIFFERENCE",
+        "POINT_ELEVATION",
     ]
     column_names.extend(meta_data_columns)
     column_names.extend(vois_topographical)
