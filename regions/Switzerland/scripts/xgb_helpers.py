@@ -5,7 +5,7 @@ import pandas as pd
 from sklearn.model_selection import GroupKFold, KFold, train_test_split, GroupShuffleSplit
 
 
-def getMonthlyDataLoader(glacierName, vois_climate, voi_topographical):
+def getMonthlyDataLoaderOneGl(glacierName, vois_climate, voi_topographical):
     # Load stakes data from GLAMOS
     data_glamos = pd.read_csv(path_PMB_GLAMOS_csv + 'CH_wgms_dataset.csv')
     
@@ -17,8 +17,7 @@ def getMonthlyDataLoader(glacierName, vois_climate, voi_topographical):
     rgi_gl = rgi_df.loc[glacierName]['rgi_id.v6']
     data_gl = data_glamos[data_glamos.RGIId == rgi_gl]
     
-    # change mm w.e. to m w.e.
-    data_gl['POINT_BALANCE'] = data_gl['POINT_BALANCE'] / 1000
+    
     dataset_gl = mbm.Dataset(data=data_gl,
                             region_name='CH',
                             data_path=path_PMB_GLAMOS_csv)
@@ -46,17 +45,21 @@ def getMonthlyDataLoader(glacierName, vois_climate, voi_topographical):
     return dataloader_gl
 
 
-def getCVSplits(dataloader_gl):
-    # Split into training and test years with train_test_split
-    train_years, test_years = train_test_split(
-        dataloader_gl.data.YEAR.unique(),
-        test_size=0.2,
-        random_state=config.SEED)
+def getCVSplits(dataloader_gl, test_split_on = 'YEAR', test_splits = None):
+    # Split into training and test splits with train_test_split
+    if test_splits is None:
+        train_splits, test_splits = train_test_split(
+            dataloader_gl.data[test_split_on].unique(),
+            test_size=0.2,
+            random_state=config.SEED)
+    else:
+        train_splits = dataloader_gl.data[test_split_on].unique()
+        train_splits = [x for x in train_splits if x not in test_splits]
 
-    train_indices = dataloader_gl.data[dataloader_gl.data.YEAR.isin(
-        train_years)].index
-    test_indices = dataloader_gl.data[dataloader_gl.data.YEAR.isin(
-        test_years)].index
+    train_indices = dataloader_gl.data[dataloader_gl.data[test_split_on].isin(
+        train_splits)].index
+    test_indices = dataloader_gl.data[dataloader_gl.data[test_split_on].isin(
+        test_splits)].index
 
     dataloader_gl.set_custom_train_test_indices(train_indices, test_indices)
 
@@ -70,25 +73,71 @@ def getCVSplits(dataloader_gl):
     y_test = df_X_test['POINT_BALANCE'].values
     test_meas_id = df_X_test['ID'].unique()
     
-    # Years in training and test set
-    train_years = df_X_train.YEAR.unique()
-    test_years = df_X_test.YEAR.unique()
+    # Values split in training and test set
+    train_splits = df_X_train[test_split_on].unique()
+    test_splits = df_X_test[test_split_on].unique()
     
     # Create the CV splits based on the training dataset. The default value for the number of splits is 5.
     splits = dataloader_gl.get_cv_split(n_splits=5, type_fold='group-meas-id')
     
-
     test_set = {
         'df_X': df_X_test,
         'y': y_test,
         'meas_id': test_meas_id,
-        'years': test_years
+        'splits_vals': test_splits
     }
     train_set = {
         'df_X': df_X_train,
         'y': y_train,
-        'years': train_years,
+        'splits_vals': train_splits,
         'meas_id': train_meas_id,
     }
 
     return splits, test_set, train_set
+
+def plot_gsearch_results(grid, params):
+    """
+    Params: 
+        grid: A trained GridSearchCV object.
+    """
+    ## Results from grid search
+    results = grid.cv_results_
+    grid.cv_results_
+    means_test = results['mean_test_score']
+    stds_test = results['std_test_score']
+    means_train = results['mean_train_score']
+    stds_train = results['std_train_score']
+
+    ## Getting indexes of values per hyper-parameter
+    masks=[]
+    masks_names= list(grid.best_params_.keys())
+    for p_k, p_v in grid.best_params_.items():
+        masks.append(list(results['param_'+p_k].data==p_v))
+
+    #params=grid.cv_results_['params']
+    #print(params)
+
+    width = len(grid.best_params_.keys())*5
+
+    ## Ploting results
+    fig, ax = plt.subplots(1,len(params),sharex='none', sharey='all',figsize=(width,5))
+    fig.suptitle('Score per parameter')
+    fig.text(0.04, 0.5, 'MEAN SCORE', va='center', rotation='vertical')
+    pram_preformace_in_best = {}
+    for i, p in enumerate(masks_names):
+        m = np.stack(masks[:i] + masks[i+1:])
+        pram_preformace_in_best
+        best_parms_mask = m.all(axis=0)
+        best_index = np.where(best_parms_mask)[0]
+        x = np.array(params[p])
+        y_1 = np.array(means_test[best_index])
+        e_1 = np.array(stds_test[best_index])
+        y_2 = np.array(means_train[best_index])
+        e_2 = np.array(stds_train[best_index])
+        ax[i].errorbar(x, y_1, e_1, linestyle='--', marker='o', label='test')
+        ax[i].errorbar(x, y_2, e_2, linestyle='-', marker='^',label='train' )
+        ax[i].set_xlabel(p.upper())
+        ax[i].grid()
+
+    plt.legend()
+    plt.show()
