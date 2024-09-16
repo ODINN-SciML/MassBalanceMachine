@@ -17,13 +17,16 @@ import config
 
 import numpy as np
 import pandas as pd
-import cupy as cp
 
 from xgboost import XGBRegressor
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 from sklearn.utils.validation import check_is_fitted
 from sklearn.metrics import mean_squared_error, mean_absolute_error, root_mean_squared_error
 
+try:
+    import cupy as cp
+except ImportError:
+    pass
 
 class CustomXGBoostRegressor(XGBRegressor):
     """
@@ -52,7 +55,6 @@ class CustomXGBoostRegressor(XGBRegressor):
         splits: Dict[str, Union[list, np.ndarray]],
         features: pd.DataFrame,
         targets: np.ndarray,
-        num_jobs: int = None,
     ) -> None:
         """
         Perform a grid search for hyperparameter tuning.
@@ -64,7 +66,6 @@ class CustomXGBoostRegressor(XGBRegressor):
             splits (tuple[list[tuple[ndarray, ndarray]]]): A dictionary containing cross-validation split information.
             features (pandas.DataFrame): The input features for training.
             targets (array-like): The target values for training.
-            num_jobs (int, optional): The number of jobs to run in parallel. -1 means using all processors. Defaults to -1.
 
         Sets:
             self.param_search (GridSearchCV): The fitted GridSearchCV object.
@@ -74,7 +75,7 @@ class CustomXGBoostRegressor(XGBRegressor):
             estimator=self,
             param_grid=parameters,
             cv=splits,
-            verbose=1,
+            verbose=2,
             n_jobs=config.NUM_JOBS,
             scoring=None,  # Uses default in CustomXGBRegressor()
             refit=True,
@@ -104,7 +105,6 @@ class CustomXGBoostRegressor(XGBRegressor):
             splits (tuple[list[tuple[ndarray, ndarray]]]): A dictionary containing cross-validation split information.
             features (pandas.DataFrame): The input features for training.
             targets (array-like): The target values for training.
-            num_jobs (int, optional): The number of jobs to run in parallel. -1 means using all processors. Defaults to -1.
             random_seed (int, optional): Random seed for reproducibility. Defaults to config.SEED.
 
         Sets:
@@ -116,7 +116,7 @@ class CustomXGBoostRegressor(XGBRegressor):
             param_distributions=parameters,
             n_iter=n_iter,
             cv=splits,
-            verbose=1,
+            verbose=2,
             n_jobs=config.NUM_JOBS,
             scoring=None,  # Uses default in CustomXGBRegressor()
             refit=True,
@@ -154,7 +154,7 @@ class CustomXGBoostRegressor(XGBRegressor):
         if "cuda" in self.get_params()["device"]:
             features = cp.array(features)
             y = cp.array(y)
-
+            
         # Define closure that captures metadata for use in custom objective
         def custom_objective(y_true, y_pred):
             return self._custom_mse_metadata(y_true, y_pred, metadata, config.META_DATA)
