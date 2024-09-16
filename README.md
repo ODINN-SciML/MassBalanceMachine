@@ -26,13 +26,25 @@ You can run the MassBalanceMachine core scripts and notebooks with the following
 
 To run the Jupyter Notebooks, you'll need to set up a Conda environment. Within this environment, Poetry will handle the installation of all necessary packages and dependencies. Follow these steps to create a new Conda environment named MassBalanceMachine:
 
+If you are on Linux or Windows and plan to run the MassBalanceMachine on a GPU machine:
+
 ```
-conda env create -f environment.yml
+conda env create -f environment_gpu.yml
 ```
 or if you are using micromamba:
 ```
-micromamba env create -f environment.yml
+micromamba env create -f environment_gpu.yml
 ```
+
+Else on MacOs or if you plan to only use a CPU: 
+```
+conda env create -f environment_cpu.yml
+```
+or if you are using micromamba:
+```
+micromamba env create -f environment_cpu.yml
+```
+
 
 Activate the MassBalanceMachine environment:
 
