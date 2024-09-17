@@ -64,17 +64,30 @@ def _convert_dates_to_datetime(df: pd.DataFrame) -> pd.DataFrame:
     df["TO_DATE"] = pd.to_datetime(df["TO_DATE"], format="%Y%m%d")
     return df
 
+def _round_to_start_of_month(date):
+    """
+    Round date to the nearest start of the month.
+    If day < 15, round down to start of current month.
+    If day >= 15, round up to start of next month.
+    """
+    if date.day < 15:
+        return date - pd.offsets.MonthBegin()
+    else:
+        return date + pd.offsets.MonthBegin()
 
 def _generate_monthly_ranges(df: pd.DataFrame) -> pd.DataFrame:
-    """Generate monthly ranges and convert to month names."""
+    """Generate monthly ranges and convert to month names.""" 
+    df["FROM_DATE_RND"] = df["FROM_DATE"].apply(_round_to_start_of_month)
+    df["TO_DATE_RND"] = df["TO_DATE"].apply(_round_to_start_of_month)   
     df["MONTHS"] = df.apply(
-        lambda row: pd.date_range(start=row["FROM_DATE"], end=row["TO_DATE"], freq="MS")
+        lambda row: pd.date_range(start=row["FROM_DATE_RND"], end=row["TO_DATE_RND"], freq="MS", inclusive='left')
         .strftime("%b")
         .str.lower()
         .tolist(),
         axis=1,
     )
     df["N_MONTHS"] = df["MONTHS"].apply(len) - 1
+    df = df.drop(columns=["FROM_DATE_RND","TO_DATE_RND"])
     return df
 
 
