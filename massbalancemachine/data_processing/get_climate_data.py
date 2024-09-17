@@ -90,6 +90,18 @@ def get_climate_features(
     return df
 
 
+def retrieve_clear_sky_rad(lat, lon, path_to_file):
+    radiation_xr = xr.open_dataarray(path_to_file)
+    
+    # Find the closest latitude and longitude in the xarray
+    closest_lat = radiation_xr.lat.sel(lat=lat,method="nearest").values
+    closest_lon = radiation_xr.lon.sel(lon=lon, method="nearest").values
+
+    # Extract the potential radiation at the closest point
+    potential_radiation = radiation_xr.sel(lat=closest_lat,
+                                           lon=closest_lon).values
+    return float(potential_radiation)
+
 def _load_datasets(climate_data: str, geopotential_data: str) -> tuple:
     """Load climate and geopotential datasets."""
     with xr.open_dataset(climate_data) as dataset_climate, xr.open_dataset(

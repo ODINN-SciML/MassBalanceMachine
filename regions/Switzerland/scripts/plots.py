@@ -32,6 +32,7 @@ def visualiseSplits(y_test, y_train, splits, colors=[color_xgb, color_tim]):
                        density=False,
                        alpha=0.5)
         ax[i + 1].set_title('CV train Fold ' + str(i + 1))
+        ax[i + 1].set_xlabel('[m w.e.]')
     plt.tight_layout()
 
 
@@ -67,8 +68,8 @@ def predVSTruth(ax, grouped_ids, mae, rmse, pearson_corr, hue='YEAR'):
             transform=ax.transAxes,
             verticalalignment="top",
             fontsize=20)
-    ax.legend()
-    # ax.legend([], [], frameon=False)
+    #ax.legend()
+    ax.legend([], [], frameon=False)
     # diagonal line
     pt = (0, 0)
     ax.axline(pt, slope=1, color="grey", linestyle="-", linewidth=0.2)
@@ -143,8 +144,9 @@ def FIPlot(best_estimator, feature_columns, vois_climate):
     })
 
     feature_importdf['variables'] = feature_importdf['variables'].apply(
-        lambda x: vois_climate_long_name[x] + f' ({x})'
-        if x in vois_climate else x)
+        lambda x: vois_long_name[x] + f' ({x})'
+        if x in vois_long_name.keys() else x)
+    
 
     feature_importdf.sort_values(by="feat_imp", ascending=True, inplace=True)
     sns.barplot(feature_importdf,
@@ -209,7 +211,7 @@ def plotNumMeasPerYear(data_gl, glacierName):
     plt.tight_layout()
 
 
-def plotGridSearchParams(custom_xgboost, param_grid):
+def plotGridSearchParams(custom_xgboost, param_grid, best_params):
     dfCVResults = pd.DataFrame(custom_xgboost.param_search.cv_results_)
     mask_raisonable = dfCVResults['mean_train_score'] >= -10
     dfCVResults_ = dfCVResults[mask_raisonable]
@@ -225,14 +227,14 @@ def plotGridSearchParams(custom_xgboost, param_grid):
         ]].mean()
 
         mean_test = abs(dfParam[[f'split{i}_test_score'
-                             for i in range(5)]].mean(axis=1))
+                                 for i in range(5)]].mean(axis=1))
         std_test = abs(dfParam[[f'split{i}_test_score'
-                            for i in range(5)]].std(axis=1))
+                                for i in range(5)]].std(axis=1))
 
         mean_train = abs(dfParam[[f'split{i}_train_score'
-                              for i in range(5)]].mean(axis=1))
+                                  for i in range(5)]].mean(axis=1))
         std_train = abs(dfParam[[f'split{i}_train_score'
-                             for i in range(5)]].std(axis=1))
+                                 for i in range(5)]].std(axis=1))
 
         # plot mean values with std
         ax = plt.subplot(1, len(param_grid.keys()), i + 1)
@@ -260,6 +262,9 @@ def plotGridSearchParams(custom_xgboost, param_grid):
                         mean_train + std_train,
                         alpha=0.2,
                         color=color_xgb)
+        # add vertical line of best param
+        ax.axvline(best_params[param], color='red', linestyle='--')
+        
         ax.set_ylabel(f'{config.LOSS} {loss_units[config.LOSS]}')
         ax.set_title(param)
         ax.legend()
@@ -278,23 +283,18 @@ def plotGridSearchScore(custom_xgboost):
     std_train = abs(dfCVResults.std_train_score)
     mean_test = abs(dfCVResults.mean_test_score)
     std_test = abs(dfCVResults.std_test_score)
-    
-    plt.plot(mean_train,
-             label='train',
-             color=color_xgb)
-    plt.plot(mean_test,
-             label='validation',
-             color=color_tim)
+
+    plt.plot(mean_train, label='train', color=color_xgb)
+    plt.plot(mean_test, label='validation', color=color_tim)
 
     # add std
-    plt.fill_between(
-        dfCVResults.index,
-        mean_train - std_train,
-        mean_train + std_train,
-        alpha=0.2,
-        color=color_xgb)
     plt.fill_between(dfCVResults.index,
-                     mean_test -std_test,
+                     mean_train - std_train,
+                     mean_train + std_train,
+                     alpha=0.2,
+                     color=color_xgb)
+    plt.fill_between(dfCVResults.index,
+                     mean_test - std_test,
                      mean_test + std_test,
                      alpha=0.2,
                      color=color_tim)
