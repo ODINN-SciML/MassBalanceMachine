@@ -20,14 +20,13 @@ import config
 import logging
 import pandas as pd
 import xarray as xr
-from get_climate_data import get_climate_features
+from get_climate_data import get_climate_features, retrieve_clear_sky_rad
 from get_topo_data import get_topographical_features, get_glacier_mask
 from transform_to_monthly import transform_to_monthly
 from create_glacier_grid import create_glacier_grid
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -43,7 +42,8 @@ class Dataset:
         RGIIds (pd.Series): Series of RGI IDs from the data
     """
 
-    def __init__(self, *, data: pd.DataFrame, region_name: str, data_path: str):
+    def __init__(self, *, data: pd.DataFrame, region_name: str,
+                 data_path: str):
         self.data = self._clean_data(data=data.copy())
         self.region = region_name
         self.data_dir = data_path
@@ -78,17 +78,21 @@ class Dataset:
             change_units (bool, optional): A boolean indicating whether to change the units of the climate data. Default to False.
         """
         output_fname = self._get_output_filename("climate_features")
-        self.data = get_climate_features(
-            self.data, output_fname, climate_data, geopotential_data, change_units
-        )
+        self.data = get_climate_features(self.data, output_fname, climate_data,
+                                         geopotential_data, change_units)
 
-    def convert_to_monthly(
-        self,
-        *,
-        vois_climate: "list[str]",
-        vois_topographical: "list[str]",
-        meta_data_columns:"list[str]"=None
-    ) -> None:
+    def get_potential_rad(self, path_to_file: str):
+        df = self.data.copy()
+        df['pcsr'] = df.apply(lambda row: retrieve_clear_sky_rad(
+            row['POINT_LAT'], row['POINT_LON'], path_to_file),
+                              axis=1)
+        self.data = df
+
+    def convert_to_monthly(self,
+                           *,
+                           vois_climate: "list[str]",
+                           vois_topographical: "list[str]",
+                           meta_data_columns: "list[str]" = None) -> None:
         """
         Converts a variable period for the SMB target data measurement to a monthly time resolution.
 
@@ -100,11 +104,14 @@ class Dataset:
         if meta_data_columns is None:
             meta_data_columns = config.META_DATA
         output_fname = self._get_output_filename("monthly_dataset")
-        self.data = transform_to_monthly(
-            self.data, meta_data_columns, vois_climate, vois_topographical, output_fname
-        )
+        self.data = transform_to_monthly(self.data, meta_data_columns,
+                                         vois_climate, vois_topographical,
+                                         output_fname)
 
-    def get_glacier_mask(self, custom_working_dir:str='') -> "tuple[xr.Dataset, tuple[np.array, np.array], oggm.GlacierDirectory]":
+    def get_glacier_mask(
+        self,
+        custom_working_dir: str = ''
+    ) -> "tuple[xr.Dataset, tuple[np.array, np.array], oggm.GlacierDirectory]":
         """Creates an xarray that contains different variables from OGGM,
             mapped over the glacier outline. The glacier mask is also returned.
 
@@ -120,7 +127,8 @@ class Dataset:
                                                      custom_working_dir)
         return ds, glacier_indices, gdir
 
-    def create_glacier_grid(self, custom_working_dir:str='')->pd.DataFrame:
+    def create_glacier_grid(self,
+                            custom_working_dir: str = '') -> pd.DataFrame:
         """Creates a dataframe with the glacier grid data,
             which contains the glacier data from OGGM mapped over the glacier outline in yearly format.
 
@@ -179,18 +187,19 @@ class Dataset:
             raise
 
     @staticmethod
-    def _validate_columns(data: pd.DataFrame, required_columns: "list[str]") -> None:
+    def _validate_columns(data: pd.DataFrame,
+                          required_columns: "list[str]") -> None:
         """Validates that all required columns are present in the DataFrame."""
         if not all(col in data.columns for col in required_columns):
-            logging.error(f"Missing one of the required columns: {required_columns}")
+            logging.error(
+                f"Missing one of the required columns: {required_columns}")
             raise KeyError(
                 f"Required columns {required_columns} are not present in the DataFrame."
             )
 
     @staticmethod
-    def _remove_missing_dates(
-        data: pd.DataFrame, date_columns: "list[str]"
-    ) -> pd.DataFrame:
+    def _remove_missing_dates(data: pd.DataFrame,
+                              date_columns: "list[str]") -> pd.DataFrame:
         """Removes rows with missing dates from the DataFrame."""
         return data.dropna(subset=date_columns)
 
@@ -198,6 +207,5 @@ class Dataset:
     def _convert_and_filter_dates(data: pd.DataFrame) -> pd.DataFrame:
         """Converts date columns to string and filters out invalid dates."""
         data = data.astype({"FROM_DATE": str, "TO_DATE": str})
-        return data[
-            ~data["FROM_DATE"].str.endswith("99") & ~data["TO_DATE"].str.endswith("99")
-        ]
+        return data[~data["FROM_DATE"].str.endswith("99")
+                    & ~data["TO_DATE"].str.endswith("99")]

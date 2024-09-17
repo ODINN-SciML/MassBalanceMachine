@@ -21,6 +21,10 @@ path_SMB_GLAMOS_raw = '../../../data/GLAMOS/glacier-wide/raw/'
 path_SMB_GLAMOS_csv = '../../../data/GLAMOS/glacier-wide/csv/'
 path_glacier_grid = '../../../data/GLAMOS/glacier-wide/grid/'
 
+# Potential incoming clear sky solar radiation from GLAMOS:
+path_direct = '../../../data/GLAMOS/direct/raw/'
+path_direct_save = '../../../data/GLAMOS/direct/csv/'
+
 path_rgi = '../../../data/GLAMOS/CH_glacier_ids_long.csv'
 
 # ERA5-Land
@@ -34,6 +38,17 @@ vois_climate_long_name = {
     'ssrd': 'Surface solar radiation downwards',
     'fal': 'Forecast albedo',
     'str': 'Surface net thermal radiation'
+}
+
+vois_long_name = {
+    't2m': 'Temperature',
+    'tp': 'Precipitation',
+    'slhf': 'Surface latent heat flux',
+    'sshf': 'Surface sensible heat flux',
+    'ssrd': 'Surface solar radiation downwards',
+    'fal': 'Forecast albedo',
+    'str': 'Surface net thermal radiation',
+    'pcsr': 'Pot. incoming clear sky solar rad.'
 }
 
 vois_units = {

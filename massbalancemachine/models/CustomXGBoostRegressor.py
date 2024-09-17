@@ -75,7 +75,7 @@ class CustomXGBoostRegressor(XGBRegressor):
             estimator=self,
             param_grid=parameters,
             cv=splits,
-            verbose=2,
+            verbose=1,
             n_jobs=config.NUM_JOBS,
             scoring=None,  # Uses default in CustomXGBRegressor()
             refit=True,
@@ -116,7 +116,7 @@ class CustomXGBoostRegressor(XGBRegressor):
             param_distributions=parameters,
             n_iter=n_iter,
             cv=splits,
-            verbose=2,
+            verbose=1,
             n_jobs=config.NUM_JOBS,
             scoring=None,  # Uses default in CustomXGBRegressor()
             refit=True,
