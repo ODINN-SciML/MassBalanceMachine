@@ -81,12 +81,20 @@ class Dataset:
         self.data = get_climate_features(self.data, output_fname, climate_data,
                                          geopotential_data, change_units)
 
-    def get_potential_rad(self, path_to_file: str):
+    def get_potential_rad(self, path_to_direct):
         df = self.data.copy()
-        df['pcsr'] = df.apply(lambda row: retrieve_clear_sky_rad(
-            row['POINT_LAT'], row['POINT_LON'], path_to_file),
-                              axis=1)
-        self.data = df
+        glaciers = df['GLACIER'].unique()
+        df_concat = pd.DataFrame()
+        for glacierName in glaciers:
+            df_glacier = df[df['GLACIER'] == glacierName]
+            if 'clariden' in glacierName:
+                path_to_file = path_to_direct+f'xr_direct_clariden.nc'
+            else:
+                path_to_file = path_to_direct+f'xr_direct_{glacierName}.nc'
+            
+            df_glacier = retrieve_clear_sky_rad(df, path_to_file)
+            df_concat = pd.concat([df_concat, df_glacier])
+        self.data = df_concat
 
     def convert_to_monthly(self,
                            *,

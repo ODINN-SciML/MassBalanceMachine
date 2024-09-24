@@ -33,12 +33,12 @@ def getMonthlyDataLoaderOneGl(glacierName, vois_climate, voi_topographical):
                                     change_units=True)
     
     # Add potential clear sky radiation:
-    dataset_gl.get_potential_rad(path_direct_save+f'xr_direct_{glacierName}.nc')
+    dataset_gl.get_potential_rad(path_direct_save)
 
     # For each record, convert to a monthly time resolution
     dataset_gl.convert_to_monthly(meta_data_columns=config.META_DATA,
-                                  vois_climate=vois_climate,
-                                  vois_topographical=voi_topographical+['pcsr'])
+                                  vois_climate=vois_climate+['pcsr'], # add potential radiation
+                                  vois_topographical=voi_topographical)
 
     # Create a new DataLoader object with the monthly stake data measurements.
     dataloader_gl = mbm.DataLoader(data=dataset_gl.data,

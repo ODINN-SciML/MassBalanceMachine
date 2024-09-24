@@ -233,7 +233,7 @@ def xarray_to_dataframe(data_array):
     return df
 
 
-def convert_to_xarray(grid_data, metadata):
+def convert_to_xarray(grid_data, metadata, num_months):
     # Extract metadata values
     ncols = int(metadata['ncols'])
     nrows = int(metadata['nrows'])
@@ -245,15 +245,21 @@ def convert_to_xarray(grid_data, metadata):
     x_coords = xllcorner + np.arange(ncols) * cellsize
     y_coords = yllcorner + np.arange(nrows) * cellsize
 
+    time_coords = np.arange(num_months)
+    
+    if grid_data.shape != (num_months, nrows, ncols):
+        raise ValueError(f"Expected grid_data shape ({num_months}, {nrows}, {ncols}), got {grid_data.shape}")
+ 
     # Create the xarray DataArray
-    data_array = xr.DataArray(np.flip(grid_data, axis=0),
-                              dims=("y", "x"),
+    data_array = xr.DataArray(np.flip(grid_data, axis=1),
+                              #grid_data,
+                              dims=("time", "y", "x"),
                               coords={
+                                  "time": time_coords,
                                   "y": y_coords,
                                   "x": x_coords
                               },
                               name="grid_data")
-
     return data_array
 
 
@@ -297,15 +303,20 @@ def load_grid_file(filepath):
 
 
 def transform_xarray_coords_lv03_to_wgs84(data_array):
-    # Flatten the DataArray (values) and extract x and y coordinates
-    flattened_values = data_array.values.flatten()
+    # Extract time, y, and x dimensions
+    time_dim = data_array.coords['time']
+    
+    # Flatten the DataArray (values) and extract x and y coordinates for each time step
+    flattened_values = data_array.values.reshape(-1)  # Flatten entire 3D array (time, y, x)
+   
+    # flattened_values = data_array.values.flatten()
     y_coords, x_coords = np.meshgrid(data_array.y.values,
                                      data_array.x.values,
                                      indexing='ij')
 
     # Flatten the coordinate arrays
-    flattened_x = x_coords.flatten()
-    flattened_y = y_coords.flatten()
+    flattened_x = np.tile(x_coords.flatten(), len(time_dim))  # Repeat for each time step
+    flattened_y = np.tile(y_coords.flatten(), len(time_dim))  # Repeat for each time step
 
     # Create a DataFrame with columns for x, y, and value
     df = pd.DataFrame({
@@ -321,16 +332,23 @@ def transform_xarray_coords_lv03_to_wgs84(data_array):
     # Transform LV03 to WGS84 (lat, lon)
     lon, lat = df.lon.values, df.lat.values
 
-    # Reshape the flattened WGS84 coordinates back to the original grid shape
-    lon = lon.reshape(x_coords.shape)
-    lat = lat.reshape(x_coords.shape)
+    # Reshape the flattened WGS84 coordinates back to the original grid shape (time, y, x)
+    lon = lon.reshape((len(time_dim), *x_coords.shape))  # Shape: (time, y, x)
+    lat = lat.reshape((len(time_dim), *y_coords.shape))  # Shape: (time, y, x)
+
+    # Assign the 1D WGS84 coordinates for swapping
+    lon_1d = lon[0, 0, :]  # Use the first time slice, and take x (lon) values
+    lat_1d = lat[0, :, 0]  # Use the first time slice, and take y (lat) values
 
     # Assign the WGS84 coordinates back to the xarray
-    data_array = data_array.assign_coords(lon=("x",
-                                               lon[0, :]))  # Assign longitudes
-    data_array = data_array.assign_coords(lat=("y",
-                                               lat[:, 0]))  # Assign latitudes
+    data_array = data_array.assign_coords(lon=("x", lon_1d))  # Assign longitudes
+    data_array = data_array.assign_coords(lat=("y", lat_1d))  # Assign latitudes
+
+    # First, swap 'x' with 'lon' and 'y' with 'lat', keeping the time dimension intact
     data_array = data_array.swap_dims({'x': 'lon', 'y': 'lat'})
+    
+    # Reorder the dimensions to be (time, lon, lat)
+    data_array = data_array.transpose("time", "lon", "lat")
 
     return data_array
 

@@ -90,17 +90,48 @@ def get_climate_features(
     return df
 
 
-def retrieve_clear_sky_rad(lat, lon, path_to_file):
-    radiation_xr = xr.open_dataarray(path_to_file)
-    
-    # Find the closest latitude and longitude in the xarray
-    closest_lat = radiation_xr.lat.sel(lat=lat,method="nearest").values
-    closest_lon = radiation_xr.lon.sel(lon=lon, method="nearest").values
+def retrieve_clear_sky_rad(df, path_to_file):
+    # load pot dataset:
+    radiation_xr = xr.open_dataset(path_to_file)
 
-    # Extract the potential radiation at the closest point
-    potential_radiation = radiation_xr.sel(lat=closest_lat,
-                                           lon=closest_lon).values
-    return float(potential_radiation)
+    lat, lon = radiation_xr.lat, radiation_xr.lon
+
+    # Create DataArrays for latitude and longitude
+    lat_da = xr.DataArray(df["POINT_LAT"].values, dims="points")
+    lon_da = xr.DataArray(df["POINT_LON"].values, dims="points")
+
+    # Find closest radiation points (12 months)
+    xr_data_points = radiation_xr.sel(
+        lat=lat_da,
+        lon=lon_da,
+        method="nearest",
+    )
+
+    climate_df = (xr_data_points.to_dataframe().drop(
+        columns=["lat", "lon", "x", "y"]).reset_index())
+    # Drop columns
+    climate_df = climate_df.drop(columns=["points", "time"])
+    # Get the number of rows and columns
+    num_rows, num_cols = climate_df.shape
+
+    # Reshape the DataFrame to a 3D array (groups, 12, columns)
+    reshaped_array = climate_df.to_numpy().reshape(-1, 12, num_cols)
+    # Transpose and reshape to get the desired flattening effect
+    result_array = reshaped_array.transpose(0, 2, 1).reshape(-1, 12 * num_cols)
+
+    # Convert back to a DataFrame if needed
+    result_df = pd.DataFrame(result_array)
+
+    # Set the new column names for the dataframe
+    climate_var = 'pcsr'
+    months_names = [f"_{month.lower()}" for month in month_abbr[1:]]
+    result_df.columns = [f"{climate_var}{month_name}" for month_name in months_names]
+    
+    # Concatenate to glacier data
+    df = pd.concat([df, result_df], axis = 1)
+    
+    return df
+
 
 def _load_datasets(climate_data: str, geopotential_data: str) -> tuple:
     """Load climate and geopotential datasets."""
@@ -126,7 +157,6 @@ def _adjust_longitude(ds: xr.Dataset) -> xr.Dataset:
     return ds.assign_coords(longitude=(((ds.longitude + 180) % 360) - 180)).sortby(
         "longitude"
     )
-
 
 def _crop_geopotential(
     ds: xr.Dataset, lat: xr.DataArray, lon: xr.DataArray
