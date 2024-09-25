@@ -110,7 +110,6 @@ class CustomXGBoostRegressor(XGBRegressor):
         Sets:
             self.param_search (RandomizedSearchCV): The fitted RandomizedSearchCV object.
         """
-
         clf = RandomizedSearchCV(
             estimator=self,
             param_distributions=parameters,
@@ -151,9 +150,9 @@ class CustomXGBoostRegressor(XGBRegressor):
         features, metadata = self._create_features_metadata(X, config.META_DATA)
 
         # If running on GPU need to be converted to cupy
-        if "cuda" in self.get_params()["device"]:
-            features = cp.array(features)
-            y = cp.array(y)
+        # if "cuda" in self.get_params()["device"]:
+        #     features = cp.array(features)
+        #     y = cp.array(y)
             
         # Define closure that captures metadata for use in custom objective
         def custom_objective(y_true, y_pred):
@@ -184,8 +183,8 @@ class CustomXGBoostRegressor(XGBRegressor):
         features, metadata = self._create_features_metadata(X, config.META_DATA)
 
         # If running on GPU need to be converted to cupy
-        if "cuda" in self.get_params()["device"]:
-            features = cp.array(features)
+        # if "cuda" in self.get_params()["device"]:
+        #     features = cp.array(features)
 
         # Make a prediction based on the features available in the dataset
         y_pred = self.predict(features)
@@ -276,6 +275,17 @@ class CustomXGBoostRegressor(XGBRegressor):
         y_pred_agg = grouped_ids["y_pred"].sum().values
 
         return y_pred_agg
+    
+    def save_model(self, fname: str) -> None:
+        """Save a grid search or randomized search CV instance to a file"""
+        with self.model_file(fname, "wb") as f:
+            dill.dump(self.param_search, f)
+    
+    def load_model(self, fname: str) -> GridSearchCV | RandomizedSearchCV:
+        """Load a grid search or randomized search CV instance from a file"""
+        with self.model_file(fname, "rb") as f:
+            #return dill.load(f)  # returns the grid search instance (self.param_search)
+            self.param_search = dill.load(f)
 
     @classmethod
     @contextmanager
@@ -291,17 +301,6 @@ class CustomXGBoostRegressor(XGBRegressor):
         except IOError:
             print(f"Error accessing file: {file_path}")
             raise
-
-    def save_model(self, fname: str) -> None:
-        """Save a grid search or randomized search CV instance to a file"""
-        with self.model_file(fname, "wb") as f:
-            dill.dump(self.param_search, f)
-
-    @classmethod
-    def load_model(cls, fname: str) -> GridSearchCV | RandomizedSearchCV:
-        """Load a grid search or randomized search CV instance from a file"""
-        with cls.model_file(fname, "rb") as f:
-            return dill.load(f)  # returns the grid search instance (self.param_search)
 
     @staticmethod
     def _create_features_metadata(
