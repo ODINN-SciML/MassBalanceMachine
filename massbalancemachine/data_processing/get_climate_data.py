@@ -42,8 +42,10 @@ def get_climate_features(
     """
 
     # Check if the input files exist.
-    if not os.path.exists(climate_data) or not os.path.exists(geopotential_data):
-        raise FileNotFoundError(f"Climate data or geopotential data do not exist.")
+    if not os.path.exists(climate_data) or not os.path.exists(
+            geopotential_data):
+        raise FileNotFoundError(
+            f"Climate data or geopotential data do not exist.")
 
     # Load the two climate datasets
     ds_climate, ds_geopotential = _load_datasets(climate_data,
@@ -64,7 +66,8 @@ def get_climate_features(
     ds_geopotential_cropped = _crop_geopotential(ds_180, lat, lon)
 
     # Calculate the geopotential height in meters
-    ds_geopotential_metric = _calculate_geopotential_height(ds_geopotential_cropped)
+    ds_geopotential_metric = _calculate_geopotential_height(
+        ds_geopotential_cropped)
 
     # Reduce expver dimension
     ds_climate = ds_climate.reduce(np.nansum, "expver")
@@ -91,10 +94,19 @@ def get_climate_features(
 
 
 def retrieve_clear_sky_rad(df, path_to_file):
+    """Takes as input monthly clear sky potential radiation data (pre-processed), and matches this with the locations
+    of the stake measurements for a specific glacier (each glacier has another pot. rad file).
+
+    Args:
+        df (pd.DataFrame): DataFrame containing stake measurement locations and years for a glacier.
+        path_to_file (str): path to radiation data for a specific glacier
+
+    Returns:
+        df (pd.DataFrame): same dataframe as input but with 12 additional columns corresponding to the monthly
+        potential radiation values.
+    """
     # load pot dataset:
     radiation_xr = xr.open_dataset(path_to_file)
-
-    lat, lon = radiation_xr.lat, radiation_xr.lon
 
     # Create DataArrays for latitude and longitude
     lat_da = xr.DataArray(df["POINT_LAT"].values, dims="points")
@@ -111,6 +123,7 @@ def retrieve_clear_sky_rad(df, path_to_file):
         columns=["lat", "lon", "x", "y"]).reset_index())
     # Drop columns
     climate_df = climate_df.drop(columns=["points", "time"])
+
     # Get the number of rows and columns
     num_rows, num_cols = climate_df.shape
 
@@ -125,19 +138,20 @@ def retrieve_clear_sky_rad(df, path_to_file):
     # Set the new column names for the dataframe
     climate_var = 'pcsr'
     months_names = [f"_{month.lower()}" for month in month_abbr[1:]]
-    result_df.columns = [f"{climate_var}{month_name}" for month_name in months_names]
-    
+    result_df.columns = [
+        f"{climate_var}{month_name}" for month_name in months_names
+    ]
+
     # Concatenate to glacier data
-    df = pd.concat([df, result_df], axis = 1)
-    
+    df = pd.concat([df, result_df], axis=1)
+
     return df
 
 
 def _load_datasets(climate_data: str, geopotential_data: str) -> tuple:
     """Load climate and geopotential datasets."""
     with xr.open_dataset(climate_data) as dataset_climate, xr.open_dataset(
-        geopotential_data
-    ) as dataset_geopotential:
+            geopotential_data) as dataset_geopotential:
         return dataset_climate.load(), dataset_geopotential.load()
 
 
@@ -145,22 +159,18 @@ def _calculate_geopotential_height(ds_geopotential: xr.Dataset) -> xr.Dataset:
     """Calculate geopotential height in meters."""
     r_earth = 6367.47 * 10e3  # [m] (Grib1 radius)
     g = 9.80665  # [m/s^2]
-    return ds_geopotential.assign(
-        altitude_climate=lambda ds_geo: r_earth
-        * (ds_geo.z / g)
-        / (r_earth - (ds_geo.z / g))
-    )
+    return ds_geopotential.assign(altitude_climate=lambda ds_geo: r_earth *
+                                  (ds_geo.z / g) / (r_earth - (ds_geo.z / g)))
 
 
 def _adjust_longitude(ds: xr.Dataset) -> xr.Dataset:
     """Adjust longitude coordinates to range from -180 to 180."""
-    return ds.assign_coords(longitude=(((ds.longitude + 180) % 360) - 180)).sortby(
-        "longitude"
-    )
+    return ds.assign_coords(longitude=(((ds.longitude + 180) % 360) -
+                                       180)).sortby("longitude")
 
-def _crop_geopotential(
-    ds: xr.Dataset, lat: xr.DataArray, lon: xr.DataArray
-) -> xr.Dataset:
+
+def _crop_geopotential(ds: xr.Dataset, lat: xr.DataArray,
+                       lon: xr.DataArray) -> xr.Dataset:
     """Crop geometric height to grid of climate data."""
     return ds.sel(longitude=lon, latitude=lat, method="nearest")
 
@@ -168,10 +178,11 @@ def _crop_geopotential(
 def _generate_climate_variable_names(ds_climate: xr.Dataset) -> list:
     """Generate list of climate variable names for one hydrological year."""
     climate_variables = list(ds_climate.keys())
-    months_names = [f"_{month.lower()}" for month in month_abbr[10:] + month_abbr[1:10]]
+    months_names = [
+        f"_{month.lower()}" for month in month_abbr[10:] + month_abbr[1:10]
+    ]
     return [
-        f"{climate_var}{month_name}"
-        for climate_var in climate_variables
+        f"{climate_var}{month_name}" for climate_var in climate_variables
         for month_name in months_names
     ]
 
@@ -181,7 +192,9 @@ def _create_date_range(year: int):
     if pd.isna(year):
         return None
     year = int(year)
-    return pd.date_range(start=f"{year - 1}-09-01", end=f"{year}-09-01", freq="ME")
+    return pd.date_range(start=f"{year - 1}-09-01",
+                         end=f"{year}-09-01",
+                         freq="ME")
 
 
 def _add_date_range(df: pd.DataFrame) -> pd.DataFrame:
@@ -190,7 +203,8 @@ def _add_date_range(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def _process_climate_data(ds_climate: xr.Dataset, df: pd.DataFrame) -> pd.DataFrame:
+def _process_climate_data(ds_climate: xr.Dataset,
+                          df: pd.DataFrame) -> pd.DataFrame:
     """Process climate data for all points and times."""
 
     # Create DataArrays for latitude and longitude
@@ -209,11 +223,8 @@ def _process_climate_data(ds_climate: xr.Dataset, df: pd.DataFrame) -> pd.DataFr
     )
 
     # Create a dataframe from the DataArray
-    climate_df = (
-        climate_data_points.to_dataframe()
-        .drop(columns=["latitude", "longitude"])
-        .reset_index()
-    )
+    climate_df = (climate_data_points.to_dataframe().drop(
+        columns=["latitude", "longitude"]).reset_index())
 
     # Drop columns
     climate_df = climate_df.drop(columns=["points", "time"])
@@ -235,9 +246,8 @@ def _process_climate_data(ds_climate: xr.Dataset, df: pd.DataFrame) -> pd.DataFr
     return result_df
 
 
-def _process_altitude_data(
-    ds_geopotential: xr.Dataset, df: pd.DataFrame
-) -> pd.DataFrame:
+def _process_altitude_data(ds_geopotential: xr.Dataset,
+                           df: pd.DataFrame) -> pd.DataFrame:
     """Process altitude data for all points."""
 
     # 1. Create DataArrays for latitude and longitude
@@ -253,15 +263,13 @@ def _process_altitude_data(
     return altitude_data_points.to_dataframe()
 
 
-def _combine_dataframes(
-    df: pd.DataFrame, climate_df: pd.DataFrame, altitude_df: pd.DataFrame
-) -> pd.DataFrame:
+def _combine_dataframes(df: pd.DataFrame, climate_df: pd.DataFrame,
+                        altitude_df: pd.DataFrame) -> pd.DataFrame:
     """Combine DataFrames and add altitude data."""
     df = df.drop(columns=["range_date"]).reset_index(drop=True)
     climate_df = climate_df.reset_index(drop=True)
-    altitude_df = altitude_df.drop(columns=["latitude", "longitude", "z"]).reset_index(
-        drop=True
-    )
+    altitude_df = altitude_df.drop(
+        columns=["latitude", "longitude", "z"]).reset_index(drop=True)
 
     df = pd.concat([df, climate_df, altitude_df], axis=1)
     #df["ALTITUDE_CLIMATE"] = altitude_df.altitude_climate.values
