@@ -284,7 +284,6 @@ class CustomXGBoostRegressor(XGBRegressor):
     def load_model(self, fname: str) -> GridSearchCV | RandomizedSearchCV:
         """Load a grid search or randomized search CV instance from a file"""
         with self.model_file(fname, "rb") as f:
-            #return dill.load(f)  # returns the grid search instance (self.param_search)
             self.param_search = dill.load(f)
 
     @classmethod

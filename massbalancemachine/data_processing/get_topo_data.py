@@ -17,10 +17,10 @@ import pandas as pd
 import numpy as np
 from oggm import cfg, workflow, tasks
 
+
 def get_topographical_features(df: pd.DataFrame, output_fname: str,
-                               voi: "list[str]",
-                               rgi_ids: pd.Series,
-                               custom_working_dir:str) -> pd.DataFrame:
+                               voi: "list[str]", rgi_ids: pd.Series,
+                               custom_working_dir: str) -> pd.DataFrame:
     """
     Retrieves topographical features for each stake location using the OGGM library and updates the given
     DataFrame with these features.
@@ -80,26 +80,26 @@ def get_topographical_features(df: pd.DataFrame, output_fname: str,
     return data
 
 
-def get_glacier_mask(df:pd.DataFrame, custom_working_dir:str):
+def get_glacier_mask(df: pd.DataFrame, custom_working_dir: str):
     """Gets glacier xarray from OGGM and masks it over the glacier outline."""
-    
+
     # Initialize the OGGM Config
     _initialize_oggm_config(custom_working_dir)
-    
+
     # Initialize the OGGM Glacier Directory, given the available RGI IDs
     rgi_id = df.RGIId.unique()
     gdirs = _initialize_glacier_directories(rgi_id)
-    
+
     # Get oggm data for that RGI ID
     oggm_rgis = [gdir.rgi_id for gdir in gdirs]
     if rgi_id[0] not in oggm_rgis:
         raise ValueError("RGI ID not found in OGGM data")
     for gdir in gdirs:
         if gdir.rgi_id == rgi_id[0]:
-                break
+            break
     with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
         ds = ds.load()
-        
+
     # Create glacier mask
     ds = ds.assign(masked_slope=ds['glacier_mask'] * ds['slope'])
     ds = ds.assign(masked_elev=ds['glacier_mask'] * ds['topo'])
@@ -107,7 +107,8 @@ def get_glacier_mask(df:pd.DataFrame, custom_working_dir:str):
     ds = ds.assign(masked_dis=ds['glacier_mask'] * ds['dis_from_border'])
     glacier_indices = np.where(ds['glacier_mask'].values == 1)
     return ds, glacier_indices, gdir
-    
+
+
 def _get_unique_rgi_ids(rgi_ids: pd.Series) -> list:
     """Get the list of unique RGI IDs."""
     return rgi_ids.dropna().unique().tolist()
@@ -185,6 +186,3 @@ def _retrieve_topo_features(
             method="nearest")[voi].to_dataframe().reset_index(drop=True))
 
         df.loc[df["RGIId"] == gdir.rgi_id, voi] = topo_data[voi]
-                
-
-

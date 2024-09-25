@@ -82,16 +82,20 @@ class Dataset:
                                          geopotential_data, change_units)
 
     def get_potential_rad(self, path_to_direct):
+        """Fetches monthly clear sky radiation data for each glacier in the dataset.
+        Args:
+            path_to_direct (str): path to the directory containing the direct radiation data
+        """
         df = self.data.copy()
         glaciers = df['GLACIER'].unique()
         df_concat = pd.DataFrame()
         for glacierName in glaciers:
             df_glacier = df[df['GLACIER'] == glacierName]
             if 'clariden' in glacierName:
-                path_to_file = path_to_direct+f'xr_direct_clariden.nc'
+                path_to_file = path_to_direct + f'xr_direct_clariden.nc'
             else:
-                path_to_file = path_to_direct+f'xr_direct_{glacierName}.nc'
-            
+                path_to_file = path_to_direct + f'xr_direct_{glacierName}.nc'
+
             df_glacier = retrieve_clear_sky_rad(df, path_to_file)
             df_concat = pd.concat([df_concat, df_glacier])
         self.data = df_concat
