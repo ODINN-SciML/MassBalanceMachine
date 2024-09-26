@@ -150,9 +150,9 @@ class CustomXGBoostRegressor(XGBRegressor):
         features, metadata = self._create_features_metadata(X, config.META_DATA)
 
         # If running on GPU need to be converted to cupy
-        # if "cuda" in self.get_params()["device"]:
-        #     features = cp.array(features)
-        #     y = cp.array(y)
+        if "cuda" in self.get_params()["device"]:
+            features = cp.array(features)
+            y = cp.array(y)
             
         # Define closure that captures metadata for use in custom objective
         def custom_objective(y_true, y_pred):
@@ -183,8 +183,8 @@ class CustomXGBoostRegressor(XGBRegressor):
         features, metadata = self._create_features_metadata(X, config.META_DATA)
 
         # If running on GPU need to be converted to cupy
-        # if "cuda" in self.get_params()["device"]:
-        #     features = cp.array(features)
+        if "cuda" in self.get_params()["device"]:
+            features = cp.array(features)
 
         # Make a prediction based on the features available in the dataset
         y_pred = self.predict(features)
