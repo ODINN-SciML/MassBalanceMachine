@@ -36,7 +36,7 @@ def visualiseSplits(y_test, y_train, splits, colors=[color_xgb, color_tim]):
     plt.tight_layout()
 
 
-def predVSTruth(ax, grouped_ids, mae, rmse, pearson_corr, hue='YEAR'):
+def predVSTruth(ax, grouped_ids, mae, rmse, pearson_corr):
     legend_xgb = "\n".join(
         (r"$\mathrm{MAE_{xgb}}=%.3f, \mathrm{RMSE_{xgb}}=%.3f,$ " % (
             mae,
@@ -53,7 +53,7 @@ def predVSTruth(ax, grouped_ids, mae, rmse, pearson_corr, hue='YEAR'):
         x="target",
         y="pred",
         # palette=palette,
-        # hue=hue,
+        hue = 'YEAR',
         ax=ax,
         # alpha=0.8,
         color=color_xgb,
@@ -68,8 +68,8 @@ def predVSTruth(ax, grouped_ids, mae, rmse, pearson_corr, hue='YEAR'):
             transform=ax.transAxes,
             verticalalignment="top",
             fontsize=20)
-    #ax.legend()
-    ax.legend([], [], frameon=False)
+    ax.legend()
+    # ax.legend([], [], frameon=False)
     # diagonal line
     pt = (0, 0)
     ax.axline(pt, slope=1, color="grey", linestyle="-", linewidth=0.2)

@@ -120,31 +120,26 @@ def retrieve_clear_sky_rad(df, path_to_file):
     )
 
     climate_df = (xr_data_points.to_dataframe().drop(
-        columns=["lat", "lon", "x", "y"]).reset_index())
-    # Drop columns
-    climate_df = climate_df.drop(columns=["points", "time"])
+    columns=["lat", "lon", "x", "y"]).reset_index())
+    climate_df = climate_df.drop(columns=["points"])
+    
+    reshaped_ = []
+    for month in range(0, 12):
+        month_ = climate_df[climate_df.time == month].drop(columns = ['time'])
+        reshaped_.append(month_.values.squeeze())
+    
+    result_df = pd.DataFrame(np.array(reshaped_).transpose(), columns=[f'Month_{i+1}' for i in range(12)])
 
-    # Get the number of rows and columns
-    num_rows, num_cols = climate_df.shape
-
-    # Reshape the DataFrame to a 3D array (groups, 12, columns)
-    reshaped_array = climate_df.to_numpy().reshape(-1, 12, num_cols)
-    # Transpose and reshape to get the desired flattening effect
-    result_array = reshaped_array.transpose(0, 2, 1).reshape(-1, 12 * num_cols)
-
-    # Convert back to a DataFrame if needed
-    result_df = pd.DataFrame(result_array)
-
-    # Set the new column names for the dataframe
+    # Set the new column names for the dataframe (normal year not hydrological)
     climate_var = 'pcsr'
     months_names = [f"_{month.lower()}" for month in month_abbr[1:]]
     result_df.columns = [
         f"{climate_var}{month_name}" for month_name in months_names
     ]
-
     # Concatenate to glacier data
+    result_df = result_df.reset_index(drop=True)
+    df.reset_index(drop=True, inplace=True)
     df = pd.concat([df, result_df], axis=1)
-
     return df
 
 

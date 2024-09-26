@@ -89,15 +89,18 @@ class Dataset:
         df = self.data.copy()
         glaciers = df['GLACIER'].unique()
         df_concat = pd.DataFrame()
+        
         for glacierName in glaciers:
             df_glacier = df[df['GLACIER'] == glacierName]
             if 'clariden' in glacierName:
                 path_to_file = path_to_direct + f'xr_direct_clariden.nc'
             else:
                 path_to_file = path_to_direct + f'xr_direct_{glacierName}.nc'
-
-            df_glacier = retrieve_clear_sky_rad(df, path_to_file)
-            df_concat = pd.concat([df_concat, df_glacier])
+            df_glacier = retrieve_clear_sky_rad(df_glacier, path_to_file)
+            df_concat = pd.concat([df_concat, df_glacier], axis = 0)
+        
+        # reset index
+        df_concat.reset_index(drop=True, inplace=True)
         self.data = df_concat
 
     def convert_to_monthly(self,
