@@ -24,7 +24,7 @@ LOSS:str = 'MSE'
 #     "POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON", 'ALTITUDE_CLIMATE', "POINT_ELEVATION"
 # ]
 # NUM_JOBS: int = 28 
-# LOSS: str = 'RMSE' # For now only allows RMSE and MSE
+# LOSS: str = 'RMSE' # For now only allows RMSE and MSE
 
 
 def add_column(column_name):

@@ -75,7 +75,7 @@ class CustomXGBoostRegressor(XGBRegressor):
             estimator=self,
             param_grid=parameters,
             cv=splits,
-            verbose=2,
+            verbose=1,
             n_jobs=config.NUM_JOBS,
             scoring=None,  # Uses default in CustomXGBRegressor()
             refit=True,
@@ -110,13 +110,12 @@ class CustomXGBoostRegressor(XGBRegressor):
         Sets:
             self.param_search (RandomizedSearchCV): The fitted RandomizedSearchCV object.
         """
-
         clf = RandomizedSearchCV(
             estimator=self,
             param_distributions=parameters,
             n_iter=n_iter,
             cv=splits,
-            verbose=2,
+            verbose=1,
             n_jobs=config.NUM_JOBS,
             scoring=None,  # Uses default in CustomXGBRegressor()
             refit=True,
@@ -276,6 +275,16 @@ class CustomXGBoostRegressor(XGBRegressor):
         y_pred_agg = grouped_ids["y_pred"].sum().values
 
         return y_pred_agg
+    
+    def save_model(self, fname: str) -> None:
+        """Save a grid search or randomized search CV instance to a file"""
+        with self.model_file(fname, "wb") as f:
+            dill.dump(self.param_search, f)
+    
+    def load_model(self, fname: str) -> GridSearchCV | RandomizedSearchCV:
+        """Load a grid search or randomized search CV instance from a file"""
+        with self.model_file(fname, "rb") as f:
+            self.param_search = dill.load(f)
 
     @classmethod
     @contextmanager
@@ -291,17 +300,6 @@ class CustomXGBoostRegressor(XGBRegressor):
         except IOError:
             print(f"Error accessing file: {file_path}")
             raise
-
-    def save_model(self, fname: str) -> None:
-        """Save a grid search or randomized search CV instance to a file"""
-        with self.model_file(fname, "wb") as f:
-            dill.dump(self.param_search, f)
-
-    @classmethod
-    def load_model(cls, fname: str) -> GridSearchCV | RandomizedSearchCV:
-        """Load a grid search or randomized search CV instance from a file"""
-        with cls.model_file(fname, "rb") as f:
-            return dill.load(f)  # returns the grid search instance (self.param_search)
 
     @staticmethod
     def _create_features_metadata(
