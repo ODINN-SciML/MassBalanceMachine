@@ -38,22 +38,17 @@ def visualiseSplits(y_test, y_train, splits, colors=[color_xgb, color_tim]):
 
 def predVSTruth(ax, grouped_ids, mae, rmse, pearson_corr):
     legend_xgb = "\n".join(
-        (r"$\mathrm{MAE_{xgb}}=%.3f, \mathrm{RMSE_{xgb}}=%.3f,$ " % (
-            mae,
-            rmse,
-        ), (r"$\mathrm{\rho_{xgb}}=%.3f$" % (pearson_corr, ))))
+        ((r"$\mathrm{RMSE_{xgb}}=%.3f$," % (rmse, )),
+         (r"$\mathrm{MAE_{xgb}}=%.3f,$ " % (mae, )),
+         (r"$\mathrm{\rho_{xgb}}=%.3f$" % (pearson_corr, ))))
 
     marker_xgb = 'o'
-    # colors = get_cmap_hex(cm.devon, len(grouped_ids[hue].unique())+2)
-    # palette = sns.color_palette(colors, as_cmap=True)
-    # if hue == 'YEAR':
-    #     palette = cm.devon_r
     sns.scatterplot(
         grouped_ids,
         x="target",
         y="pred",
         # palette=palette,
-        hue = 'YEAR',
+        # hue = 'GLACIER',
         ax=ax,
         # alpha=0.8,
         color=color_xgb,
@@ -62,19 +57,20 @@ def predVSTruth(ax, grouped_ids, mae, rmse, pearson_corr):
     ax.set_ylabel('Predicted PMB [m w.e.]', fontsize=20)
     ax.set_xlabel('Observed PMB [m w.e.]', fontsize=20)
 
+    props = dict(boxstyle='round', facecolor='white', alpha=0.5)
     ax.text(0.03,
             0.98,
             legend_xgb,
             transform=ax.transAxes,
             verticalalignment="top",
-            fontsize=20)
-    ax.legend()
-    # ax.legend([], [], frameon=False)
+            fontsize=20, bbox=props)
+    # ax.legend()
+    ax.legend([], [], frameon=False)
     # diagonal line
     pt = (0, 0)
     ax.axline(pt, slope=1, color="grey", linestyle="-", linewidth=0.2)
-    ax.axvline(0, color="grey", linestyle="-", linewidth=0.2)
-    ax.axhline(0, color="grey", linestyle="-", linewidth=0.2)
+    ax.axvline(0, color="grey", linestyle="--", linewidth=1)
+    ax.axhline(0, color="grey", linestyle="--", linewidth=1)
     ax.grid()
     plt.tight_layout()
 
@@ -146,7 +142,6 @@ def FIPlot(best_estimator, feature_columns, vois_climate):
     feature_importdf['variables'] = feature_importdf['variables'].apply(
         lambda x: vois_long_name[x] + f' ({x})'
         if x in vois_long_name.keys() else x)
-    
 
     feature_importdf.sort_values(by="feat_imp", ascending=True, inplace=True)
     sns.barplot(feature_importdf,
@@ -264,7 +259,7 @@ def plotGridSearchParams(custom_xgboost, param_grid, best_params):
                         color=color_xgb)
         # add vertical line of best param
         ax.axvline(best_params[param], color='red', linestyle='--')
-        
+
         ax.set_ylabel(f'{config.LOSS} {loss_units[config.LOSS]}')
         ax.set_title(param)
         ax.legend()
@@ -298,7 +293,52 @@ def plotGridSearchScore(custom_xgboost):
                      mean_test + std_test,
                      alpha=0.2,
                      color=color_tim)
+    
+    # Add a line at the minimum
+    pos_min = dfCVResults.mean_test_score.abs().idxmin()
+    plt.axvline(pos_min, color='red', linestyle='--', label='min validation')
+    
     plt.xlabel('Iteration')
     plt.ylabel(f'{config.LOSS} {loss_units[config.LOSS]}')
     plt.title('Grid search score over iterations')
     plt.legend()
+
+def visualiseValPreds(best_estimator, splits, train_set, feature_columns):
+    xgb = best_estimator.set_params(device='cpu')
+    fig, axs = plt.subplots(1, 5, sharex=True, sharey=True, figsize=(25, 8))
+    a = 0
+    for (train_index, val_index), ax in zip(splits, axs.flatten()):
+        # Get the training and validation data
+        X_train = train_set['df_X'].iloc[train_index]
+        X_val = train_set['df_X'].iloc[val_index]
+        y_train = train_set['y'][train_index]
+        y_val = train_set['y'][val_index]
+        
+        # fit on training set
+        xgb.fit(X_train, y_train)
+        
+        # Make predictions on validation set:
+        features_val, metadata_val = xgb._create_features_metadata(
+            X_val, config.META_DATA)
+        y_pred = xgb.predict(features_val)
+        y_pred_agg = xgb.aggrPredict(metadata_val, config.META_DATA, features_val)
+
+        # Aggregate predictions to annual or winter:
+        all_columns = feature_columns + config.META_DATA + config.NOT_METADATA_NOT_FEATURES
+        df_pred = X_val[all_columns].copy()
+        df_pred['target'] = y_val
+        grouped_ids = df_pred.groupby('ID').agg({
+            'target': 'mean',
+            'YEAR': 'first',
+            'POINT_ID': 'first'
+        })
+        grouped_ids['pred'] = y_pred_agg
+        grouped_ids['PERIOD'] = X_val[all_columns].groupby('ID')['PERIOD'].first()
+        grouped_ids['GLACIER'] = grouped_ids['POINT_ID'].apply(
+            lambda x: x.split('_')[0])
+
+        mse, rmse, mae, pearson_corr = xgb.evalMetrics(metadata_val, y_pred,
+                                                y_val)
+        predVSTruth(ax, grouped_ids, mae, rmse, pearson_corr)
+
+    plt.tight_layout()
