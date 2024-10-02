@@ -219,7 +219,7 @@ class CustomXGBoostRegressor(XGBRegressor):
         return super().predict(features)
 
     def evalMetrics(
-        self, metadata: np.array, y_pred: np.array, y_target: np.array
+        self, metadata: np.array, y_pred: np.array, y_target: np.array, period = None
     ) -> Tuple[float, float, float]:
         """
         Compute three evaluation metrics of the model on the given test data and labels.
@@ -236,7 +236,7 @@ class CustomXGBoostRegressor(XGBRegressor):
         # Get the aggregated predictions and the mean score based on the true labels, and predicted labels
         # based on the metadata.
         y_pred_agg, y_true_mean, _, _ = self._create_metadata_scores(
-            metadata, y_target, y_pred, meta_data_columns=config.META_DATA
+            metadata, y_target, y_pred, meta_data_columns=config.META_DATA, period = period
         )
 
         mse = mean_squared_error(y_true_mean, y_pred_agg)
@@ -361,7 +361,7 @@ class CustomXGBoostRegressor(XGBRegressor):
         # based on the metadata.
         y_pred_agg, y_true_mean, grouped_ids, df_metadata = (
             CustomXGBoostRegressor._create_metadata_scores(
-                metadata, y_true, y_pred, meta_data_columns
+                metadata, y_true, y_pred, meta_data_columns, period = None
             )
         )
 
@@ -379,7 +379,7 @@ class CustomXGBoostRegressor(XGBRegressor):
 
     @staticmethod
     def _create_metadata_scores(
-        metadata: np.array, y1: np.array, y2: np.array, meta_data_columns: list
+        metadata: np.array, y1: np.array, y2: np.array, meta_data_columns: list, period: str = None
     ) -> Tuple[
         np.array, np.array, pd.core.groupby.generic.DataFrameGroupBy, pd.DataFrame
     ]:
@@ -401,8 +401,13 @@ class CustomXGBoostRegressor(XGBRegressor):
         df_metadata = pd.DataFrame(metadata, columns=meta_data_columns)
 
         # Aggregate y_pred and y_true for each group
-        grouped_ids = df_metadata.assign(y_true=y1, y_pred=y2).groupby("ID")
+        df_metadata = df_metadata.assign(y_true=y1, y_pred=y2)
+        
+        # Filter to specific period if necessary
+        if period is not None: 
+            df_metadata = df_metadata[df_metadata.PERIOD == period]
+        
+        grouped_ids = df_metadata.groupby("ID")
         y_pred_agg = grouped_ids["y_pred"].sum().values
         y_true_mean = grouped_ids["y_true"].mean().values
-
         return y_pred_agg, y_true_mean, grouped_ids, df_metadata

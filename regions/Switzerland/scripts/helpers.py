@@ -58,7 +58,8 @@ vois_units = {
     'sshf': 'J m-2',
     'ssrd': 'J m-2',
     'fal': '',
-    'str': 'J m-2'
+    'str': 'J m-2',
+    'pcsr': 'J m-2'
 }
 
 loss_units = {
