@@ -56,9 +56,8 @@ def getCVSplits(dataloader_gl, test_split_on = 'YEAR', test_splits = None):
             test_size=0.2,
             random_state=config.SEED)
     else:
-        train_splits = dataloader_gl.data[test_split_on].unique()
-        train_splits = [x for x in train_splits if x not in test_splits]
-
+        split_data = dataloader_gl.data[test_split_on].unique()
+        train_splits = [x for x in split_data if x not in test_splits]
     train_indices = dataloader_gl.data[dataloader_gl.data[test_split_on].isin(
         train_splits)].index
     test_indices = dataloader_gl.data[dataloader_gl.data[test_split_on].isin(

@@ -26,7 +26,8 @@ META_DATA: List[str] = [
 NOT_METADATA_NOT_FEATURES: List[str] = [
     "POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON", 
 ]
-NUM_JOBS: int = 28 
+# NUM_JOBS: int = 28 
+NUM_JOBS: int = 20
 LOSS: str = 'RMSE' # For now only allows RMSE and MSE
 
 
