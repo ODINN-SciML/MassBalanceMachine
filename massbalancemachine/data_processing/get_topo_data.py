@@ -105,6 +105,7 @@ def get_glacier_mask(df: pd.DataFrame, custom_working_dir: str):
     ds = ds.assign(masked_elev=ds['glacier_mask'] * ds['topo'])
     ds = ds.assign(masked_aspect=ds['glacier_mask'] * ds['aspect'])
     ds = ds.assign(masked_dis=ds['glacier_mask'] * ds['dis_from_border'])
+    ds = ds.assign(masked_hug=ds['glacier_mask'] * ds['hugonnet_dhdt'])
     glacier_indices = np.where(ds['glacier_mask'].values == 1)
     return ds, glacier_indices, gdir
 
