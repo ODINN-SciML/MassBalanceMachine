@@ -36,20 +36,20 @@ def visualiseSplits(y_test, y_train, splits, colors=[color_xgb, color_tim]):
     plt.tight_layout()
 
 
-def predVSTruth(ax, grouped_ids, scores, hue = 'GLACIER', palette = None):
+def predVSTruth(ax, grouped_ids, scores, hue='GLACIER', palette=None):
     legend_xgb = "\n".join(
         ((r"$\mathrm{RMSE_{xgb}}=%.3f$," % (scores["rmse"], )),
          (r"$\mathrm{MSE_{xgb}}=%.3f,$ " % (scores["mse"], )),
          (r"$\mathrm{MAE_{xgb}}=%.3f,$ " % (scores["mae"], )),
          (r"$\mathrm{\rho_{xgb}}=%.3f$" % (scores["pearson_corr"], ))))
-    
+
     marker_xgb = 'o'
     sns.scatterplot(
         grouped_ids,
         x="target",
         y="pred",
         palette=palette,
-        hue = hue,
+        hue=hue,
         ax=ax,
         # alpha=0.8,
         color=color_xgb,
@@ -64,7 +64,8 @@ def predVSTruth(ax, grouped_ids, scores, hue = 'GLACIER', palette = None):
             legend_xgb,
             transform=ax.transAxes,
             verticalalignment="top",
-            fontsize=20, bbox=props)
+            fontsize=20,
+            bbox=props)
     if hue is not None:
         ax.legend()
     else:
@@ -75,11 +76,12 @@ def predVSTruth(ax, grouped_ids, scores, hue = 'GLACIER', palette = None):
     ax.axvline(0, color="grey", linestyle="--", linewidth=1)
     ax.axhline(0, color="grey", linestyle="--", linewidth=1)
     ax.grid()
-    
+
     # Set ylimits to be the same as xlimits
     ax.set_xlim(-15, 6)
     ax.set_ylim(-15, 6)
     plt.tight_layout()
+
 
 def plotMeanPred(grouped_ids, ax):
     mean = grouped_ids.groupby('YEAR')['target'].mean().values
@@ -163,7 +165,7 @@ def FIPlot(best_estimator, feature_columns, vois_climate):
 
 def plotGlAttr(ds, cmap=cm.batlow):
     # Plot glacier attributes
-    fig, ax = plt.subplots(1, 4, figsize=(15, 5))
+    fig, ax = plt.subplots(1, 5, figsize=(18, 5))
     ds.masked_slope.plot(ax=ax[0], cmap=cmap)
     ax[0].set_title('Slope')
     ds.masked_elev.plot(ax=ax[1], cmap=cmap)
@@ -172,6 +174,8 @@ def plotGlAttr(ds, cmap=cm.batlow):
     ax[2].set_title('Aspect')
     ds.masked_dis.plot(ax=ax[3], cmap=cmap)
     ax[3].set_title('Dis from border')
+    ds.masked_hug.plot(ax=ax[4], cmap=cmap)
+    ax[4].set_title('Hugonnet')
     plt.tight_layout()
 
 
@@ -212,10 +216,15 @@ def plotNumMeasPerYear(data_gl, glacierName):
     plt.tight_layout()
 
 
-def plotGridSearchParams(custom_xgboost, param_grid, best_params):
-    dfCVResults = pd.DataFrame(custom_xgboost.param_search.cv_results_)
+def plotGridSearchParams(cv_results_, param_grid, N = None):
+    dfCVResults = pd.DataFrame(cv_results_)
+    best_params = dfCVResults.sort_values('mean_test_score',
+                                          ascending=False).iloc[0].params
     mask_raisonable = dfCVResults['mean_train_score'] >= -10
     dfCVResults_ = dfCVResults[mask_raisonable]
+    dfCVResults_.sort_values('mean_test_score', ascending=False, inplace=True)
+    if N is not None:
+        dfCVResults_ = dfCVResults_.iloc[:10]
     fig = plt.figure(figsize=(15, 5))
     for i, param in enumerate(param_grid.keys()):
 
@@ -274,8 +283,8 @@ def plotGridSearchParams(custom_xgboost, param_grid, best_params):
     plt.tight_layout()
 
 
-def plotGridSearchScore(custom_xgboost):
-    dfCVResults = pd.DataFrame(custom_xgboost.param_search.cv_results_)
+def plotGridSearchScore(cv_results_):
+    dfCVResults = pd.DataFrame(cv_results_)
     mask_raisonable = dfCVResults['mean_train_score'] >= -10
     dfCVResults = dfCVResults[mask_raisonable]
 
@@ -299,17 +308,19 @@ def plotGridSearchScore(custom_xgboost):
                      mean_test + std_test,
                      alpha=0.2,
                      color=color_tim)
-    
+
     # Add a line at the minimum
     pos_min = dfCVResults.mean_test_score.abs().idxmin()
     plt.axvline(pos_min, color='red', linestyle='--', label='min validation')
-    
+
     plt.xlabel('Iteration')
     plt.ylabel(f'{config.LOSS} {loss_units[config.LOSS]}')
     plt.title('Grid search score over iterations')
     plt.legend()
 
-def visualiseValPreds(model, splits, train_set, feature_columns, all_columns):
+
+def visualiseValPreds(model, splits, train_set, feature_columns):
+    all_columns = feature_columns + config.META_DATA + config.NOT_METADATA_NOT_FEATURES
     fig, axs = plt.subplots(1, 5, sharex=True, sharey=True, figsize=(25, 8))
     a = 0
     for (train_index, val_index), ax in zip(splits, axs.flatten()):
@@ -318,19 +329,19 @@ def visualiseValPreds(model, splits, train_set, feature_columns, all_columns):
         X_val = train_set['df_X'][all_columns].iloc[val_index]
         y_train = train_set['y'][train_index]
         y_val = train_set['y'][val_index]
-        
+
         # fit on training set
         model.fit(X_train, y_train)
-        xgb = model.set_params(device='cpu')
-        
+        model_cpu = model.set_params(device='cpu')
+
         # Make predictions on validation set:
-        features_val, metadata_val = xgb._create_features_metadata(
+        features_val, metadata_val = model_cpu._create_features_metadata(
             X_val, config.META_DATA)
-        y_pred = xgb.predict(features_val)
-        y_pred_agg = xgb.aggrPredict(metadata_val, config.META_DATA, features_val)
+        y_pred = model_cpu.predict(features_val)
+        y_pred_agg = model_cpu.aggrPredict(metadata_val, config.META_DATA,
+                                           features_val)
 
         # Aggregate predictions to annual or winter:
-        all_columns = feature_columns + config.META_DATA + config.NOT_METADATA_NOT_FEATURES
         df_pred = X_val[all_columns].copy()
         df_pred['target'] = y_val
         grouped_ids = df_pred.groupby('ID').agg({
@@ -339,30 +350,36 @@ def visualiseValPreds(model, splits, train_set, feature_columns, all_columns):
             'POINT_ID': 'first'
         })
         grouped_ids['pred'] = y_pred_agg
-        grouped_ids['PERIOD'] = X_val[all_columns].groupby('ID')['PERIOD'].first()
+        grouped_ids['PERIOD'] = X_val[all_columns].groupby(
+            'ID')['PERIOD'].first()
         grouped_ids['GLACIER'] = grouped_ids['POINT_ID'].apply(
             lambda x: x.split('_')[0])
 
-        mse, rmse, mae, pearson_corr = xgb.evalMetrics(metadata_val, y_pred,
-                                                y_val)
-        scores = {'mse': mse, 'rmse': rmse, 'mae': mae, 'pearson_corr': pearson_corr}
-        predVSTruth(ax, grouped_ids, scores, hue = None)
+        mse, rmse, mae, pearson_corr = model_cpu.evalMetrics(
+            metadata_val, y_pred, y_val)
+        scores = {
+            'mse': mse,
+            'rmse': rmse,
+            'mae': mae,
+            'pearson_corr': pearson_corr
+        }
+        predVSTruth(ax, grouped_ids, scores, hue=None)
 
     plt.tight_layout()
-    
-    
-def visualiseInputs(train_set, test_set, vois_climate):    
+
+
+def visualiseInputs(train_set, test_set, vois_climate):
     f, ax = plt.subplots(2, 11, figsize=(16, 6), sharey='row', sharex='col')
     train_set['df_X']['POINT_BALANCE'].plot.hist(ax=ax[0, 0],
-                                                color=color_xgb,
-                                                alpha=0.6,
-                                                density=False)
+                                                 color=color_xgb,
+                                                 alpha=0.6,
+                                                 density=False)
     ax[0, 0].set_title('PMB')
     ax[0, 0].set_ylabel('Frequency (train)')
     train_set['df_X']['ELEVATION_DIFFERENCE'].plot.hist(ax=ax[0, 1],
-                                                color=color_xgb,
-                                                alpha=0.6,
-                                                density=False)
+                                                        color=color_xgb,
+                                                        alpha=0.6,
+                                                        density=False)
     ax[0, 1].set_title('ELV_DIFF')
     train_set['df_X']['YEAR'].plot.hist(ax=ax[0, 2],
                                         color=color_xgb,
@@ -370,13 +387,12 @@ def visualiseInputs(train_set, test_set, vois_climate):
                                         density=False)
     ax[0, 2].set_title('YEARS')
 
-
     for i, voi_clim in enumerate(vois_climate + ['pcsr']):
         ax[0, 3 + i].set_title(voi_clim)
         train_set['df_X'][voi_clim].plot.hist(ax=ax[0, 3 + i],
-                                            color=color_xgb,
-                                            alpha=0.6,
-                                            density=False)
+                                              color=color_xgb,
+                                              alpha=0.6,
+                                              density=False)
 
     test_set['df_X']['POINT_BALANCE'].plot.hist(ax=ax[1, 0],
                                                 color=color_tim,
@@ -384,90 +400,105 @@ def visualiseInputs(train_set, test_set, vois_climate):
                                                 density=False)
     ax[1, 0].set_ylabel('Frequency (test)')
     test_set['df_X']['ELEVATION_DIFFERENCE'].plot.hist(bins=50,
-                                                ax=ax[1, 1],
-                                                color=color_tim,
-                                                alpha=0.6,
-                                                density=False)
+                                                       ax=ax[1, 1],
+                                                       color=color_tim,
+                                                       alpha=0.6,
+                                                       density=False)
     test_set['df_X']['YEAR'].plot.hist(ax=ax[1, 2],
-                                    color=color_tim,
-                                    alpha=0.6,
-                                    density=False)
+                                       color=color_tim,
+                                       alpha=0.6,
+                                       density=False)
 
     for i, voi_clim in enumerate(vois_climate + ['pcsr']):
         test_set['df_X'][voi_clim].plot.hist(ax=ax[1, 3 + i],
-                                            color=color_tim,
-                                            alpha=0.6,
-                                            density=False)
+                                             color=color_tim,
+                                             alpha=0.6,
+                                             density=False)
     # rotate xticks
     for ax in ax.flatten():
         ax.tick_params(axis='x', rotation=45)
         ax.set_xlabel('')
 
     plt.tight_layout()
-    
-    
-def PlotPredictions(xgb, test_glaciers, metadata_test, test_set, y_pred, y_pred_agg, feature_columns, all_columns):
-    # Aggregate predictions to annual or winter:
-    df_pred = test_set['df_X'][all_columns].copy()
-    df_pred['target'] = test_set['y']
-    grouped_ids = df_pred.groupby('ID').agg({
-        'target': 'mean',
-        'YEAR': 'first',
-        'POINT_ID': 'first'
-    })
-    grouped_ids['pred'] = y_pred_agg
-    grouped_ids['PERIOD'] = test_set['df_X'][
-        feature_columns + config.META_DATA +
-        config.NOT_METADATA_NOT_FEATURES].groupby('ID')['PERIOD'].first()
-    grouped_ids['GLACIER'] = grouped_ids['POINT_ID'].apply(
-        lambda x: x.split('_')[0])
 
-    # grouped_ids = grouped_ids[grouped_ids.YEAR <= 2021]
 
+def PlotPredictions(grouped_ids, y_pred, metadata_test, test_set, model):
     fig = plt.figure(figsize=(15, 10))
-    colors_glacier = ['#66c2a5','#fc8d62','#8da0cb','#e78ac3','#a6d854','#ffd92f']
-    color_palette_glaciers = dict(zip(grouped_ids.GLACIER.unique(),
-                                    colors_glacier))
+    colors_glacier = [
+        '#a6cee3', '#1f78b4', '#b2df8a', '#33a02c', '#fb9a99', '#e31a1c',
+        '#fdbf6f', '#ff7f00', '#cab2d6', '#6a3d9a', '#ffff99', '#b15928'
+    ]
+    color_palette_glaciers = dict(
+        zip(grouped_ids.GLACIER.unique(), colors_glacier))
 
-    ax = plt.subplot(2, 2, 1)
+    ax1 = plt.subplot(2, 2, 1)
     grouped_ids_annual = grouped_ids[grouped_ids.PERIOD == 'annual']
-    mse_annual, rmse_annual, mae_annual, pearson_corr_annual = xgb.evalMetrics(metadata_test, y_pred,
-                                                test_set['y'], period = 'annual')
-    scores_annual = {'mse': mse_annual,
-                        'rmse': rmse_annual,
-                        'mae': mae_annual,
-                        'pearson_corr': pearson_corr_annual}
-    predVSTruth(ax,
+    mse_annual, rmse_annual, mae_annual, pearson_corr_annual = model.evalMetrics(
+        metadata_test, y_pred, test_set['y'], period='annual')
+    scores_annual = {
+        'mse': mse_annual,
+        'rmse': rmse_annual,
+        'mae': mae_annual,
+        'pearson_corr': pearson_corr_annual
+    }
+    print(color_palette_glaciers)
+    predVSTruth(ax1,
                 grouped_ids_annual,
                 scores_annual,
                 hue='GLACIER',
                 palette=color_palette_glaciers)
-    ax.set_title('Annual MB', fontsize=24)
+    ax1.set_title('Annual MB', fontsize=24)
 
     grouped_ids_annual.sort_values(by='YEAR', inplace=True)
-    ax = plt.subplot(2, 2, 2)
-    plotMeanPred(grouped_ids_annual, ax)
+    ax2 = plt.subplot(2, 2, 2)
+    plotMeanPred(grouped_ids_annual, ax2)
 
     if 'winter' in grouped_ids.PERIOD.unique():
         grouped_ids_winter = grouped_ids[grouped_ids.PERIOD == 'winter']
-        ax = plt.subplot(2, 2, 3)
-        mse_winter, rmse_winter, mae_winter, pearson_corr_winter = xgb.evalMetrics(metadata_test, y_pred,
-                                                test_set['y'], period = 'winter')
-        scores_winter = {'mse': mse_winter,
-                        'rmse': rmse_winter,
-                        'mae': mae_winter,
-                        'pearson_corr': pearson_corr_winter}
-        predVSTruth(ax,
+        ax3 = plt.subplot(2, 2, 3)
+        mse_winter, rmse_winter, mae_winter, pearson_corr_winter = model.evalMetrics(
+            metadata_test, y_pred, test_set['y'], period='winter')
+        scores_winter = {
+            'mse': mse_winter,
+            'rmse': rmse_winter,
+            'mae': mae_winter,
+            'pearson_corr': pearson_corr_winter
+        }
+        predVSTruth(ax3,
                     grouped_ids_winter,
                     scores_winter,
                     hue='GLACIER',
                     palette=color_palette_glaciers)
-        ax.set_title('Winter MB', fontsize=24)
+        ax3.set_title('Winter MB', fontsize=24)
 
-        ax = plt.subplot(2, 2, 4)
+        ax4 = plt.subplot(2, 2, 4)
         grouped_ids_winter.sort_values(by='YEAR', inplace=True)
-        plotMeanPred(grouped_ids_winter, ax)
+        plotMeanPred(grouped_ids_winter, ax4)
 
-    # ax.set_title('Mean yearly target and prediction')
-    plt.suptitle(f'XGBoost tested on {test_glaciers}', fontsize=20)
+
+def PlotIndividualGlacierPred(grouped_ids, figsize = (15, 22)):
+    fig, axs = plt.subplots(len(grouped_ids['GLACIER'].unique()),
+                            2,
+                            figsize=figsize)
+    for i, test_gl in enumerate(grouped_ids['GLACIER'].unique()):
+        df_gl = grouped_ids[grouped_ids.GLACIER == test_gl]
+
+        ax1 = axs[i, 0]
+        ax2 = axs[i, 1]
+
+        scores = {
+            'mse':
+            mean_squared_error(df_gl['target'], df_gl['pred']),
+            'rmse':
+            mean_squared_error(df_gl['target'], df_gl['pred'], squared=False),
+            'mae':
+            mean_absolute_error(df_gl['target'], df_gl['pred']),
+            'pearson_corr':
+            np.corrcoef(df_gl['target'], df_gl['pred'])[0, 1]
+        }
+        predVSTruth(ax1, df_gl, scores, hue=None, palette=None)
+        ax1.set_title(f'{test_gl.capitalize()}', fontsize=24)
+
+        plotMeanPred(df_gl, ax2)
+
     plt.tight_layout()

@@ -37,7 +37,9 @@ vois_climate_long_name = {
     'sshf': 'Surface sensible heat flux',
     'ssrd': 'Surface solar radiation downwards',
     'fal': 'Forecast albedo',
-    'str': 'Surface net thermal radiation'
+    'str': 'Surface net thermal radiation',
+    'pcsr': 'Pot. incoming clear sky solar rad.'
+
 }
 
 vois_long_name = {
@@ -48,7 +50,6 @@ vois_long_name = {
     'ssrd': 'Surface solar radiation downwards',
     'fal': 'Forecast albedo',
     'str': 'Surface net thermal radiation',
-    'pcsr': 'Pot. incoming clear sky solar rad.'
 }
 
 vois_units = {
