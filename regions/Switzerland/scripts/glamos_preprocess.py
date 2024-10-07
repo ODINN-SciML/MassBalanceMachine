@@ -234,12 +234,20 @@ def xarray_to_dataframe(data_array):
 
 
 def convert_to_xarray(grid_data, metadata, num_months):
-    # Extract metadata values
-    ncols = int(metadata['ncols'])
-    nrows = int(metadata['nrows'])
-    xllcorner = metadata['xllcorner']
-    yllcorner = metadata['yllcorner']
-    cellsize = metadata['cellsize']
+    if 'ncols' in metadata:
+        # Extract metadata values
+        ncols = int(metadata['ncols'])
+        nrows = int(metadata['nrows'])
+        xllcorner = metadata['xllcorner']
+        yllcorner = metadata['yllcorner']
+        cellsize = metadata['cellsize']
+    else:
+        # Extract metadata values
+        ncols = int(metadata['NCOLS'])
+        nrows = int(metadata['NROWS'])
+        xllcorner = metadata['XLLCORNER']
+        yllcorner = metadata['YLLCORNER']
+        cellsize = metadata['CELLSIZE']
 
     # Create x and y coordinates based on the metadata
     x_coords = xllcorner + np.arange(ncols) * cellsize
@@ -269,7 +277,7 @@ def load_grid_file(filepath):
         metadata = {}
         for _ in range(6):  # First 6 lines are metadata
             line = file.readline().strip().split()
-            metadata[line[0]] = float(line[1])
+            metadata[line[0].lower()] = float(line[1])
 
         # Get ncols from metadata to control the number of columns
         ncols = int(metadata['ncols'])
@@ -286,10 +294,10 @@ def load_grid_file(filepath):
                 row_ += row
             if len(row_) == ncols:
                 data.append([
-                    np.nan
-                    if float(x) == metadata['nodata_value'] else float(x)
-                    for x in row_
-                ])
+                        np.nan
+                        if float(x) == metadata['nodata_value'] else float(x)
+                        for x in row_
+                    ])
                 # reset row_
                 row_ = []
 

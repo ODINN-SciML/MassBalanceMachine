@@ -50,6 +50,7 @@ vois_long_name = {
     'ssrd': 'Surface solar radiation downwards',
     'fal': 'Forecast albedo',
     'str': 'Surface net thermal radiation',
+    'pcsr': 'Pot. incoming clear sky solar rad.'
 }
 
 vois_units = {
