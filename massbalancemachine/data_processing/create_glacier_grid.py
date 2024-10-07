@@ -6,7 +6,7 @@ import xarray as xr
 import oggm
 
 
-def create_glacier_grid(ds: xr.Dataset, years: list, glacier_indices: "tuple[np.array, np.array]",
+def create_glacier_grids(ds: xr.Dataset, years: list, glacier_indices: "tuple[np.array, np.array]",
                         gdir: oggm.GlacierDirectory,
                         rgi_gl: str) -> pd.DataFrame:
     """Creates a DataFrame of glacier grid data for each year
@@ -17,7 +17,6 @@ def create_glacier_grid(ds: xr.Dataset, years: list, glacier_indices: "tuple[np.
         glacier_indices (np.array): indices of glacier mask in the OGGM grid
         gdir (oggm directory): oggm glacier directory
         rgi_gl (str): RGI Id of the glacier
-
     Returns:
         df_grid (pd.DataFrame): dataframe of glacier grid data, for each year
     """
@@ -48,6 +47,7 @@ def create_glacier_grid(ds: xr.Dataset, years: list, glacier_indices: "tuple[np.
         'slope': ds.masked_slope.values[gl_mask_bool],
         'topo': ds.masked_elev.values[gl_mask_bool],
         'dis_from_border': ds.masked_dis.values[gl_mask_bool],
+        'hugonnet_dhdt': ds.masked_hug.values[gl_mask_bool],
     }
 
     df_grid = pd.DataFrame(data_grid)

@@ -23,7 +23,7 @@ import xarray as xr
 from get_climate_data import get_climate_features, retrieve_clear_sky_rad
 from get_topo_data import get_topographical_features, get_glacier_mask
 from transform_to_monthly import transform_to_monthly
-from create_glacier_grid import create_glacier_grid
+from create_glacier_grid import create_glacier_grids
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s - %(levelname)s - %(message)s")
@@ -156,7 +156,7 @@ class Dataset:
         years_stake = self.data['YEAR'].unique()
         years = range(years_stake.min(), years_stake.max() + 1)
         rgi_gl = self.data['RGIId'].unique()[0]
-        df_grid = create_glacier_grid(ds, years, glacier_indices, gdir, rgi_gl)
+        df_grid = create_glacier_grids(ds, years, glacier_indices, gdir, rgi_gl)
         return df_grid
 
     def _get_output_filename(self, feature_type: str) -> str:

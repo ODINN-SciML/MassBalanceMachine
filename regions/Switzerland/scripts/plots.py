@@ -4,6 +4,8 @@ from cmcrameri import cm
 import pandas as pd
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 import config
+from matplotlib.patches import Rectangle
+
 from scripts.helpers import *
 
 colors = get_cmap_hex(cm.batlow, 2)
@@ -15,9 +17,9 @@ color_tim = '#c51b7d'
 def visualiseSplits(y_test, y_train, splits, colors=[color_xgb, color_tim]):
     # Visualise the cross validation splits
     fig, ax = plt.subplots(1, 6, figsize=(20, 5))
-    ax[0].hist(y_train, bins=20, color=colors[0], density=False, alpha=0.5)
+    ax[0].hist(y_train, color=colors[0], density=False, alpha=0.5)
     ax[0].set_title('Train & Test PMB')
-    ax[0].hist(y_test, bins=20, color=colors[1], density=False, alpha=0.5)
+    ax[0].hist(y_test, color=colors[1], density=False, alpha=0.5)
     ax[0].set_ylabel('Frequency')
     for i, (train_idx, val_idx) in enumerate(splits):
         # Check that there is no overlap between the training, val and test IDs
@@ -134,6 +136,7 @@ def plotMeanPred(grouped_ids, ax):
             transform=ax.transAxes,
             verticalalignment="top",
             fontsize=20)
+    ax.legend()
 
 
 def FIPlot(best_estimator, feature_columns, vois_climate):
@@ -216,7 +219,7 @@ def plotNumMeasPerYear(data_gl, glacierName):
     plt.tight_layout()
 
 
-def plotGridSearchParams(cv_results_, param_grid, N = None):
+def plotGridSearchParams(cv_results_, param_grid, N=None):
     dfCVResults = pd.DataFrame(cv_results_)
     best_params = dfCVResults.sort_values('mean_test_score',
                                           ascending=False).iloc[0].params
@@ -399,8 +402,7 @@ def visualiseInputs(train_set, test_set, vois_climate):
                                                 alpha=0.6,
                                                 density=False)
     ax[1, 0].set_ylabel('Frequency (test)')
-    test_set['df_X']['ELEVATION_DIFFERENCE'].plot.hist(bins=50,
-                                                       ax=ax[1, 1],
+    test_set['df_X']['ELEVATION_DIFFERENCE'].plot.hist(ax=ax[1, 1],
                                                        color=color_tim,
                                                        alpha=0.6,
                                                        density=False)
@@ -447,10 +449,11 @@ def PlotPredictions(grouped_ids, y_pred, metadata_test, test_set, model):
                 scores_annual,
                 hue='GLACIER',
                 palette=color_palette_glaciers)
-    ax1.set_title('Annual MB', fontsize=24)
+    ax1.set_title('Annual PMB', fontsize=24)
 
     grouped_ids_annual.sort_values(by='YEAR', inplace=True)
     ax2 = plt.subplot(2, 2, 2)
+    ax2.set_title('Mean annual PMB', fontsize=24)
     plotMeanPred(grouped_ids_annual, ax2)
 
     if 'winter' in grouped_ids.PERIOD.unique():
@@ -469,14 +472,15 @@ def PlotPredictions(grouped_ids, y_pred, metadata_test, test_set, model):
                     scores_winter,
                     hue='GLACIER',
                     palette=color_palette_glaciers)
-        ax3.set_title('Winter MB', fontsize=24)
+        ax3.set_title('Winter PMB', fontsize=24)
 
         ax4 = plt.subplot(2, 2, 4)
+        ax4.set_title('Mean winter PMB', fontsize=24)
         grouped_ids_winter.sort_values(by='YEAR', inplace=True)
         plotMeanPred(grouped_ids_winter, ax4)
 
 
-def PlotIndividualGlacierPred(grouped_ids, figsize = (15, 22)):
+def PlotIndividualGlacierPred(grouped_ids, figsize=(15, 22)):
     fig, axs = plt.subplots(len(grouped_ids['GLACIER'].unique()),
                             2,
                             figsize=figsize)
@@ -502,3 +506,46 @@ def PlotIndividualGlacierPred(grouped_ids, figsize = (15, 22)):
         plotMeanPred(df_gl, ax2)
 
     plt.tight_layout()
+
+
+def plotHeatmap(test_glaciers, data_glamos, glDirect, period='annual'):
+    # Heatmap of mean mass balance per glacier:
+    # Get the mean mass balance per glacier
+    data_with_pot = data_glamos[(data_glamos.GLACIER.isin(glDirect))
+                                & (data_glamos.PERIOD == period)]
+    mean_mb_per_glacier = data_with_pot.groupby(['GLACIER', 'YEAR'
+                                                 ])['POINT_BALANCE'].mean()
+    matrix = pd.DataFrame(mean_mb_per_glacier).reset_index().pivot(
+        index='GLACIER', columns='YEAR',
+        values='POINT_BALANCE').sort_values(by='GLACIER')
+    gl_per_el = data_with_pot.groupby(['GLACIER'])['POINT_ELEVATION'].mean()
+    matrix = matrix.loc[gl_per_el.sort_values(ascending=False).index]
+
+    # make index categorical
+    matrix.index = pd.Categorical(matrix.index,
+                                  categories=matrix.index,
+                                  ordered=True)
+    fig = plt.figure(figsize=(20, 15))
+    ax = plt.subplot(1, 1, 1)
+    sns.heatmap(data=matrix,
+                center=0,
+                cmap=cm.vik_r,
+                cbar_kws={'label': '[m w.e. $a^{-1}$]'},
+                ax=ax)
+
+    # add patches for test glaciers
+    for test_gl in test_glaciers:
+        if test_gl not in matrix.index:
+            continue
+        height = matrix.index.get_loc(test_gl)
+        row = np.where(matrix.loc[test_gl].notna())[0]
+        split_indices = np.where(np.diff(row) != 1)[0] + 1
+        continuous_sequences = np.split(row, split_indices)
+        for patch in continuous_sequences:
+            ax.add_patch(
+                Rectangle((patch.min(), height),
+                          patch.max() - patch.min() + 1,
+                          1,
+                          fill=False,
+                          edgecolor='blue',
+                          lw=3))
