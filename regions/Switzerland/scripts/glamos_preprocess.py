@@ -233,44 +233,6 @@ def xarray_to_dataframe(data_array):
     return df
 
 
-def convert_to_xarray(grid_data, metadata, num_months):
-    if 'ncols' in metadata:
-        # Extract metadata values
-        ncols = int(metadata['ncols'])
-        nrows = int(metadata['nrows'])
-        xllcorner = metadata['xllcorner']
-        yllcorner = metadata['yllcorner']
-        cellsize = metadata['cellsize']
-    else:
-        # Extract metadata values
-        ncols = int(metadata['NCOLS'])
-        nrows = int(metadata['NROWS'])
-        xllcorner = metadata['XLLCORNER']
-        yllcorner = metadata['YLLCORNER']
-        cellsize = metadata['CELLSIZE']
-
-    # Create x and y coordinates based on the metadata
-    x_coords = xllcorner + np.arange(ncols) * cellsize
-    y_coords = yllcorner + np.arange(nrows) * cellsize
-
-    time_coords = np.arange(num_months)
-    
-    if grid_data.shape != (num_months, nrows, ncols):
-        raise ValueError(f"Expected grid_data shape ({num_months}, {nrows}, {ncols}), got {grid_data.shape}")
- 
-    # Create the xarray DataArray
-    data_array = xr.DataArray(np.flip(grid_data, axis=1),
-                              #grid_data,
-                              dims=("time", "y", "x"),
-                              coords={
-                                  "time": time_coords,
-                                  "y": y_coords,
-                                  "x": x_coords
-                              },
-                              name="grid_data")
-    return data_array
-
-
 def load_grid_file(filepath):
     with open(filepath, 'r') as file:
         # Read metadata
@@ -308,6 +270,37 @@ def load_grid_file(filepath):
         assert grid_data.shape == (nrows, ncols)
 
     return metadata, grid_data
+
+def convert_to_xarray(grid_data, metadata, num_months):
+    # Extract metadata values
+    ncols = int(metadata['ncols'])
+    nrows = int(metadata['nrows'])
+    xllcorner = metadata['xllcorner']
+    yllcorner = metadata['yllcorner']
+    cellsize = metadata['cellsize']
+
+
+    # Create x and y coordinates based on the metadata
+    x_coords = xllcorner + np.arange(ncols) * cellsize
+    y_coords = yllcorner + np.arange(nrows) * cellsize
+
+    time_coords = np.arange(num_months)
+    
+    if grid_data.shape != (num_months, nrows, ncols):
+        raise ValueError(f"Expected grid_data shape ({num_months}, {nrows}, {ncols}), got {grid_data.shape}")
+ 
+    # Create the xarray DataArray
+    data_array = xr.DataArray(np.flip(grid_data, axis=1),
+                              #grid_data,
+                              dims=("time", "y", "x"),
+                              coords={
+                                  "time": time_coords,
+                                  "y": y_coords,
+                                  "x": x_coords
+                              },
+                              name="grid_data")
+    return data_array
+
 
 
 def transform_xarray_coords_lv03_to_wgs84(data_array):
