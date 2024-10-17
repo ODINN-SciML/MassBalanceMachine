@@ -160,3 +160,63 @@ def getDfAggregatePred(test_set, y_pred_agg, all_columns):
         lambda x: x.split('_')[0])
     
     return grouped_ids
+
+def GlacierWidePred(custom_model, glacierName, vois_climate, vois_topographical, type_pred = 'annual'):
+    # Feature columns:
+    feature_columns = [
+        'ELEVATION_DIFFERENCE'
+    ] + list(vois_climate) + list(vois_topographical) + ['pcsr']
+    all_columns = feature_columns + config.META_DATA + config.NOT_METADATA_NOT_FEATURES
+
+    ## Whole grid:
+    # Make predictions:
+    df_grid_monthly = pd.read_csv(path_glacier_grid + f'{glacierName}_grid.csv')
+    df_grid_monthly['GLACIER'] = glacierName
+    df_grid_monthly['POINT_ELEVATION'] = df_grid_monthly['topo']
+    df_grid_monthly = df_grid_monthly[all_columns]
+
+    if type_pred == 'annual':
+        # Make predictions on whole glacier grid
+        features_grid, metadata_grid = custom_model._create_features_metadata(
+            df_grid_monthly, config.META_DATA)
+        print('Shape of the dataset:', features_grid.shape)
+
+        # Make predictions aggr to meas ID:
+        y_pred_grid_agg = custom_model.aggrPredict(metadata_grid, config.META_DATA,
+                                                features_grid)
+
+        # Aggregate predictions to annual or winter:
+        grouped_ids_annual = df_grid_monthly.groupby('ID').agg({
+            'YEAR': 'mean',
+            'POINT_LAT': 'mean',
+            'POINT_LON': 'mean'
+        })
+        grouped_ids_annual['pred'] = y_pred_grid_agg
+        
+        return grouped_ids_annual
+    
+    if type_pred == 'winter':
+        # winter months from October to April
+        winter_months = ['oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr']
+        df_grid_winter = df_grid_monthly[df_grid_monthly.MONTHS.isin(winter_months)]
+
+        # Make predictions:
+        # Set to CPU for predictions:
+        # Make predictions on whole glacier grid
+        features_grid, metadata_grid = custom_model._create_features_metadata(
+            df_grid_winter, config.META_DATA)
+        print('Shape of the dataset:', features_grid.shape)
+
+        # Make predictions aggr to meas ID:
+        y_pred_grid_agg = custom_model.aggrPredict(metadata_grid, config.META_DATA,
+                                                features_grid)
+
+        # Aggregate predictions to annual or winter:
+        grouped_ids_winter = df_grid_monthly.groupby('ID').agg({
+            'YEAR': 'mean',
+            'POINT_LAT': 'mean',
+            'POINT_LON': 'mean'
+        })
+        grouped_ids_winter['pred'] = y_pred_grid_agg
+        return grouped_ids_winter
+        
