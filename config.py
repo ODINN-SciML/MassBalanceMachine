@@ -24,12 +24,11 @@ META_DATA: List[str] = [
 #     "POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON", 'ALTITUDE_CLIMATE', "POINT_ELEVATION"
 # ]
 NOT_METADATA_NOT_FEATURES: List[str] = [
-    "POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON", 
+    "POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"
 ]
 # NUM_JOBS: int = 28 
 NUM_JOBS: int = 20
 LOSS: str = 'RMSE' # For now only allows RMSE and MSE
-
 
 def add_column(column_name):
     global META_DATA

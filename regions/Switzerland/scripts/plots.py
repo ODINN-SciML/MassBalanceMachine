@@ -185,7 +185,8 @@ def plotGlAttr(ds, cmap=cm.batlow):
 def plotGlGrid(df_grid_annual, data_gl):
     # Plot glacier oggm grid and stakes
     fig, ax = plt.subplots(1, 1, figsize=(5, 5))
-    df_grid_annual_one_year = df_grid_annual[df_grid_annual.YEAR == 2006]
+    one_year = df_grid_annual.YEAR.unique()[0]
+    df_grid_annual_one_year = df_grid_annual[df_grid_annual.YEAR == one_year]
     ax.scatter(df_grid_annual_one_year.POINT_LON,
                df_grid_annual_one_year.POINT_LAT,
                s=1,
@@ -549,3 +550,117 @@ def plotHeatmap(test_glaciers, data_glamos, glDirect, period='annual'):
                           fill=False,
                           edgecolor='blue',
                           lw=3))
+
+
+def TwoDPlotsAllYears(grouped_ids_annual, grouped_ids_winter, years_stakes, figsize=(10, 25)):
+    fig, axs = plt.subplots(7, 2, figsize=figsize)
+    for i, year in enumerate(years_stakes):
+        for j in range(2):
+            ax = axs[i, j]
+
+            if j == 0:
+                # First column is winter
+                pred_y = grouped_ids_winter[grouped_ids_winter.YEAR ==
+                                            year].drop(['YEAR'], axis=1)
+                # Plot glacier grid with pred value
+                sns.scatterplot(pred_y,
+                                          x='POINT_LON',
+                                          y='POINT_LAT',
+                                          hue='pred',
+                                          palette='coolwarm_r',
+                                          s=20,
+                                          edgecolor='k',
+                                          legend=None,
+                                          ax=ax)
+                # Create a color bar
+                norm = plt.Normalize(pred_y['pred'].min(),
+                                     pred_y['pred'].max())
+                sm = plt.cm.ScalarMappable(cmap='coolwarm_r', norm=norm)
+                sm.set_array(
+                    [])  # Only needed for older versions of matplotlib
+                cbar = plt.colorbar(sm, ax=ax)
+                cbar.set_label('[m w.e.]')
+                ax.set_title('Winter MB, Year: {}'.format(year))
+
+            if j == 1:
+                # Second column is annual
+                pred_y = grouped_ids_annual[grouped_ids_annual.YEAR == year].drop(['YEAR'],
+                                                                    axis=1)
+                # Plot glacier grid with pred value
+                sns.scatterplot(pred_y,
+                                          x='POINT_LON',
+                                          y='POINT_LAT',
+                                          hue='pred',
+                                          palette='coolwarm_r',
+                                          s=20,
+                                          edgecolor='k',
+                                          legend=None,
+                                          ax=ax)
+                # Create a color bar
+                norm = plt.Normalize(pred_y['pred'].min(),
+                                     pred_y['pred'].max())
+                sm = plt.cm.ScalarMappable(cmap='coolwarm_r', norm=norm)
+                sm.set_array(
+                    [])  # Only needed for older versions of matplotlib
+                cbar = plt.colorbar(sm, ax=ax)
+                cbar.set_label('[m w.e.]')
+                ax.set_title('Annual MB, Year: {}'.format(year))
+
+            # Add labels and title
+            ax.set_xlabel('Longitude')
+            ax.set_ylabel('Latitude')
+
+    plt.tight_layout()
+
+
+def TwoDPlots(glacierName, grouped_ids_annual, grouped_ids_winter, year, axs):
+    for j in range(2):
+        ax = axs[j]
+        if j == 0:
+            # First column is winter
+            pred_y = grouped_ids_winter[grouped_ids_winter.YEAR == year].drop(['YEAR'], axis=1)
+            # Plot glacier grid with pred value
+            scatter = sns.scatterplot(pred_y,
+                                    x='POINT_LON',
+                                    y='POINT_LAT',
+                                    hue='pred',
+                                    palette='coolwarm_r',
+                                    s=20,
+                                    edgecolor='k',
+                                    legend=None,
+                                    ax=ax)
+            # Create a color bar
+            norm = plt.Normalize(pred_y['pred'].min(), pred_y['pred'].max())
+            sm = plt.cm.ScalarMappable(cmap='coolwarm_r', norm=norm)
+            sm.set_array([])  # Only needed for older versions of matplotlib
+            cbar = plt.colorbar(sm, ax=ax)
+            cbar.set_label('[m w.e.]')
+            ax.set_title(f'{glacierName}: winter MB')
+        
+        if j == 1:
+            # Second column is annual
+            pred_y = grouped_ids_annual[grouped_ids_annual.YEAR == year].drop(['YEAR'], axis=1)
+            # Plot glacier grid with pred value
+            scatter = sns.scatterplot(pred_y,
+                                    x='POINT_LON',
+                                    y='POINT_LAT',
+                                    hue='pred',
+                                    palette='coolwarm_r',
+                                    s=30,
+                                    edgecolor='k',
+                                    legend=None,
+                                    ax=ax)
+            # Create a color bar
+            norm = plt.Normalize(pred_y['pred'].min(), pred_y['pred'].max())
+            sm = plt.cm.ScalarMappable(cmap='coolwarm_r', norm=norm)
+            sm.set_array([])  # Only needed for older versions of matplotlib
+            cbar = plt.colorbar(sm, ax=ax)
+            cbar.set_label('[m w.e.]')
+            ax.set_title('Annual MB, Year: {}'.format(year))
+
+        # Add labels and title
+        ax.set_xlabel('Longitude')
+        ax.set_ylabel('Latitude')
+            
+    # plt.suptitle(f'Glacier: {glacierName.capitalize()}, {year}')
+    plt.tight_layout()

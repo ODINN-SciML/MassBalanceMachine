@@ -154,9 +154,13 @@ class Dataset:
         ds, glacier_indices, gdir = get_glacier_mask(self.data,
                                                      custom_working_dir)
         years_stake = self.data['YEAR'].unique()
-        years = range(years_stake.min(), years_stake.max() + 1)
+        years = range(1951, 2023)
         rgi_gl = self.data['RGIId'].unique()[0]
         df_grid = create_glacier_grids(ds, years, glacier_indices, gdir, rgi_gl)
+        # add column of presence of stake
+        df_grid['STAKE_MEAS'] = 0
+        for year in years_stake:
+            df_grid.loc[df_grid['YEAR'] == year, 'STAKE_MEAS'] = 1
         return df_grid
 
     def _get_output_filename(self, feature_type: str) -> str:
