@@ -198,11 +198,14 @@ class CustomXGBoostRegressor(XGBRegressor):
         # Calculate MSE
         mse = ((y_pred_agg - y_true_mean) ** 2).mean()
         rmse = np.sqrt(mse)
+        mae = np.abs(y_pred_agg - y_true_mean).mean()
         if config.LOSS == 'MSE':
             return -mse # Return negative because GridSearchCV maximizes score
         if config.LOSS == 'RMSE':
             return -rmse
-    
+        if config.LOSS == 'MAE':
+            return mae
+        
     def predict(self, features: pd.DataFrame) -> np.ndarray:
         """
         Predict using the fitted model.

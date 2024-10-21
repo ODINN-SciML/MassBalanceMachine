@@ -99,13 +99,21 @@ def get_glacier_mask(df: pd.DataFrame, custom_working_dir: str):
             break
     with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
         ds = ds.load()
+    glacier_mask = np.where(ds['glacier_mask'].values == 0, np.nan,
+                            ds['glacier_mask'].values)
 
     # Create glacier mask
-    ds = ds.assign(masked_slope=ds['glacier_mask'] * ds['slope'])
-    ds = ds.assign(masked_elev=ds['glacier_mask'] * ds['topo'])
-    ds = ds.assign(masked_aspect=ds['glacier_mask'] * ds['aspect'])
-    ds = ds.assign(masked_dis=ds['glacier_mask'] * ds['dis_from_border'])
-    ds = ds.assign(masked_hug=ds['glacier_mask'] * ds['hugonnet_dhdt'])
+    ds = ds.assign(masked_slope=glacier_mask * ds['slope'])
+    ds = ds.assign(masked_elev=glacier_mask * ds['topo'])
+    ds = ds.assign(masked_aspect=glacier_mask * ds['aspect'])
+    ds = ds.assign(masked_dis=glacier_mask * ds['dis_from_border'])
+    ds = ds.assign(masked_hug=glacier_mask * ds['hugonnet_dhdt'])
+    ds = ds.assign(masked_cit=glacier_mask * ds['consensus_ice_thickness'])
+    ds = ds.assign(masked_mit=glacier_mask * ds['millan_ice_thickness'])
+    ds = ds.assign(masked_miv=glacier_mask * ds['millan_v'])
+    ds = ds.assign(masked_mivx=glacier_mask * ds['millan_vx'])
+    ds = ds.assign(masked_mivy=glacier_mask * ds['millan_vy'])
+
     glacier_indices = np.where(ds['glacier_mask'].values == 1)
     return ds, glacier_indices, gdir
 

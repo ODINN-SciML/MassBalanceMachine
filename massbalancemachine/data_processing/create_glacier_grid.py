@@ -37,7 +37,7 @@ def create_glacier_grids(ds: xr.Dataset, years: list, glacier_indices: "tuple[np
 
     # Glacier mask as boolean array:
     gl_mask_bool = ds['glacier_mask'].values.astype(bool)
-
+    
     # Create a DataFrame
     data_grid = {
         'RGIId': [rgi_gl] * len(ds.masked_elev.values[gl_mask_bool]),
@@ -48,6 +48,11 @@ def create_glacier_grids(ds: xr.Dataset, years: list, glacier_indices: "tuple[np
         'topo': ds.masked_elev.values[gl_mask_bool],
         'dis_from_border': ds.masked_dis.values[gl_mask_bool],
         'hugonnet_dhdt': ds.masked_hug.values[gl_mask_bool],
+        'consensus_ice_thickness': ds.masked_cit.values[gl_mask_bool],
+        'millan_ice_thickness': ds.masked_mit.values[gl_mask_bool],
+        'millan_v': ds.masked_miv.values[gl_mask_bool],
+        'millan_vx': ds.masked_mivx.values[gl_mask_bool],
+        'millan_vy': ds.masked_mivy.values[gl_mask_bool]
     }
 
     df_grid = pd.DataFrame(data_grid)
