@@ -277,5 +277,5 @@ def _combine_dataframes(df: pd.DataFrame, climate_df: pd.DataFrame,
 
 def _calculate_elevation_difference(df: pd.DataFrame) -> pd.DataFrame:
     """Calculate the difference between geopotential height and stake measurement elevation."""
-    df["ELEVATION_DIFFERENCE"] = df["ALTITUDE_CLIMATE"] - df["POINT_ELEVATION"]
+    df["ELEVATION_DIFFERENCE"] = df["POINT_ELEVATION"] - df["ALTITUDE_CLIMATE"]
     return df

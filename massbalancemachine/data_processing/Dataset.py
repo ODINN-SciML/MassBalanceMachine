@@ -23,7 +23,7 @@ import xarray as xr
 from get_climate_data import get_climate_features, retrieve_clear_sky_rad
 from get_topo_data import get_topographical_features, get_glacier_mask
 from transform_to_monthly import transform_to_monthly
-from create_glacier_grid import create_glacier_grid
+from create_glacier_grid import create_glacier_grids
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s - %(levelname)s - %(message)s")
@@ -92,10 +92,7 @@ class Dataset:
         
         for glacierName in glaciers:
             df_glacier = df[df['GLACIER'] == glacierName]
-            if 'clariden' in glacierName:
-                path_to_file = path_to_direct + f'xr_direct_clariden.nc'
-            else:
-                path_to_file = path_to_direct + f'xr_direct_{glacierName}.nc'
+            path_to_file = path_to_direct + f'xr_direct_{glacierName}.nc'
             df_glacier = retrieve_clear_sky_rad(df_glacier, path_to_file)
             df_concat = pd.concat([df_concat, df_glacier], axis = 0)
         
@@ -157,9 +154,15 @@ class Dataset:
         ds, glacier_indices, gdir = get_glacier_mask(self.data,
                                                      custom_working_dir)
         years_stake = self.data['YEAR'].unique()
-        years = range(years_stake.min(), years_stake.max() + 1)
+        # Fixed time range because we want the grid from the beginning
+        # of climate data to end (not just when there are stake measurements)
+        years = range(1951, 2023)
         rgi_gl = self.data['RGIId'].unique()[0]
-        df_grid = create_glacier_grid(ds, years, glacier_indices, gdir, rgi_gl)
+        df_grid = create_glacier_grids(ds, years, glacier_indices, gdir, rgi_gl)
+        # add column of presence of stake
+        df_grid['STAKE_MEAS'] = 0
+        for year in years_stake:
+            df_grid.loc[df_grid['YEAR'] == year, 'STAKE_MEAS'] = 1
         return df_grid
 
     def _get_output_filename(self, feature_type: str) -> str:

@@ -6,7 +6,7 @@ import xarray as xr
 import oggm
 
 
-def create_glacier_grid(ds: xr.Dataset, years: list, glacier_indices: "tuple[np.array, np.array]",
+def create_glacier_grids(ds: xr.Dataset, years: list, glacier_indices: "tuple[np.array, np.array]",
                         gdir: oggm.GlacierDirectory,
                         rgi_gl: str) -> pd.DataFrame:
     """Creates a DataFrame of glacier grid data for each year
@@ -17,7 +17,6 @@ def create_glacier_grid(ds: xr.Dataset, years: list, glacier_indices: "tuple[np.
         glacier_indices (np.array): indices of glacier mask in the OGGM grid
         gdir (oggm directory): oggm glacier directory
         rgi_gl (str): RGI Id of the glacier
-
     Returns:
         df_grid (pd.DataFrame): dataframe of glacier grid data, for each year
     """
@@ -38,7 +37,7 @@ def create_glacier_grid(ds: xr.Dataset, years: list, glacier_indices: "tuple[np.
 
     # Glacier mask as boolean array:
     gl_mask_bool = ds['glacier_mask'].values.astype(bool)
-
+    
     # Create a DataFrame
     data_grid = {
         'RGIId': [rgi_gl] * len(ds.masked_elev.values[gl_mask_bool]),
@@ -48,6 +47,12 @@ def create_glacier_grid(ds: xr.Dataset, years: list, glacier_indices: "tuple[np.
         'slope': ds.masked_slope.values[gl_mask_bool],
         'topo': ds.masked_elev.values[gl_mask_bool],
         'dis_from_border': ds.masked_dis.values[gl_mask_bool],
+        'hugonnet_dhdt': ds.masked_hug.values[gl_mask_bool],
+        'consensus_ice_thickness': ds.masked_cit.values[gl_mask_bool],
+        'millan_ice_thickness': ds.masked_mit.values[gl_mask_bool],
+        'millan_v': ds.masked_miv.values[gl_mask_bool],
+        'millan_vx': ds.masked_mivx.values[gl_mask_bool],
+        'millan_vy': ds.masked_mivy.values[gl_mask_bool]
     }
 
     df_grid = pd.DataFrame(data_grid)
