@@ -28,6 +28,7 @@ try:
 except ImportError:
     pass
 
+
 class CustomXGBoostRegressor(XGBRegressor):
     """
     A custom XGBoost regressor that extends the XGBRegressor class.
@@ -127,9 +128,8 @@ class CustomXGBoostRegressor(XGBRegressor):
         clf.fit(features, targets)
         self.param_search = clf
 
-    def fit(
-        self, X: pd.DataFrame, y: np.array, **fit_params
-    ) -> "CustomXGBoostRegressor":
+    def fit(self, X: pd.DataFrame, y: np.array,
+            **fit_params) -> "CustomXGBoostRegressor":
         """
         Fit the model to the training data.
 
@@ -147,16 +147,18 @@ class CustomXGBoostRegressor(XGBRegressor):
         """
 
         # Separate the features from the metadata provided in the dataset
-        features, metadata = self._create_features_metadata(X, config.META_DATA)
+        features, metadata = self._create_features_metadata(
+            X, config.META_DATA)
 
         # If running on GPU need to be converted to cupy
         if "cuda" in self.get_params()["device"]:
             features = cp.array(features)
             y = cp.array(y)
-            
+
         # Define closure that captures metadata for use in custom objective
         def custom_objective(y_true, y_pred):
-            return self._custom_mse_metadata(y_true, y_pred, metadata, config.META_DATA)
+            return self._custom_mse_metadata(y_true, y_pred, metadata,
+                                             config.META_DATA)
 
         # Set custom objective
         self.set_params(objective=custom_objective)
@@ -180,7 +182,8 @@ class CustomXGBoostRegressor(XGBRegressor):
         """
 
         # Separate the features from the metadata provided in the dataset
-        features, metadata = self._create_features_metadata(X, config.META_DATA)
+        features, metadata = self._create_features_metadata(
+            X, config.META_DATA)
 
         # If running on GPU need to be converted to cupy
         if "cuda" in self.get_params()["device"]:
@@ -192,17 +195,16 @@ class CustomXGBoostRegressor(XGBRegressor):
         # Get the aggregated predictions and the mean score based on the true labels, and predicted labels
         # based on the metadata.
         y_pred_agg, y_true_mean, _, _ = self._create_metadata_scores(
-            metadata, y, y_pred, config.META_DATA
-        )
+            metadata, y, y_pred, config.META_DATA)
 
-        # Calculate MSE
-        mse = ((y_pred_agg - y_true_mean) ** 2).mean()
-        rmse = np.sqrt(mse)
+        # Calculate score
+        mse = ((y_pred_agg - y_true_mean)**2).mean()
+
         if config.LOSS == 'MSE':
-            return -mse # Return negative because GridSearchCV maximizes score
-        if config.LOSS == 'RMSE':
-            return -rmse
-    
+            return -mse  # Return negative because GridSearchCV maximizes score
+        else:
+            raise ValueError(f"Loss function {config.LOSS} not supported.")
+
     def predict(self, features: pd.DataFrame) -> np.ndarray:
         """
         Predict using the fitted model.
@@ -218,9 +220,11 @@ class CustomXGBoostRegressor(XGBRegressor):
 
         return super().predict(features)
 
-    def evalMetrics(
-        self, metadata: np.array, y_pred: np.array, y_target: np.array
-    ) -> Tuple[float, float, float]:
+    def evalMetrics(self,
+                    metadata: np.array,
+                    y_pred: np.array,
+                    y_target: np.array,
+                    period=None) -> Tuple[float, float, float]:
         """
         Compute three evaluation metrics of the model on the given test data and labels.
 
@@ -236,21 +240,23 @@ class CustomXGBoostRegressor(XGBRegressor):
         # Get the aggregated predictions and the mean score based on the true labels, and predicted labels
         # based on the metadata.
         y_pred_agg, y_true_mean, _, _ = self._create_metadata_scores(
-            metadata, y_target, y_pred, meta_data_columns=config.META_DATA
-        )
+            metadata,
+            y_target,
+            y_pred,
+            meta_data_columns=config.META_DATA,
+            period=period)
 
         mse = mean_squared_error(y_true_mean, y_pred_agg)
         rmse = root_mean_squared_error(y_true_mean, y_pred_agg)
         mae = mean_absolute_error(y_true_mean, y_pred_agg)
-        
+
         # Pearson correlation
         pearson_corr = np.corrcoef(y_true_mean, y_pred_agg)[0, 1]
 
         return mse, rmse, mae, pearson_corr
 
-    def aggrPredict(
-        self, metadata: np.array, meta_data_columns: list, features: pd.DataFrame
-    ) -> np.ndarray:
+    def aggrPredict(self, metadata: np.array, meta_data_columns: list,
+                    features: pd.DataFrame) -> np.ndarray:
         """
         Makes predictions in aggregated format using the fitted model.
         Args:
@@ -275,12 +281,12 @@ class CustomXGBoostRegressor(XGBRegressor):
         y_pred_agg = grouped_ids["y_pred"].sum().values
 
         return y_pred_agg
-    
+
     def save_model(self, fname: str) -> None:
         """Save a grid search or randomized search CV instance to a file"""
         with self.model_file(fname, "wb") as f:
             dill.dump(self.param_search, f)
-    
+
     def load_model(self, fname: str) -> GridSearchCV | RandomizedSearchCV:
         """Load a grid search or randomized search CV instance from a file"""
         with self.model_file(fname, "rb") as f:
@@ -303,8 +309,8 @@ class CustomXGBoostRegressor(XGBRegressor):
 
     @staticmethod
     def _create_features_metadata(
-        X: pd.DataFrame, meta_data_columns: list
-    ) -> Tuple[np.array, np.ndarray]:
+            X: pd.DataFrame,
+            meta_data_columns: list) -> Tuple[np.array, np.ndarray]:
         """
         Split the input DataFrame into features and metadata.
 
@@ -323,8 +329,7 @@ class CustomXGBoostRegressor(XGBRegressor):
 
         # remove columns that are not used in metadata or features
         feature_columns = feature_columns.drop(
-            config.NOT_METADATA_NOT_FEATURES
-        )
+            config.NOT_METADATA_NOT_FEATURES)
         # Convert feature_columns to a list (if needed)
         feature_columns = list(feature_columns)
 
@@ -336,8 +341,8 @@ class CustomXGBoostRegressor(XGBRegressor):
 
     @staticmethod
     def _custom_mse_metadata(
-        y_true: np.array, y_pred: np.array, metadata: np.array, meta_data_columns: list
-    ) -> Tuple[np.array, np.array]:
+            y_true: np.array, y_pred: np.array, metadata: np.array,
+            meta_data_columns: list) -> Tuple[np.array, np.array]:
         """
         Compute custom gradients and hessians for the MSE loss, taking into account metadata.
 
@@ -360,13 +365,18 @@ class CustomXGBoostRegressor(XGBRegressor):
         # Get the aggregated predictions and the mean score based on the true labels, and predicted labels
         # based on the metadata.
         y_pred_agg, y_true_mean, grouped_ids, df_metadata = (
-            CustomXGBoostRegressor._create_metadata_scores(
-                metadata, y_true, y_pred, meta_data_columns
-            )
-        )
+            CustomXGBoostRegressor._create_metadata_scores(metadata,
+                                                           y_true,
+                                                           y_pred,
+                                                           meta_data_columns,
+                                                           period=None))
+        if config.LOSS == 'MSE':
+            # Compute gradients and hessians
+            # Source: https://xgboosting.com/xgboost-train-model-with-custom-objective-function/#:~:text=XGBoost%20allows%20users%20to%20define,MSE)%20for%20a%20regression%20task.
+            gradients_agg = (y_pred_agg - y_true_mean)
 
-        # Compute gradients
-        gradients_agg = y_pred_agg - y_true_mean
+        else:
+            raise ValueError(f"Loss function {config.LOSS} not supported.")
 
         # Create a mapping from ID to gradient
         gradient_map = dict(zip(grouped_ids.groups.keys(), gradients_agg))
@@ -379,10 +389,13 @@ class CustomXGBoostRegressor(XGBRegressor):
 
     @staticmethod
     def _create_metadata_scores(
-        metadata: np.array, y1: np.array, y2: np.array, meta_data_columns: list
-    ) -> Tuple[
-        np.array, np.array, pd.core.groupby.generic.DataFrameGroupBy, pd.DataFrame
-    ]:
+        metadata: np.array,
+        y1: np.array,
+        y2: np.array,
+        meta_data_columns: list,
+        period: str = None
+    ) -> Tuple[np.array, np.array, pd.core.groupby.generic.DataFrameGroupBy,
+               pd.DataFrame]:
         """
         Create aggregated scores based on metadata.
 
@@ -401,8 +414,13 @@ class CustomXGBoostRegressor(XGBRegressor):
         df_metadata = pd.DataFrame(metadata, columns=meta_data_columns)
 
         # Aggregate y_pred and y_true for each group
-        grouped_ids = df_metadata.assign(y_true=y1, y_pred=y2).groupby("ID")
+        df_metadata = df_metadata.assign(y_true=y1, y_pred=y2)
+
+        # Filter to specific period if necessary
+        if period is not None:
+            df_metadata = df_metadata[df_metadata.PERIOD == period]
+
+        grouped_ids = df_metadata.groupby("ID")
         y_pred_agg = grouped_ids["y_pred"].sum().values
         y_true_mean = grouped_ids["y_true"].mean().values
-
         return y_pred_agg, y_true_mean, grouped_ids, df_metadata

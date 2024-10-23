@@ -233,6 +233,44 @@ def xarray_to_dataframe(data_array):
     return df
 
 
+def load_grid_file(filepath):
+    with open(filepath, 'r') as file:
+        # Read metadata
+        metadata = {}
+        for _ in range(6):  # First 6 lines are metadata
+            line = file.readline().strip().split()
+            metadata[line[0].lower()] = float(line[1])
+
+        # Get ncols from metadata to control the number of columns
+        ncols = int(metadata['ncols'])
+        nrows = int(metadata['nrows'])
+
+        # Initialize an empty list to store rows of the grid
+        data = []
+
+        # Read the grid data line by line
+        row_ = []
+        for line in file:
+            row = line.strip().split()
+            if len(row_) < ncols:
+                row_ += row
+            if len(row_) == ncols:
+                data.append([
+                        np.nan
+                        if float(x) == metadata['nodata_value'] else float(x)
+                        for x in row_
+                    ])
+                # reset row_
+                row_ = []
+
+        # Convert list to numpy array
+        grid_data = np.array(data)
+
+        # Check that shape of grid data is correct
+        assert grid_data.shape == (nrows, ncols)
+
+    return metadata, grid_data
+
 def convert_to_xarray(grid_data, metadata, num_months):
     # Extract metadata values
     ncols = int(metadata['ncols'])
@@ -240,6 +278,7 @@ def convert_to_xarray(grid_data, metadata, num_months):
     xllcorner = metadata['xllcorner']
     yllcorner = metadata['yllcorner']
     cellsize = metadata['cellsize']
+
 
     # Create x and y coordinates based on the metadata
     x_coords = xllcorner + np.arange(ncols) * cellsize
@@ -262,44 +301,6 @@ def convert_to_xarray(grid_data, metadata, num_months):
                               name="grid_data")
     return data_array
 
-
-def load_grid_file(filepath):
-    with open(filepath, 'r') as file:
-        # Read metadata
-        metadata = {}
-        for _ in range(6):  # First 6 lines are metadata
-            line = file.readline().strip().split()
-            metadata[line[0]] = float(line[1])
-
-        # Get ncols from metadata to control the number of columns
-        ncols = int(metadata['ncols'])
-        nrows = int(metadata['nrows'])
-
-        # Initialize an empty list to store rows of the grid
-        data = []
-
-        # Read the grid data line by line
-        row_ = []
-        for line in file:
-            row = line.strip().split()
-            if len(row_) < ncols:
-                row_ += row
-            if len(row_) == ncols:
-                data.append([
-                    np.nan
-                    if float(x) == metadata['nodata_value'] else float(x)
-                    for x in row_
-                ])
-                # reset row_
-                row_ = []
-
-        # Convert list to numpy array
-        grid_data = np.array(data)
-
-        # Check that shape of grid data is correct
-        assert grid_data.shape == (nrows, ncols)
-
-    return metadata, grid_data
 
 
 def transform_xarray_coords_lv03_to_wgs84(data_array):
@@ -353,3 +354,29 @@ def transform_xarray_coords_lv03_to_wgs84(data_array):
     return data_array
 
 
+def CleanWinterDates(df_raw):
+    # Check for issues with dates:
+    # print('Checking for issues with dates:')
+    # for i, row in df_raw.iterrows():
+    #     if pd.to_datetime(row['TO_DATE'], format='%Y%m%d').year - pd.to_datetime(
+    #             row['FROM_DATE'], format='%Y%m%d').year != 1:
+    #         print(row['GLACIER'], row['PERIOD'], row['FROM_DATE'],
+    #             pd.to_datetime(row['FROM_DATE'], format='%Y%m%d').year,
+    #             row['TO_DATE'],
+    #             pd.to_datetime(row['TO_DATE'], format='%Y%m%d').year)
+
+    # See above that the problem is that for some winter measurements the FROM_DATE is the same year as the TO_DATE (even same date)
+    # Correct it by setting it to beginning of hydrological year:
+    for index, row in df_raw.iterrows():
+        if row['PERIOD'] == 'winter':
+            df_raw.loc[index, 'FROM_DATE'] = str(
+                pd.to_datetime(row['TO_DATE'], format='%Y%m%d').year - 1) + '1001'
+    for i, row in df_raw.iterrows():
+        if pd.to_datetime(row['TO_DATE'], format='%Y%m%d').year - pd.to_datetime(
+                row['FROM_DATE'], format='%Y%m%d').year != 1:
+            # throw error if not corrected
+            raise ValueError('Date correction failed:', row['GLACIER'], row['PERIOD'], row['FROM_DATE'],
+                pd.to_datetime(row['FROM_DATE'], format='%Y%m%d').year,
+                row['TO_DATE'],
+                pd.to_datetime(row['TO_DATE'], format='%Y%m%d').year)
+    return df_raw

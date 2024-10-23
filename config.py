@@ -21,11 +21,10 @@ LOSS:str = 'MSE'
 #     "RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD", "GLACIER"
 # ]
 # NOT_METADATA_NOT_FEATURES: List[str] = [
-#     "POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON", 'ALTITUDE_CLIMATE', "POINT_ELEVATION"
+#     "POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"
 # ]
-# NUM_JOBS: int = 28 
-# LOSS: str = 'RMSE' # For now only allows RMSE and MSE
-
+# NUM_JOBS: int = 25 
+# LOSS:str = 'MSE'
 
 def add_column(column_name):
     global META_DATA

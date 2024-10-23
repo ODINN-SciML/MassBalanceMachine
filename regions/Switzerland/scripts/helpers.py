@@ -33,22 +33,14 @@ path_ERA5_raw = '../../../data/ERA5Land/raw/'
 vois_climate_long_name = {
     't2m': 'Temperature',
     'tp': 'Precipitation',
-    'slhf': 'Surface latent heat flux',
-    'sshf': 'Surface sensible heat flux',
-    'ssrd': 'Surface solar radiation downwards',
-    'fal': 'Forecast albedo',
-    'str': 'Surface net thermal radiation'
-}
-
-vois_long_name = {
-    't2m': 'Temperature',
-    'tp': 'Precipitation',
-    'slhf': 'Surface latent heat flux',
-    'sshf': 'Surface sensible heat flux',
-    'ssrd': 'Surface solar radiation downwards',
-    'fal': 'Forecast albedo',
-    'str': 'Surface net thermal radiation',
-    'pcsr': 'Pot. incoming clear sky solar rad.'
+    'slhf': 'Surf. latent heat flux',
+    'sshf': 'Surf. sensible heat flux',
+    'ssrd': 'Surf. solar rad. down.',
+    'fal': 'Albedo',
+    'str': 'Surf. net thermal rad.',
+    'pcsr': 'Pot. in. clear sky solar rad.',
+    'u10': '10m E wind',
+    'v10': '10m N wind',
 }
 
 vois_units = {
@@ -58,7 +50,10 @@ vois_units = {
     'sshf': 'J m-2',
     'ssrd': 'J m-2',
     'fal': '',
-    'str': 'J m-2'
+    'str': 'J m-2',
+    'pcsr': 'J m-2',
+    'u10': 'm s-1',
+    'v10': 'm s-1',
 }
 
 loss_units = {
