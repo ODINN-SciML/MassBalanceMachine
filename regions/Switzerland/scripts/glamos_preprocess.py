@@ -354,3 +354,29 @@ def transform_xarray_coords_lv03_to_wgs84(data_array):
     return data_array
 
 
+def CleanWinterDates(df_raw):
+    # Check for issues with dates:
+    # print('Checking for issues with dates:')
+    # for i, row in df_raw.iterrows():
+    #     if pd.to_datetime(row['TO_DATE'], format='%Y%m%d').year - pd.to_datetime(
+    #             row['FROM_DATE'], format='%Y%m%d').year != 1:
+    #         print(row['GLACIER'], row['PERIOD'], row['FROM_DATE'],
+    #             pd.to_datetime(row['FROM_DATE'], format='%Y%m%d').year,
+    #             row['TO_DATE'],
+    #             pd.to_datetime(row['TO_DATE'], format='%Y%m%d').year)
+
+    # See above that the problem is that for some winter measurements the FROM_DATE is the same year as the TO_DATE (even same date)
+    # Correct it by setting it to beginning of hydrological year:
+    for index, row in df_raw.iterrows():
+        if row['PERIOD'] == 'winter':
+            df_raw.loc[index, 'FROM_DATE'] = str(
+                pd.to_datetime(row['TO_DATE'], format='%Y%m%d').year - 1) + '1001'
+    for i, row in df_raw.iterrows():
+        if pd.to_datetime(row['TO_DATE'], format='%Y%m%d').year - pd.to_datetime(
+                row['FROM_DATE'], format='%Y%m%d').year != 1:
+            # throw error if not corrected
+            raise ValueError('Date correction failed:', row['GLACIER'], row['PERIOD'], row['FROM_DATE'],
+                pd.to_datetime(row['FROM_DATE'], format='%Y%m%d').year,
+                row['TO_DATE'],
+                pd.to_datetime(row['TO_DATE'], format='%Y%m%d').year)
+    return df_raw
