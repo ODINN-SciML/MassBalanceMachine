@@ -7,24 +7,24 @@ TEST_SIZE: float = 0.3
 N_SPLITS: int = 5
 
 # Default:
-META_DATA: List[str] = [
-    "RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS"
-]
-NOT_METADATA_NOT_FEATURES: List[str] = [
-    "POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON", 'ALTITUDE_CLIMATE'
-]
-NUM_JOBS: int = -1
-LOSS:str = 'MSE'
-
-# For CH
 # META_DATA: List[str] = [
-#     "RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD", "GLACIER"
+#     "RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS"
 # ]
 # NOT_METADATA_NOT_FEATURES: List[str] = [
-#     "POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"
+#     "POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON", 'ALTITUDE_CLIMATE'
 # ]
-# NUM_JOBS: int = 25 
+# NUM_JOBS: int = -1
 # LOSS:str = 'MSE'
+
+# For CH
+META_DATA: List[str] = [
+    "RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD", "GLACIER"
+]
+NOT_METADATA_NOT_FEATURES: List[str] = [
+    "POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"
+]
+NUM_JOBS: int = 25 
+LOSS:str = 'MSE'
 
 def add_column(column_name):
     global META_DATA
