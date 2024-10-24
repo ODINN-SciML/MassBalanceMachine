@@ -8,7 +8,7 @@ from sklearn.model_selection import GroupKFold, KFold, train_test_split, GroupSh
 def getMonthlyDataLoaderOneGl(glacierName, vois_climate, voi_topographical):
     # Load stakes data from GLAMOS
     data_glamos = pd.read_csv(path_PMB_GLAMOS_csv + 'CH_wgms_dataset.csv')
-    
+
     rgi_df = pd.read_csv(path_rgi, sep=',')
     rgi_df.rename(columns=lambda x: x.strip(), inplace=True)
     rgi_df.set_index('short_name', inplace=True)
@@ -16,12 +16,11 @@ def getMonthlyDataLoaderOneGl(glacierName, vois_climate, voi_topographical):
     # Get dataloader:
     rgi_gl = rgi_df.loc[glacierName]['rgi_id.v6']
     data_gl = data_glamos[data_glamos.RGIId == rgi_gl]
-    
-    
+
     dataset_gl = mbm.Dataset(data=data_gl,
-                            region_name='CH',
-                            data_path=path_PMB_GLAMOS_csv)
-    
+                             region_name='CH',
+                             data_path=path_PMB_GLAMOS_csv)
+
     # Add climate data:
     # Specify the files of the climate data, that will be matched with the coordinates of the stake data
     era5_climate_data = path_ERA5_raw + 'era5_monthly_averaged_data.nc'
@@ -31,14 +30,15 @@ def getMonthlyDataLoaderOneGl(glacierName, vois_climate, voi_topographical):
     dataset_gl.get_climate_features(climate_data=era5_climate_data,
                                     geopotential_data=geopotential_data,
                                     change_units=True)
-    
+
     # Add potential clear sky radiation:
     dataset_gl.get_potential_rad(path_direct_save)
 
     # For each record, convert to a monthly time resolution
-    dataset_gl.convert_to_monthly(meta_data_columns=config.META_DATA,
-                                  vois_climate=vois_climate+['pcsr'], # add potential radiation
-                                  vois_topographical=voi_topographical)
+    dataset_gl.convert_to_monthly(
+        meta_data_columns=config.META_DATA,
+        vois_climate=vois_climate + ['pcsr'],  # add potential radiation
+        vois_topographical=voi_topographical)
 
     # Create a new DataLoader object with the monthly stake data measurements.
     dataloader_gl = mbm.DataLoader(data=dataset_gl.data,
@@ -48,7 +48,7 @@ def getMonthlyDataLoaderOneGl(glacierName, vois_climate, voi_topographical):
     return dataloader_gl
 
 
-def getCVSplits(dataloader_gl, test_split_on = 'YEAR', test_splits = None):
+def getCVSplits(dataloader_gl, test_split_on='YEAR', test_splits=None):
     # Split into training and test splits with train_test_split
     if test_splits is None:
         train_splits, test_splits = train_test_split(
@@ -74,14 +74,14 @@ def getCVSplits(dataloader_gl, test_split_on = 'YEAR', test_splits = None):
     df_X_test = dataloader_gl.data.iloc[test_indices]
     y_test = df_X_test['POINT_BALANCE'].values
     test_meas_id = df_X_test['ID'].unique()
-    
+
     # Values split in training and test set
     train_splits = df_X_train[test_split_on].unique()
     test_splits = df_X_test[test_split_on].unique()
-    
+
     # Create the CV splits based on the training dataset. The default value for the number of splits is 5.
     splits = dataloader_gl.get_cv_split(n_splits=5, type_fold='group-meas-id')
-    
+
     test_set = {
         'df_X': df_X_test,
         'y': y_test,
@@ -97,6 +97,7 @@ def getCVSplits(dataloader_gl, test_split_on = 'YEAR', test_splits = None):
 
     return splits, test_set, train_set
 
+
 def plot_gsearch_results(grid, params):
     """
     Params: 
@@ -111,23 +112,27 @@ def plot_gsearch_results(grid, params):
     stds_train = results['std_train_score']
 
     ## Getting indexes of values per hyper-parameter
-    masks=[]
-    masks_names= list(grid.best_params_.keys())
+    masks = []
+    masks_names = list(grid.best_params_.keys())
     for p_k, p_v in grid.best_params_.items():
-        masks.append(list(results['param_'+p_k].data==p_v))
+        masks.append(list(results['param_' + p_k].data == p_v))
 
     #params=grid.cv_results_['params']
     #print(params)
 
-    width = len(grid.best_params_.keys())*5
+    width = len(grid.best_params_.keys()) * 5
 
     ## Ploting results
-    fig, ax = plt.subplots(1,len(params),sharex='none', sharey='all',figsize=(width,5))
+    fig, ax = plt.subplots(1,
+                           len(params),
+                           sharex='none',
+                           sharey='all',
+                           figsize=(width, 5))
     fig.suptitle('Score per parameter')
     fig.text(0.04, 0.5, 'MEAN SCORE', va='center', rotation='vertical')
     pram_preformace_in_best = {}
     for i, p in enumerate(masks_names):
-        m = np.stack(masks[:i] + masks[i+1:])
+        m = np.stack(masks[:i] + masks[i + 1:])
         pram_preformace_in_best
         best_parms_mask = m.all(axis=0)
         best_index = np.where(best_parms_mask)[0]
@@ -137,15 +142,15 @@ def plot_gsearch_results(grid, params):
         y_2 = np.array(means_train[best_index])
         e_2 = np.array(stds_train[best_index])
         ax[i].errorbar(x, y_1, e_1, linestyle='--', marker='o', label='test')
-        ax[i].errorbar(x, y_2, e_2, linestyle='-', marker='^',label='train' )
+        ax[i].errorbar(x, y_2, e_2, linestyle='-', marker='^', label='train')
         ax[i].set_xlabel(p.upper())
         ax[i].grid()
 
     plt.legend()
     plt.show()
-    
-    
-def getDfAggregatePred(test_set, y_pred_agg, all_columns):    
+
+
+def getDfAggregatePred(test_set, y_pred_agg, all_columns):
     # Aggregate predictions to annual or winter:
     df_pred = test_set['df_X'][all_columns].copy()
     df_pred['target'] = test_set['y']
@@ -155,22 +160,29 @@ def getDfAggregatePred(test_set, y_pred_agg, all_columns):
         'POINT_ID': 'first'
     })
     grouped_ids['pred'] = y_pred_agg
-    grouped_ids['PERIOD'] = test_set['df_X'][all_columns].groupby('ID')['PERIOD'].first()
+    grouped_ids['PERIOD'] = test_set['df_X'][all_columns].groupby(
+        'ID')['PERIOD'].first()
     grouped_ids['GLACIER'] = grouped_ids['POINT_ID'].apply(
         lambda x: x.split('_')[0])
-    
+
     return grouped_ids
 
-def GlacierWidePred(custom_model, glacierName, vois_climate, vois_topographical, type_pred = 'annual'):
+
+def GlacierWidePred(custom_model,
+                    glacierName,
+                    vois_climate,
+                    vois_topographical,
+                    type_pred='annual'):
     # Feature columns:
     feature_columns = [
         'ELEVATION_DIFFERENCE'
     ] + list(vois_climate) + list(vois_topographical) + ['pcsr']
     all_columns = feature_columns + config.META_DATA + config.NOT_METADATA_NOT_FEATURES
 
-    ## Whole grid:
-    # Make predictions:
-    df_grid_monthly = pd.read_csv(path_glacier_grid + f'{glacierName}_grid.csv')
+    # Whole grid:
+    # Get glacier grid (preprocessed):
+    df_grid_monthly = pd.read_csv(path_glacier_grid +
+                                  f'{glacierName}_grid.csv')
     df_grid_monthly['GLACIER'] = glacierName
     df_grid_monthly['POINT_ELEVATION'] = df_grid_monthly['topo']
     df_grid_monthly = df_grid_monthly[all_columns]
@@ -179,44 +191,50 @@ def GlacierWidePred(custom_model, glacierName, vois_climate, vois_topographical,
         # Make predictions on whole glacier grid
         features_grid, metadata_grid = custom_model._create_features_metadata(
             df_grid_monthly, config.META_DATA)
-        print('Shape of the dataset:', features_grid.shape)
 
         # Make predictions aggr to meas ID:
-        y_pred_grid_agg = custom_model.aggrPredict(metadata_grid, config.META_DATA,
-                                                features_grid)
+        y_pred_grid_agg = custom_model.aggrPredict(metadata_grid,
+                                                   config.META_DATA,
+                                                   features_grid)
 
         # Aggregate predictions to annual or winter:
         grouped_ids_annual = df_grid_monthly.groupby('ID').agg({
-            'YEAR': 'mean',
-            'POINT_LAT': 'mean',
-            'POINT_LON': 'mean'
+            'YEAR':
+            'mean',
+            'POINT_LAT':
+            'mean',
+            'POINT_LON':
+            'mean'
         })
         grouped_ids_annual['pred'] = y_pred_grid_agg
-        
+
         return grouped_ids_annual
-    
+
     if type_pred == 'winter':
         # winter months from October to April
         winter_months = ['oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr']
-        df_grid_winter = df_grid_monthly[df_grid_monthly.MONTHS.isin(winter_months)]
+        df_grid_winter = df_grid_monthly[df_grid_monthly.MONTHS.isin(
+            winter_months)]
 
         # Make predictions:
         # Set to CPU for predictions:
         # Make predictions on whole glacier grid
         features_grid, metadata_grid = custom_model._create_features_metadata(
             df_grid_winter, config.META_DATA)
-        print('Shape of the dataset:', features_grid.shape)
 
         # Make predictions aggr to meas ID:
-        y_pred_grid_agg = custom_model.aggrPredict(metadata_grid, config.META_DATA,
-                                                features_grid)
+        y_pred_grid_agg = custom_model.aggrPredict(metadata_grid,
+                                                   config.META_DATA,
+                                                   features_grid)
 
         # Aggregate predictions to annual or winter:
         grouped_ids_winter = df_grid_monthly.groupby('ID').agg({
-            'YEAR': 'mean',
-            'POINT_LAT': 'mean',
-            'POINT_LON': 'mean'
+            'YEAR':
+            'mean',
+            'POINT_LAT':
+            'mean',
+            'POINT_LON':
+            'mean'
         })
         grouped_ids_winter['pred'] = y_pred_grid_agg
         return grouped_ids_winter
-        

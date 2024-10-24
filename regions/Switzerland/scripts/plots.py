@@ -145,7 +145,7 @@ def FIPlot(best_estimator, feature_columns, vois_climate):
     FI = best_estimator.feature_importances_
     cmap = cm.devon
     color_palette_glaciers = get_cmap_hex(cmap, len(FI) + 5)
-    fig = plt.figure(figsize=(15, 5))
+    fig = plt.figure(figsize=(15, 10))
     ax = plt.subplot(1, 1, 1)
     feature_importdf = pd.DataFrame(data={
         "variables": feature_columns,
@@ -153,8 +153,8 @@ def FIPlot(best_estimator, feature_columns, vois_climate):
     })
 
     feature_importdf['variables'] = feature_importdf['variables'].apply(
-        lambda x: vois_long_name[x] + f' ({x})'
-        if x in vois_long_name.keys() else x)
+        lambda x: vois_climate_long_name[x] + f' ({x})'
+        if x in vois_climate_long_name.keys() else x)
 
     feature_importdf.sort_values(by="feat_imp", ascending=True, inplace=True)
     sns.barplot(feature_importdf,
@@ -677,6 +677,9 @@ def TwoDPlots(glacierName, grouped_ids_annual, grouped_ids_winter, year, axs):
 
         # Set up a common normalization for both plots
         norm = plt.Normalize(vmin=min_val, vmax=max_val)
+        
+        norm = mcolors.TwoSlopeNorm(vmin=min_val, vcenter=0, vmax=max_val)
+
 
         if j == 0:
             # Plot glacier grid with pred value
@@ -696,7 +699,7 @@ def TwoDPlots(glacierName, grouped_ids_annual, grouped_ids_winter, year, axs):
             sm.set_array([])  # Only needed for older versions of matplotlib
             cbar = plt.colorbar(sm, ax=ax)
             cbar.set_label('[m w.e.]')
-            ax.set_title(f'{glacierName}: winter MB')
+            ax.set_title(f'{glacierName.capitalize()}: winter MB')
 
         if j == 1:
             # Plot glacier grid with pred value
