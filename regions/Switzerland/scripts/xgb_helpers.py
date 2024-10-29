@@ -2,6 +2,8 @@ from scripts.helpers import *
 import massbalancemachine as mbm
 import config
 import pandas as pd
+import salem
+import pyproj
 from sklearn.model_selection import GroupKFold, KFold, train_test_split, GroupShuffleSplit
 
 
@@ -238,3 +240,112 @@ def GlacierWidePred(custom_model,
         })
         grouped_ids_winter['pred'] = y_pred_grid_agg
         return grouped_ids_winter
+
+
+def cumulativeMB(df_pred,
+                 test_gl,
+                 ids_year_dict,
+                 month_abbr_hydr=month_abbr_hydr):
+    df_pred_gl = df_pred[df_pred['GLACIER'] == test_gl]
+
+    dfCumMB_all = pd.DataFrame(columns=[
+        'months',
+        'cum_MB',
+        'year',
+        'ID',
+        'monthNb',
+    ])
+    for ID in df_pred_gl['ID'].unique():
+        df_pred_stake = df_pred_gl[df_pred_gl['ID'] == ID]
+
+        if df_pred_stake.MONTHS.iloc[-1] == 'sep':
+            # rename last element
+            df_pred_stake.MONTHS.iloc[-1] = 'sep_'
+            month_abbr_hydr['sep_'] = 13
+
+        dfCumMB = pd.DataFrame({
+            'months': df_pred_stake.MONTHS,
+            'cum_MB': df_pred_stake.y_pred.cumsum(),
+            'ID': np.tile(ID, len(df_pred_stake.MONTHS))
+        })
+        dfCumMB.set_index('ID', inplace=True)
+        dfCumMB['year'] = dfCumMB.index.map(ids_year_dict)
+        # reset index
+        dfCumMB.reset_index(inplace=True)
+
+        # Complete missing months (NaN):
+        missing_months = Diff(list(df_pred_stake.MONTHS),
+                              list(month_abbr_hydr.keys()))
+        missingRows = pd.DataFrame(columns=dfCumMB.columns)
+        missingRows['months'] = missing_months
+        missingRows['ID'] = ID
+        missingRows['year'] = dfCumMB['year'].unique()[0]
+
+        # Concatenate missing rows
+        dfCumMB = pd.concat([dfCumMB, missingRows], axis=0)
+        dfCumMB['monthNb'] = dfCumMB['months'].apply(
+            lambda x: month_abbr_hydr[x])
+
+        # Sort by their monthNB
+        dfCumMB = dfCumMB.sort_values(by='monthNb')
+        dfCumMB_all = pd.concat([dfCumMB_all, dfCumMB], axis=0)
+
+    return dfCumMB_all
+
+
+def predXarray(ds, gdir, df_pred, glacier_indices):
+    pred_masked = ds.glacier_mask.values
+    # set pred_masked to nan where 0
+    pred_masked = np.where(pred_masked == 0, np.nan, pred_masked)
+
+    for i, (x_index,
+            y_index) in enumerate(zip(glacier_indices[0], glacier_indices[1])):
+        pred_masked[x_index, y_index] = df_pred.iloc[i].pred
+
+    pred_masked = np.where(pred_masked == 1, np.nan, pred_masked)
+    ds = ds.assign(pred_masked=(('y', 'x'), pred_masked))
+    
+    # change from oggm to wgs84
+    ds_latlon = oggmToWgs84(ds, gdir)
+    
+    return ds_latlon
+
+
+def oggmToWgs84(ds, gdir):
+    # Define the Swiss coordinate system (EPSG:2056) and WGS84 (EPSG:4326)
+    transformer = pyproj.Transformer.from_proj(gdir.grid.proj,
+                                            salem.wgs84,
+                                            always_xy=True)
+
+    # Get the Swiss x and y coordinates from the dataset
+    x_coords = ds['x'].values
+    y_coords = ds['y'].values
+
+    # Create a meshgrid for all x, y coordinate pairs
+    x_mesh, y_mesh = np.meshgrid(x_coords, y_coords)
+
+    # Flatten the meshgrid arrays for transformation
+    x_flat = x_mesh.ravel()
+    y_flat = y_mesh.ravel()
+
+    # Transform the flattened coordinates
+    lon_flat, lat_flat = transformer.transform(x_flat, y_flat)
+
+    # Reshape transformed coordinates back to the original grid shape
+    lon = lon_flat.reshape(x_mesh.shape)
+    lat = lat_flat.reshape(y_mesh.shape)
+    
+    # Extract unique 1D coordinates for lat and lon
+    lon_1d = lon[0, :]  # Take the first row for unique longitudes along x-axis
+    lat_1d = lat[:, 0]  # Take the first column for unique latitudes along y-axis
+
+    # Assign the 1D coordinates to x and y dimensions
+    ds = ds.assign_coords(lon=("x", lon_1d), lat=("y", lat_1d))
+
+    # Swap x and y dimensions with lon and lat
+    ds = ds.swap_dims({"x": "lon", "y": "lat"})
+
+    # Optionally, drop the old x and y coordinates if no longer needed
+    ds = ds.drop_vars(["x", "y"])
+    
+    return ds

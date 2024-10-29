@@ -61,6 +61,19 @@ loss_units = {
     'MSE': '[]'
 }
 
+month_abbr_hydr = {'sep':1, 
+                   'oct':2,
+                   'nov':3,
+                   'dec':4,
+                   'jan':5,
+                   'feb':6,
+                   'mar':7,
+                   'apr':8,
+                   'may':9,
+                   'jun':10,
+                   'jul':11,
+                   'aug':12,}
+
 
 # sets the same random seed everywhere so that it is reproducible
 def seed_all(seed):
