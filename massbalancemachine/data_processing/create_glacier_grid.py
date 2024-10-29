@@ -27,7 +27,7 @@ def create_glacier_grids(ds: xr.Dataset, years: list, glacier_indices: "tuple[np
     # Retrieve the x and y values using the glacier indices
     glacier_x_vals = x_coords[glacier_indices[1]]
     glacier_y_vals = y_coords[glacier_indices[0]]
-
+    
     # Convert glacier coordinates to latitude and longitude
     # Transform stake coord to glacier system:
     transf = pyproj.Transformer.from_proj(gdir.grid.proj,
