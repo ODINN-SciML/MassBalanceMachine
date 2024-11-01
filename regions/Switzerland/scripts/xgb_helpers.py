@@ -293,23 +293,23 @@ def cumulativeMB(df_pred,
     return dfCumMB_all
 
 
-def predXarray(ds, gdir, df_pred, glacier_indices):
+def predXarray(ds, gdir, df_pred):
+    glacier_indices = np.where(ds['glacier_mask'].values == 1)
     pred_masked = ds.glacier_mask.values
+    
     # set pred_masked to nan where 0
     pred_masked = np.where(pred_masked == 0, np.nan, pred_masked)
-
     for i, (x_index,
             y_index) in enumerate(zip(glacier_indices[0], glacier_indices[1])):
         pred_masked[x_index, y_index] = df_pred.iloc[i].pred
 
     pred_masked = np.where(pred_masked == 1, np.nan, pred_masked)
-    ds = ds.assign(pred_masked=(('y', 'x'), pred_masked))
+    ds_xy = ds.assign(pred_masked=(('y', 'x'), pred_masked))
     
     # change from oggm to wgs84
-    ds_latlon = oggmToWgs84(ds, gdir)
+    ds_latlon = oggmToWgs84(ds_xy, gdir)
     
-    return ds_latlon
-
+    return ds_latlon, ds_xy
 
 def oggmToWgs84(ds, gdir):
     # Define the Swiss coordinate system (EPSG:2056) and WGS84 (EPSG:4326)
@@ -340,10 +340,10 @@ def oggmToWgs84(ds, gdir):
     lat_1d = lat[:, 0]  # Take the first column for unique latitudes along y-axis
 
     # Assign the 1D coordinates to x and y dimensions
-    ds = ds.assign_coords(lon=("x", lon_1d), lat=("y", lat_1d))
+    ds = ds.assign_coords(longitude=("x", lon_1d), latitude=("y", lat_1d))
 
     # Swap x and y dimensions with lon and lat
-    ds = ds.swap_dims({"x": "lon", "y": "lat"})
+    ds = ds.swap_dims({"x": "longitude", "y": "latitude"})
 
     # Optionally, drop the old x and y coordinates if no longer needed
     ds = ds.drop_vars(["x", "y"])

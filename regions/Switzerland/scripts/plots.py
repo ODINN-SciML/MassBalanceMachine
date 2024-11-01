@@ -585,10 +585,10 @@ def plotHeatmap(test_glaciers, data_glamos, glDirect, period='annual'):
                           lw=3))
 
 
-def TwoDPlots(ds, glacier_indices, gdir, glacierName, grouped_ids_annual, grouped_ids_winter, year, axs):
+def TwoDPlots(ds, gdir, glacierName, grouped_ids_annual, grouped_ids_winter,
+              year, axs):
     for j in range(2):
         ax = axs[j]
-
         # First column is winter
         pred_y_winter = grouped_ids_winter[grouped_ids_winter.YEAR ==
                                            year].drop(['YEAR'], axis=1)
@@ -597,8 +597,9 @@ def TwoDPlots(ds, glacier_indices, gdir, glacierName, grouped_ids_annual, groupe
         pred_y_annual = grouped_ids_annual[grouped_ids_annual.YEAR ==
                                            year].drop(['YEAR'], axis=1)
 
-        ds_pred_annual = predXarray(ds, gdir, pred_y_annual, glacier_indices)
-        ds_pred_winter = predXarray(ds, gdir, pred_y_winter, glacier_indices)
+        ds_pred_annual, ds_pred_annual_xy = predXarray(ds, gdir, pred_y_annual)
+
+        ds_pred_winter, ds_pred_winter_xy = predXarray(ds, gdir, pred_y_winter)
 
         # # Find min and max values for color bar
         # min_val = min(pred_y_winter['pred'].min(), pred_y_annual['pred'].min())
@@ -606,9 +607,8 @@ def TwoDPlots(ds, glacier_indices, gdir, glacierName, grouped_ids_annual, groupe
 
         # # Set up a common normalization for both plots
         # norm = plt.Normalize(vmin=min_val, vmax=max_val)
-        
-        # norm = mcolors.TwoSlopeNorm(vmin=min_val, vcenter=0, vmax=max_val)
 
+        # norm = mcolors.TwoSlopeNorm(vmin=min_val, vcenter=0, vmax=max_val)
 
         if j == 0:
             # Plot glacier grid with pred value
@@ -623,30 +623,45 @@ def TwoDPlots(ds, glacier_indices, gdir, glacierName, grouped_ids_annual, groupe
             #     legend=None,
             #     ax=ax,
             #     hue_norm=norm)  # Use the common norm for both plots)
-            
-            vmin, vmax = ds_pred_winter.pred_masked.min().values, ds_pred_winter.pred_masked.max().values
+
+            vmin, vmax = ds_pred_winter.pred_masked.min(
+            ).values, ds_pred_winter.pred_masked.max().values
             if vmax >= 0 and vmin < 0:
-                norm = mcolors.TwoSlopeNorm(vmin=ds_pred_winter.pred_masked.min().values,
-                                        vcenter=0, 
-                                        vmax=vmax)
-                ds_pred_winter.pred_masked.plot(cmap='coolwarm_r', norm=norm, ax = ax, cbar_kwargs={'label': "[m w.e.]"})
-            if vmax >= 0 and vmin >=0:
-                ds_pred_winter.pred_masked.plot(cmap='Blues', ax = ax, cbar_kwargs={'label': "[m w.e.]"})
+                norm = mcolors.TwoSlopeNorm(
+                    vmin=ds_pred_winter.pred_masked.min().values,
+                    vcenter=0,
+                    vmax=vmax)
+                ds_pred_winter.pred_masked.plot(
+                    cmap='coolwarm_r',
+                    norm=norm,
+                    ax=ax,
+                    cbar_kwargs={'label': "[m w.e.]"})
+            if vmax >= 0 and vmin >= 0:
+                ds_pred_winter.pred_masked.plot(
+                    cmap='Blues', ax=ax, cbar_kwargs={'label': "[m w.e.]"})
             else:
-                ds_pred_winter.pred_masked.plot(cmap='Reds_r', ax = ax, cbar_kwargs={'label': "[m w.e.]"})
+                ds_pred_winter.pred_masked.plot(
+                    cmap='Reds_r', ax=ax, cbar_kwargs={'label': "[m w.e.]"})
 
             ax.set_title(f'{glacierName.capitalize()}: winter MB')
 
         if j == 1:
             # Plot glacier grid with pred value
-            vmin, vmax = ds_pred_annual.pred_masked.min().values, ds_pred_annual.pred_masked.max().values
+            vmin, vmax = ds_pred_annual.pred_masked.min(
+            ).values, ds_pred_annual.pred_masked.max().values
             if vmax >= 0 and vmin < 0:
-                norm = mcolors.TwoSlopeNorm(vmin=ds_pred_annual.pred_masked.min().values,
-                                        vcenter=0, 
-                                        vmax=vmax)
-                ds_pred_annual.pred_masked.plot(cmap='coolwarm_r', norm=norm, ax = ax, cbar_kwargs={'label': "[m w.e.]"})
+                norm = mcolors.TwoSlopeNorm(
+                    vmin=ds_pred_annual.pred_masked.min().values,
+                    vcenter=0,
+                    vmax=vmax)
+                ds_pred_annual.pred_masked.plot(
+                    cmap='coolwarm_r',
+                    norm=norm,
+                    ax=ax,
+                    cbar_kwargs={'label': "[m w.e.]"})
             else:
-                ds_pred_annual.pred_masked.plot(cmap='Reds_r', ax = ax, cbar_kwargs={'label': "[m w.e.]"})
+                ds_pred_annual.pred_masked.plot(
+                    cmap='Reds_r', ax=ax, cbar_kwargs={'label': "[m w.e.]"})
             ax.set_title('Annual MB, Year: {}'.format(year))
 
         # Add labels and title
