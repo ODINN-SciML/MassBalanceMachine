@@ -72,7 +72,7 @@ def predVSTruth(ax, grouped_ids, scores, hue='GLACIER', palette=None):
             fontsize=20,
             bbox=props)
     if hue is not None:
-        ax.legend()
+        ax.legend(fontsize=20, loc = 'lower right')
     else:
         ax.legend([], [], frameon=False)
     # diagonal line
@@ -214,8 +214,8 @@ def plotGlGrid(df_grid_annual, data_gl):
                marker='x',
                color=color_tim)
     ax.legend()
-    ax.set_title(
-        f'OGGM grid and GLAMOS stakes for {df_grid_annual.GLACIER.iloc[0]}')
+    # ax.set_title(
+    #     f'OGGM grid and GLAMOS stakes for {df_grid_annual.GLACIER.iloc[0]}')
 
 
 def plotNumMeasPerYear(data_gl, glacierName):
@@ -388,6 +388,9 @@ def visualiseValPreds(model, splits, train_set, feature_columns):
 
 
 def visualiseInputs(train_set, test_set, vois_climate):
+    colors = get_cmap_hex(cm.vik, 10)
+    color_xgb = colors[0]
+    color_tim = colors[2]
     f, ax = plt.subplots(2,
                          len(vois_climate) + 4,
                          figsize=(16, 6),
@@ -540,21 +543,67 @@ def PlotIndividualGlacierPred(grouped_ids, figsize=(15, 22)):
         plotMeanPred(df_gl, ax2)
 
     plt.tight_layout()
+    
+def PlotIndividualGlacierPredVsTruth(grouped_ids, figsize=(15, 22)):
+    fig, axs = plt.subplots(3,
+                            3,
+                            figsize=figsize)
+
+    colors_glacier = [
+        '#a6cee3', '#1f78b4', '#b2df8a', '#33a02c', '#fb9a99', '#e31a1c',
+        '#fdbf6f', '#ff7f00', '#cab2d6', '#6a3d9a', '#ffff99', '#b15928'
+    ]
+    color_palette_glaciers = dict(
+        zip(grouped_ids.GLACIER.unique(), colors_glacier))
+    color_palette_period = dict(
+        zip(grouped_ids.PERIOD.unique(),
+            colors_glacier[:len(grouped_ids.GLACIER.unique()):]))
+
+    for i, test_gl in enumerate(grouped_ids['GLACIER'].unique()):
+        df_gl = grouped_ids[grouped_ids.GLACIER == test_gl]
+
+        ax1 = axs.flatten()[i]
+
+        scores = {
+            'mse':
+            mean_squared_error(df_gl['target'], df_gl['pred']),
+            'rmse':
+            mean_squared_error(df_gl['target'], df_gl['pred'], squared=False),
+            'mae':
+            mean_absolute_error(df_gl['target'], df_gl['pred']),
+            'pearson_corr':
+            np.corrcoef(df_gl['target'], df_gl['pred'])[0, 1]
+        }
+        predVSTruth(ax1,
+                    df_gl,
+                    scores,
+                    hue='PERIOD',
+                    palette=color_palette_period)
+        ax1.set_title(f'{test_gl.capitalize()}', fontsize=24)
+
+    plt.tight_layout()
 
 
-def plotHeatmap(test_glaciers, data_glamos, glDirect, period='annual'):
+def plotHeatmap(test_glaciers, data_glamos, glacierCap, period='annual'):
     # Heatmap of mean mass balance per glacier:
     # Get the mean mass balance per glacier
-    data_with_pot = data_glamos[(data_glamos.GLACIER.isin(glDirect))
-                                & (data_glamos.PERIOD == period)]
-    mean_mb_per_glacier = data_with_pot.groupby(['GLACIER', 'YEAR'
-                                                 ])['POINT_BALANCE'].mean()
-    matrix = pd.DataFrame(mean_mb_per_glacier).reset_index().pivot(
+    data_with_pot = data_glamos[data_glamos.PERIOD == period]
+    data_with_pot['GLACIER'] = data_glamos['GLACIER'].apply(
+        lambda x: glacierCap[x])
+
+    mean_mb_per_glacier = data_with_pot.groupby(
+        ['GLACIER', 'YEAR', 'PERIOD'])['POINT_BALANCE'].mean().reset_index()
+    mean_mb_per_glacier = mean_mb_per_glacier[mean_mb_per_glacier['PERIOD'] ==
+                                              period]
+    matrix = mean_mb_per_glacier.pivot(
         index='GLACIER', columns='YEAR',
         values='POINT_BALANCE').sort_values(by='GLACIER')
-    gl_per_el = data_with_pot.groupby(['GLACIER'])['POINT_ELEVATION'].mean()
-    matrix = matrix.loc[gl_per_el.sort_values(ascending=False).index]
 
+    # get elevation of glaciers:
+    gl_per_el = data_with_pot.groupby(['GLACIER'])['POINT_ELEVATION'].mean()
+    gl_per_el = gl_per_el.sort_values(ascending=False)
+
+    matrix = matrix.loc[gl_per_el.index]
     # make index categorical
     matrix.index = pd.Categorical(matrix.index,
                                   categories=matrix.index,
@@ -568,6 +617,7 @@ def plotHeatmap(test_glaciers, data_glamos, glDirect, period='annual'):
                 ax=ax)
 
     # add patches for test glaciers
+    test_glaciers = [glacierCap[gl] for gl in test_glaciers]
     for test_gl in test_glaciers:
         if test_gl not in matrix.index:
             continue
@@ -581,7 +631,7 @@ def plotHeatmap(test_glaciers, data_glamos, glDirect, period='annual'):
                           patch.max() - patch.min() + 1,
                           1,
                           fill=False,
-                          edgecolor='blue',
+                          edgecolor='black',
                           lw=3))
 
 
@@ -600,43 +650,24 @@ def TwoDPlots(ds, gdir, glacierName, grouped_ids_annual, grouped_ids_winter,
         ds_pred_annual, ds_pred_annual_xy = predXarray(ds, gdir, pred_y_annual)
 
         ds_pred_winter, ds_pred_winter_xy = predXarray(ds, gdir, pred_y_winter)
-
-        # # Find min and max values for color bar
-        # min_val = min(pred_y_winter['pred'].min(), pred_y_annual['pred'].min())
-        # max_val = max(pred_y_winter['pred'].max(), pred_y_annual['pred'].max())
-
-        # # Set up a common normalization for both plots
-        # norm = plt.Normalize(vmin=min_val, vmax=max_val)
-
-        # norm = mcolors.TwoSlopeNorm(vmin=min_val, vcenter=0, vmax=max_val)
-
+        
         if j == 0:
-            # Plot glacier grid with pred value
-            # scatter = sns.scatterplot(
-            #     pred_y_winter,
-            #     x='POINT_LON',
-            #     y='POINT_LAT',
-            #     hue='pred',
-            #     palette='coolwarm_r',
-            #     s=20,
-            #     edgecolor='k',
-            #     legend=None,
-            #     ax=ax,
-            #     hue_norm=norm)  # Use the common norm for both plots)
-
             vmin, vmax = ds_pred_winter.pred_masked.min(
             ).values, ds_pred_winter.pred_masked.max().values
             if vmax >= 0 and vmin < 0:
+                # find the biggest of the two absolute values
+                max_abs_value = max(abs(vmin), abs(vmax))
                 norm = mcolors.TwoSlopeNorm(
-                    vmin=ds_pred_winter.pred_masked.min().values,
+                    vmin=-max_abs_value,
                     vcenter=0,
-                    vmax=vmax)
+                    vmax=max_abs_value)
                 ds_pred_winter.pred_masked.plot(
                     cmap='coolwarm_r',
                     norm=norm,
                     ax=ax,
                     cbar_kwargs={'label': "[m w.e.]"})
-            if vmax >= 0 and vmin >= 0:
+                
+            elif vmax >= 0 and vmin >= 0:
                 ds_pred_winter.pred_masked.plot(
                     cmap='Blues', ax=ax, cbar_kwargs={'label': "[m w.e.]"})
             else:
@@ -650,10 +681,11 @@ def TwoDPlots(ds, gdir, glacierName, grouped_ids_annual, grouped_ids_winter,
             vmin, vmax = ds_pred_annual.pred_masked.min(
             ).values, ds_pred_annual.pred_masked.max().values
             if vmax >= 0 and vmin < 0:
+                max_abs_value = max(abs(vmin), abs(vmax))
                 norm = mcolors.TwoSlopeNorm(
-                    vmin=ds_pred_annual.pred_masked.min().values,
+                    vmin=-max_abs_value,
                     vcenter=0,
-                    vmax=vmax)
+                    vmax=max_abs_value)
                 ds_pred_annual.pred_masked.plot(
                     cmap='coolwarm_r',
                     norm=norm,

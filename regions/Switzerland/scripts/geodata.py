@@ -16,7 +16,9 @@ import geodatasets
 import rasterio
 from rasterio.transform import from_origin
 from rasterio.warp import calculate_default_transform, reproject, Resampling
-
+from rasterio.merge import merge
+import glob
+from scipy.ndimage import gaussian_filter
 
 def toGeoPandas(ds):
     # Get lat and lon, and variable data
@@ -85,3 +87,113 @@ def toRaster(gdf, lon, lat, file_name, source_crs = 'EPSG:4326'):
             src.bounds.top
         ]
     return raster_data, extent
+
+def reproject_raster_to_lv95(input_raster, output_raster):
+    # Define the source and destination CRS
+    src_crs = 'EPSG:4326'  # Original CRS (lat/lon)
+    dst_crs = 'EPSG:2056'  # Destination CRS (Swiss LV95)
+
+    # Open the source raster
+    with rasterio.open(input_raster) as src:
+        # Calculate the transform and dimensions for the destination CRS
+        transform, width, height = calculate_default_transform(
+            src.crs, dst_crs, src.width, src.height, *src.bounds
+        )
+
+        # Set up the destination raster metadata
+        dst_meta = src.meta.copy()
+        dst_meta.update({
+            'crs': dst_crs,
+            'transform': transform,
+            'width': width,
+            'height': height
+        })
+
+        # Perform the reprojection
+        with rasterio.open(output_raster, 'w', **dst_meta) as dst:
+            for i in range(1, src.count + 1):  # Iterate over each band
+                # reproject(
+                #     source=rasterio.band(src, i),
+                #     destination=rasterio.band(dst, i),
+                #     src_transform=src.transform,
+                #     src_crs=src.crs,
+                #     dst_transform=transform,
+                #     dst_crs=dst_crs,
+                #     resampling=Resampling.nearest  # You can also use other methods, like bilinear
+                # )
+                # Create an array to hold the reprojected data
+                data = np.empty((height, width), dtype=src.meta['dtype'])
+
+                reproject(
+                    source=rasterio.band(src, i),
+                    destination=data,
+                    src_transform=src.transform,
+                    src_crs=src.crs,
+                    dst_transform=transform,
+                    dst_crs=dst_crs,
+                    resampling=Resampling.nearest  # You can also use other methods, like bilinear
+                )
+
+                # Replace any 0 values in `data` with NaN
+                data[data == 0] = np.nan
+
+                # Write the modified data to the output raster band
+                dst.write(data, i)
+    
+            
+def merge_rasters(raster1_path, raster2_path, output_path):
+    # Open the rasters
+    raster_files = [raster1_path, raster2_path]
+    src_files_to_mosaic = [rasterio.open(fp) for fp in raster_files]
+    
+    # Merge the rasters
+    mosaic, out_transform = merge(src_files_to_mosaic)
+    
+    # Update the metadata to match the mosaic output
+    out_meta = src_files_to_mosaic[0].meta.copy()
+    out_meta.update({
+        "driver": "GTiff",
+        "height": mosaic.shape[1],
+        "width": mosaic.shape[2],
+        "transform": out_transform,
+        "crs": src_files_to_mosaic[0].crs
+    })
+    # replace 0 values with NaN
+    mosaic[mosaic == 0] = np.nan
+    
+    # Write the mosaic raster to disk
+    with rasterio.open(output_path, "w", **out_meta) as dest:
+        dest.write(mosaic)
+
+    # Close all source files
+    for src in src_files_to_mosaic:
+        src.close()
+        
+        
+def GaussianFilter(ds):
+    # Assuming `dataset` is your xarray.Dataset
+    sigma = 1  # Define the smoothing level
+
+    # Apply Gaussian filter to each DataArray in the Dataset
+    smoothed_dataset = xr.Dataset()
+
+    for var_name, data_array in ds.data_vars.items():
+        # Step 1: Create a mask of valid data (non-NaN values)
+        mask = ~np.isnan(data_array)
+
+        # Step 2: Replace NaNs with zero (or a suitable neutral value)
+        filled_data = data_array.fillna(0)
+
+        # Step 3: Apply Gaussian filter to the filled data
+        smoothed_data = gaussian_filter(filled_data, sigma=sigma)
+
+        # Step 4: Restore NaNs to their original locations
+        smoothed_data = xr.DataArray(smoothed_data,
+                                    dims=data_array.dims,
+                                    coords=data_array.coords,
+                                    attrs=data_array.attrs).where(
+                                        mask)  # Apply the mask to restore NaNs
+
+        # Add the smoothed data to the new Dataset
+        smoothed_dataset[var_name] = smoothed_data
+    return smoothed_dataset
