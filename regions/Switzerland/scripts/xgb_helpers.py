@@ -5,7 +5,8 @@ import pandas as pd
 import salem
 import pyproj
 from sklearn.model_selection import GroupKFold, KFold, train_test_split, GroupShuffleSplit
-
+from scipy.ndimage import gaussian_filter
+import xarray as xr
 
 def getMonthlyDataLoaderOneGl(glacierName, vois_climate, voi_topographical):
     # Load stakes data from GLAMOS
@@ -349,3 +350,30 @@ def oggmToWgs84(ds, gdir):
     ds = ds.drop_vars(["x", "y"])
     
     return ds
+
+
+def GaussianFilter(ds, sigma = 1):
+    # Assuming `dataset` is your xarray.Dataset
+    # Apply Gaussian filter to each DataArray in the Dataset
+    smoothed_dataset = xr.Dataset()
+
+    for var_name, data_array in ds.data_vars.items():
+        # Step 1: Create a mask of valid data (non-NaN values)
+        mask = ~np.isnan(data_array)
+
+        # Step 2: Replace NaNs with zero (or a suitable neutral value)
+        filled_data = data_array.fillna(0)
+
+        # Step 3: Apply Gaussian filter to the filled data
+        smoothed_data = gaussian_filter(filled_data, sigma=sigma)
+
+        # Step 4: Restore NaNs to their original locations
+        smoothed_data = xr.DataArray(smoothed_data,
+                                    dims=data_array.dims,
+                                    coords=data_array.coords,
+                                    attrs=data_array.attrs).where(
+                                        mask)  # Apply the mask to restore NaNs
+
+        # Add the smoothed data to the new Dataset
+        smoothed_dataset[var_name] = smoothed_data
+    return smoothed_dataset
