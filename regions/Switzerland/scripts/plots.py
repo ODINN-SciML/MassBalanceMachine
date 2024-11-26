@@ -13,9 +13,10 @@ from scripts.xgb_helpers import *
 
 colors = get_cmap_hex(cm.batlow, 2)
 color_xgb = colors[0]
-# color_tim = colors[1]
 color_tim = '#c51b7d'
 
+color_winter = '#a6cee3'
+color_annual = '#1f78b4'
 
 def visualiseSplits(y_test, y_train, splits, colors=[color_xgb, color_tim]):
     # Visualise the cross validation splits
@@ -42,11 +43,15 @@ def visualiseSplits(y_test, y_train, splits, colors=[color_xgb, color_tim]):
 
 
 def predVSTruth(ax, grouped_ids, scores, hue='GLACIER', palette=None):
+    # legend_xgb = "\n".join(
+    #     ((r"$\mathrm{RMSE_{xgb}}=%.3f$," % (scores["rmse"], )),
+    #      (r"$\mathrm{MSE_{xgb}}=%.3f,$ " % (scores["mse"], )),
+    #      (r"$\mathrm{MAE_{xgb}}=%.3f,$ " % (scores["mae"], )),
+    #      (r"$\mathrm{\rho_{xgb}}=%.3f$" % (scores["pearson_corr"], ))))
+
     legend_xgb = "\n".join(
-        ((r"$\mathrm{RMSE_{xgb}}=%.3f$," % (scores["rmse"], )),
-         (r"$\mathrm{MSE_{xgb}}=%.3f,$ " % (scores["mse"], )),
-         (r"$\mathrm{MAE_{xgb}}=%.3f,$ " % (scores["mae"], )),
-         (r"$\mathrm{\rho_{xgb}}=%.3f$" % (scores["pearson_corr"], ))))
+        ((r"$\mathrm{RMSE}=%.3f$," % (scores["rmse"], )),
+         (r"$\mathrm{\rho}=%.3f$" % (scores["pearson_corr"], ))))
 
     marker_xgb = 'o'
     sns.scatterplot(
@@ -129,17 +134,16 @@ def plotMeanPred(grouped_ids, ax):
             mean,
             squared=False), np.corrcoef(
                 grouped_ids.groupby('YEAR')['pred'].mean().values, mean)[0, 1]
-    legend_xgb = "\n".join((r"$\mathrm{MAE}=%.3f, \mathrm{RMSE}=%.3f,$ " % (
-        mae,
-        rmse,
-    ), (r"$\mathrm{\rho}=%.3f$" % (pearson_corr, ))))
+    legend_xgb = "\n".join((r"$\mathrm{RMSE}=%.3f, \mathrm{\rho}=%.3f$ " % (
+        rmse,pearson_corr,
+    ), ))
     ax.text(0.03,
             0.98,
             legend_xgb,
             transform=ax.transAxes,
             verticalalignment="top",
             fontsize=20)
-    ax.legend()
+    ax.legend(fontsize=20, loc = 'lower right')
 
 
 def FIPlot(best_estimator, feature_columns, vois_climate):
@@ -205,18 +209,28 @@ def plotGlGrid(df_grid_annual, data_gl):
     ax.scatter(df_grid_annual_one_year.POINT_LON,
                df_grid_annual_one_year.POINT_LAT,
                s=1,
-               label='OGGM grid',
-               color=color_xgb)
-    ax.scatter(data_gl.POINT_LON,
-               data_gl.POINT_LAT,
-               s=8,
-               label='stakes',
+               color="grey")
+    data_winter = data_gl[data_gl.PERIOD == 'winter']
+    data_annual = data_gl[data_gl.PERIOD == 'annual']
+    ax.scatter(data_winter.POINT_LON,
+               data_winter.POINT_LAT,
+               s=10,
+               label='Winter',
                marker='x',
-               color=color_tim)
-    ax.legend()
+               color=color_winter,
+               alpha = 0.8)
+    ax.scatter(data_annual.POINT_LON,
+               data_annual.POINT_LAT,
+               s=10,
+               label='Annual',
+               marker='x',
+               color=color_annual,
+               alpha = 0.8)
+    ax.legend(fontsize=18, markerscale=2)
     # ax.set_title(
     #     f'OGGM grid and GLAMOS stakes for {df_grid_annual.GLACIER.iloc[0]}')
-
+    GLACIER = df_grid_annual.GLACIER.iloc[0]
+    plt.savefig(f'figures/grid_stakes_{GLACIER}.png', dpi=300)
 
 def plotNumMeasPerYear(data_gl, glacierName):
     # Plot number of measurements per year
@@ -579,7 +593,7 @@ def PlotIndividualGlacierPredVsTruth(grouped_ids, figsize=(15, 22)):
                     scores,
                     hue='PERIOD',
                     palette=color_palette_period)
-        ax1.set_title(f'{test_gl.capitalize()}', fontsize=24)
+        ax1.set_title(f'{test_gl.capitalize()}', fontsize=28)
 
     plt.tight_layout()
 
@@ -702,3 +716,25 @@ def TwoDPlots(ds, gdir, glacierName, grouped_ids_annual, grouped_ids_winter,
 
     # plt.suptitle(f'Glacier: {glacierName.capitalize()}, {year}')
     plt.tight_layout()
+
+
+def Plot2DPred(fig, vmin, vmax, ds_pred, YEAR, month, ax, savefig = False):
+    monthNb = month_abbr_hydr[month]
+    norm = mcolors.TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
+    pcm = ds_pred.pred_masked.plot(cmap='coolwarm_r',
+                                   norm=norm,
+                                   add_colorbar=False,
+                                   ax = ax)
+    cb = fig.colorbar(pcm)
+    cb.ax.set_yscale('linear')
+    cb.set_label("[m w.e.]")  # Set the label here
+
+    ax.set_title(f'{month.capitalize()}, {YEAR}')
+    ax.set_ylabel('')
+    ax.set_xlabel('')
+    ax.grid()
+    if savefig:
+        plt.savefig(f"results/gif/{monthNb}_{month}.png",
+                format="png",
+                dpi=300,
+                bbox_inches="tight")

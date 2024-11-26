@@ -20,6 +20,7 @@ from rasterio.merge import merge
 import glob
 from scipy.ndimage import gaussian_filter
 
+
 def toGeoPandas(ds):
     # Get lat and lon, and variable data
     lat = ds['latitude'].values
@@ -46,7 +47,7 @@ def toGeoPandas(ds):
     return gdf, lon, lat
 
 
-def toRaster(gdf, lon, lat, file_name, source_crs = 'EPSG:4326'):
+def toRaster(gdf, lon, lat, file_name, source_crs='EPSG:4326'):
     # Assuming your GeoDataFrame is named gdf
     # Define the grid dimensions and resolution based on your data
     nrows, ncols = lat.shape[0], lon.shape[
@@ -88,17 +89,20 @@ def toRaster(gdf, lon, lat, file_name, source_crs = 'EPSG:4326'):
         ]
     return raster_data, extent
 
-def reproject_raster_to_lv95(input_raster, output_raster):
+
+def reproject_raster_to_lv95(
+        input_raster,
+        output_raster,
+        dst_crs='EPSG:2056'  # Destination CRS (Swiss LV95) or EPSG:21781
+):
     # Define the source and destination CRS
     src_crs = 'EPSG:4326'  # Original CRS (lat/lon)
-    dst_crs = 'EPSG:2056'  # Destination CRS (Swiss LV95)
 
     # Open the source raster
     with rasterio.open(input_raster) as src:
         # Calculate the transform and dimensions for the destination CRS
         transform, width, height = calculate_default_transform(
-            src.crs, dst_crs, src.width, src.height, *src.bounds
-        )
+            src.crs, dst_crs, src.width, src.height, *src.bounds)
 
         # Set up the destination raster metadata
         dst_meta = src.meta.copy()
@@ -131,7 +135,8 @@ def reproject_raster_to_lv95(input_raster, output_raster):
                     src_crs=src.crs,
                     dst_transform=transform,
                     dst_crs=dst_crs,
-                    resampling=Resampling.nearest  # You can also use other methods, like bilinear
+                    resampling=Resampling.
+                    nearest  # You can also use other methods, like bilinear
                 )
 
                 # Replace any 0 values in `data` with NaN
@@ -139,16 +144,16 @@ def reproject_raster_to_lv95(input_raster, output_raster):
 
                 # Write the modified data to the output raster band
                 dst.write(data, i)
-    
-            
+
+
 def merge_rasters(raster1_path, raster2_path, output_path):
     # Open the rasters
     raster_files = [raster1_path, raster2_path]
     src_files_to_mosaic = [rasterio.open(fp) for fp in raster_files]
-    
+
     # Merge the rasters
     mosaic, out_transform = merge(src_files_to_mosaic)
-    
+
     # Update the metadata to match the mosaic output
     out_meta = src_files_to_mosaic[0].meta.copy()
     out_meta.update({
@@ -160,7 +165,7 @@ def merge_rasters(raster1_path, raster2_path, output_path):
     })
     # replace 0 values with NaN
     mosaic[mosaic == 0] = np.nan
-    
+
     # Write the mosaic raster to disk
     with rasterio.open(output_path, "w", **out_meta) as dest:
         dest.write(mosaic)
@@ -168,8 +173,8 @@ def merge_rasters(raster1_path, raster2_path, output_path):
     # Close all source files
     for src in src_files_to_mosaic:
         src.close()
-        
-        
+
+
 def GaussianFilter(ds):
     # Assuming `dataset` is your xarray.Dataset
     sigma = 1  # Define the smoothing level
@@ -188,12 +193,80 @@ def GaussianFilter(ds):
         smoothed_data = gaussian_filter(filled_data, sigma=sigma)
 
         # Step 4: Restore NaNs to their original locations
-        smoothed_data = xr.DataArray(smoothed_data,
-                                    dims=data_array.dims,
-                                    coords=data_array.coords,
-                                    attrs=data_array.attrs).where(
-                                        mask)  # Apply the mask to restore NaNs
+        smoothed_data = xr.DataArray(
+            smoothed_data,
+            dims=data_array.dims,
+            coords=data_array.coords,
+            attrs=data_array.attrs).where(
+                mask)  # Apply the mask to restore NaNs
 
         # Add the smoothed data to the new Dataset
         smoothed_dataset[var_name] = smoothed_data
     return smoothed_dataset
+
+
+def TransformToRaster(filename_nc, filename_tif, path_nc_wgs84, path_tif_wgs84,
+                      path_tif_lv95, dst_crs = 'EPSG:2056'):
+    ds_latlon = xr.open_dataset(path_nc_wgs84 + filename_nc)
+
+    # Smoothing
+    ds_latlon_g = GaussianFilter(ds_latlon)
+
+    # Convert to GeoPandas
+    gdf, lon, lat = toGeoPandas(ds_latlon_g)
+    
+    # Reproject to LV95 (EPSG:2056) swiss coordinates
+    # gdf_lv95 = gdf.to_crs("EPSG:2056")
+    
+    createPath(path_tif_wgs84)
+    createPath(path_tif_lv95)
+                
+    # Convert to raster and save
+    raster_data, extent = toRaster(gdf,
+                                   lon,
+                                   lat,
+                                   file_name=path_tif_wgs84 + filename_tif)
+
+    # Reproject raster to Swiss coordinates (LV95)
+    reproject_raster_to_lv95(path_tif_wgs84 + filename_tif,
+                             path_tif_lv95 + filename_tif,
+                             dst_crs=dst_crs)
+    
+    
+    # Make classification map of snow/ice:
+    # Replace values: below 0 with 3, above 0 with 1
+    gdf_class = gdf.copy()
+    gdf_class.loc[gdf['data'] <= 0, 'data'] = 3
+    gdf_class.loc[gdf['data'] > 0, 'data'] = 1
+    
+    path_class_tif_lv95 = path_tif_lv95+'classes/'
+    path_class_tif_wgs84 = path_tif_wgs84+'classes/'
+    
+    createPath(path_class_tif_lv95)
+    createPath(path_class_tif_wgs84)
+    
+    # Convert to raster and save
+    raster_data, extent = toRaster(gdf_class,
+                                   lon,
+                                   lat,
+                                   file_name=path_class_tif_wgs84 + filename_tif)
+
+    # Reproject raster to Swiss coordinates (LV95)
+    reproject_raster_to_lv95(path_class_tif_wgs84 + filename_tif,
+                             path_class_tif_lv95 + filename_tif,
+                             dst_crs=dst_crs)
+
+    return gdf, gdf_class, raster_data, extent
+
+def createPath(path):
+    if not os.path.exists(path):
+        os.makedirs(path)
+        
+# empties a folder
+def emptyfolder(path):
+    if os.path.exists(path):
+        onlyfiles = [f for f in os.listdir(path) if isfile(join(path, f))]
+        for f in onlyfiles:
+            os.remove(path + f)
+    else:
+        createPath(path)
