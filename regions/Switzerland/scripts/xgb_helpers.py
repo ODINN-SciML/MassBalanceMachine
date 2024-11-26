@@ -294,7 +294,7 @@ def cumulativeMB(df_pred,
     return dfCumMB_all
 
 
-def predXarray(ds, gdir, df_pred):
+def predXarray(ds, gdir, df_pred, pred_var = 'pred'):
     glacier_indices = np.where(ds['glacier_mask'].values == 1)
     pred_masked = ds.glacier_mask.values
     
@@ -302,7 +302,7 @@ def predXarray(ds, gdir, df_pred):
     pred_masked = np.where(pred_masked == 0, np.nan, pred_masked)
     for i, (x_index,
             y_index) in enumerate(zip(glacier_indices[0], glacier_indices[1])):
-        pred_masked[x_index, y_index] = df_pred.iloc[i].pred
+        pred_masked[x_index, y_index] = df_pred.iloc[i][pred_var]
 
     pred_masked = np.where(pred_masked == 1, np.nan, pred_masked)
     ds_xy = ds.assign(pred_masked=(('y', 'x'), pred_masked))
