@@ -30,9 +30,14 @@ path_rgi = '../../../data/GLAMOS/CH_glacier_ids_long.csv'
 # ERA5-Land
 path_ERA5_raw = '../../../data/ERA5Land/raw/'
 
+# Sentinel-2
+path_S2 = '../../../data/Sentinel/'
+
 vois_climate_long_name = {
     't2m': 'Temperature',
     'tp': 'Precipitation',
+    't2m_corr': 'Temperature corr.',
+    'tp_corr': 'Precipitation corr.',
     'slhf': 'Surf. latent heat flux',
     'sshf': 'Surf. sensible heat flux',
     'ssrd': 'Surf. solar rad. down.',
@@ -56,23 +61,38 @@ vois_units = {
     'v10': 'm s-1',
 }
 
-loss_units = {
-    'RMSE': '[m w.e.]',
-    'MSE': '[]'
+loss_units = {'RMSE': '[m w.e.]', 'MSE': '[]'}
+
+month_abbr_hydr = {
+    'sep': 1,
+    'oct': 2,
+    'nov': 3,
+    'dec': 4,
+    'jan': 5,
+    'feb': 6,
+    'mar': 7,
+    'apr': 8,
+    'may': 9,
+    'jun': 10,
+    'jul': 11,
+    'aug': 12,
 }
 
-month_abbr_hydr = {'sep':1, 
-                   'oct':2,
-                   'nov':3,
-                   'dec':4,
-                   'jan':5,
-                   'feb':6,
-                   'mar':7,
-                   'apr':8,
-                   'may':9,
-                   'jun':10,
-                   'jul':11,
-                   'aug':12,}
+month_abbr_hydr_full = {
+    'sep': 1,
+    'oct': 2,
+    'nov': 3,
+    'dec': 4,
+    'jan': 5,
+    'feb': 6,
+    'mar': 7,
+    'apr': 8,
+    'may': 9,
+    'jun': 10,
+    'jul': 11,
+    'aug': 12,
+    'sep_': 13,
+}
 
 
 # sets the same random seed everywhere so that it is reproducible
@@ -189,3 +209,16 @@ def powerset(original_list, min_length=3):
         if len(subset) >= min_length:
             subsets.append(subset)
     return subsets
+
+
+def save_to_netcdf(ds, path, filename):
+    # Create path if not exists
+    if not os.path.exists(path):
+        os.makedirs(path)
+
+    # delete file if already exists
+    if os.path.exists(path + filename):
+        os.remove(path + filename)
+
+    # save prediction to netcdf
+    ds.pred_masked.to_netcdf(path + filename)

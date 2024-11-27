@@ -175,29 +175,19 @@ def FIPlot(best_estimator, feature_columns, vois_climate):
 
 def plotGlAttr(ds, cmap=cm.batlow):
     # Plot glacier attributes
-    fig, ax = plt.subplots(2, 5, figsize=(18, 10))
+    fig, ax = plt.subplots(2, 3, figsize=(18, 10))
     ds.masked_slope.plot(ax=ax[0, 0], cmap=cmap)
     ax[0, 0].set_title('Slope')
     ds.masked_elev.plot(ax=ax[0, 1], cmap=cmap)
     ax[0, 1].set_title('Elevation')
     ds.masked_aspect.plot(ax=ax[0, 2], cmap=cmap)
     ax[0, 2].set_title('Aspect')
-    ds.masked_dis.plot(ax=ax[0, 3], cmap=cmap)
-    ax[0, 3].set_title('Dis from border')
-    ds.masked_hug.plot(ax=ax[0, 4], cmap=cmap)
-    ax[0, 4].set_title('Hugonnet')
-
-    ds.masked_cit.plot(ax=ax[1, 0], cmap=cmap)
-    ax[1, 0].set_title('Consensus ice thickness')
-    ds.masked_mit.plot(ax=ax[1, 1], cmap=cmap)
-    ax[1, 1].set_title('Millan ice thickness')
+    ds.masked_hug.plot(ax=ax[1, 0], cmap=cmap)
+    ax[1, 0].set_title('Hugonnet')
+    ds.masked_cit.plot(ax=ax[1, 1], cmap=cmap)
+    ax[1, 1].set_title('Consensus ice thickness')
     ds.masked_miv.plot(ax=ax[1, 2], cmap=cmap)
     ax[1, 2].set_title('Millan v')
-    ds.masked_mivx.plot(ax=ax[1, 3], cmap=cmap)
-    ax[1, 3].set_title('Millan vx')
-    ds.masked_mivy.plot(ax=ax[1, 4], cmap=cmap)
-    ax[1, 4].set_title('Millan vy')
-
     plt.tight_layout()
 
 

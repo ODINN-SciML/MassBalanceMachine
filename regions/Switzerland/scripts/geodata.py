@@ -10,7 +10,7 @@ import xarray as xr
 from matplotlib.colors import to_hex
 import seaborn as sns
 import geopandas as gpd
-from shapely.geometry import Point
+from shapely.geometry import Point, box
 import contextily as cx
 import geodatasets
 import rasterio
@@ -19,6 +19,7 @@ from rasterio.warp import calculate_default_transform, reproject, Resampling
 from rasterio.merge import merge
 import glob
 from scipy.ndimage import gaussian_filter
+from scipy.spatial import cKDTree
 
 
 def toGeoPandas(ds):
@@ -236,8 +237,9 @@ def TransformToRaster(filename_nc, filename_tif, path_nc_wgs84, path_tif_wgs84,
     # Make classification map of snow/ice:
     # Replace values: below 0 with 3, above 0 with 1
     gdf_class = gdf.copy()
-    gdf_class.loc[gdf['data'] <= 0, 'data'] = 3
-    gdf_class.loc[gdf['data'] > 0, 'data'] = 1
+    tol = 0
+    gdf_class.loc[gdf['data'] <= 0 + tol, 'data'] = 3
+    gdf_class.loc[gdf['data'] > 0 + tol, 'data'] = 1
     
     path_class_tif_lv95 = path_tif_lv95+'classes/'
     path_class_tif_wgs84 = path_tif_wgs84+'classes/'
@@ -270,3 +272,46 @@ def emptyfolder(path):
             os.remove(path + f)
     else:
         createPath(path)
+        
+        
+        
+        
+def resampleRaster(gdf_glacier, gdf_raster):
+    # Clip raster to glacier extent
+    # Step 1: Get the bounding box of the points GeoDataFrame
+    bounding_box = gdf_glacier.total_bounds  # [minx, miny, maxx, maxy]
+
+    # Step 2: Create a rectangular geometry from the bounding box
+    bbox_polygon = box(*bounding_box)
+
+    # Step 3: Clip the raster-based GeoDataFrame to this bounding box
+    gdf_clipped = gdf_raster[gdf_raster.intersects(bbox_polygon)]
+
+    # Optionally, further refine the clipping if exact match is needed
+    gdf_clipped = gpd.clip(gdf_raster, bbox_polygon)
+    
+    # Resample clipped raster to glacier points
+    # Extract coordinates and values from gdf_clipped
+    clipped_coords = np.array([(geom.x, geom.y) for geom in gdf_clipped.geometry])
+    clipped_values = gdf_clipped['data'].values
+
+    # Extract coordinates from gdf_glacier
+    points_coords = np.array([(geom.x, geom.y) for geom in gdf_glacier.geometry])
+
+    # Build a KDTree for efficient nearest-neighbor search
+    tree = cKDTree(clipped_coords)
+
+    # Query the tree for the nearest neighbor to each point in gdf_glacier
+    distances, indices = tree.query(points_coords)
+
+    # Assign the values from the nearest neighbors
+    gdf_clipped_res = gdf_glacier.copy()
+    gdf_clipped_res['data'] = clipped_values[indices]
+
+    # Assuming 'value' is the column storing the resampled values
+    gdf_clipped_res['data'] = np.where(
+        gdf_glacier['data'].isna(),  # Check where original values are NaN
+        np.nan,                      # Assign NaN to those locations
+        gdf_clipped_res['data'],         # Keep the resampled values elsewhere
+    )
+    return gdf_clipped_res

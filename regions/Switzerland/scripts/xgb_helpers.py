@@ -170,6 +170,22 @@ def getDfAggregatePred(test_set, y_pred_agg, all_columns):
 
     return grouped_ids
 
+def correctTP(df_grid_monthly):
+    # Add corrected temperature and prec:
+    c_prec = 1.4
+    df_grid_monthly['tp_fac'] = df_grid_monthly['tp'] * c_prec  # correction factor
+
+    # correct for stake elevation
+    temp_grad = -0.6 / 100  # [deg/100m]
+    dpdz = 1 / 10000  # % increase/100m constant for now changed to unit/m
+
+    df_grid_monthly['tp_corr'] = df_grid_monthly['tp'] * c_prec  # correction factor
+    df_grid_monthly['tp_corr'] = df_grid_monthly['tp_corr'] + df_grid_monthly['tp_corr'] * (
+        df_grid_monthly['ELEVATION_DIFFERENCE']) * dpdz
+
+    df_grid_monthly['t2m_corr'] = df_grid_monthly['t2m'] + (
+        df_grid_monthly['ELEVATION_DIFFERENCE']) * temp_grad
+    return df_grid_monthly
 
 def GlacierWidePred(custom_model,
                     glacierName,
@@ -188,6 +204,9 @@ def GlacierWidePred(custom_model,
                                   f'{glacierName}_grid.csv')
     df_grid_monthly['GLACIER'] = glacierName
     df_grid_monthly['POINT_ELEVATION'] = df_grid_monthly['topo']
+    
+    df_grid_monthly = correctTP(df_grid_monthly)
+    
     df_grid_monthly = df_grid_monthly[all_columns]
 
     if type_pred == 'annual':

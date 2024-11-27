@@ -78,6 +78,7 @@ def get_climate_features(
     # Get the climate data for the latitudes and longitudes and date ranges as
     # specified
     climate_df = _process_climate_data(ds_climate, df)
+    
     # Get the geopotential height for the latitudes and longitudes as specified,
     # for the locations of the stake measurements.
     altitude_df = _process_altitude_data(ds_geopotential_metric, df)
