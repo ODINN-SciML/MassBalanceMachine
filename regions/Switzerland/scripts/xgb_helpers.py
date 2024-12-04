@@ -172,13 +172,12 @@ def getDfAggregatePred(test_set, y_pred_agg, all_columns):
 
 def correctTP(df_grid_monthly):
     # Add corrected temperature and prec:
-    c_prec = 1.4
+    c_prec = 1.41    # correction factor
     df_grid_monthly['tp_fac'] = df_grid_monthly['tp'] * c_prec  # correction factor
 
     # correct for stake elevation
-    temp_grad = -0.6 / 100  # [deg/100m]
-    dpdz = 1 / 10000  # % increase/100m constant for now changed to unit/m
-
+    temp_grad = -6.5 / 1000  # [deg/1000m]
+    dpdz = 1.5 / 10000  # % increase/100m constant for now changed to unit/m
     df_grid_monthly['tp_corr'] = df_grid_monthly['tp'] * c_prec  # correction factor
     df_grid_monthly['tp_corr'] = df_grid_monthly['tp_corr'] + df_grid_monthly['tp_corr'] * (
         df_grid_monthly['ELEVATION_DIFFERENCE']) * dpdz
@@ -396,3 +395,25 @@ def GaussianFilter(ds, sigma = 1):
         # Add the smoothed data to the new Dataset
         smoothed_dataset[var_name] = smoothed_data
     return smoothed_dataset
+
+
+def cumulativeMonthly(df_grid_monthly, custom_model):
+    # Make predictions on whole glacier grid
+    features_grid, metadata_grid = custom_model._create_features_metadata(
+        df_grid_monthly, config.META_DATA)
+    y_pred = custom_model.predict(features_grid)
+
+    # df_grid = pd.DataFrame(metadata_grid, columns=config.META_DATA)
+    df_grid_monthly = df_grid_monthly.assign(pred=y_pred)
+    df_grid_monthly['MONTH_NB'] = df_grid_monthly.MONTHS.apply(
+        lambda x: month_abbr_hydr[x])
+
+    # sort by ID
+    df_grid_monthly.sort_values(by=['ID', 'MONTH_NB'], inplace=True)
+
+    # Cumulative monthly sums:
+    df_grid_monthly['cum_pred'] = df_grid_monthly.groupby(
+        "ID")["pred"].cumsum()
+    return df_grid_monthly
+
+

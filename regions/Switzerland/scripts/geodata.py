@@ -20,6 +20,9 @@ from rasterio.merge import merge
 import glob
 from scipy.ndimage import gaussian_filter
 from scipy.spatial import cKDTree
+import matplotlib.colors as mcolors
+import matplotlib.patches as mpatches
+from datetime import datetime, timedelta
 
 
 def toGeoPandas(ds):
@@ -206,8 +209,12 @@ def GaussianFilter(ds):
     return smoothed_dataset
 
 
-def TransformToRaster(filename_nc, filename_tif, path_nc_wgs84, path_tif_wgs84,
-                      path_tif_lv95, dst_crs = 'EPSG:2056'):
+def TransformToRaster(filename_nc,
+                      filename_tif,
+                      path_nc_wgs84,
+                      path_tif_wgs84,
+                      path_tif_lv95,
+                      dst_crs='EPSG:2056'):
     ds_latlon = xr.open_dataset(path_nc_wgs84 + filename_nc)
 
     # Smoothing
@@ -215,13 +222,13 @@ def TransformToRaster(filename_nc, filename_tif, path_nc_wgs84, path_tif_wgs84,
 
     # Convert to GeoPandas
     gdf, lon, lat = toGeoPandas(ds_latlon_g)
-    
+
     # Reproject to LV95 (EPSG:2056) swiss coordinates
     # gdf_lv95 = gdf.to_crs("EPSG:2056")
-    
+
     createPath(path_tif_wgs84)
     createPath(path_tif_lv95)
-                
+
     # Convert to raster and save
     raster_data, extent = toRaster(gdf,
                                    lon,
@@ -232,26 +239,26 @@ def TransformToRaster(filename_nc, filename_tif, path_nc_wgs84, path_tif_wgs84,
     reproject_raster_to_lv95(path_tif_wgs84 + filename_tif,
                              path_tif_lv95 + filename_tif,
                              dst_crs=dst_crs)
-    
-    
+
     # Make classification map of snow/ice:
     # Replace values: below 0 with 3, above 0 with 1
     gdf_class = gdf.copy()
     tol = 0
     gdf_class.loc[gdf['data'] <= 0 + tol, 'data'] = 3
     gdf_class.loc[gdf['data'] > 0 + tol, 'data'] = 1
-    
-    path_class_tif_lv95 = path_tif_lv95+'classes/'
-    path_class_tif_wgs84 = path_tif_wgs84+'classes/'
-    
+
+    path_class_tif_lv95 = path_tif_lv95 + 'classes/'
+    path_class_tif_wgs84 = path_tif_wgs84 + 'classes/'
+
     createPath(path_class_tif_lv95)
     createPath(path_class_tif_wgs84)
-    
+
     # Convert to raster and save
     raster_data, extent = toRaster(gdf_class,
                                    lon,
                                    lat,
-                                   file_name=path_class_tif_wgs84 + filename_tif)
+                                   file_name=path_class_tif_wgs84 +
+                                   filename_tif)
 
     # Reproject raster to Swiss coordinates (LV95)
     reproject_raster_to_lv95(path_class_tif_wgs84 + filename_tif,
@@ -260,10 +267,12 @@ def TransformToRaster(filename_nc, filename_tif, path_nc_wgs84, path_tif_wgs84,
 
     return gdf, gdf_class, raster_data, extent
 
+
 def createPath(path):
     if not os.path.exists(path):
         os.makedirs(path)
-        
+
+
 # empties a folder
 def emptyfolder(path):
     if os.path.exists(path):
@@ -272,31 +281,46 @@ def emptyfolder(path):
             os.remove(path + f)
     else:
         createPath(path)
-        
-        
-        
-        
+
+
 def resampleRaster(gdf_glacier, gdf_raster):
     # Clip raster to glacier extent
     # Step 1: Get the bounding box of the points GeoDataFrame
     bounding_box = gdf_glacier.total_bounds  # [minx, miny, maxx, maxy]
-
+    raster_bounds = gdf_raster.total_bounds  # [minx, miny, maxx, maxy]
+    
+    # Problem 1: check if glacier bounds are within raster bounds
+    if not (
+        bounding_box[0] >= raster_bounds[0] and  # minx of glacier >= minx of raster
+        bounding_box[1] >= raster_bounds[1] and  # miny of glacier >= miny of raster
+        bounding_box[2] <= raster_bounds[2] and  # maxx of glacier <= maxx of raster
+        bounding_box[3] <= raster_bounds[3]     # maxy of glacier <= maxy of raster
+    ):
+        return 0
+    
     # Step 2: Create a rectangular geometry from the bounding box
     bbox_polygon = box(*bounding_box)
+    
+    # Problem 2: Glacier is in regions where raster is NaN 
+    gdf_clipped = gpd.clip(gdf_raster, bbox_polygon)
+    if gdf_clipped.empty:
+        return 1
 
     # Step 3: Clip the raster-based GeoDataFrame to this bounding box
     gdf_clipped = gdf_raster[gdf_raster.intersects(bbox_polygon)]
 
     # Optionally, further refine the clipping if exact match is needed
     gdf_clipped = gpd.clip(gdf_raster, bbox_polygon)
-    
+
     # Resample clipped raster to glacier points
     # Extract coordinates and values from gdf_clipped
-    clipped_coords = np.array([(geom.x, geom.y) for geom in gdf_clipped.geometry])
+    clipped_coords = np.array([(geom.x, geom.y)
+                               for geom in gdf_clipped.geometry])
     clipped_values = gdf_clipped['data'].values
 
     # Extract coordinates from gdf_glacier
-    points_coords = np.array([(geom.x, geom.y) for geom in gdf_glacier.geometry])
+    points_coords = np.array([(geom.x, geom.y)
+                              for geom in gdf_glacier.geometry])
 
     # Build a KDTree for efficient nearest-neighbor search
     tree = cKDTree(clipped_coords)
@@ -311,7 +335,181 @@ def resampleRaster(gdf_glacier, gdf_raster):
     # Assuming 'value' is the column storing the resampled values
     gdf_clipped_res['data'] = np.where(
         gdf_glacier['data'].isna(),  # Check where original values are NaN
-        np.nan,                      # Assign NaN to those locations
-        gdf_clipped_res['data'],         # Keep the resampled values elsewhere
+        np.nan,  # Assign NaN to those locations
+        gdf_clipped_res['data'],  # Keep the resampled values elsewhere
     )
     return gdf_clipped_res
+
+
+def plotClasses(gdf_glacier, gdf_class, gdf_class_corr, gdf_raster_res, axs, gl_date, file_date):
+    # Define the colors for categories (ensure that your categories match the color list)
+    colors_cat = [
+        '#a6cee3', '#1f78b4', '#b2df8a', '#33a02c', '#fb9a99', '#e31a1c',
+        '#fdbf6f', '#ff7f00', '#cab2d6', '#6a3d9a', '#ffff99', '#b15928'
+    ]
+
+    # Manually map categories to colors (assuming categories 0-5 for example)
+    unique_cat = gdf_raster_res.data.unique()
+    # remove nan
+    unique_cat = unique_cat[~np.isnan(unique_cat)]
+    unique_cat.sort()
+    map = dict(
+        zip(unique_cat,
+            colors_cat[:6]))  # Adjust according to the number of categories
+
+    # Set up the basemap provider
+    API_KEY = "000378bd-b0f0-46e2-a46d-f2165b0c6c02"
+    provider = cx.providers.Stadia.StamenTerrain(api_key=API_KEY)
+    provider["url"] = provider["url"] + f"?api_key={API_KEY}"
+
+    # Plot the first figure (Mass balance)
+    vmin, vmax = gdf_glacier.data.min(), gdf_glacier.data.max()
+    if vmin < 0 and vmax > 0:
+        norm = mcolors.TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
+    if vmin < 0 and vmax <= 0:
+        norm = mcolors.TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=0.5)
+    else:
+        norm = mcolors.TwoSlopeNorm(vmin=0, vcenter=vmin, vmax=vmax)
+    gdf_clean = gdf_glacier.dropna(subset=["data"])
+    gdf_clean.plot(
+        column="data",  # Column to visualize
+        cmap="RdBu",  # Color map suitable for glacier data
+        norm=norm,
+        legend=True,  # Display a legend
+        ax=axs[0],
+        markersize=5,  # Adjust size if points are too small or large
+        missing_kwds={"color": "lightgrey"}  # Define color for NaN datas
+    )
+    #cx.add_basemap(axs[0], crs=gdf_glacier.crs, source=provider)
+    axs[0].set_title(f"Mass balance: {gl_date}")
+
+    # Plot the second figure (MBM classes)
+    gdf_clean = gdf_class.dropna(subset=["data"])
+    gdf_clean['color'] = gdf_clean['data'].map(map)
+    # Plot with manually defined colormap
+    gdf_clean.plot(
+        column="data",  # Column to visualize
+        legend=True,  # Display a legend
+        markersize=5,  # Adjust size if points are too small or large
+        missing_kwds={"color": "lightgrey"},  # Define color for NaN datas
+        categorical=True,  # Ensure the plot uses categorical colors
+        ax=axs[1],
+        color=gdf_clean['color']  # Use the custom colormap
+    )
+    #cx.add_basemap(axs[1], crs=gdf_glacier.crs, source=provider)
+    axs[1].set_title(f"MBM classes: {gl_date}")
+    
+    # Plot the third figure (MBM classes corrected)
+    gdf_clean = gdf_class_corr.dropna(subset=["data"])
+    gdf_clean['color'] = gdf_clean['data'].map(map)
+    # Plot with manually defined colormap
+    gdf_clean.plot(
+        column="data",  # Column to visualize
+        legend=True,  # Display a legend
+        markersize=5,  # Adjust size if points are too small or large
+        missing_kwds={"color": "lightgrey"},  # Define color for NaN datas
+        categorical=True,  # Ensure the plot uses categorical colors
+        ax=axs[2],
+        color=gdf_clean['color']  # Use the custom colormap
+    )
+    #cx.add_basemap(axs[1], crs=gdf_glacier.crs, source=provider)
+    axs[2].set_title(f"MBM classes corr.: {gl_date}")
+
+    # Plot the fourth figure (Resampled Sentinel classes)
+    gdf_clean = gdf_raster_res.dropna(subset=["data"])
+    gdf_clean['color'] = gdf_clean['data'].map(map)
+    # Plot with manually defined colormap
+    gdf_clean.plot(
+        column="data",  # Column to visualize
+        legend=True,  # Display a legend
+        markersize=5,  # Adjust size if points are too small or large
+        missing_kwds={"color": "lightgrey"},  # Define color for NaN datas
+        categorical=True,  # Ensure the plot uses categorical colors
+        ax=axs[3],
+        color=gdf_clean['color']  # Use the custom colormap
+    )
+    #cx.add_basemap(axs[2], crs=gdf_glacier.crs, source=provider)
+    axs[3].set_title(f"Sentinel classes: {file_date.strftime('%Y-%m-%d')}")
+
+    # Manually add custom legend for the third plot
+    classes = [
+        'snow', 'firn / old snow / bright ice', 'clean ice', 'debris', 'cloud'
+    ]
+    handles = [
+        mpatches.Patch(color=color, label=classes[i])
+        for i, color in enumerate(colors_cat[:len(map)])
+    ]
+    axs[3].legend(handles=handles,
+                  title="Classes",
+                  bbox_to_anchor=(1.05, 1),
+                  loc='upper left')
+
+    # Show the plot with consistent colors
+    plt.tight_layout()
+    plt.show()
+
+
+def createRaster(input_raster):
+    # Open the raster
+    with rasterio.open(input_raster) as src:
+        data = src.read(1)  # Read first band
+        transform = src.transform
+        crs = src.crs
+
+    # Get indices of non-NaN values
+    rows, cols = np.where(data != src.nodata)
+    values = data[rows, cols]
+
+    # Convert raster cells to points
+    points = [
+        Point(transform * (col + 0.5, row + 0.5))
+        for row, col in zip(rows, cols)
+    ]
+
+    # Create GeoDataFrame
+    gdf_raster = gpd.GeoDataFrame({"data": values}, geometry=points, crs=crs)
+    return gdf_raster
+
+
+def snowCover(path_nc_wgs84, filename_nc):
+    # Open xarray:
+    ds_latlon = xr.open_dataset(path_nc_wgs84 + filename_nc)
+
+    # Smoothing
+    ds_latlon_g = GaussianFilter(ds_latlon)
+
+    # Convert to GeoPandas
+    gdf_glacier, lon, lat = toGeoPandas(ds_latlon_g)
+
+    # Make classification map of snow/ice:
+    # Replace values: below 0 with 3, above 0 with 1
+    gdf_class = gdf_glacier.copy()
+    tol = 0.1
+    gdf_class.loc[gdf_glacier['data'] <= 0 + tol, 'data'] = 3
+    gdf_class.loc[gdf_glacier['data'] > 0 + tol, 'data'] = 1
+
+    # Calculate percentage of snow cover (class 1)
+    snow_cover_glacier = gdf_class.data[gdf_class.data ==
+                                        1].count() / gdf_class.data.count()
+    ice_cover_glacier = gdf_class.data[gdf_class.data ==
+                                       3].count() / gdf_class.data.count()
+
+    return gdf_glacier, gdf_class, snow_cover_glacier, ice_cover_glacier
+
+def get_hydro_year_and_month(file_date):
+    if file_date.day >= 15:
+        # Move to the next month
+        file_date += timedelta(days=(30 - file_date.day + 1))  # Approximate to next month
+        
+    # Step 2: Determine the closest month
+    closest_month = file_date.strftime('%b').lower()  # Get the full name of the month
+    
+    # Step 3: Determine the hydrological year
+    # Hydrological year runs from September to August
+    if file_date.month >= 9:  # September, October, November, December
+        hydro_year = file_date.year + 1 # Assign to the next year
+    else:  # January to August
+        hydro_year = file_date.year  # Assign to the current year
+
+    
+    return closest_month, hydro_year
