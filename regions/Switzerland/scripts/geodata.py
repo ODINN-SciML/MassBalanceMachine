@@ -4,15 +4,10 @@ from cartopy import crs as ccrs, feature as cfeature
 import os
 from os import listdir
 from os.path import isfile, join
-import pandas as pd
-import re
 import xarray as xr
 from matplotlib.colors import to_hex
-import seaborn as sns
 import geopandas as gpd
 from shapely.geometry import Point, box
-import contextily as cx
-import geodatasets
 import rasterio
 from rasterio.transform import from_origin
 from rasterio.warp import calculate_default_transform, reproject, Resampling
@@ -20,11 +15,11 @@ from rasterio.merge import merge
 import glob
 from scipy.ndimage import gaussian_filter
 from scipy.spatial import cKDTree
-import matplotlib.colors as mcolors
-import matplotlib.patches as mpatches
-from datetime import datetime, timedelta
+from datetime import datetime
 from collections import defaultdict
 from dateutil.relativedelta import relativedelta
+from sklearn.neighbors import NearestNeighbors
+from scipy.stats import mode
 
 
 def toGeoPandas(ds):
@@ -346,131 +341,6 @@ def resampleRaster(gdf_glacier, gdf_raster):
     return gdf_clipped_res
 
 
-def plotClasses(gdf_glacier, gdf_class, gdf_class_corr, gdf_raster_res, axs,
-                gl_date, file_date):
-    # Define the colors for categories (ensure that your categories match the color list)
-    colors_cat = [
-        '#a6cee3', '#1f78b4', '#b2df8a', '#33a02c', '#fb9a99', '#e31a1c',
-        '#fdbf6f', '#ff7f00', '#cab2d6', '#6a3d9a', '#ffff99', '#b15928'
-    ]
-
-    # Manually map categories to colors (assuming categories 0-5 for example)
-    unique_cat = gdf_raster_res.data.unique()
-    # remove nan
-    unique_cat = unique_cat[~np.isnan(unique_cat)]
-    unique_cat.sort()
-    map = dict(
-        zip(unique_cat,
-            colors_cat[:6]))  # Adjust according to the number of categories
-
-    # Set up the basemap provider
-    API_KEY = "000378bd-b0f0-46e2-a46d-f2165b0c6c02"
-    provider = cx.providers.Stadia.StamenTerrain(api_key=API_KEY)
-    provider["url"] = provider["url"] + f"?api_key={API_KEY}"
-
-    # Plot the first figure (Mass balance)
-    vmin, vmax = gdf_glacier.data.min(), gdf_glacier.data.max()
-
-    # Determine the colormap and normalization
-    if vmin < 0 and vmax > 0:
-        norm = mcolors.TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
-        cmap = "RdBu"
-    elif vmin < 0 and vmax <= 0:
-        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
-        cmap = "Reds"
-    else:
-        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
-        cmap = "Blues"
-
-    gdf_clean = gdf_glacier.dropna(subset=["data"])
-    gdf_clean.plot(
-        column="data",  # Column to visualize
-        cmap=cmap,  # Color map suitable for glacier data
-        norm=norm,
-        legend=True,  # Display a legend
-        ax=axs[0],
-        markersize=5,  # Adjust size if points are too small or large
-        missing_kwds={"color": "lightgrey"}  # Define color for NaN datas
-    )
-    #cx.add_basemap(axs[0], crs=gdf_glacier.crs, source=provider)
-    axs[0].set_title(f"Mass balance: {gl_date}")
-
-    # Plot the second figure (MBM classes)
-    gdf_clean = gdf_class.dropna(subset=["data"])
-    gdf_clean['color'] = gdf_clean['data'].map(map)
-    # Plot with manually defined colormap
-    gdf_clean.plot(
-        column="data",  # Column to visualize
-        legend=True,  # Display a legend
-        markersize=5,  # Adjust size if points are too small or large
-        missing_kwds={"color": "lightgrey"},  # Define color for NaN datas
-        categorical=True,  # Ensure the plot uses categorical colors
-        ax=axs[1],
-        color=gdf_clean['color']  # Use the custom colormap
-    )
-
-    # calculate snow and ice cover
-    snow_cover_glacier, ice_cover_glacier = IceSnowCover(gdf_class)
-    AddSnowCover(ice_cover_glacier, snow_cover_glacier, axs[1])
-
-    #cx.add_basemap(axs[1], crs=gdf_glacier.crs, source=provider)
-    axs[1].set_title(f"MBM classes: {gl_date}")
-
-    # Plot the third figure (MBM classes corrected)
-    gdf_clean = gdf_class_corr.dropna(subset=["data"])
-    gdf_clean['color'] = gdf_clean['data'].map(map)
-    # Plot with manually defined colormap
-    gdf_clean.plot(
-        column="data",  # Column to visualize
-        legend=True,  # Display a legend
-        markersize=5,  # Adjust size if points are too small or large
-        missing_kwds={"color": "lightgrey"},  # Define color for NaN datas
-        categorical=True,  # Ensure the plot uses categorical colors
-        ax=axs[2],
-        color=gdf_clean['color']  # Use the custom colormap
-    )
-    # calculate snow and ice cover
-    snow_cover_glacier, ice_cover_glacier = IceSnowCover(gdf_class_corr)
-    AddSnowCover(ice_cover_glacier, snow_cover_glacier, axs[2])
-    #cx.add_basemap(axs[1], crs=gdf_glacier.crs, source=provider)
-    axs[2].set_title(f"MBM classes corr.: {gl_date}")
-
-    # Plot the fourth figure (Resampled Sentinel classes)
-    gdf_clean = gdf_raster_res.dropna(subset=["data"])
-    gdf_clean['color'] = gdf_clean['data'].map(map)
-    # Plot with manually defined colormap
-    gdf_clean.plot(
-        column="data",  # Column to visualize
-        legend=True,  # Display a legend
-        markersize=5,  # Adjust size if points are too small or large
-        missing_kwds={"color": "lightgrey"},  # Define color for NaN datas
-        categorical=True,  # Ensure the plot uses categorical colors
-        ax=axs[3],
-        color=gdf_clean['color']  # Use the custom colormap
-    )
-    # calculate snow and ice cover
-    snow_cover_glacier, ice_cover_glacier = IceSnowCover(gdf_raster_res)
-    AddSnowCover(ice_cover_glacier, snow_cover_glacier, axs[3])
-    #cx.add_basemap(axs[2], crs=gdf_glacier.crs, source=provider)
-    axs[3].set_title(f"Sentinel classes: {file_date.strftime('%Y-%m-%d')}")
-
-    # Manually add custom legend for the third plot
-    classes = [
-        'snow', 'firn / old snow / bright ice', 'clean ice', 'debris', 'cloud'
-    ]
-    handles = [
-        mpatches.Patch(color=color, label=classes[i])
-        for i, color in enumerate(colors_cat[:len(map)])
-    ]
-    axs[3].legend(handles=handles,
-                  title="Classes",
-                  bbox_to_anchor=(1.05, 1),
-                  loc='upper left')
-
-    # Show the plot with consistent colors
-    plt.tight_layout()
-    plt.show()
-
 
 def createRaster(input_raster):
     # Open the raster
@@ -571,130 +441,46 @@ def IceSnowCover(gdf_class):
     return snow_cover_glacier, ice_cover_glacier
 
 
-def AddSnowCover(ice_cover_glacier, snow_cover_glacier, ax):
-    # Custom legend for snow and ice cover
-    legend_labels = "\n".join(((f"Snow cover: {snow_cover_glacier*100:.2f}%"),
-                               (f"Ice cover: {ice_cover_glacier*100:.2f}%")))
 
-    props = dict(boxstyle='round', facecolor='white', alpha=0.5)
-    ax.text(0.03,
-            0.12,
-            legend_labels,
-            transform=ax.transAxes,
-            verticalalignment="top",
-            fontsize=12,
-            bbox=props)
-
-
-def plot_snow_cover_scatter(df):
+def replace_clouds_with_nearest_neighbor(gdf, class_column='data', cloud_class=5):
     """
-    Generate scatter plots of snow cover and corrected snow cover 
-    for each month in the dataset.
+    Replace cloud pixels in a GeoDataFrame with the most common class among their 
+    nearest neighbors, excluding NaN values.
 
     Parameters:
-    - df (pd.DataFrame): DataFrame containing the data. Must have columns:
-      'monthNb', 'snow_cover_raster', 'snow_cover_glacier',
-      'snow_cover_glacier_corr', and 'glacier_name'.
+    - gdf (GeoDataFrame): GeoPandas DataFrame containing pixel data with a geometry column.
+    - class_column (str): The column name representing the class of each pixel (integer classes).
+    - cloud_class (int): The class to be replaced (e.g., 1 for cloud).
+    - n_neighbors (int): The number of nearest neighbors to consider for majority voting.
 
     Returns:
-    - fig, axs: Matplotlib figure and axes objects for further customization.
+    - GeoDataFrame: Updated GeoDataFrame with cloud classes replaced.
     """
-    # Number of unique months
-    N_months = len(df['month'].unique())
+    # Separate cloud pixels and non-cloud pixels
+    cloud_pixels = gdf[gdf[class_column] == cloud_class]
+    non_cloud_pixels = gdf[gdf[class_column] != cloud_class]
+    
+    # Remove NaN values from non-cloud pixels
+    non_cloud_pixels = non_cloud_pixels[non_cloud_pixels[class_column].notna()]
 
-    # Create a grid of subplots
-    fig, axs = plt.subplots(N_months, 2, figsize=(10, 15), squeeze=False)
+    # If no clouds or no non-NaN non-cloud pixels, return the original GeoDataFrame
+    if cloud_pixels.empty or non_cloud_pixels.empty:
+        return gdf
 
-    # Get sorted unique months
-    months = np.sort(df['monthNb'].unique())
+    # Extract coordinates for nearest-neighbor search
+    cloud_coords = np.array(list(cloud_pixels.geometry.apply(lambda geom: (geom.x, geom.y))))
+    non_cloud_coords = np.array(list(non_cloud_pixels.geometry.apply(lambda geom: (geom.x, geom.y))))
 
-    # Loop over each month
-    for i, monthNb in enumerate(months):
-        # Subset data for the current month
-        df_month = df[df['monthNb'] == monthNb]
+    # Perform nearest-neighbor search
+    nbrs = NearestNeighbors(n_neighbors=1, algorithm='auto').fit(non_cloud_coords)
+    distances, indices = nbrs.kneighbors(cloud_coords)
 
-        # Left column: scatter plot of snow cover
-        ax = axs[i, 0]
-        sns.scatterplot(data=df_month,
-                        x='snow_cover_raster',
-                        y='snow_cover_glacier',
-                        marker='o',
-                        hue='glacierName',
-                        ax=ax)
-        x = np.linspace(0, 1, 100)
-        ax.plot(x, x, 'k--')  # Identity line
-        ax.set_title(f'Snow cover: {df_month["month"].values[0]}')
-        ax.get_legend().remove()  # Remove legend
+    # Map nearest neighbor's class to cloud pixels
+    nearest_classes = non_cloud_pixels.iloc[indices.flatten()][class_column].values
+    gdf.loc[cloud_pixels.index, class_column] = nearest_classes
 
-        # Right column: scatter plot of corrected snow cover
-        ax = axs[i, 1]
-        sns.scatterplot(data=df_month,
-                        x='snow_cover_raster',
-                        y='snow_cover_glacier_corr',
-                        marker='o',
-                        hue='glacierName',
-                        ax=ax)
-        ax.plot(x, x, 'k--')  # Identity line
-        ax.set_title(f'Snow cover corr: {df_month["month"].values[0]}')
-        ax.get_legend().remove()  # Remove legend
-
-    # Adjust layout for better spacing
-    plt.tight_layout()
-
-    return fig, axs
+    return gdf
 
 
-def plot_snow_cover_geoplots(raster_res, path_S2, month_abbr_hydr):
-    """
-    Plot geoplots of snow cover for a given raster file.
 
-    Parameters:
-    - raster_res (str): The name of the raster file to process.
-    - path_S2 (str): Path to the directory containing the satellite rasters.
-    - get_hydro_year_and_month (function): Function to determine the hydrological year and month from a date.
-    - month_abbr_hydr (dict): Mapping of hydrological months to their abbreviated names.
-    - IceSnowCover (function): Function to calculate snow and ice cover from a GeoDataFrame.
-    - snowCover (function): Function to load mass-balance predictions and calculate snow cover corrections.
-    - plotClasses (function): Function to create the plots.
-    """
-    # Extract glacier name
-    glacierName = raster_res.split('_')[0]
 
-    # Extract date from satellite raster
-    match = re.search(r"(\d{4})_(\d{2})_(\d{2})", raster_res)
-    if not match:
-        raise ValueError(f"Invalid raster filename format: {raster_res}")
-
-    year, month, day = match.groups()
-    date_str = f"{year}-{month}-{day}"
-    raster_date = datetime.strptime(date_str, "%Y-%m-%d")
-
-    # Find closest hydrological year and month
-    closest_month, hydro_year = get_hydro_year_and_month(raster_date)
-    monthNb = month_abbr_hydr[closest_month]
-
-    # Skip if the hydrological year is out of range
-    if hydro_year > 2021:
-        return
-
-    # Read satellite raster over glacier
-    raster_path = os.path.join(path_S2, 'perglacier', raster_res)
-    gdf_raster_res = gpd.read_file(raster_path)
-
-    # Load MB predictions for that year and month
-    path_nc_wgs84 = f"results/nc/var_normal/{glacierName}/wgs84/"
-    path_nc_wgs84_corr = f"results/nc/var_corr/{glacierName}/wgs84/"
-    filename_nc = f"{glacierName}_{hydro_year}_{monthNb}.nc"
-
-    # Corrected T and P
-    gdf_glacier, gdf_class_corr, snow_cover_glacier_corr, ice_cover_glacier_corr = snowCover(
-        path_nc_wgs84_corr, filename_nc)
-    gdf_glacier, gdf_class, snow_cover_glacier, ice_cover_glacier = snowCover(
-        path_nc_wgs84, filename_nc)
-
-    # Plot the results
-    gl_date = f"{hydro_year}-{closest_month}"
-    fig, axs = plt.subplots(1, 4, figsize=(20, 5))
-    plotClasses(gdf_glacier, gdf_class, gdf_class_corr, gdf_raster_res, axs,
-                gl_date, raster_date)
-    plt.show()
