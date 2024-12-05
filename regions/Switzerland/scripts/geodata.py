@@ -23,6 +23,8 @@ from scipy.spatial import cKDTree
 import matplotlib.colors as mcolors
 import matplotlib.patches as mpatches
 from datetime import datetime, timedelta
+from collections import defaultdict
+from dateutil.relativedelta import relativedelta
 
 
 def toGeoPandas(ds):
@@ -288,20 +290,23 @@ def resampleRaster(gdf_glacier, gdf_raster):
     # Step 1: Get the bounding box of the points GeoDataFrame
     bounding_box = gdf_glacier.total_bounds  # [minx, miny, maxx, maxy]
     raster_bounds = gdf_raster.total_bounds  # [minx, miny, maxx, maxy]
-    
+
     # Problem 1: check if glacier bounds are within raster bounds
-    if not (
-        bounding_box[0] >= raster_bounds[0] and  # minx of glacier >= minx of raster
-        bounding_box[1] >= raster_bounds[1] and  # miny of glacier >= miny of raster
-        bounding_box[2] <= raster_bounds[2] and  # maxx of glacier <= maxx of raster
-        bounding_box[3] <= raster_bounds[3]     # maxy of glacier <= maxy of raster
-    ):
+    if not (bounding_box[0] >= raster_bounds[0]
+            and  # minx of glacier >= minx of raster
+            bounding_box[1] >= raster_bounds[1]
+            and  # miny of glacier >= miny of raster
+            bounding_box[2] <= raster_bounds[2]
+            and  # maxx of glacier <= maxx of raster
+            bounding_box[3]
+            <= raster_bounds[3]  # maxy of glacier <= maxy of raster
+            ):
         return 0
-    
+
     # Step 2: Create a rectangular geometry from the bounding box
     bbox_polygon = box(*bounding_box)
-    
-    # Problem 2: Glacier is in regions where raster is NaN 
+
+    # Problem 2: Glacier is in regions where raster is NaN
     gdf_clipped = gpd.clip(gdf_raster, bbox_polygon)
     if gdf_clipped.empty:
         return 1
@@ -341,7 +346,8 @@ def resampleRaster(gdf_glacier, gdf_raster):
     return gdf_clipped_res
 
 
-def plotClasses(gdf_glacier, gdf_class, gdf_class_corr, gdf_raster_res, axs, gl_date, file_date):
+def plotClasses(gdf_glacier, gdf_class, gdf_class_corr, gdf_raster_res, axs,
+                gl_date, file_date):
     # Define the colors for categories (ensure that your categories match the color list)
     colors_cat = [
         '#a6cee3', '#1f78b4', '#b2df8a', '#33a02c', '#fb9a99', '#e31a1c',
@@ -364,16 +370,22 @@ def plotClasses(gdf_glacier, gdf_class, gdf_class_corr, gdf_raster_res, axs, gl_
 
     # Plot the first figure (Mass balance)
     vmin, vmax = gdf_glacier.data.min(), gdf_glacier.data.max()
+
+    # Determine the colormap and normalization
     if vmin < 0 and vmax > 0:
         norm = mcolors.TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
-    if vmin < 0 and vmax <= 0:
-        norm = mcolors.TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=0.5)
+        cmap = "RdBu"
+    elif vmin < 0 and vmax <= 0:
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+        cmap = "Reds"
     else:
-        norm = mcolors.TwoSlopeNorm(vmin=0, vcenter=vmin, vmax=vmax)
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+        cmap = "Blues"
+
     gdf_clean = gdf_glacier.dropna(subset=["data"])
     gdf_clean.plot(
         column="data",  # Column to visualize
-        cmap="RdBu",  # Color map suitable for glacier data
+        cmap=cmap,  # Color map suitable for glacier data
         norm=norm,
         legend=True,  # Display a legend
         ax=axs[0],
@@ -396,9 +408,14 @@ def plotClasses(gdf_glacier, gdf_class, gdf_class_corr, gdf_raster_res, axs, gl_
         ax=axs[1],
         color=gdf_clean['color']  # Use the custom colormap
     )
+
+    # calculate snow and ice cover
+    snow_cover_glacier, ice_cover_glacier = IceSnowCover(gdf_class)
+    AddSnowCover(ice_cover_glacier, snow_cover_glacier, axs[1])
+
     #cx.add_basemap(axs[1], crs=gdf_glacier.crs, source=provider)
     axs[1].set_title(f"MBM classes: {gl_date}")
-    
+
     # Plot the third figure (MBM classes corrected)
     gdf_clean = gdf_class_corr.dropna(subset=["data"])
     gdf_clean['color'] = gdf_clean['data'].map(map)
@@ -412,6 +429,9 @@ def plotClasses(gdf_glacier, gdf_class, gdf_class_corr, gdf_raster_res, axs, gl_
         ax=axs[2],
         color=gdf_clean['color']  # Use the custom colormap
     )
+    # calculate snow and ice cover
+    snow_cover_glacier, ice_cover_glacier = IceSnowCover(gdf_class_corr)
+    AddSnowCover(ice_cover_glacier, snow_cover_glacier, axs[2])
     #cx.add_basemap(axs[1], crs=gdf_glacier.crs, source=provider)
     axs[2].set_title(f"MBM classes corr.: {gl_date}")
 
@@ -428,6 +448,9 @@ def plotClasses(gdf_glacier, gdf_class, gdf_class_corr, gdf_raster_res, axs, gl_
         ax=axs[3],
         color=gdf_clean['color']  # Use the custom colormap
     )
+    # calculate snow and ice cover
+    snow_cover_glacier, ice_cover_glacier = IceSnowCover(gdf_raster_res)
+    AddSnowCover(ice_cover_glacier, snow_cover_glacier, axs[3])
     #cx.add_basemap(axs[2], crs=gdf_glacier.crs, source=provider)
     axs[3].set_title(f"Sentinel classes: {file_date.strftime('%Y-%m-%d')}")
 
@@ -488,28 +511,190 @@ def snowCover(path_nc_wgs84, filename_nc):
     gdf_class.loc[gdf_glacier['data'] <= 0 + tol, 'data'] = 3
     gdf_class.loc[gdf_glacier['data'] > 0 + tol, 'data'] = 1
 
+    snow_cover_glacier, ice_cover_glacier = IceSnowCover(gdf_class)
+
+    return gdf_glacier, gdf_class, snow_cover_glacier, ice_cover_glacier
+
+
+def get_hydro_year_and_month(file_date):
+    if file_date.day < 15:
+        # Move to the first day of the previous month
+        file_date -= relativedelta(months=1)  # Move to the previous month
+        file_date = file_date.replace(
+            day=1)  # Set the day to the 1st of the previous month
+    else:
+        # Move to the first day of the current month
+        file_date = file_date.replace(
+            day=1)  # Set the day to the 1st of the current month
+
+    # Step 2: Determine the closest month
+    closest_month = file_date.strftime(
+        '%b').lower()  # Get the full name of the month
+
+    # Step 3: Determine the hydrological year
+    # Hydrological year runs from September to August
+    if file_date.month >= 9:  # September, October, November, December
+        hydro_year = file_date.year + 1  # Assign to the next year
+    else:  # January to August
+        hydro_year = file_date.year  # Assign to the current year
+
+    return closest_month, hydro_year
+
+
+def organize_rasters_by_hydro_year(path_S2, satellite_years):
+    rasters = defaultdict(
+        lambda: defaultdict(list))  # Nested dictionary for years and months
+
+    for year in satellite_years:
+        folder_path = os.path.join(path_S2, str(year))
+        for f in os.listdir(folder_path):
+            if f.endswith(".tif"):  # Only process raster files
+                # Step 1: Extract the date from the string
+                date_str = f.split(
+                    '_')[3][:8]  # Extract the 8-digit date (YYYYMMDD)
+                file_date = datetime.strptime(
+                    date_str, "%Y%m%d")  # Convert to datetime object
+
+                closest_month, hydro_year = get_hydro_year_and_month(file_date)
+                if hydro_year < 2022:
+                    rasters[hydro_year][closest_month].append(f)
+
+    return rasters
+
+
+def IceSnowCover(gdf_class):
     # Calculate percentage of snow cover (class 1)
     snow_cover_glacier = gdf_class.data[gdf_class.data ==
                                         1].count() / gdf_class.data.count()
     ice_cover_glacier = gdf_class.data[gdf_class.data ==
                                        3].count() / gdf_class.data.count()
+    return snow_cover_glacier, ice_cover_glacier
 
-    return gdf_glacier, gdf_class, snow_cover_glacier, ice_cover_glacier
 
-def get_hydro_year_and_month(file_date):
-    if file_date.day >= 15:
-        # Move to the next month
-        file_date += timedelta(days=(30 - file_date.day + 1))  # Approximate to next month
-        
-    # Step 2: Determine the closest month
-    closest_month = file_date.strftime('%b').lower()  # Get the full name of the month
-    
-    # Step 3: Determine the hydrological year
-    # Hydrological year runs from September to August
-    if file_date.month >= 9:  # September, October, November, December
-        hydro_year = file_date.year + 1 # Assign to the next year
-    else:  # January to August
-        hydro_year = file_date.year  # Assign to the current year
+def AddSnowCover(ice_cover_glacier, snow_cover_glacier, ax):
+    # Custom legend for snow and ice cover
+    legend_labels = "\n".join(((f"Snow cover: {snow_cover_glacier*100:.2f}%"),
+                               (f"Ice cover: {ice_cover_glacier*100:.2f}%")))
 
-    
-    return closest_month, hydro_year
+    props = dict(boxstyle='round', facecolor='white', alpha=0.5)
+    ax.text(0.03,
+            0.12,
+            legend_labels,
+            transform=ax.transAxes,
+            verticalalignment="top",
+            fontsize=12,
+            bbox=props)
+
+
+def plot_snow_cover_scatter(df):
+    """
+    Generate scatter plots of snow cover and corrected snow cover 
+    for each month in the dataset.
+
+    Parameters:
+    - df (pd.DataFrame): DataFrame containing the data. Must have columns:
+      'monthNb', 'snow_cover_raster', 'snow_cover_glacier',
+      'snow_cover_glacier_corr', and 'glacier_name'.
+
+    Returns:
+    - fig, axs: Matplotlib figure and axes objects for further customization.
+    """
+    # Number of unique months
+    N_months = len(df['month'].unique())
+
+    # Create a grid of subplots
+    fig, axs = plt.subplots(N_months, 2, figsize=(10, 15), squeeze=False)
+
+    # Get sorted unique months
+    months = np.sort(df['monthNb'].unique())
+
+    # Loop over each month
+    for i, monthNb in enumerate(months):
+        # Subset data for the current month
+        df_month = df[df['monthNb'] == monthNb]
+
+        # Left column: scatter plot of snow cover
+        ax = axs[i, 0]
+        sns.scatterplot(data=df_month,
+                        x='snow_cover_raster',
+                        y='snow_cover_glacier',
+                        marker='o',
+                        hue='glacierName',
+                        ax=ax)
+        x = np.linspace(0, 1, 100)
+        ax.plot(x, x, 'k--')  # Identity line
+        ax.set_title(f'Snow cover: {df_month["month"].values[0]}')
+        ax.get_legend().remove()  # Remove legend
+
+        # Right column: scatter plot of corrected snow cover
+        ax = axs[i, 1]
+        sns.scatterplot(data=df_month,
+                        x='snow_cover_raster',
+                        y='snow_cover_glacier_corr',
+                        marker='o',
+                        hue='glacierName',
+                        ax=ax)
+        ax.plot(x, x, 'k--')  # Identity line
+        ax.set_title(f'Snow cover corr: {df_month["month"].values[0]}')
+        ax.get_legend().remove()  # Remove legend
+
+    # Adjust layout for better spacing
+    plt.tight_layout()
+
+    return fig, axs
+
+
+def plot_snow_cover_geoplots(raster_res, path_S2, month_abbr_hydr):
+    """
+    Plot geoplots of snow cover for a given raster file.
+
+    Parameters:
+    - raster_res (str): The name of the raster file to process.
+    - path_S2 (str): Path to the directory containing the satellite rasters.
+    - get_hydro_year_and_month (function): Function to determine the hydrological year and month from a date.
+    - month_abbr_hydr (dict): Mapping of hydrological months to their abbreviated names.
+    - IceSnowCover (function): Function to calculate snow and ice cover from a GeoDataFrame.
+    - snowCover (function): Function to load mass-balance predictions and calculate snow cover corrections.
+    - plotClasses (function): Function to create the plots.
+    """
+    # Extract glacier name
+    glacierName = raster_res.split('_')[0]
+
+    # Extract date from satellite raster
+    match = re.search(r"(\d{4})_(\d{2})_(\d{2})", raster_res)
+    if not match:
+        raise ValueError(f"Invalid raster filename format: {raster_res}")
+
+    year, month, day = match.groups()
+    date_str = f"{year}-{month}-{day}"
+    raster_date = datetime.strptime(date_str, "%Y-%m-%d")
+
+    # Find closest hydrological year and month
+    closest_month, hydro_year = get_hydro_year_and_month(raster_date)
+    monthNb = month_abbr_hydr[closest_month]
+
+    # Skip if the hydrological year is out of range
+    if hydro_year > 2021:
+        return
+
+    # Read satellite raster over glacier
+    raster_path = os.path.join(path_S2, 'perglacier', raster_res)
+    gdf_raster_res = gpd.read_file(raster_path)
+
+    # Load MB predictions for that year and month
+    path_nc_wgs84 = f"results/nc/var_normal/{glacierName}/wgs84/"
+    path_nc_wgs84_corr = f"results/nc/var_corr/{glacierName}/wgs84/"
+    filename_nc = f"{glacierName}_{hydro_year}_{monthNb}.nc"
+
+    # Corrected T and P
+    gdf_glacier, gdf_class_corr, snow_cover_glacier_corr, ice_cover_glacier_corr = snowCover(
+        path_nc_wgs84_corr, filename_nc)
+    gdf_glacier, gdf_class, snow_cover_glacier, ice_cover_glacier = snowCover(
+        path_nc_wgs84, filename_nc)
+
+    # Plot the results
+    gl_date = f"{hydro_year}-{closest_month}"
+    fig, axs = plt.subplots(1, 4, figsize=(20, 5))
+    plotClasses(gdf_glacier, gdf_class, gdf_class_corr, gdf_raster_res, axs,
+                gl_date, raster_date)
+    plt.show()
