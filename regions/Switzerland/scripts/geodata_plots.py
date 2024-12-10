@@ -81,7 +81,7 @@ def plotClasses(gdf_glacier, gdf_glacier_corr, gdf_raster_res, axs,
 
     # calculate snow and ice cover
     snow_cover_glacier, ice_cover_glacier = IceSnowCover(gdf_glacier)
-    AddSnowCover(ice_cover_glacier, snow_cover_glacier, axs[1])
+    AddSnowCover(snow_cover_glacier, axs[1])
 
     #cx.add_basemap(axs[1], crs=gdf_glacier.crs, source=provider)
     axs[1].set_title(f"MBM: {gl_date}")
@@ -101,7 +101,7 @@ def plotClasses(gdf_glacier, gdf_glacier_corr, gdf_raster_res, axs,
     )
     # calculate snow and ice cover
     snow_cover_glacier, ice_cover_glacier = IceSnowCover(gdf_glacier_corr)
-    AddSnowCover(ice_cover_glacier, snow_cover_glacier, axs[2])
+    AddSnowCover(snow_cover_glacier, axs[2])
     
     #cx.add_basemap(axs[1], crs=gdf_glacier.crs, source=provider)
     axs[2].set_title(f"MBM corr.: {gl_date}")
@@ -121,7 +121,7 @@ def plotClasses(gdf_glacier, gdf_glacier_corr, gdf_raster_res, axs,
     )
     # calculate snow and ice cover
     snow_cover_glacier, ice_cover_glacier = IceSnowCover(gdf_raster_res)
-    AddSnowCover(ice_cover_glacier, snow_cover_glacier, axs[3])
+    AddSnowCover(snow_cover_glacier, axs[3])
     #cx.add_basemap(axs[2], crs=gdf_glacier.crs, source=provider)
     axs[3].set_title(f"Sentinel: {file_date.strftime('%Y-%m-%d')}")
 
@@ -141,7 +141,7 @@ def plotClasses(gdf_glacier, gdf_glacier_corr, gdf_raster_res, axs,
     )
     # calculate snow and ice cover
     snow_cover_glacier, ice_cover_glacier = IceSnowCover(updated_gdf)
-    AddSnowCover(ice_cover_glacier, snow_cover_glacier, axs[4])
+    AddSnowCover(snow_cover_glacier, axs[4])
     #cx.add_basemap(axs[2], crs=gdf_glacier.crs, source=provider)
     axs[4].set_title(f"Sentinel w/o clouds: {file_date.strftime('%Y-%m-%d')}")
     
