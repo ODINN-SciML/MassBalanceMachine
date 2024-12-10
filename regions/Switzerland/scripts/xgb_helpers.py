@@ -170,26 +170,34 @@ def getDfAggregatePred(test_set, y_pred_agg, all_columns):
 
     return grouped_ids
 
-def correctTP(df_grid_monthly):
-    # Add corrected temperature and prec:
-    c_prec = 1.41    # correction factor
-    df_grid_monthly['tp_fac'] = df_grid_monthly['tp'] * c_prec  # correction factor
-
-    # correct for stake elevation
+def correctTP(df_grid_monthly, c_prec, t_off):
+    # Add corrected temperature and precipitation:
     temp_grad = -6.5 / 1000  # [deg/1000m]
-    dpdz = 1.5 / 10000  # % increase/100m constant for now changed to unit/m
-    df_grid_monthly['tp_corr'] = df_grid_monthly['tp'] * c_prec  # correction factor
-    df_grid_monthly['tp_corr'] = df_grid_monthly['tp_corr'] + df_grid_monthly['tp_corr'] * (
-        df_grid_monthly['ELEVATION_DIFFERENCE']) * dpdz
+    dpdz = 1.5 / 10000  # Percentage increase per 100m
 
+    # Apply different correction factor for each GLACIER based on the c_prec dictionary
+    df_grid_monthly['tp_corr'] = df_grid_monthly.apply(
+        lambda row: row['tp'] * c_prec.get(row['GLACIER'], 1), axis=1)
+
+    # Apply the elevation correction factor
+    df_grid_monthly['tp_corr'] = df_grid_monthly['tp_corr'] + df_grid_monthly[
+        'tp_corr'] * (df_grid_monthly['ELEVATION_DIFFERENCE'] * dpdz)
+
+    # Temperature gradient correction
     df_grid_monthly['t2m_corr'] = df_grid_monthly['t2m'] + (
         df_grid_monthly['ELEVATION_DIFFERENCE']) * temp_grad
+
+    # Temperature bias offset
+    df_grid_monthly['t2m_corr'] = df_grid_monthly.apply(
+        lambda row: row['t2m_corr'] + t_off.get(row['GLACIER'], 1), axis=1)
+
     return df_grid_monthly
 
 def GlacierWidePred(custom_model,
                     glacierName,
                     vois_climate,
                     vois_topographical,
+                    c_prec, t_off,
                     type_pred='annual'):
     # Feature columns:
     feature_columns = [
@@ -204,7 +212,8 @@ def GlacierWidePred(custom_model,
     df_grid_monthly['GLACIER'] = glacierName
     df_grid_monthly['POINT_ELEVATION'] = df_grid_monthly['topo']
     
-    df_grid_monthly = correctTP(df_grid_monthly)
+    df_grid_monthly = correctTP(
+            df_grid_monthly, c_prec, t_off)
     
     df_grid_monthly = df_grid_monthly[all_columns]
 
