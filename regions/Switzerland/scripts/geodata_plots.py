@@ -16,7 +16,7 @@ from datetime import datetime
 from scripts.geodata import *
 
 
-def plotClasses(gdf_glacier, gdf_class, gdf_class_corr, gdf_raster_res, axs,
+def plotClasses(gdf_glacier, gdf_glacier_corr, gdf_raster_res, axs,
                 gl_date, file_date):
     # Define the colors for categories (ensure that your categories match the color list)
     colors_cat = ['#a6cee3', '#1f78b4', '#8da0cb', '#b2df8a', '#fb9a99']
@@ -39,7 +39,7 @@ def plotClasses(gdf_glacier, gdf_class, gdf_class_corr, gdf_raster_res, axs,
     provider["url"] = provider["url"] + f"?api_key={API_KEY}"
 
     # Plot the first figure (Mass balance)
-    vmin, vmax = gdf_glacier.data.min(), gdf_glacier.data.max()
+    vmin, vmax = gdf_glacier.pred_masked.min(), gdf_glacier.pred_masked.max()
 
     # Determine the colormap and normalization
     if vmin < 0 and vmax > 0:
@@ -52,9 +52,9 @@ def plotClasses(gdf_glacier, gdf_class, gdf_class_corr, gdf_raster_res, axs,
         norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
         cmap = "Blues"
 
-    gdf_clean = gdf_glacier.dropna(subset=["data"])
+    gdf_clean = gdf_glacier.dropna(subset=["pred_masked"])
     gdf_clean.plot(
-        column="data",  # Column to visualize
+        column="pred_masked",  # Column to visualize
         cmap=cmap,  # Color map suitable for glacier data
         norm=norm,
         legend=True,  # Display a legend
@@ -66,11 +66,11 @@ def plotClasses(gdf_glacier, gdf_class, gdf_class_corr, gdf_raster_res, axs,
     axs[0].set_title(f"Mass balance: {gl_date}")
 
     # Plot the second figure (MBM classes)
-    gdf_clean = gdf_class.dropna(subset=["data"])
-    gdf_clean['color'] = gdf_clean['data'].map(map)
+    gdf_clean = gdf_glacier.dropna(subset=["classes"])
+    gdf_clean['color'] = gdf_clean['classes'].map(map)
     # Plot with manually defined colormap
     gdf_clean.plot(
-        column="data",  # Column to visualize
+        column="classes",  # Column to visualize
         legend=True,  # Display a legend
         markersize=5,  # Adjust size if points are too small or large
         missing_kwds={"color": "lightgrey"},  # Define color for NaN datas
@@ -80,18 +80,18 @@ def plotClasses(gdf_glacier, gdf_class, gdf_class_corr, gdf_raster_res, axs,
     )
 
     # calculate snow and ice cover
-    snow_cover_glacier, ice_cover_glacier = IceSnowCover(gdf_class)
+    snow_cover_glacier, ice_cover_glacier = IceSnowCover(gdf_glacier)
     AddSnowCover(ice_cover_glacier, snow_cover_glacier, axs[1])
 
     #cx.add_basemap(axs[1], crs=gdf_glacier.crs, source=provider)
     axs[1].set_title(f"MBM: {gl_date}")
 
     # Plot the third figure (MBM classes corrected)
-    gdf_clean = gdf_class_corr.dropna(subset=["data"])
-    gdf_clean['color'] = gdf_clean['data'].map(map)
+    gdf_clean = gdf_glacier_corr.dropna(subset=["classes"])
+    gdf_clean['color'] = gdf_clean['classes'].map(map)
     # Plot with manually defined colormap
     gdf_clean.plot(
-        column="data",  # Column to visualize
+        column="classes",  # Column to visualize
         legend=True,  # Display a legend
         markersize=5,  # Adjust size if points are too small or large
         missing_kwds={"color": "lightgrey"},  # Define color for NaN datas
@@ -100,17 +100,18 @@ def plotClasses(gdf_glacier, gdf_class, gdf_class_corr, gdf_raster_res, axs,
         color=gdf_clean['color']  # Use the custom colormap
     )
     # calculate snow and ice cover
-    snow_cover_glacier, ice_cover_glacier = IceSnowCover(gdf_class_corr)
+    snow_cover_glacier, ice_cover_glacier = IceSnowCover(gdf_glacier_corr)
     AddSnowCover(ice_cover_glacier, snow_cover_glacier, axs[2])
+    
     #cx.add_basemap(axs[1], crs=gdf_glacier.crs, source=provider)
     axs[2].set_title(f"MBM corr.: {gl_date}")
 
     # Plot the fourth figure (Resampled Sentinel classes)
-    gdf_clean = gdf_raster_res.dropna(subset=["data"])
-    gdf_clean['color'] = gdf_clean['data'].map(map)
+    gdf_clean = gdf_raster_res.dropna(subset=["classes"])
+    gdf_clean['color'] = gdf_clean['classes'].map(map)
     # Plot with manually defined colormap
     gdf_clean.plot(
-        column="data",  # Column to visualize
+        column="classes",  # Column to visualize
         legend=True,  # Display a legend
         markersize=5,  # Adjust size if points are too small or large
         missing_kwds={"color": "lightgrey"},  # Define color for NaN datas
@@ -125,12 +126,12 @@ def plotClasses(gdf_glacier, gdf_class, gdf_class_corr, gdf_raster_res, axs,
     axs[3].set_title(f"Sentinel: {file_date.strftime('%Y-%m-%d')}")
 
     # Plot the fourth figure (Resampled Sentinel classes with NN)
-    updated_gdf = replace_clouds_with_nearest_neighbor(gdf_raster_res, class_column='data', cloud_class=5)
-    gdf_clean = updated_gdf.dropna(subset=["data"])
-    gdf_clean['color'] = gdf_clean['data'].map(map)
+    updated_gdf = replace_clouds_with_nearest_neighbor(gdf_raster_res, class_column='classes', cloud_class=5)
+    gdf_clean = updated_gdf.dropna(subset=["classes"])
+    gdf_clean['color'] = gdf_clean['classes'].map(map)
     # Plot with manually defined colormap
     gdf_clean.plot(
-        column="data",  # Column to visualize
+        column="classes",  # Column to visualize
         legend=True,  # Display a legend
         markersize=5,  # Adjust size if points are too small or large
         missing_kwds={"color": "lightgrey"},  # Define color for NaN datas
@@ -139,12 +140,10 @@ def plotClasses(gdf_glacier, gdf_class, gdf_class_corr, gdf_raster_res, axs,
         color=gdf_clean['color']  # Use the custom colormap
     )
     # calculate snow and ice cover
-    snow_cover_glacier, ice_cover_glacier = IceSnowCover(gdf_raster_res)
+    snow_cover_glacier, ice_cover_glacier = IceSnowCover(updated_gdf)
     AddSnowCover(ice_cover_glacier, snow_cover_glacier, axs[4])
     #cx.add_basemap(axs[2], crs=gdf_glacier.crs, source=provider)
     axs[4].set_title(f"Sentinel w/o clouds: {file_date.strftime('%Y-%m-%d')}")
-    
-    
     
     # Manually add custom legend for the third plot
     handles = [
@@ -161,14 +160,14 @@ def plotClasses(gdf_glacier, gdf_class, gdf_class_corr, gdf_raster_res, axs,
     plt.show()
 
 
-def AddSnowCover(ice_cover_glacier, snow_cover_glacier, ax):
+def AddSnowCover(snow_cover_glacier, ax):
     # Custom legend for snow and ice cover
-    legend_labels = "\n".join(((f"Snow cover: {snow_cover_glacier*100:.2f}%"),
-                               (f"Ice cover: {ice_cover_glacier*100:.2f}%")))
+    legend_labels = "\n".join(((f"Snow cover: {snow_cover_glacier*100:.2f}%"),))
+                            #    (f"Ice cover: {ice_cover_glacier*100:.2f}%")))
 
-    props = dict(boxstyle='round', facecolor='white', alpha=0.5)
+    props = dict(boxstyle='round', facecolor='white', alpha=0.7)
     ax.text(0.03,
-            0.12,
+            0.08,
             legend_labels,
             transform=ax.transAxes,
             verticalalignment="top",
@@ -193,7 +192,7 @@ def plot_snow_cover_scatter(df):
     N_months = len(df['month'].unique())
 
     # Create a grid of subplots
-    fig, axs = plt.subplots(N_months, 2, figsize=(10, 15), squeeze=False)
+    fig, axs = plt.subplots(2, N_months, figsize=(15, 8), squeeze=False)
 
     # Get sorted unique months
     months = np.sort(df['monthNb'].unique())
@@ -204,7 +203,7 @@ def plot_snow_cover_scatter(df):
         df_month = df[df['monthNb'] == monthNb]
 
         # Left column: scatter plot of snow cover
-        ax = axs[i, 0]
+        ax = axs[0, i]
         sns.scatterplot(data=df_month,
                         x='snow_cover_raster',
                         y='snow_cover_glacier',
@@ -219,7 +218,7 @@ def plot_snow_cover_scatter(df):
         ax.get_legend().remove()  # Remove legend
 
         # Right column: scatter plot of corrected snow cover
-        ax = axs[i, 1]
+        ax = axs[1, i]
         sns.scatterplot(data=df_month,
                         x='snow_cover_raster',
                         y='snow_cover_glacier_corr',
@@ -242,7 +241,7 @@ def plot_snow_cover_scatter(df):
                title="Glacier Name")
 
     # Adjust layout for better spacing
-    plt.tight_layout(rect=[0, 0.05, 1,
+    plt.tight_layout(rect=[0, 0.08, 1,
                            1])  # Leave space at the bottom for the legend
 
     return fig, axs
@@ -290,7 +289,7 @@ def plot_snow_cover_geoplots(raster_res, path_S2, month_abbr_hydr):
     path_nc_wgs84_corr = f"results/nc/var_corr/{glacierName}/wgs84/"
     filename_nc = f"{glacierName}_{hydro_year}_{monthNb}.nc"
 
-    # Corrected T and P
+    # Calculate snow and ice cover
     gdf_glacier, gdf_class_corr, snow_cover_glacier_corr, ice_cover_glacier_corr = snowCover(
         path_nc_wgs84_corr, filename_nc)
     gdf_glacier, gdf_class, snow_cover_glacier, ice_cover_glacier = snowCover(
@@ -317,16 +316,6 @@ def plot_snow_cover_scatter_combined(df):
     Returns:
     - fig, axs: Matplotlib figure and axes objects for further customization.
     """
-    # Set global font sizes
-    plt.rcParams.update({
-        'axes.titlesize': 16,
-        'axes.labelsize': 14,
-        'xtick.labelsize': 12,
-        'ytick.labelsize': 12,
-        'legend.fontsize': 12,
-        'figure.titleweight': 'bold',
-        'legend.title_fontsize': 14
-    })
 
     # Create a figure with two subplots
     fig, axs = plt.subplots(1, 2, figsize=(15, 7))
@@ -339,7 +328,7 @@ def plot_snow_cover_scatter_combined(df):
                     marker='o',
                     style='month',
                     ax=ax,
-                    s=100)
+                    s=200)
     x = np.linspace(0, 1, 100)
     ax.plot(x, x, 'k--')  # Identity line
     ax.set_xlabel('Sentinel-2', fontsize=14)
@@ -355,7 +344,7 @@ def plot_snow_cover_scatter_combined(df):
                     marker='o',
                     style='month',
                     ax=ax,
-                    s=100)
+                    s=200)
     ax.plot(x, x, 'k--')  # Identity line
     ax.set_xlabel('Sentinel-2', fontsize=14)
     ax.set_ylabel('Mass Balance Machine', fontsize=14)
@@ -369,7 +358,7 @@ def plot_snow_cover_scatter_combined(df):
                loc='center right',
                bbox_to_anchor=(1.02, 0.8),  # Move legend to the side
                title="Glacier Month",
-               fontsize=12,
+               fontsize=16,
                title_fontsize=14)
 
     # Adjust layout for better spacing

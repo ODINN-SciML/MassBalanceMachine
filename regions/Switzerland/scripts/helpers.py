@@ -26,6 +26,7 @@ path_direct = '../../../data/GLAMOS/direct/raw/'
 path_direct_save = '../../../data/GLAMOS/direct/csv/'
 
 path_rgi = '../../../data/GLAMOS/CH_glacier_ids_long.csv'
+path_glogem = '../../../data/GloGEM'
 
 # ERA5-Land
 path_ERA5_raw = '../../../data/ERA5Land/raw/'
@@ -221,4 +222,4 @@ def save_to_netcdf(ds, path, filename):
         os.remove(path + filename)
 
     # save prediction to netcdf
-    ds.pred_masked.to_netcdf(path + filename)
+    ds.to_netcdf(path + filename)

@@ -23,10 +23,12 @@ from scipy.stats import mode
 
 
 def toGeoPandas(ds):
-    # Get lat and lon, and variable data
+    # Get lat and lon, and variables data
     lat = ds['latitude'].values
     lon = ds['longitude'].values
-    variable_data = ds['pred_masked'].values
+    pred_masked_data = ds['pred_masked'].values
+    masked_elev_data = ds['masked_elev'].values
+    masked_dis_data = ds['masked_dis'].values
 
     # Create meshgrid of coordinates
     lon_grid, lat_grid = np.meshgrid(lon, lat)
@@ -34,17 +36,25 @@ def toGeoPandas(ds):
     # Flatten all arrays to match shapes
     lon_flat = lon_grid.flatten()
     lat_flat = lat_grid.flatten()
-    variable_data_flat = variable_data.flatten()
+    pred_masked_data_flat = pred_masked_data.flatten()
+    masked_elev_data_flat = masked_elev_data.flatten()
+    masked_dis_data_flat = masked_dis_data.flatten()
 
     # Verify shapes
-    assert len(lon_flat) == len(lat_flat) == len(
-        variable_data_flat), "Shapes still don't match!"
+    assert len(lon_flat) == len(lat_flat) == len(pred_masked_data_flat) == len(
+        masked_elev_data_flat), "Shapes don't match!"
 
     # Create GeoDataFrame
     points = [Point(xy) for xy in zip(lon_flat, lat_flat)]
-    gdf = gpd.GeoDataFrame({"data": variable_data_flat},
-                           geometry=points,
-                           crs="EPSG:4326")
+    gdf = gpd.GeoDataFrame(
+        {
+            "pred_masked": pred_masked_data_flat,
+            "elev_masked": masked_elev_data_flat,
+            "dis_masked": masked_dis_data_flat
+        },
+        geometry=points,
+        crs="EPSG:4326")
+
     return gdf, lon, lat
 
 
@@ -65,7 +75,7 @@ def toRaster(gdf, lon, lat, file_name, source_crs='EPSG:4326'):
         # Assuming row['geometry'].x and row['geometry'].y give you lon and lat
         lon_idx = np.argmin(np.abs(lon - row.geometry.x))
         lat_idx = np.argmin(np.abs(lat - row.geometry.y))
-        data_array[lat_idx, lon_idx] = row['data']
+        data_array[lat_idx, lon_idx] = row['pred_masked']
 
     # Save the raster
     with rasterio.open(
@@ -176,33 +186,46 @@ def merge_rasters(raster1_path, raster2_path, output_path):
         src.close()
 
 
-def GaussianFilter(ds):
-    # Assuming `dataset` is your xarray.Dataset
-    sigma = 1  # Define the smoothing level
+def GaussianFilter(ds, variable_name='pred_masked', sigma=1):
+    """
+    Apply Gaussian filter only to the specified variable in the xarray.Dataset.
+    
+    Parameters:
+    - ds (xarray.Dataset): Input dataset
+    - variable_name (str): The name of the variable to apply the filter to (default 'pred_masked')
+    - sigma (float): The standard deviation for the Gaussian filter
+    
+    Returns:
+    - xarray.Dataset: New dataset with smoothed variable
+    """
+    # Check if the variable exists in the dataset
+    if variable_name not in ds:
+        raise ValueError(f"Variable '{variable_name}' not found in the dataset.")
+    
+    # Get the DataArray for the specified variable
+    data_array = ds[variable_name]
 
-    # Apply Gaussian filter to each DataArray in the Dataset
-    smoothed_dataset = xr.Dataset()
+    # Step 1: Create a mask of valid data (non-NaN values)
+    mask = ~np.isnan(data_array)
 
-    for var_name, data_array in ds.data_vars.items():
-        # Step 1: Create a mask of valid data (non-NaN values)
-        mask = ~np.isnan(data_array)
+    # Step 2: Replace NaNs with zero (or a suitable neutral value)
+    filled_data = data_array.fillna(0)
 
-        # Step 2: Replace NaNs with zero (or a suitable neutral value)
-        filled_data = data_array.fillna(0)
+    # Step 3: Apply Gaussian filter to the filled data
+    smoothed_data = gaussian_filter(filled_data, sigma=sigma)
 
-        # Step 3: Apply Gaussian filter to the filled data
-        smoothed_data = gaussian_filter(filled_data, sigma=sigma)
+    # Step 4: Restore NaNs to their original locations
+    smoothed_data = xr.DataArray(
+        smoothed_data,
+        dims=data_array.dims,
+        coords=data_array.coords,
+        attrs=data_array.attrs
+    ).where(mask)  # Apply the mask to restore NaNs
 
-        # Step 4: Restore NaNs to their original locations
-        smoothed_data = xr.DataArray(
-            smoothed_data,
-            dims=data_array.dims,
-            coords=data_array.coords,
-            attrs=data_array.attrs).where(
-                mask)  # Apply the mask to restore NaNs
+    # Create a new dataset with the smoothed data
+    smoothed_dataset = ds.copy()  # Make a copy of the original dataset
+    smoothed_dataset[variable_name] = smoothed_data  # Replace the original variable with the smoothed one
 
-        # Add the smoothed data to the new Dataset
-        smoothed_dataset[var_name] = smoothed_data
     return smoothed_dataset
 
 
@@ -237,12 +260,12 @@ def TransformToRaster(filename_nc,
                              path_tif_lv95 + filename_tif,
                              dst_crs=dst_crs)
 
-    # Make classification map of snow/ice:
+    # Make classes map of snow/ice:
     # Replace values: below 0 with 3, above 0 with 1
     gdf_class = gdf.copy()
     tol = 0
-    gdf_class.loc[gdf['data'] <= 0 + tol, 'data'] = 3
-    gdf_class.loc[gdf['data'] > 0 + tol, 'data'] = 1
+    gdf_class.loc[gdf['pred_masked'] <= 0 + tol, 'pred_masked'] = 3
+    gdf_class.loc[gdf['pred_masked'] > 0 + tol, 'pred_masked'] = 1
 
     path_class_tif_lv95 = path_tif_lv95 + 'classes/'
     path_class_tif_wgs84 = path_tif_wgs84 + 'classes/'
@@ -316,7 +339,7 @@ def resampleRaster(gdf_glacier, gdf_raster):
     # Extract coordinates and values from gdf_clipped
     clipped_coords = np.array([(geom.x, geom.y)
                                for geom in gdf_clipped.geometry])
-    clipped_values = gdf_clipped['data'].values
+    clipped_values = gdf_clipped['classes'].values
 
     # Extract coordinates from gdf_glacier
     points_coords = np.array([(geom.x, geom.y)
@@ -330,16 +353,17 @@ def resampleRaster(gdf_glacier, gdf_raster):
 
     # Assign the values from the nearest neighbors
     gdf_clipped_res = gdf_glacier.copy()
-    gdf_clipped_res['data'] = clipped_values[indices]
+    gdf_clipped_res = gdf_clipped_res[['geometry']]
+    gdf_clipped_res['classes'] = clipped_values[indices]
 
     # Assuming 'value' is the column storing the resampled values
-    gdf_clipped_res['data'] = np.where(
-        gdf_glacier['data'].isna(),  # Check where original values are NaN
+    gdf_clipped_res['classes'] = np.where(
+        gdf_glacier['pred_masked'].isna(),  # Check where original values are NaN
         np.nan,  # Assign NaN to those locations
-        gdf_clipped_res['data'],  # Keep the resampled values elsewhere
+        gdf_clipped_res['classes'],  # Keep the resampled values elsewhere
     )
+    
     return gdf_clipped_res
-
 
 
 def createRaster(input_raster):
@@ -364,26 +388,31 @@ def createRaster(input_raster):
     return gdf_raster
 
 
+
 def snowCover(path_nc_wgs84, filename_nc):
-    # Open xarray:
+    # Open xarray dataset:
     ds_latlon = xr.open_dataset(path_nc_wgs84 + filename_nc)
 
-    # Smoothing
+    # Smoothing (assuming you have a GaussianFilter function for this step)
     ds_latlon_g = GaussianFilter(ds_latlon)
 
     # Convert to GeoPandas
     gdf_glacier, lon, lat = toGeoPandas(ds_latlon_g)
 
-    # Make classification map of snow/ice:
-    # Replace values: below 0 with 3, above 0 with 1
-    gdf_class = gdf_glacier.copy()
+    # Add classification map (snow/ice) to gdf_glacier:
     tol = 0.1
-    gdf_class.loc[gdf_glacier['data'] <= 0 + tol, 'data'] = 3
-    gdf_class.loc[gdf_glacier['data'] > 0 + tol, 'data'] = 1
 
-    snow_cover_glacier, ice_cover_glacier = IceSnowCover(gdf_class)
+    # Apply classification logic:
+    # - If pred_masked > -tol, assign 1 (snow)
+    # - If pred_masked <= -tol, assign 3 (ice)
+    # - If pred_masked is NaN, assign NaN
+    gdf_glacier['classes'] = np.where(gdf_glacier['pred_masked'] > -tol, 1, 
+                                      np.where(gdf_glacier['pred_masked'] <= -tol, 3, np.nan))
 
-    return gdf_glacier, gdf_class, snow_cover_glacier, ice_cover_glacier
+    # Now gdf_glacier contains the 'classes' column
+    snow_cover_glacier, ice_cover_glacier = IceSnowCover(gdf_glacier)
+
+    return gdf_glacier, snow_cover_glacier, ice_cover_glacier
 
 
 def get_hydro_year_and_month(file_date):
@@ -434,15 +463,18 @@ def organize_rasters_by_hydro_year(path_S2, satellite_years):
 
 def IceSnowCover(gdf_class):
     # Calculate percentage of snow cover (class 1)
-    snow_cover_glacier = gdf_class.data[gdf_class.data ==
-                                        1].count() / gdf_class.data.count()
-    ice_cover_glacier = gdf_class.data[gdf_class.data ==
-                                       3].count() / gdf_class.data.count()
+    snow_cover_glacier = gdf_class.classes[
+        gdf_class.classes ==
+        1].count() / gdf_class.classes.count()
+    ice_cover_glacier = gdf_class.classes[
+        gdf_class.classes ==
+        3].count() / gdf_class.classes.count()
     return snow_cover_glacier, ice_cover_glacier
 
 
-
-def replace_clouds_with_nearest_neighbor(gdf, class_column='data', cloud_class=5):
+def replace_clouds_with_nearest_neighbor(gdf,
+                                         class_column='classes',
+                                         cloud_class=5):
     """
     Replace cloud pixels in a GeoDataFrame with the most common class among their 
     nearest neighbors, excluding NaN values.
@@ -459,7 +491,7 @@ def replace_clouds_with_nearest_neighbor(gdf, class_column='data', cloud_class=5
     # Separate cloud pixels and non-cloud pixels
     cloud_pixels = gdf[gdf[class_column] == cloud_class]
     non_cloud_pixels = gdf[gdf[class_column] != cloud_class]
-    
+
     # Remove NaN values from non-cloud pixels
     non_cloud_pixels = non_cloud_pixels[non_cloud_pixels[class_column].notna()]
 
@@ -468,19 +500,19 @@ def replace_clouds_with_nearest_neighbor(gdf, class_column='data', cloud_class=5
         return gdf
 
     # Extract coordinates for nearest-neighbor search
-    cloud_coords = np.array(list(cloud_pixels.geometry.apply(lambda geom: (geom.x, geom.y))))
-    non_cloud_coords = np.array(list(non_cloud_pixels.geometry.apply(lambda geom: (geom.x, geom.y))))
+    cloud_coords = np.array(
+        list(cloud_pixels.geometry.apply(lambda geom: (geom.x, geom.y))))
+    non_cloud_coords = np.array(
+        list(non_cloud_pixels.geometry.apply(lambda geom: (geom.x, geom.y))))
 
     # Perform nearest-neighbor search
-    nbrs = NearestNeighbors(n_neighbors=1, algorithm='auto').fit(non_cloud_coords)
+    nbrs = NearestNeighbors(n_neighbors=1,
+                            algorithm='auto').fit(non_cloud_coords)
     distances, indices = nbrs.kneighbors(cloud_coords)
 
     # Map nearest neighbor's class to cloud pixels
-    nearest_classes = non_cloud_pixels.iloc[indices.flatten()][class_column].values
+    nearest_classes = non_cloud_pixels.iloc[
+        indices.flatten()][class_column].values
     gdf.loc[cloud_pixels.index, class_column] = nearest_classes
 
     return gdf
-
-
-
-

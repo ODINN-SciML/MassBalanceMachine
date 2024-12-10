@@ -77,7 +77,7 @@ def predVSTruth(ax, grouped_ids, scores, hue='GLACIER', palette=None):
             fontsize=20,
             bbox=props)
     if hue is not None:
-        ax.legend(fontsize=20, loc = 'lower right')
+        ax.legend(fontsize=14, loc = 'lower right')
     else:
         ax.legend([], [], frameon=False)
     # diagonal line
