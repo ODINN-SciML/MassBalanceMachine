@@ -17,7 +17,11 @@ from scripts.geodata import *
 
 
 def plotClasses(gdf_glacier, gdf_glacier_corr, gdf_raster_res, axs,
-                gl_date, file_date):
+                gl_date, file_date, add_snowline = False, band_size = None, percentage_threshold = None):
+    
+    gdf_glacier_corr = AddSnowline(gdf_glacier_corr, band_size=band_size, percentage_threshold=percentage_threshold)
+    gdf_glacier = AddSnowline(gdf_glacier, band_size=band_size, percentage_threshold=percentage_threshold)
+    
     # Define the colors for categories (ensure that your categories match the color list)
     colors_cat = ['#a6cee3', '#1f78b4', '#8da0cb', '#b2df8a', '#fb9a99']
 
@@ -85,6 +89,13 @@ def plotClasses(gdf_glacier, gdf_glacier_corr, gdf_raster_res, axs,
 
     #cx.add_basemap(axs[1], crs=gdf_glacier.crs, source=provider)
     axs[1].set_title(f"MBM: {gl_date}")
+    
+    if add_snowline: 
+        # Overlay the selected band (where 'selected_band' is True)
+        selected_band = gdf_clean[gdf_clean['selected_band'] == True]
+        # Plot the selected elevation band with a distinct style (e.g., red border)
+        selected_band.plot(ax=axs[2], color = 'red', linewidth=1, markersize=5)
+
 
     # Plot the third figure (MBM classes corrected)
     gdf_clean = gdf_glacier_corr.dropna(subset=["classes"])
@@ -103,6 +114,12 @@ def plotClasses(gdf_glacier, gdf_glacier_corr, gdf_raster_res, axs,
     snow_cover_glacier, ice_cover_glacier = IceSnowCover(gdf_glacier_corr)
     AddSnowCover(snow_cover_glacier, axs[2])
     
+    if add_snowline: 
+        # Overlay the selected band (where 'selected_band' is True)
+        selected_band = gdf_clean[gdf_clean['selected_band'] == True]
+        # Plot the selected elevation band with a distinct style (e.g., red border)
+        selected_band.plot(ax=axs[2], color = 'red', linewidth=1, markersize=5)
+
     #cx.add_basemap(axs[1], crs=gdf_glacier.crs, source=provider)
     axs[2].set_title(f"MBM corr.: {gl_date}")
 
@@ -247,7 +264,7 @@ def plot_snow_cover_scatter(df):
     return fig, axs
 
 
-def plot_snow_cover_geoplots(raster_res, path_S2, month_abbr_hydr):
+def plot_snow_cover_geoplots(raster_res, path_S2, month_abbr_hydr, add_snowline = False,  band_size = None, percentage_threshold = None):
     """
     Plot geoplots of snow cover for a given raster file.
 
@@ -283,6 +300,9 @@ def plot_snow_cover_geoplots(raster_res, path_S2, month_abbr_hydr):
     # Read satellite raster over glacier
     raster_path = os.path.join(path_S2, 'perglacier', raster_res)
     gdf_raster_res = gpd.read_file(raster_path)
+    
+    # Rename columns to match the MBM data
+    gdf_raster_res.rename(columns={'data': 'classes'}, inplace=True)
 
     # Load MB predictions for that year and month
     path_nc_wgs84 = f"results/nc/var_normal/{glacierName}/wgs84/"
@@ -290,16 +310,16 @@ def plot_snow_cover_geoplots(raster_res, path_S2, month_abbr_hydr):
     filename_nc = f"{glacierName}_{hydro_year}_{monthNb}.nc"
 
     # Calculate snow and ice cover
-    gdf_glacier, gdf_class_corr, snow_cover_glacier_corr, ice_cover_glacier_corr = snowCover(
+    gdf_glacier, snow_cover_glacier_corr, ice_cover_glacier_corr = snowCover(
         path_nc_wgs84_corr, filename_nc)
-    gdf_glacier, gdf_class, snow_cover_glacier, ice_cover_glacier = snowCover(
+    gdf_glacier_corr, snow_cover_glacier, ice_cover_glacier = snowCover(
         path_nc_wgs84, filename_nc)
 
     # Plot the results
     gl_date = f"{hydro_year}-{closest_month}"
     fig, axs = plt.subplots(1, 5, figsize=(20, 5))
-    plotClasses(gdf_glacier, gdf_class, gdf_class_corr, gdf_raster_res, axs,
-                gl_date, raster_date)
+    plotClasses(gdf_glacier, gdf_glacier_corr, gdf_raster_res, axs,
+                gl_date, raster_date, add_snowline, band_size = band_size, percentage_threshold = percentage_threshold)
     plt.show()
 
 def plot_snow_cover_scatter_combined(df):
