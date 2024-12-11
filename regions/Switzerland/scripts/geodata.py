@@ -516,3 +516,67 @@ def replace_clouds_with_nearest_neighbor(gdf,
     gdf.loc[cloud_pixels.index, class_column] = nearest_classes
 
     return gdf
+
+def snowline(gdf, class_value=1, percentage_threshold=20):
+    """
+    Find the first elevation band where the percentage of the given class exceeds the specified threshold
+    and add a boolean column to gdf indicating the selected band.
+    
+    Parameters:
+    - gdf (GeoDataFrame): Input GeoDataFrame with 'elev_band' and 'classes' columns
+    - class_value (int): The class value to check for (default is 1 for snow)
+    - percentage_threshold (float): The percentage threshold to exceed (default is 20%)
+    
+    Returns:
+    - gdf (GeoDataFrame): GeoDataFrame with an additional boolean column indicating the selected elevation band
+    - first_band (int): The first elevation band that meets the condition
+    """
+    # Step 1: Group by elevation band and calculate the percentage of 'class_value' in each band
+    band_class_counts = gdf.groupby('elev_band')['classes'].value_counts(
+        normalize=True)
+
+    # Step 2: Calculate the percentage of the specified class in each band
+    class_percentage = band_class_counts.xs(
+        class_value, level=1) * 100  # Multiply by 100 to convert to percentage
+
+    # Step 3: Find the first band where the class percentage exceeds the threshold
+    first_band = None
+    for elev_band, percentage in class_percentage.items():
+        if percentage >= percentage_threshold:
+            first_band = elev_band
+            break
+
+    if first_band is not None:
+        # Step 4: Add a new column to the GeoDataFrame to indicate the first elevation band
+        gdf['selected_band'] = gdf['elev_band'] == first_band
+    else:
+        # If no band meets the threshold, the new column will be False for all rows
+        gdf['selected_band'] = False
+
+    return gdf, first_band
+
+
+def classify_elevation_bands(gdf_glacier, band_size=50):
+    # Ensure the 'elev_masked' column exists and contains valid data
+    if 'elev_masked' not in gdf_glacier.columns:
+        raise ValueError("GeoDataFrame does not contain 'elev_masked' column")
+
+    # Create elevation bands by using the floor division approach
+    gdf_glacier['elev_band'] = (gdf_glacier['elev_masked'] //
+                                band_size) * band_size
+
+    # Alternatively, using pd.cut to create elevation bands (if you want non-rounded bands):
+    # bins = np.arange(gdf_glacier['elev_masked'].min(), gdf_glacier['elev_masked'].max(), band_size)
+    # gdf_glacier['elev_band'] = pd.cut(gdf_glacier['elev_masked'], bins=bins, labels=False, include_lowest=True)
+
+    return gdf_glacier
+
+def AddSnowline(gdf_glacier_corr, band_size=100, percentage_threshold=50):
+    # Add snowline
+    # Remove weird border effect
+    gdf_glacier_corr = gdf_glacier_corr[gdf_glacier_corr.dis_masked > 10]
+    gdf_glacier_corr = classify_elevation_bands(gdf_glacier_corr, band_size)
+
+    snowline(gdf_glacier_corr, class_value=1, percentage_threshold = percentage_threshold)
+    
+    return gdf_glacier_corr
