@@ -1,5 +1,5 @@
 import os
-from os.path import isfile, join
+from os.path import isfile, join, isdir
 import numpy as np
 import random as rd
 import torch
@@ -109,19 +109,21 @@ def seed_all(seed):
     torch.backends.cudnn.benchmark = False
 
 
-def createPath(path):
-    if not os.path.exists(path):
-        os.makedirs(path)
-
-
-# empties a folder
 def emptyfolder(path):
     if os.path.exists(path):
-        onlyfiles = [f for f in os.listdir(path) if isfile(join(path, f))]
-        for f in onlyfiles:
-            os.remove(path + f)
+        # Loop through all items in the directory
+        for item in os.listdir(path):
+            item_path = join(path, item)
+            if isfile(item_path):
+                os.remove(item_path)  # Remove file
+            elif isdir(item_path):
+                emptyfolder(item_path)  # Recursively empty the folder
+                os.rmdir(item_path)  # Remove the now-empty folder
     else:
         createPath(path)
+
+def createPath(path):
+    os.makedirs(path, exist_ok=True)
 
 
 # difference between two lists

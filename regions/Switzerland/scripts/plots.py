@@ -217,10 +217,6 @@ def plotGlGrid(df_grid_annual, data_gl):
                color=color_annual,
                alpha = 0.8)
     ax.legend(fontsize=18, markerscale=2)
-    # ax.set_title(
-    #     f'OGGM grid and GLAMOS stakes for {df_grid_annual.GLACIER.iloc[0]}')
-    GLACIER = df_grid_annual.GLACIER.iloc[0]
-    plt.savefig(f'figures/grid_stakes_{GLACIER}.png', dpi=300)
 
 def plotNumMeasPerYear(data_gl, glacierName):
     # Plot number of measurements per year

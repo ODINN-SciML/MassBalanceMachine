@@ -200,8 +200,9 @@ def GaussianFilter(ds, variable_name='pred_masked', sigma=1):
     """
     # Check if the variable exists in the dataset
     if variable_name not in ds:
-        raise ValueError(f"Variable '{variable_name}' not found in the dataset.")
-    
+        raise ValueError(
+            f"Variable '{variable_name}' not found in the dataset.")
+
     # Get the DataArray for the specified variable
     data_array = ds[variable_name]
 
@@ -215,16 +216,16 @@ def GaussianFilter(ds, variable_name='pred_masked', sigma=1):
     smoothed_data = gaussian_filter(filled_data, sigma=sigma)
 
     # Step 4: Restore NaNs to their original locations
-    smoothed_data = xr.DataArray(
-        smoothed_data,
-        dims=data_array.dims,
-        coords=data_array.coords,
-        attrs=data_array.attrs
-    ).where(mask)  # Apply the mask to restore NaNs
+    smoothed_data = xr.DataArray(smoothed_data,
+                                 dims=data_array.dims,
+                                 coords=data_array.coords,
+                                 attrs=data_array.attrs).where(
+                                     mask)  # Apply the mask to restore NaNs
 
     # Create a new dataset with the smoothed data
     smoothed_dataset = ds.copy()  # Make a copy of the original dataset
-    smoothed_dataset[variable_name] = smoothed_data  # Replace the original variable with the smoothed one
+    smoothed_dataset[
+        variable_name] = smoothed_data  # Replace the original variable with the smoothed one
 
     return smoothed_dataset
 
@@ -358,11 +359,12 @@ def resampleRaster(gdf_glacier, gdf_raster):
 
     # Assuming 'value' is the column storing the resampled values
     gdf_clipped_res['classes'] = np.where(
-        gdf_glacier['pred_masked'].isna(),  # Check where original values are NaN
+        gdf_glacier['pred_masked'].isna(
+        ),  # Check where original values are NaN
         np.nan,  # Assign NaN to those locations
         gdf_clipped_res['classes'],  # Keep the resampled values elsewhere
     )
-    
+
     return gdf_clipped_res
 
 
@@ -388,8 +390,7 @@ def createRaster(input_raster):
     return gdf_raster
 
 
-
-def snowCover(path_nc_wgs84, filename_nc):
+def ClassSnowCover(path_nc_wgs84, filename_nc, tol = 0.1):
     # Open xarray dataset:
     ds_latlon = xr.open_dataset(path_nc_wgs84 + filename_nc)
 
@@ -399,20 +400,15 @@ def snowCover(path_nc_wgs84, filename_nc):
     # Convert to GeoPandas
     gdf_glacier, lon, lat = toGeoPandas(ds_latlon_g)
 
-    # Add classification map (snow/ice) to gdf_glacier:
-    tol = 0.1
-
     # Apply classification logic:
     # - If pred_masked > -tol, assign 1 (snow)
     # - If pred_masked <= -tol, assign 3 (ice)
     # - If pred_masked is NaN, assign NaN
-    gdf_glacier['classes'] = np.where(gdf_glacier['pred_masked'] > -tol, 1, 
-                                      np.where(gdf_glacier['pred_masked'] <= -tol, 3, np.nan))
+    gdf_glacier['classes'] = np.where(
+        gdf_glacier['pred_masked'] > -tol, 1,
+        np.where(gdf_glacier['pred_masked'] <= -tol, 3, np.nan))
 
-    # Now gdf_glacier contains the 'classes' column
-    snow_cover_glacier, ice_cover_glacier = IceSnowCover(gdf_glacier)
-
-    return gdf_glacier, snow_cover_glacier, ice_cover_glacier
+    return gdf_glacier
 
 
 def get_hydro_year_and_month(file_date):
@@ -461,15 +457,15 @@ def organize_rasters_by_hydro_year(path_S2, satellite_years):
     return rasters
 
 
-def IceSnowCover(gdf_class):
-    # Calculate percentage of snow cover (class 1)
-    snow_cover_glacier = gdf_class.classes[
-        gdf_class.classes ==
-        1].count() / gdf_class.classes.count()
-    ice_cover_glacier = gdf_class.classes[
-        gdf_class.classes ==
-        3].count() / gdf_class.classes.count()
-    return snow_cover_glacier, ice_cover_glacier
+def IceSnowCover(gdf_class, gdf_class_raster):
+    # Exclude pixels with "classes" 5 (cloud) in gdf_class_raster
+    valid_classes = gdf_class[gdf_class_raster.classes != 5]
+
+    # Calculate percentage of snow cover (class 1) in valid classes
+    snow_cover_glacier = valid_classes.classes[
+        valid_classes.classes == 1].count() / valid_classes.classes.count()
+
+    return snow_cover_glacier
 
 
 def replace_clouds_with_nearest_neighbor(gdf,
@@ -516,6 +512,7 @@ def replace_clouds_with_nearest_neighbor(gdf,
     gdf.loc[cloud_pixels.index, class_column] = nearest_classes
 
     return gdf
+
 
 def snowline(gdf, class_value=1, percentage_threshold=20):
     """
@@ -571,12 +568,16 @@ def classify_elevation_bands(gdf_glacier, band_size=50):
 
     return gdf_glacier
 
+
 def AddSnowline(gdf_glacier_corr, band_size=100, percentage_threshold=50):
     # Add snowline
     # Remove weird border effect
-    gdf_glacier_corr = gdf_glacier_corr[gdf_glacier_corr.dis_masked > 10]
+    #gdf_glacier_corr = gdf_glacier_corr[gdf_glacier_corr.dis_masked > 10]
+    
     gdf_glacier_corr = classify_elevation_bands(gdf_glacier_corr, band_size)
 
-    snowline(gdf_glacier_corr, class_value=1, percentage_threshold = percentage_threshold)
-    
+    snowline(gdf_glacier_corr,
+             class_value=1,
+             percentage_threshold=percentage_threshold)
+
     return gdf_glacier_corr

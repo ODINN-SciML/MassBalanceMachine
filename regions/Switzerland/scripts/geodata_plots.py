@@ -12,16 +12,26 @@ import contextily as cx
 import matplotlib.colors as mcolors
 import matplotlib.patches as mpatches
 from datetime import datetime
-
+from sklearn.metrics import r2_score, mean_squared_error
 from scripts.geodata import *
 
+def plotClasses(gdf_glacier,
+                gdf_glacier_corr,
+                gdf_S2_res,
+                axs,
+                gl_date,
+                file_date,
+                add_snowline=False,
+                band_size=10,
+                percentage_threshold=50):
 
-def plotClasses(gdf_glacier, gdf_glacier_corr, gdf_raster_res, axs,
-                gl_date, file_date, add_snowline = False, band_size = None, percentage_threshold = None):
-    
-    gdf_glacier_corr = AddSnowline(gdf_glacier_corr, band_size=band_size, percentage_threshold=percentage_threshold)
-    gdf_glacier = AddSnowline(gdf_glacier, band_size=band_size, percentage_threshold=percentage_threshold)
-    
+    gdf_glacier_corr = AddSnowline(gdf_glacier_corr,
+                                   band_size=band_size,
+                                   percentage_threshold=percentage_threshold)
+    gdf_glacier = AddSnowline(gdf_glacier,
+                              band_size=band_size,
+                              percentage_threshold=percentage_threshold)
+
     # Define the colors for categories (ensure that your categories match the color list)
     colors_cat = ['#a6cee3', '#1f78b4', '#8da0cb', '#b2df8a', '#fb9a99']
 
@@ -84,18 +94,17 @@ def plotClasses(gdf_glacier, gdf_glacier_corr, gdf_raster_res, axs,
     )
 
     # calculate snow and ice cover
-    snow_cover_glacier, ice_cover_glacier = IceSnowCover(gdf_glacier)
+    snow_cover_glacier = IceSnowCover(gdf_glacier, gdf_S2_res)
     AddSnowCover(snow_cover_glacier, axs[1])
 
     #cx.add_basemap(axs[1], crs=gdf_glacier.crs, source=provider)
     axs[1].set_title(f"MBM: {gl_date}")
-    
-    if add_snowline: 
+
+    if add_snowline:
         # Overlay the selected band (where 'selected_band' is True)
         selected_band = gdf_clean[gdf_clean['selected_band'] == True]
         # Plot the selected elevation band with a distinct style (e.g., red border)
-        selected_band.plot(ax=axs[2], color = 'red', linewidth=1, markersize=5)
-
+        selected_band.plot(ax=axs[1], color='red', linewidth=1, markersize=5, alpha = 0.5)
 
     # Plot the third figure (MBM classes corrected)
     gdf_clean = gdf_glacier_corr.dropna(subset=["classes"])
@@ -111,20 +120,20 @@ def plotClasses(gdf_glacier, gdf_glacier_corr, gdf_raster_res, axs,
         color=gdf_clean['color']  # Use the custom colormap
     )
     # calculate snow and ice cover
-    snow_cover_glacier, ice_cover_glacier = IceSnowCover(gdf_glacier_corr)
+    snow_cover_glacier = IceSnowCover(gdf_glacier_corr, gdf_S2_res)
     AddSnowCover(snow_cover_glacier, axs[2])
-    
-    if add_snowline: 
+
+    if add_snowline:
         # Overlay the selected band (where 'selected_band' is True)
         selected_band = gdf_clean[gdf_clean['selected_band'] == True]
         # Plot the selected elevation band with a distinct style (e.g., red border)
-        selected_band.plot(ax=axs[2], color = 'red', linewidth=1, markersize=5)
+        selected_band.plot(ax=axs[2], color='red', linewidth=1, markersize=5, alpha = 0.5)
 
     #cx.add_basemap(axs[1], crs=gdf_glacier.crs, source=provider)
     axs[2].set_title(f"MBM corr.: {gl_date}")
 
     # Plot the fourth figure (Resampled Sentinel classes)
-    gdf_clean = gdf_raster_res.dropna(subset=["classes"])
+    gdf_clean = gdf_S2_res.dropna(subset=["classes"])
     gdf_clean['color'] = gdf_clean['classes'].map(map)
     # Plot with manually defined colormap
     gdf_clean.plot(
@@ -137,40 +146,45 @@ def plotClasses(gdf_glacier, gdf_glacier_corr, gdf_raster_res, axs,
         color=gdf_clean['color']  # Use the custom colormap
     )
     # calculate snow and ice cover
-    snow_cover_glacier, ice_cover_glacier = IceSnowCover(gdf_raster_res)
+    snow_cover_glacier = IceSnowCover(gdf_S2_res, gdf_S2_res)
     AddSnowCover(snow_cover_glacier, axs[3])
     #cx.add_basemap(axs[2], crs=gdf_glacier.crs, source=provider)
     axs[3].set_title(f"Sentinel: {file_date.strftime('%Y-%m-%d')}")
-
-    # Plot the fourth figure (Resampled Sentinel classes with NN)
-    updated_gdf = replace_clouds_with_nearest_neighbor(gdf_raster_res, class_column='classes', cloud_class=5)
-    gdf_clean = updated_gdf.dropna(subset=["classes"])
-    gdf_clean['color'] = gdf_clean['classes'].map(map)
-    # Plot with manually defined colormap
-    gdf_clean.plot(
-        column="classes",  # Column to visualize
-        legend=True,  # Display a legend
-        markersize=5,  # Adjust size if points are too small or large
-        missing_kwds={"color": "lightgrey"},  # Define color for NaN datas
-        categorical=True,  # Ensure the plot uses categorical colors
-        ax=axs[4],
-        color=gdf_clean['color']  # Use the custom colormap
-    )
-    # calculate snow and ice cover
-    snow_cover_glacier, ice_cover_glacier = IceSnowCover(updated_gdf)
-    AddSnowCover(snow_cover_glacier, axs[4])
-    #cx.add_basemap(axs[2], crs=gdf_glacier.crs, source=provider)
-    axs[4].set_title(f"Sentinel w/o clouds: {file_date.strftime('%Y-%m-%d')}")
     
     # Manually add custom legend for the third plot
     handles = [
         mpatches.Patch(color=color, label=classes[i])
         for i, color in map.items()
     ]
-    axs[4].legend(handles=handles,
+    axs[3].legend(handles=handles,
                   title="Classes",
                   bbox_to_anchor=(1.05, 1),
                   loc='upper left')
+    
+    # # Plot the fourth figure (Resampled Sentinel classes with NN)
+    # updated_gdf = replace_clouds_with_nearest_neighbor(gdf_S2_res,
+    #                                                    class_column='classes',
+    #                                                    cloud_class=5)
+
+    # gdf_clean = updated_gdf.dropna(subset=["classes"])
+    # gdf_clean['color'] = gdf_clean['classes'].map(map)
+    # # Plot with manually defined colormap
+    # gdf_clean.plot(
+    #     column="classes",  # Column to visualize
+    #     legend=True,  # Display a legend
+    #     markersize=5,  # Adjust size if points are too small or large
+    #     missing_kwds={"color": "lightgrey"},  # Define color for NaN datas
+    #     categorical=True,  # Ensure the plot uses categorical colors
+    #     ax=axs[4],
+    #     color=gdf_clean['color']  # Use the custom colormap
+    # )
+    # # calculate snow and ice cover
+    # snow_cover_glacier, ice_cover_glacier = IceSnowCover(updated_gdf)
+    # AddSnowCover(snow_cover_glacier, axs[4])
+    # #cx.add_basemap(axs[2], crs=gdf_glacier.crs, source=provider)
+    # axs[4].set_title(f"Sentinel w/o clouds: {file_date.strftime('%Y-%m-%d')}")
+
+
 
     # Show the plot with consistent colors
     plt.tight_layout()
@@ -179,8 +193,9 @@ def plotClasses(gdf_glacier, gdf_glacier_corr, gdf_raster_res, axs,
 
 def AddSnowCover(snow_cover_glacier, ax):
     # Custom legend for snow and ice cover
-    legend_labels = "\n".join(((f"Snow cover: {snow_cover_glacier*100:.2f}%"),))
-                            #    (f"Ice cover: {ice_cover_glacier*100:.2f}%")))
+    legend_labels = "\n".join(
+        ((f"Snow cover: {snow_cover_glacier*100:.2f}%"), ))
+    #    (f"Ice cover: {ice_cover_glacier*100:.2f}%")))
 
     props = dict(boxstyle='round', facecolor='white', alpha=0.7)
     ax.text(0.03,
@@ -192,14 +207,14 @@ def AddSnowCover(snow_cover_glacier, ax):
             bbox=props)
 
 
-def plot_snow_cover_scatter(df):
+def plot_snow_cover_scatter(df, add_corr = True):
     """
     Generate scatter plots of snow cover and corrected snow cover 
-    for each month in the dataset.
+    for each month in the dataset, including R^2 values in each plot.
 
     Parameters:
     - df (pd.DataFrame): DataFrame containing the data. Must have columns:
-      'monthNb', 'snow_cover_raster', 'snow_cover_glacier',
+      'monthNb', 'snow_cover_S2', 'snow_cover_glacier',
       'snow_cover_glacier_corr', and 'glacier_name'.
 
     Returns:
@@ -209,8 +224,11 @@ def plot_snow_cover_scatter(df):
     N_months = len(df['month'].unique())
 
     # Create a grid of subplots
-    fig, axs = plt.subplots(2, N_months, figsize=(15, 8), squeeze=False)
-
+    if add_corr:
+        fig, axs = plt.subplots(2, N_months, figsize=(15, 8), squeeze=False)
+    else:
+        fig, axs = plt.subplots(1, N_months, figsize=(15, 4), squeeze=False)
+    
     # Get sorted unique months
     months = np.sort(df['monthNb'].unique())
 
@@ -222,49 +240,70 @@ def plot_snow_cover_scatter(df):
         # Left column: scatter plot of snow cover
         ax = axs[0, i]
         sns.scatterplot(data=df_month,
-                        x='snow_cover_raster',
+                        x='snow_cover_S2',
                         y='snow_cover_glacier',
                         marker='o',
                         hue='glacier_name',
                         ax=ax)
         x = np.linspace(0, 1, 100)
         ax.plot(x, x, 'k--')  # Identity line
+        
+        # Calculate and add R^2 value
+        r2 = np.corrcoef(df_month['snow_cover_S2'], df_month['snow_cover_glacier'])[0, 1]**2
+        mse = mean_squared_error(df_month['snow_cover_glacier'], df_month['snow_cover_S2'])
+        ax.text(0.05, 0.85, f"R² = {r2:.2f}\nMSE = {mse:.2f}", transform=ax.transAxes, fontsize=10, color="black")
+        
         ax.set_xlabel('Sentinel-2')
         ax.set_ylabel('Mass Balance Machine')
         ax.set_title(f'Snow Cover (Normal), {df_month["month"].values[0]}')
         ax.get_legend().remove()  # Remove legend
 
-        # Right column: scatter plot of corrected snow cover
-        ax = axs[1, i]
-        sns.scatterplot(data=df_month,
-                        x='snow_cover_raster',
-                        y='snow_cover_glacier_corr',
-                        marker='o',
-                        hue='glacier_name',
-                        ax=ax)
-        ax.plot(x, x, 'k--')  # Identity line
-        ax.set_xlabel('Sentinel-2')
-        ax.set_ylabel('Mass Balance Machine')
-        ax.set_title(f'Snow Cover (Corrected), {df_month["month"].values[0]}')
-        ax.get_legend().remove()  # Remove legend
+        
+        if add_corr:
+            # Right column: scatter plot of corrected snow cover
+            ax = axs[1, i]
+            sns.scatterplot(data=df_month,
+                            x='snow_cover_S2',
+                            y='snow_cover_glacier_corr',
+                            marker='o',
+                            hue='glacier_name',
+                            ax=ax)
+            ax.plot(x, x, 'k--')  # Identity line
+            
+            # Calculate and add R^2 value
+            r2_corr = np.corrcoef(df_month['snow_cover_S2'], df_month['snow_cover_glacier_corr'])[0, 1]**2
+            mse_corr = mean_squared_error(df_month['snow_cover_glacier_corr'], df_month['snow_cover_S2'])
+            ax.text(0.05, 0.85, f"R² = {r2_corr:.2f}\nMSE = {mse_corr:.2f}", transform=ax.transAxes, fontsize=10, color="black")
+
+            ax.set_xlabel('Sentinel-2')
+            ax.set_ylabel('Mass Balance Machine')
+            ax.set_title(f'Snow Cover (Corrected), {df_month["month"].values[0]}')
+            ax.get_legend().remove()  # Remove legend
 
     # Add a single legend underneath the last row of axes
-    handles, labels = axs[0, 0].get_legend_handles_labels()
-    fig.legend(handles,
+    if add_corr:
+        handles, labels = axs[0, 0].get_legend_handles_labels()
+        fig.legend(handles,
                labels,
                loc='lower center',
                ncol=5,
                bbox_to_anchor=(0.5, -0.05),
                title="Glacier Name")
 
-    # Adjust layout for better spacing
-    plt.tight_layout(rect=[0, 0.08, 1,
+        # Adjust layout for better spacing
+        plt.tight_layout(rect=[0, 0.08, 1,
                            1])  # Leave space at the bottom for the legend
 
     return fig, axs
 
 
-def plot_snow_cover_geoplots(raster_res, path_S2, month_abbr_hydr, add_snowline = False,  band_size = None, percentage_threshold = None):
+
+def plot_snow_cover_geoplots(raster_res,
+                             path_S2,
+                             month_abbr_hydr,
+                             add_snowline=False,
+                             band_size=None,
+                             percentage_threshold=None):
     """
     Plot geoplots of snow cover for a given raster file.
 
@@ -299,10 +338,7 @@ def plot_snow_cover_geoplots(raster_res, path_S2, month_abbr_hydr, add_snowline 
 
     # Read satellite raster over glacier
     raster_path = os.path.join(path_S2, 'perglacier', raster_res)
-    gdf_raster_res = gpd.read_file(raster_path)
-    
-    # Rename columns to match the MBM data
-    gdf_raster_res.rename(columns={'data': 'classes'}, inplace=True)
+    gdf_S2_res = gpd.read_file(raster_path)
 
     # Load MB predictions for that year and month
     path_nc_wgs84 = f"results/nc/var_normal/{glacierName}/wgs84/"
@@ -310,17 +346,25 @@ def plot_snow_cover_geoplots(raster_res, path_S2, month_abbr_hydr, add_snowline 
     filename_nc = f"{glacierName}_{hydro_year}_{monthNb}.nc"
 
     # Calculate snow and ice cover
-    gdf_glacier, snow_cover_glacier_corr, ice_cover_glacier_corr = snowCover(
+    gdf_glacier = ClassSnowCover(
         path_nc_wgs84_corr, filename_nc)
-    gdf_glacier_corr, snow_cover_glacier, ice_cover_glacier = snowCover(
+    gdf_glacier_corr = ClassSnowCover(
         path_nc_wgs84, filename_nc)
 
     # Plot the results
     gl_date = f"{hydro_year}-{closest_month}"
-    fig, axs = plt.subplots(1, 5, figsize=(20, 5))
-    plotClasses(gdf_glacier, gdf_glacier_corr, gdf_raster_res, axs,
-                gl_date, raster_date, add_snowline, band_size = band_size, percentage_threshold = percentage_threshold)
+    fig, axs = plt.subplots(1, 4, figsize=(20, 5))
+    plotClasses(gdf_glacier,
+                gdf_glacier_corr,
+                gdf_S2_res,
+                axs,
+                gl_date,
+                raster_date,
+                add_snowline,
+                band_size=band_size,
+                percentage_threshold=percentage_threshold)
     plt.show()
+
 
 def plot_snow_cover_scatter_combined(df):
     """
@@ -330,7 +374,7 @@ def plot_snow_cover_scatter_combined(df):
 
     Parameters:
     - df (pd.DataFrame): DataFrame containing the data. Must have columns:
-      'monthNb', 'snow_cover_raster', 'snow_cover_glacier',
+      'monthNb', 'snow_cover_S2', 'snow_cover_glacier',
       'snow_cover_glacier_corr', and 'glacier_name'.
 
     Returns:
@@ -343,7 +387,7 @@ def plot_snow_cover_scatter_combined(df):
     # First subplot: Normal snow cover
     ax = axs[0]
     sns.scatterplot(data=df,
-                    x='snow_cover_raster',
+                    x='snow_cover_S2',
                     y='snow_cover_glacier',
                     marker='o',
                     style='month',
@@ -356,10 +400,13 @@ def plot_snow_cover_scatter_combined(df):
     ax.set_title('Snow Cover (Normal)', fontsize=16)
     ax.get_legend().remove()  # Remove legend for now
 
+    r2 = np.corrcoef(df['snow_cover_S2'], df['snow_cover_glacier'])[0, 1]**2
+    ax.text(0.05, 0.9, f"R² = {r2:.2f}", transform=ax.transAxes, fontsize=16, color="black")
+ 
     # Second subplot: Corrected snow cover
     ax = axs[1]
     sns.scatterplot(data=df,
-                    x='snow_cover_raster',
+                    x='snow_cover_S2',
                     y='snow_cover_glacier_corr',
                     marker='o',
                     style='month',
@@ -370,18 +417,24 @@ def plot_snow_cover_scatter_combined(df):
     ax.set_ylabel('Mass Balance Machine', fontsize=14)
     ax.set_title('Snow Cover (Corrected)', fontsize=16)
     ax.get_legend().remove()  # Remove legend for now
+    r2 = np.corrcoef(df['snow_cover_S2'], df['snow_cover_glacier_corr'])[0, 1]**2
+    ax.text(0.05, 0.9, f"R² = {r2:.2f}", transform=ax.transAxes, fontsize=16, color="black")
 
     # Add a single legend to the right of the plots
     handles, labels = axs[0].get_legend_handles_labels()
-    fig.legend(handles,
-               labels,
-               loc='center right',
-               bbox_to_anchor=(1.02, 0.8),  # Move legend to the side
-               title="Glacier Month",
-               fontsize=16,
-               title_fontsize=14)
+    fig.legend(
+        handles,
+        labels,
+        loc='center right',
+        bbox_to_anchor=(1.02, 0.8),  # Move legend to the side
+        title="Glacier Month",
+        fontsize=16,
+        title_fontsize=14)
 
     # Adjust layout for better spacing
-    plt.suptitle(df.glacier_name.unique()[0].capitalize(), fontsize=20, fontweight='bold')
-    plt.tight_layout(rect=[0, 0, 0.9, 1])  # Leave space on the right for the legend
+    plt.suptitle(df.glacier_name.unique()[0].capitalize(),
+                 fontsize=20,
+                 fontweight='bold')
+    plt.tight_layout(rect=[0, 0, 0.9,
+                           1])  # Leave space on the right for the legend
     return fig, axs
