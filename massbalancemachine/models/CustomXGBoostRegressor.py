@@ -3,8 +3,6 @@ This code is taken, and refactored, and inspired from the work performed by: Kam
 
 The CustomXGBoostRegressor class inherits from the XGBoost Regressor and is adapted to account for a monthly resolution.
 
-@Author: Julian Biesheuvel
-Email: j.p.biesheuvel@student.tudelft.nl
 Date Created: 09/08/2024
 """
 

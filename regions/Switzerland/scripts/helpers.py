@@ -122,6 +122,7 @@ def emptyfolder(path):
     else:
         createPath(path)
 
+
 def createPath(path):
     os.makedirs(path, exist_ok=True)
 
@@ -225,3 +226,10 @@ def save_to_netcdf(ds, path, filename):
 
     # save prediction to netcdf
     ds.to_netcdf(path + filename)
+
+
+def format_rgi_code(X):
+    # Convert X to a string, and pad with leading zeros if its length is less than 5
+    Y = str(X).zfill(5)
+    # Return the final formatted string
+    return f"RGI60-11.{Y}"
