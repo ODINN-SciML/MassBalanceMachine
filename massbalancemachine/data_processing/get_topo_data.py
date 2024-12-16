@@ -4,8 +4,6 @@ This code is taken, and refactored, and inspired from the work performed by: Kam
 This method fetches the topographical features (variables of interest), for each stake measurement available,
 via the OGGM library.
 
-@Author: Julian Biesheuvel
-Email: j.p.biesheuvel@student.tudelft.nl
 Date Created: 21/07/2024
 """
 

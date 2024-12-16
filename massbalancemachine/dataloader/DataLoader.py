@@ -6,8 +6,6 @@ tailored for glacier mass balance datasets.
 Users can load their data into this class to prepare it for model training and testing. The class uses pandas
 for data manipulation and scikit-learn for splitting operations.
 
-@Author: Julian Biesheuvel
-Email: j.p.biesheuvel@student.tudelft.nl
 Date Created: 24/07/2024
 """
 
@@ -20,6 +18,8 @@ import pandas as pd
 
 from numpy import ndarray
 from sklearn.model_selection import GroupKFold, KFold, GroupShuffleSplit
+
+from correct_for_elevation import correct_T_P
 
 
 class DataLoader:
@@ -181,6 +181,29 @@ class DataLoader:
         """Retrieve the training data using the train_iterator."""
         train_indices = self.train_indices
         return self.data.iloc[train_indices]
+    
+    def correct_for_elevation(self,
+                                *,
+                                temp_grad: float = -6.5 / 1000,
+                                dpdz: float = 1.5 / 10000,
+                                gl_specific: bool = False,
+                                c_prec_dic: dict = {},
+                                t_off_dic: dict = {},
+                                c_prec: float = 1.434,
+                                t_off: float = 0.617) -> None:
+            """Corrects the temperature and precipitation data for elevation differences and correction factors.
+            This factors can be glacier specific, when given as a dictionary or as a constant value for all glaciers.
+    
+            Args:
+                temp_grad (float, optional): temperature gradient. Defaults to -6.5/1000 [deg/1000m].
+                dpdz (float, optional): Precipitation increase in % per 100m. Defaults to 1.5/10000.
+                gl_specific (bool, optional): Boolean to indicate if glacier-specific correction factors are used. Defaults to False.
+                c_prec_dic (dict, optional): Dictionary with glacier-specific precipitation correction factors. Defaults to {}.
+                t_off_dic (dict, optional): Dictionary with glacier-specific temperature offset factors. Defaults to {}.
+                c_prec (float, optional): Constant precipitation correction factor. Defaults to 1.434.
+                t_off (float, optional): Constant temperature offset. Defaults to 0.617.
+            """
+            self.data = correct_T_P(self.data, temp_grad, dpdz, gl_specific, c_prec_dic, t_off_dic, c_prec, t_off)
 
     @staticmethod
     def _prepare_data_for_cv(

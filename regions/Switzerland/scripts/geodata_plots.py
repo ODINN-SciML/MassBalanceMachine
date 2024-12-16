@@ -302,8 +302,8 @@ def plot_snow_cover_geoplots(raster_res,
                              path_S2,
                              month_abbr_hydr,
                              add_snowline=False,
-                             band_size=None,
-                             percentage_threshold=None):
+                             band_size=50,
+                             percentage_threshold=50):
     """
     Plot geoplots of snow cover for a given raster file.
 
@@ -348,9 +348,9 @@ def plot_snow_cover_geoplots(raster_res,
     # Calculate snow and ice cover
     gdf_glacier = ClassSnowCover(
         path_nc_wgs84_corr, filename_nc)
+    
     gdf_glacier_corr = ClassSnowCover(
         path_nc_wgs84, filename_nc)
-
     # Plot the results
     gl_date = f"{hydro_year}-{closest_month}"
     fig, axs = plt.subplots(1, 4, figsize=(20, 5))

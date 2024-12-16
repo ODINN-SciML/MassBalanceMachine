@@ -172,36 +172,6 @@ def getDfAggregatePred(test_set, y_pred_agg, all_columns):
     return grouped_ids
 
 
-def correctTP(df_grid_monthly, c_prec_dic={}, t_off_dic={}, gl_specific=False):
-    # Constants
-    temp_grad = -6.5 / 1000  # [deg/1000m]
-    dpdz = 1.5 / 10000  # Percentage increase per 100m
-    c_prec = 1.434  # Precipitation correction factor
-    t_off = 0.617  # Temperature offset
-
-    # Apply temperature gradient correction
-    df_grid_monthly['t2m_corr'] = df_grid_monthly['t2m'] + (
-        df_grid_monthly['ELEVATION_DIFFERENCE'] * temp_grad)
-
-    if gl_specific:
-        # Vectorized application for GLACIER-specific correction factors
-        glacier_specific_prec = df_grid_monthly['GLACIER'].map(c_prec_dic).fillna(1)
-        df_grid_monthly['tp_corr'] = df_grid_monthly['tp'] * glacier_specific_prec
-
-        # Vectorized application for temperature bias offset
-        glacier_specific_toff = df_grid_monthly['GLACIER'].map(t_off_dic).fillna(1)
-        df_grid_monthly['t2m_corr'] += glacier_specific_toff
-    else:
-        df_grid_monthly['tp_corr'] = df_grid_monthly['tp'] * c_prec
-        df_grid_monthly['t2m_corr'] += t_off
-
-    # Apply elevation correction factor
-    df_grid_monthly['tp_corr'] += df_grid_monthly['tp_corr'] * (
-        df_grid_monthly['ELEVATION_DIFFERENCE'] * dpdz)
-
-    return df_grid_monthly
-
-
 def GlacierWidePred(custom_model, df_grid_monthly, type_pred='annual'):
     if type_pred == 'annual':
         # Make predictions on whole glacier grid
@@ -215,9 +185,12 @@ def GlacierWidePred(custom_model, df_grid_monthly, type_pred='annual'):
 
         # Aggregate predictions to annual:
         grouped_ids_annual = df_grid_monthly.groupby('ID').agg({
-            'YEAR': 'mean',
-            'POINT_LAT': 'mean',
-            'POINT_LON': 'mean'
+            'YEAR':
+            'mean',
+            'POINT_LAT':
+            'mean',
+            'POINT_LON':
+            'mean'
         })
         grouped_ids_annual['pred'] = y_pred_grid_agg
 
@@ -226,7 +199,8 @@ def GlacierWidePred(custom_model, df_grid_monthly, type_pred='annual'):
     elif type_pred == 'winter':
         # winter months from October to April
         winter_months = ['oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr']
-        df_grid_winter = df_grid_monthly[df_grid_monthly.MONTHS.isin(winter_months)]
+        df_grid_winter = df_grid_monthly[df_grid_monthly.MONTHS.isin(
+            winter_months)]
 
         # Make predictions on whole glacier grid
         features_grid, metadata_grid = custom_model._create_features_metadata(
@@ -239,16 +213,21 @@ def GlacierWidePred(custom_model, df_grid_monthly, type_pred='annual'):
 
         # Aggregate predictions for winter:
         grouped_ids_winter = df_grid_monthly.groupby('ID').agg({
-            'YEAR': 'mean',
-            'POINT_LAT': 'mean',
-            'POINT_LON': 'mean'
+            'YEAR':
+            'mean',
+            'POINT_LAT':
+            'mean',
+            'POINT_LON':
+            'mean'
         })
         grouped_ids_winter['pred'] = y_pred_grid_agg
 
         return grouped_ids_winter
 
     else:
-        raise ValueError("Unsupported prediction type. Only 'annual' and 'winter' are currently supported.")
+        raise ValueError(
+            "Unsupported prediction type. Only 'annual' and 'winter' are currently supported."
+        )
 
 
 def cumulativeMB(df_pred,
@@ -415,11 +394,12 @@ def cumulativeMonthly(df_grid_monthly, custom_model):
     df_grid_monthly = df_grid_monthly.assign(pred=y_pred)
 
     # Vectorized operation for month abbreviation
-    df_grid_monthly['MONTH_NB'] = df_grid_monthly['MONTHS'].map(month_abbr_hydr)
+    df_grid_monthly['MONTH_NB'] = df_grid_monthly['MONTHS'].map(
+        month_abbr_hydr)
 
     # Cumulative monthly sums using groupby
     df_grid_monthly.sort_values(by=['ID', 'MONTH_NB'], inplace=True)
-    df_grid_monthly['cum_pred'] = df_grid_monthly.groupby('ID')['pred'].cumsum()
-    
-    return df_grid_monthly
+    df_grid_monthly['cum_pred'] = df_grid_monthly.groupby(
+        'ID')['pred'].cumsum()
 
+    return df_grid_monthly

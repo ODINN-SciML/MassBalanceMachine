@@ -554,17 +554,29 @@ def snowline(gdf, class_value=1, percentage_threshold=20):
 
 
 def classify_elevation_bands(gdf_glacier, band_size=50):
+    """
+    Classify elevation into bands based on the 'elev_masked' column in the GeoDataFrame.
+
+    Parameters:
+        gdf_glacier (GeoDataFrame): A GeoDataFrame containing an 'elev_masked' column.
+        band_size (int): The size of each elevation band.
+
+    Returns:
+        GeoDataFrame: The input GeoDataFrame with an additional 'elev_band' column.
+    """
     # Ensure the 'elev_masked' column exists and contains valid data
     if 'elev_masked' not in gdf_glacier.columns:
         raise ValueError("GeoDataFrame does not contain 'elev_masked' column")
 
-    # Create elevation bands by using the floor division approach
-    gdf_glacier['elev_band'] = (gdf_glacier['elev_masked'] //
-                                band_size) * band_size
+    # Handle NaN values in 'elev_masked' and classify into elevation bands
+    gdf_glacier['elev_band'] = (
+        gdf_glacier['elev_masked']
+        .fillna(-1)  # Replace NaN with a placeholder (e.g., -1 or another value)
+        .floordiv(band_size) * band_size  # Calculate the elevation band
+    )
 
-    # Alternatively, using pd.cut to create elevation bands (if you want non-rounded bands):
-    # bins = np.arange(gdf_glacier['elev_masked'].min(), gdf_glacier['elev_masked'].max(), band_size)
-    # gdf_glacier['elev_band'] = pd.cut(gdf_glacier['elev_masked'], bins=bins, labels=False, include_lowest=True)
+    # Optionally set the 'elev_band' of NaN entries back to NaN
+    gdf_glacier.loc[gdf_glacier['elev_masked'].isna(), 'elev_band'] = None
 
     return gdf_glacier
 
