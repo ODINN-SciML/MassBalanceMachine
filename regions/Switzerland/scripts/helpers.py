@@ -62,23 +62,6 @@ vois_units = {
     'v10': 'm s-1',
 }
 
-loss_units = {'RMSE': '[m w.e.]', 'MSE': '[]'}
-
-month_abbr_hydr = {
-    'sep': 1,
-    'oct': 2,
-    'nov': 3,
-    'dec': 4,
-    'jan': 5,
-    'feb': 6,
-    'mar': 7,
-    'apr': 8,
-    'may': 9,
-    'jun': 10,
-    'jul': 11,
-    'aug': 12,
-}
-
 month_abbr_hydr_full = {
     'sep': 1,
     'oct': 2,
@@ -95,6 +78,8 @@ month_abbr_hydr_full = {
     'sep_': 13,
 }
 
+loss_units = {'RMSE': '[m w.e.]', 'MSE': '[]'}
+
 
 # sets the same random seed everywhere so that it is reproducible
 def seed_all(seed):
@@ -107,7 +92,6 @@ def seed_all(seed):
     rd.seed(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-
 
 def emptyfolder(path):
     if os.path.exists(path):
@@ -213,19 +197,6 @@ def powerset(original_list, min_length=3):
         if len(subset) >= min_length:
             subsets.append(subset)
     return subsets
-
-
-def save_to_netcdf(ds, path, filename):
-    # Create path if not exists
-    if not os.path.exists(path):
-        os.makedirs(path)
-
-    # delete file if already exists
-    if os.path.exists(path + filename):
-        os.remove(path + filename)
-
-    # save prediction to netcdf
-    ds.to_netcdf(path + filename)
 
 
 def format_rgi_code(X):

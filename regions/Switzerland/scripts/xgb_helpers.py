@@ -2,10 +2,7 @@ from scripts.helpers import *
 import massbalancemachine as mbm
 import config
 import pandas as pd
-import salem
-import pyproj
 from sklearn.model_selection import GroupKFold, KFold, train_test_split, GroupShuffleSplit
-from scipy.ndimage import gaussian_filter
 import xarray as xr
 
 
@@ -232,8 +229,7 @@ def GlacierWidePred(custom_model, df_grid_monthly, type_pred='annual'):
 
 def cumulativeMB(df_pred,
                  test_gl,
-                 ids_year_dict,
-                 month_abbr_hydr=month_abbr_hydr):
+                 ids_year_dict):
     df_pred_gl = df_pred[df_pred['GLACIER'] == test_gl]
 
     dfCumMB_all = pd.DataFrame(columns=[
@@ -243,6 +239,7 @@ def cumulativeMB(df_pred,
         'ID',
         'monthNb',
     ])
+    month_abbr_hydr = config.month_abbr_hydr.copy()
     for ID in df_pred_gl['ID'].unique():
         df_pred_stake = df_pred_gl[df_pred_gl['ID'] == ID]
 
@@ -281,125 +278,7 @@ def cumulativeMB(df_pred,
     return dfCumMB_all
 
 
-def predXarray(ds, gdir, df_pred, pred_var='pred'):
-    glacier_indices = np.where(ds['glacier_mask'].values == 1)
-    pred_masked = ds.glacier_mask.values
-
-    # set pred_masked to nan where 0
-    pred_masked = np.where(pred_masked == 0, np.nan, pred_masked)
-    for i, (x_index,
-            y_index) in enumerate(zip(glacier_indices[0], glacier_indices[1])):
-        pred_masked[x_index, y_index] = df_pred.iloc[i][pred_var]
-
-    pred_masked = np.where(pred_masked == 1, np.nan, pred_masked)
-    ds_xy = ds.assign(pred_masked=(('y', 'x'), pred_masked))
-
-    # change from oggm to wgs84
-    ds_latlon = oggmToWgs84(ds_xy, gdir)
-
-    return ds_latlon, ds_xy
 
 
-def oggmToWgs84(ds, gdir):
-    # Define the Swiss coordinate system (EPSG:2056) and WGS84 (EPSG:4326)
-    transformer = pyproj.Transformer.from_proj(gdir.grid.proj,
-                                               salem.wgs84,
-                                               always_xy=True)
-
-    # Get the Swiss x and y coordinates from the dataset
-    x_coords = ds['x'].values
-    y_coords = ds['y'].values
-
-    # Create a meshgrid for all x, y coordinate pairs
-    x_mesh, y_mesh = np.meshgrid(x_coords, y_coords)
-
-    # Flatten the meshgrid arrays for transformation
-    x_flat = x_mesh.ravel()
-    y_flat = y_mesh.ravel()
-
-    # Transform the flattened coordinates
-    lon_flat, lat_flat = transformer.transform(x_flat, y_flat)
-
-    # Reshape transformed coordinates back to the original grid shape
-    lon = lon_flat.reshape(x_mesh.shape)
-    lat = lat_flat.reshape(y_mesh.shape)
-
-    # Extract unique 1D coordinates for lat and lon
-    lon_1d = lon[0, :]  # Take the first row for unique longitudes along x-axis
-    lat_1d = lat[:,
-                 0]  # Take the first column for unique latitudes along y-axis
-
-    # Assign the 1D coordinates to x and y dimensions
-    ds = ds.assign_coords(longitude=("x", lon_1d), latitude=("y", lat_1d))
-
-    # Swap x and y dimensions with lon and lat
-    ds = ds.swap_dims({"x": "longitude", "y": "latitude"})
-
-    # Optionally, drop the old x and y coordinates if no longer needed
-    ds = ds.drop_vars(["x", "y"])
-
-    return ds
 
 
-def GaussianFilter(ds, variable_name='pred_masked', sigma=1):
-    """
-    Apply Gaussian filter only to the specified variable in the xarray.Dataset.
-    
-    Parameters:
-    - ds (xarray.Dataset): Input dataset
-    - variable_name (str): The name of the variable to apply the filter to (default 'pred_masked')
-    - sigma (float): The standard deviation for the Gaussian filter
-    
-    Returns:
-    - xarray.Dataset: New dataset with smoothed variable
-    """
-    # Check if the variable exists in the dataset
-    if variable_name not in ds:
-        raise ValueError(
-            f"Variable '{variable_name}' not found in the dataset.")
-
-    # Get the DataArray for the specified variable
-    data_array = ds[variable_name]
-
-    # Step 1: Create a mask of valid data (non-NaN values)
-    mask = ~np.isnan(data_array)
-
-    # Step 2: Replace NaNs with zero (or a suitable neutral value)
-    filled_data = data_array.fillna(0)
-
-    # Step 3: Apply Gaussian filter to the filled data
-    smoothed_data = gaussian_filter(filled_data, sigma=sigma)
-
-    # Step 4: Restore NaNs to their original locations
-    smoothed_data = xr.DataArray(smoothed_data,
-                                 dims=data_array.dims,
-                                 coords=data_array.coords,
-                                 attrs=data_array.attrs).where(
-                                     mask)  # Apply the mask to restore NaNs
-
-    # Create a new dataset with the smoothed data
-    smoothed_dataset = ds.copy()  # Make a copy of the original dataset
-    smoothed_dataset[
-        variable_name] = smoothed_data  # Replace the original variable with the smoothed one
-
-    return smoothed_dataset
-
-
-def cumulativeMonthly(df_grid_monthly, custom_model):
-    # Make predictions on whole glacier grid
-    features_grid, metadata_grid = custom_model._create_features_metadata(
-        df_grid_monthly, config.META_DATA)
-    y_pred = custom_model.predict(features_grid)
-
-    df_grid_monthly = df_grid_monthly.assign(pred=y_pred)
-
-    # Vectorized operation for month abbreviation
-    df_grid_monthly['MONTH_NB'] = df_grid_monthly['MONTHS'].map(
-        month_abbr_hydr)
-
-    # Cumulative monthly sums using groupby
-    df_grid_monthly.sort_values(by=['ID', 'MONTH_NB'], inplace=True)
-    df_grid_monthly['cum_pred'] = df_grid_monthly.groupby(
-        'ID')['pred'].cumsum()
-
-    return df_grid_monthly
