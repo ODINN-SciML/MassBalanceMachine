@@ -25,12 +25,12 @@ def plotClasses(gdf_glacier,
                 band_size=10,
                 percentage_threshold=50):
 
-    gdf_glacier_corr = AddSnowline(gdf_glacier_corr,
-                                   band_size=band_size,
-                                   percentage_threshold=percentage_threshold)
-    gdf_glacier = AddSnowline(gdf_glacier,
-                              band_size=band_size,
-                              percentage_threshold=percentage_threshold)
+    # gdf_glacier_corr = AddSnowline(gdf_glacier_corr,
+    #                                band_size=band_size,
+    #                                percentage_threshold=percentage_threshold)
+    # gdf_glacier = AddSnowline(gdf_glacier,
+    #                           band_size=band_size,
+    #                           percentage_threshold=percentage_threshold)
 
     # Define the colors for categories (ensure that your categories match the color list)
     colors_cat = ['#a6cee3', '#1f78b4', '#8da0cb', '#b2df8a', '#fb9a99']
