@@ -647,13 +647,15 @@ def TwoDPlots(ds, gdir, glacierName, grouped_ids_annual, grouped_ids_winter,
         pred_y_annual = grouped_ids_annual[grouped_ids_annual.YEAR ==
                                            year].drop(['YEAR'], axis=1)
 
-        ds_pred_annual, ds_pred_annual_xy = predXarray(ds, gdir, pred_y_annual)
-
-        ds_pred_winter, ds_pred_winter_xy = predXarray(ds, gdir, pred_y_winter)
+        geoData_annual = mbm.GeoData(pred_y_annual)
+        geoData_annual.pred_to_xr(ds, gdir, pred_var='pred')
+        
+        geoData_winter = mbm.GeoData(pred_y_winter)
+        geoData_winter.pred_to_xr(ds, gdir, pred_var='pred')
         
         if j == 0:
-            vmin, vmax = ds_pred_winter.pred_masked.min(
-            ).values, ds_pred_winter.pred_masked.max().values
+            vmin, vmax = geoData_winter.ds_latlon.pred_masked.min(
+            ).values, geoData_winter.ds_latlon.pred_masked.max().values
             if vmax >= 0 and vmin < 0:
                 # find the biggest of the two absolute values
                 max_abs_value = max(abs(vmin), abs(vmax))
@@ -661,38 +663,38 @@ def TwoDPlots(ds, gdir, glacierName, grouped_ids_annual, grouped_ids_winter,
                     vmin=-max_abs_value,
                     vcenter=0,
                     vmax=max_abs_value)
-                ds_pred_winter.pred_masked.plot(
+                geoData_winter.ds_latlon.pred_masked.plot(
                     cmap='coolwarm_r',
                     norm=norm,
                     ax=ax,
                     cbar_kwargs={'label': "[m w.e.]"})
                 
             elif vmax >= 0 and vmin >= 0:
-                ds_pred_winter.pred_masked.plot(
+                geoData_winter.ds_latlon.pred_masked.plot(
                     cmap='Blues', ax=ax, cbar_kwargs={'label': "[m w.e.]"})
             else:
-                ds_pred_winter.pred_masked.plot(
+                geoData_winter.ds_latlon.pred_masked.plot(
                     cmap='Reds_r', ax=ax, cbar_kwargs={'label': "[m w.e.]"})
 
             ax.set_title(f'{glacierName.capitalize()}: winter MB')
 
         if j == 1:
             # Plot glacier grid with pred value
-            vmin, vmax = ds_pred_annual.pred_masked.min(
-            ).values, ds_pred_annual.pred_masked.max().values
+            vmin, vmax = geoData_annual.ds_latlon.pred_masked.min(
+            ).values, geoData_annual.ds_latlon.pred_masked.max().values
             if vmax >= 0 and vmin < 0:
                 max_abs_value = max(abs(vmin), abs(vmax))
                 norm = mcolors.TwoSlopeNorm(
                     vmin=-max_abs_value,
                     vcenter=0,
                     vmax=max_abs_value)
-                ds_pred_annual.pred_masked.plot(
+                geoData_annual.ds_latlon.pred_masked.plot(
                     cmap='coolwarm_r',
                     norm=norm,
                     ax=ax,
                     cbar_kwargs={'label': "[m w.e.]"})
             else:
-                ds_pred_annual.pred_masked.plot(
+                geoData_annual.ds_latlon.pred_masked.plot(
                     cmap='Reds_r', ax=ax, cbar_kwargs={'label': "[m w.e.]"})
             ax.set_title('Annual MB, Year: {}'.format(year))
 
@@ -705,7 +707,7 @@ def TwoDPlots(ds, gdir, glacierName, grouped_ids_annual, grouped_ids_winter,
 
 
 def Plot2DPred(fig, vmin, vmax, ds_pred, YEAR, month, ax, savefig = False):
-    monthNb = month_abbr_hydr[month]
+    monthNb = config.month_abbr_hydr[month]
     norm = mcolors.TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
     pcm = ds_pred.pred_masked.plot(cmap='coolwarm_r',
                                    norm=norm,

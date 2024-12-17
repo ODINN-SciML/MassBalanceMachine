@@ -1,25 +1,20 @@
-import matplotlib.pyplot as plt
 import numpy as np
-from cartopy import crs as ccrs, feature as cfeature
 import os
 from os import listdir
 from os.path import isfile, join
 import xarray as xr
-from matplotlib.colors import to_hex
 import geopandas as gpd
 from shapely.geometry import Point, box
 import rasterio
 from rasterio.transform import from_origin
 from rasterio.warp import calculate_default_transform, reproject, Resampling
 from rasterio.merge import merge
-import glob
 from scipy.ndimage import gaussian_filter
 from scipy.spatial import cKDTree
 from datetime import datetime
 from collections import defaultdict
 from dateutil.relativedelta import relativedelta
 from sklearn.neighbors import NearestNeighbors
-from scipy.stats import mode
 
 
 def toGeoPandas(ds):
