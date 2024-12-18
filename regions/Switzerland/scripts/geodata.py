@@ -1,61 +1,20 @@
-import matplotlib.pyplot as plt
 import numpy as np
-from cartopy import crs as ccrs, feature as cfeature
 import os
 from os import listdir
 from os.path import isfile, join
 import xarray as xr
-from matplotlib.colors import to_hex
 import geopandas as gpd
 from shapely.geometry import Point, box
 import rasterio
 from rasterio.transform import from_origin
 from rasterio.warp import calculate_default_transform, reproject, Resampling
 from rasterio.merge import merge
-import glob
 from scipy.ndimage import gaussian_filter
 from scipy.spatial import cKDTree
 from datetime import datetime
 from collections import defaultdict
 from dateutil.relativedelta import relativedelta
 from sklearn.neighbors import NearestNeighbors
-from scipy.stats import mode
-
-
-def toGeoPandas(ds):
-    # Get lat and lon, and variables data
-    lat = ds['latitude'].values
-    lon = ds['longitude'].values
-    pred_masked_data = ds['pred_masked'].values
-    masked_elev_data = ds['masked_elev'].values
-    masked_dis_data = ds['masked_dis'].values
-
-    # Create meshgrid of coordinates
-    lon_grid, lat_grid = np.meshgrid(lon, lat)
-
-    # Flatten all arrays to match shapes
-    lon_flat = lon_grid.flatten()
-    lat_flat = lat_grid.flatten()
-    pred_masked_data_flat = pred_masked_data.flatten()
-    masked_elev_data_flat = masked_elev_data.flatten()
-    masked_dis_data_flat = masked_dis_data.flatten()
-
-    # Verify shapes
-    assert len(lon_flat) == len(lat_flat) == len(pred_masked_data_flat) == len(
-        masked_elev_data_flat), "Shapes don't match!"
-
-    # Create GeoDataFrame
-    points = [Point(xy) for xy in zip(lon_flat, lat_flat)]
-    gdf = gpd.GeoDataFrame(
-        {
-            "pred_masked": pred_masked_data_flat,
-            "elev_masked": masked_elev_data_flat,
-            "dis_masked": masked_dis_data_flat
-        },
-        geometry=points,
-        crs="EPSG:4326")
-
-    return gdf, lon, lat
 
 
 def toRaster(gdf, lon, lat, file_name, source_crs='EPSG:4326'):
@@ -200,8 +159,9 @@ def GaussianFilter(ds, variable_name='pred_masked', sigma=1):
     """
     # Check if the variable exists in the dataset
     if variable_name not in ds:
-        raise ValueError(f"Variable '{variable_name}' not found in the dataset.")
-    
+        raise ValueError(
+            f"Variable '{variable_name}' not found in the dataset.")
+
     # Get the DataArray for the specified variable
     data_array = ds[variable_name]
 
@@ -215,16 +175,16 @@ def GaussianFilter(ds, variable_name='pred_masked', sigma=1):
     smoothed_data = gaussian_filter(filled_data, sigma=sigma)
 
     # Step 4: Restore NaNs to their original locations
-    smoothed_data = xr.DataArray(
-        smoothed_data,
-        dims=data_array.dims,
-        coords=data_array.coords,
-        attrs=data_array.attrs
-    ).where(mask)  # Apply the mask to restore NaNs
+    smoothed_data = xr.DataArray(smoothed_data,
+                                 dims=data_array.dims,
+                                 coords=data_array.coords,
+                                 attrs=data_array.attrs).where(
+                                     mask)  # Apply the mask to restore NaNs
 
     # Create a new dataset with the smoothed data
     smoothed_dataset = ds.copy()  # Make a copy of the original dataset
-    smoothed_dataset[variable_name] = smoothed_data  # Replace the original variable with the smoothed one
+    smoothed_dataset[
+        variable_name] = smoothed_data  # Replace the original variable with the smoothed one
 
     return smoothed_dataset
 
@@ -303,118 +263,6 @@ def emptyfolder(path):
         createPath(path)
 
 
-def resampleRaster(gdf_glacier, gdf_raster):
-    # Clip raster to glacier extent
-    # Step 1: Get the bounding box of the points GeoDataFrame
-    bounding_box = gdf_glacier.total_bounds  # [minx, miny, maxx, maxy]
-    raster_bounds = gdf_raster.total_bounds  # [minx, miny, maxx, maxy]
-
-    # Problem 1: check if glacier bounds are within raster bounds
-    if not (bounding_box[0] >= raster_bounds[0]
-            and  # minx of glacier >= minx of raster
-            bounding_box[1] >= raster_bounds[1]
-            and  # miny of glacier >= miny of raster
-            bounding_box[2] <= raster_bounds[2]
-            and  # maxx of glacier <= maxx of raster
-            bounding_box[3]
-            <= raster_bounds[3]  # maxy of glacier <= maxy of raster
-            ):
-        return 0
-
-    # Step 2: Create a rectangular geometry from the bounding box
-    bbox_polygon = box(*bounding_box)
-
-    # Problem 2: Glacier is in regions where raster is NaN
-    gdf_clipped = gpd.clip(gdf_raster, bbox_polygon)
-    if gdf_clipped.empty:
-        return 1
-
-    # Step 3: Clip the raster-based GeoDataFrame to this bounding box
-    gdf_clipped = gdf_raster[gdf_raster.intersects(bbox_polygon)]
-
-    # Optionally, further refine the clipping if exact match is needed
-    gdf_clipped = gpd.clip(gdf_raster, bbox_polygon)
-
-    # Resample clipped raster to glacier points
-    # Extract coordinates and values from gdf_clipped
-    clipped_coords = np.array([(geom.x, geom.y)
-                               for geom in gdf_clipped.geometry])
-    clipped_values = gdf_clipped['classes'].values
-
-    # Extract coordinates from gdf_glacier
-    points_coords = np.array([(geom.x, geom.y)
-                              for geom in gdf_glacier.geometry])
-
-    # Build a KDTree for efficient nearest-neighbor search
-    tree = cKDTree(clipped_coords)
-
-    # Query the tree for the nearest neighbor to each point in gdf_glacier
-    distances, indices = tree.query(points_coords)
-
-    # Assign the values from the nearest neighbors
-    gdf_clipped_res = gdf_glacier.copy()
-    gdf_clipped_res = gdf_clipped_res[['geometry']]
-    gdf_clipped_res['classes'] = clipped_values[indices]
-
-    # Assuming 'value' is the column storing the resampled values
-    gdf_clipped_res['classes'] = np.where(
-        gdf_glacier['pred_masked'].isna(),  # Check where original values are NaN
-        np.nan,  # Assign NaN to those locations
-        gdf_clipped_res['classes'],  # Keep the resampled values elsewhere
-    )
-    
-    return gdf_clipped_res
-
-
-def createRaster(input_raster):
-    # Open the raster
-    with rasterio.open(input_raster) as src:
-        data = src.read(1)  # Read first band
-        transform = src.transform
-        crs = src.crs
-
-    # Get indices of non-NaN values
-    rows, cols = np.where(data != src.nodata)
-    values = data[rows, cols]
-
-    # Convert raster cells to points
-    points = [
-        Point(transform * (col + 0.5, row + 0.5))
-        for row, col in zip(rows, cols)
-    ]
-
-    # Create GeoDataFrame
-    gdf_raster = gpd.GeoDataFrame({"data": values}, geometry=points, crs=crs)
-    return gdf_raster
-
-
-
-def snowCover(path_nc_wgs84, filename_nc):
-    # Open xarray dataset:
-    ds_latlon = xr.open_dataset(path_nc_wgs84 + filename_nc)
-
-    # Smoothing (assuming you have a GaussianFilter function for this step)
-    ds_latlon_g = GaussianFilter(ds_latlon)
-
-    # Convert to GeoPandas
-    gdf_glacier, lon, lat = toGeoPandas(ds_latlon_g)
-
-    # Add classification map (snow/ice) to gdf_glacier:
-    tol = 0.1
-
-    # Apply classification logic:
-    # - If pred_masked > -tol, assign 1 (snow)
-    # - If pred_masked <= -tol, assign 3 (ice)
-    # - If pred_masked is NaN, assign NaN
-    gdf_glacier['classes'] = np.where(gdf_glacier['pred_masked'] > -tol, 1, 
-                                      np.where(gdf_glacier['pred_masked'] <= -tol, 3, np.nan))
-
-    # Now gdf_glacier contains the 'classes' column
-    snow_cover_glacier, ice_cover_glacier = IceSnowCover(gdf_glacier)
-
-    return gdf_glacier, snow_cover_glacier, ice_cover_glacier
-
-
 def get_hydro_year_and_month(file_date):
     if file_date.day < 15:
         # Move to the first day of the previous month
@@ -461,15 +309,15 @@ def organize_rasters_by_hydro_year(path_S2, satellite_years):
     return rasters
 
 
-def IceSnowCover(gdf_class):
-    # Calculate percentage of snow cover (class 1)
-    snow_cover_glacier = gdf_class.classes[
-        gdf_class.classes ==
-        1].count() / gdf_class.classes.count()
-    ice_cover_glacier = gdf_class.classes[
-        gdf_class.classes ==
-        3].count() / gdf_class.classes.count()
-    return snow_cover_glacier, ice_cover_glacier
+def IceSnowCover(gdf_class, gdf_class_raster):
+    # Exclude pixels with "classes" 5 (cloud) in gdf_class_raster
+    valid_classes = gdf_class[gdf_class_raster.classes != 5]
+
+    # Calculate percentage of snow cover (class 1) in valid classes
+    snow_cover_glacier = valid_classes.classes[
+        valid_classes.classes == 1].count() / valid_classes.classes.count()
+
+    return snow_cover_glacier
 
 
 def replace_clouds_with_nearest_neighbor(gdf,
@@ -516,3 +364,84 @@ def replace_clouds_with_nearest_neighbor(gdf,
     gdf.loc[cloud_pixels.index, class_column] = nearest_classes
 
     return gdf
+
+
+def snowline(gdf, class_value=1, percentage_threshold=20):
+    """
+    Find the first elevation band where the percentage of the given class exceeds the specified threshold
+    and add a boolean column to gdf indicating the selected band.
+    
+    Parameters:
+    - gdf (GeoDataFrame): Input GeoDataFrame with 'elev_band' and 'classes' columns
+    - class_value (int): The class value to check for (default is 1 for snow)
+    - percentage_threshold (float): The percentage threshold to exceed (default is 20%)
+    
+    Returns:
+    - gdf (GeoDataFrame): GeoDataFrame with an additional boolean column indicating the selected elevation band
+    - first_band (int): The first elevation band that meets the condition
+    """
+    # Step 1: Group by elevation band and calculate the percentage of 'class_value' in each band
+    band_class_counts = gdf.groupby('elev_band')['classes'].value_counts(
+        normalize=True)
+
+    # Step 2: Calculate the percentage of the specified class in each band
+    class_percentage = band_class_counts.xs(
+        class_value, level=1) * 100  # Multiply by 100 to convert to percentage
+
+    # Step 3: Find the first band where the class percentage exceeds the threshold
+    first_band = None
+    for elev_band, percentage in class_percentage.items():
+        if percentage >= percentage_threshold:
+            first_band = elev_band
+            break
+
+    if first_band is not None:
+        # Step 4: Add a new column to the GeoDataFrame to indicate the first elevation band
+        gdf['selected_band'] = gdf['elev_band'] == first_band
+    else:
+        # If no band meets the threshold, the new column will be False for all rows
+        gdf['selected_band'] = False
+
+    return gdf, first_band
+
+
+def classify_elevation_bands(gdf_glacier, band_size=50):
+    """
+    Classify elevation into bands based on the 'elev_masked' column in the GeoDataFrame.
+
+    Parameters:
+        gdf_glacier (GeoDataFrame): A GeoDataFrame containing an 'elev_masked' column.
+        band_size (int): The size of each elevation band.
+
+    Returns:
+        GeoDataFrame: The input GeoDataFrame with an additional 'elev_band' column.
+    """
+    # Ensure the 'elev_masked' column exists and contains valid data
+    if 'elev_masked' not in gdf_glacier.columns:
+        raise ValueError("GeoDataFrame does not contain 'elev_masked' column")
+
+    # Handle NaN values in 'elev_masked' and classify into elevation bands
+    gdf_glacier['elev_band'] = (
+        gdf_glacier['elev_masked']
+        .fillna(-1)  # Replace NaN with a placeholder (e.g., -1 or another value)
+        .floordiv(band_size) * band_size  # Calculate the elevation band
+    )
+
+    # Optionally set the 'elev_band' of NaN entries back to NaN
+    gdf_glacier.loc[gdf_glacier['elev_masked'].isna(), 'elev_band'] = None
+
+    return gdf_glacier
+
+
+def AddSnowline(gdf_glacier_corr, band_size=100, percentage_threshold=50):
+    # Add snowline
+    # Remove weird border effect
+    #gdf_glacier_corr = gdf_glacier_corr[gdf_glacier_corr.dis_masked > 10]
+    
+    gdf_glacier_corr = classify_elevation_bands(gdf_glacier_corr, band_size)
+
+    snowline(gdf_glacier_corr,
+             class_value=1,
+             percentage_threshold=percentage_threshold)
+
+    return gdf_glacier_corr

@@ -1,5 +1,5 @@
 import os
-from os.path import isfile, join
+from os.path import isfile, join, isdir
 import numpy as np
 import random as rd
 import torch
@@ -62,23 +62,6 @@ vois_units = {
     'v10': 'm s-1',
 }
 
-loss_units = {'RMSE': '[m w.e.]', 'MSE': '[]'}
-
-month_abbr_hydr = {
-    'sep': 1,
-    'oct': 2,
-    'nov': 3,
-    'dec': 4,
-    'jan': 5,
-    'feb': 6,
-    'mar': 7,
-    'apr': 8,
-    'may': 9,
-    'jun': 10,
-    'jul': 11,
-    'aug': 12,
-}
-
 month_abbr_hydr_full = {
     'sep': 1,
     'oct': 2,
@@ -95,6 +78,8 @@ month_abbr_hydr_full = {
     'sep_': 13,
 }
 
+loss_units = {'RMSE': '[m w.e.]', 'MSE': '[]'}
+
 
 # sets the same random seed everywhere so that it is reproducible
 def seed_all(seed):
@@ -108,20 +93,22 @@ def seed_all(seed):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-
-def createPath(path):
-    if not os.path.exists(path):
-        os.makedirs(path)
-
-
-# empties a folder
 def emptyfolder(path):
     if os.path.exists(path):
-        onlyfiles = [f for f in os.listdir(path) if isfile(join(path, f))]
-        for f in onlyfiles:
-            os.remove(path + f)
+        # Loop through all items in the directory
+        for item in os.listdir(path):
+            item_path = join(path, item)
+            if isfile(item_path):
+                os.remove(item_path)  # Remove file
+            elif isdir(item_path):
+                emptyfolder(item_path)  # Recursively empty the folder
+                os.rmdir(item_path)  # Remove the now-empty folder
     else:
         createPath(path)
+
+
+def createPath(path):
+    os.makedirs(path, exist_ok=True)
 
 
 # difference between two lists
@@ -212,14 +199,8 @@ def powerset(original_list, min_length=3):
     return subsets
 
 
-def save_to_netcdf(ds, path, filename):
-    # Create path if not exists
-    if not os.path.exists(path):
-        os.makedirs(path)
-
-    # delete file if already exists
-    if os.path.exists(path + filename):
-        os.remove(path + filename)
-
-    # save prediction to netcdf
-    ds.to_netcdf(path + filename)
+def format_rgi_code(X):
+    # Convert X to a string, and pad with leading zeros if its length is less than 5
+    Y = str(X).zfill(5)
+    # Return the final formatted string
+    return f"RGI60-11.{Y}"
