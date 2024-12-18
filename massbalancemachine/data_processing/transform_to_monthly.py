@@ -4,8 +4,6 @@ their respective months, e.g., a record for a period winter will be melted in th
 the following months: 'oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr' (depending on the FROM and TO date).
 We account for a variable period for the SMB target data, which gives more flexibility.
 
-@Author: Julian Biesheuvel
-Email: j.p.biesheuvel@student.tudelft.nl
 Date Created: 21/07/2024
 """
 

@@ -7,8 +7,6 @@ via the provided NETCDF-3 files fetched from the ERA5Land Reanalysis (monthly av
 Depending on the amount of variables, and the temporal scale, downloads of the climate data can take up hours.
 Climate data can either be downloaded manually via the link provided in the notebook.
 
-@Author: Julian Biesheuvel
-Email: j.p.biesheuvel@student.tudelft.nl
 Date Created: 21/07/2024
 """
 

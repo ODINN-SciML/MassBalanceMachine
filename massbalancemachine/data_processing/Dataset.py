@@ -5,8 +5,6 @@ the data for the model training and testing.
 Users provide stake measurement data, which must be in a WGMS-like format (if not, please see the data preprocessing
 notebook).
 
-@Author: Julian Biesheuvel
-Email: j.p.biesheuvel@student.tudelft.nl
 Date Created: 21/07/2024
 """
 
@@ -164,6 +162,7 @@ class Dataset:
         for year in years_stake:
             df_grid.loc[df_grid['YEAR'] == year, 'STAKE_MEAS'] = 1
         return df_grid
+    
 
     def _get_output_filename(self, feature_type: str) -> str:
         """

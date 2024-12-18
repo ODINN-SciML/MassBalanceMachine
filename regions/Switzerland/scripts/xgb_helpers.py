@@ -2,11 +2,9 @@ from scripts.helpers import *
 import massbalancemachine as mbm
 import config
 import pandas as pd
-import salem
-import pyproj
 from sklearn.model_selection import GroupKFold, KFold, train_test_split, GroupShuffleSplit
-from scipy.ndimage import gaussian_filter
 import xarray as xr
+
 
 def getMonthlyDataLoaderOneGl(glacierName, vois_climate, voi_topographical):
     # Load stakes data from GLAMOS
@@ -170,64 +168,19 @@ def getDfAggregatePred(test_set, y_pred_agg, all_columns):
 
     return grouped_ids
 
-def correctTP(df_grid_monthly, c_prec, t_off):
-    # Add corrected temperature and precipitation:
-    temp_grad = -6.5 / 1000  # [deg/1000m]
-    dpdz = 1.5 / 10000  # Percentage increase per 100m
 
-    # Apply different correction factor for each GLACIER based on the c_prec dictionary
-    df_grid_monthly['tp_corr'] = df_grid_monthly.apply(
-        lambda row: row['tp'] * c_prec.get(row['GLACIER'], 1), axis=1)
-
-    # Apply the elevation correction factor
-    df_grid_monthly['tp_corr'] = df_grid_monthly['tp_corr'] + df_grid_monthly[
-        'tp_corr'] * (df_grid_monthly['ELEVATION_DIFFERENCE'] * dpdz)
-
-    # Temperature gradient correction
-    df_grid_monthly['t2m_corr'] = df_grid_monthly['t2m'] + (
-        df_grid_monthly['ELEVATION_DIFFERENCE']) * temp_grad
-
-    # Temperature bias offset
-    df_grid_monthly['t2m_corr'] = df_grid_monthly.apply(
-        lambda row: row['t2m_corr'] + t_off.get(row['GLACIER'], 1), axis=1)
-
-    return df_grid_monthly
-
-def GlacierWidePred(custom_model,
-                    glacierName,
-                    vois_climate,
-                    vois_topographical,
-                    c_prec, t_off,
-                    type_pred='annual'):
-    # Feature columns:
-    feature_columns = [
-        'ELEVATION_DIFFERENCE'
-    ] + list(vois_climate) + list(vois_topographical) + ['pcsr']
-    all_columns = feature_columns + config.META_DATA + config.NOT_METADATA_NOT_FEATURES
-
-    # Whole grid:
-    # Get glacier grid (preprocessed):
-    df_grid_monthly = pd.read_csv(path_glacier_grid +
-                                  f'{glacierName}_grid.csv')
-    df_grid_monthly['GLACIER'] = glacierName
-    df_grid_monthly['POINT_ELEVATION'] = df_grid_monthly['topo']
-    
-    df_grid_monthly = correctTP(
-            df_grid_monthly, c_prec, t_off)
-    
-    df_grid_monthly = df_grid_monthly[all_columns]
-
+def GlacierWidePred(custom_model, df_grid_monthly, type_pred='annual'):
     if type_pred == 'annual':
         # Make predictions on whole glacier grid
         features_grid, metadata_grid = custom_model._create_features_metadata(
             df_grid_monthly, config.META_DATA)
 
-        # Make predictions aggr to meas ID:
+        # Make predictions aggregated to measurement ID:
         y_pred_grid_agg = custom_model.aggrPredict(metadata_grid,
                                                    config.META_DATA,
                                                    features_grid)
 
-        # Aggregate predictions to annual or winter:
+        # Aggregate predictions to annual:
         grouped_ids_annual = df_grid_monthly.groupby('ID').agg({
             'YEAR':
             'mean',
@@ -240,24 +193,22 @@ def GlacierWidePred(custom_model,
 
         return grouped_ids_annual
 
-    if type_pred == 'winter':
+    elif type_pred == 'winter':
         # winter months from October to April
         winter_months = ['oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr']
         df_grid_winter = df_grid_monthly[df_grid_monthly.MONTHS.isin(
             winter_months)]
 
-        # Make predictions:
-        # Set to CPU for predictions:
         # Make predictions on whole glacier grid
         features_grid, metadata_grid = custom_model._create_features_metadata(
             df_grid_winter, config.META_DATA)
 
-        # Make predictions aggr to meas ID:
+        # Make predictions aggregated to measurement ID:
         y_pred_grid_agg = custom_model.aggrPredict(metadata_grid,
                                                    config.META_DATA,
                                                    features_grid)
 
-        # Aggregate predictions to annual or winter:
+        # Aggregate predictions for winter:
         grouped_ids_winter = df_grid_monthly.groupby('ID').agg({
             'YEAR':
             'mean',
@@ -267,13 +218,18 @@ def GlacierWidePred(custom_model,
             'mean'
         })
         grouped_ids_winter['pred'] = y_pred_grid_agg
+
         return grouped_ids_winter
+
+    else:
+        raise ValueError(
+            "Unsupported prediction type. Only 'annual' and 'winter' are currently supported."
+        )
 
 
 def cumulativeMB(df_pred,
                  test_gl,
-                 ids_year_dict,
-                 month_abbr_hydr=month_abbr_hydr):
+                 ids_year_dict):
     df_pred_gl = df_pred[df_pred['GLACIER'] == test_gl]
 
     dfCumMB_all = pd.DataFrame(columns=[
@@ -283,6 +239,7 @@ def cumulativeMB(df_pred,
         'ID',
         'monthNb',
     ])
+    month_abbr_hydr = config.month_abbr_hydr.copy()
     for ID in df_pred_gl['ID'].unique():
         df_pred_stake = df_pred_gl[df_pred_gl['ID'] == ID]
 
@@ -321,108 +278,7 @@ def cumulativeMB(df_pred,
     return dfCumMB_all
 
 
-def predXarray(ds, gdir, df_pred, pred_var = 'pred'):
-    glacier_indices = np.where(ds['glacier_mask'].values == 1)
-    pred_masked = ds.glacier_mask.values
-    
-    # set pred_masked to nan where 0
-    pred_masked = np.where(pred_masked == 0, np.nan, pred_masked)
-    for i, (x_index,
-            y_index) in enumerate(zip(glacier_indices[0], glacier_indices[1])):
-        pred_masked[x_index, y_index] = df_pred.iloc[i][pred_var]
-
-    pred_masked = np.where(pred_masked == 1, np.nan, pred_masked)
-    ds_xy = ds.assign(pred_masked=(('y', 'x'), pred_masked))
-    
-    # change from oggm to wgs84
-    ds_latlon = oggmToWgs84(ds_xy, gdir)
-    
-    return ds_latlon, ds_xy
-
-def oggmToWgs84(ds, gdir):
-    # Define the Swiss coordinate system (EPSG:2056) and WGS84 (EPSG:4326)
-    transformer = pyproj.Transformer.from_proj(gdir.grid.proj,
-                                            salem.wgs84,
-                                            always_xy=True)
-
-    # Get the Swiss x and y coordinates from the dataset
-    x_coords = ds['x'].values
-    y_coords = ds['y'].values
-
-    # Create a meshgrid for all x, y coordinate pairs
-    x_mesh, y_mesh = np.meshgrid(x_coords, y_coords)
-
-    # Flatten the meshgrid arrays for transformation
-    x_flat = x_mesh.ravel()
-    y_flat = y_mesh.ravel()
-
-    # Transform the flattened coordinates
-    lon_flat, lat_flat = transformer.transform(x_flat, y_flat)
-
-    # Reshape transformed coordinates back to the original grid shape
-    lon = lon_flat.reshape(x_mesh.shape)
-    lat = lat_flat.reshape(y_mesh.shape)
-    
-    # Extract unique 1D coordinates for lat and lon
-    lon_1d = lon[0, :]  # Take the first row for unique longitudes along x-axis
-    lat_1d = lat[:, 0]  # Take the first column for unique latitudes along y-axis
-
-    # Assign the 1D coordinates to x and y dimensions
-    ds = ds.assign_coords(longitude=("x", lon_1d), latitude=("y", lat_1d))
-
-    # Swap x and y dimensions with lon and lat
-    ds = ds.swap_dims({"x": "longitude", "y": "latitude"})
-
-    # Optionally, drop the old x and y coordinates if no longer needed
-    ds = ds.drop_vars(["x", "y"])
-    
-    return ds
 
 
-def GaussianFilter(ds, sigma = 1):
-    # Assuming `dataset` is your xarray.Dataset
-    # Apply Gaussian filter to each DataArray in the Dataset
-    smoothed_dataset = xr.Dataset()
-
-    for var_name, data_array in ds.data_vars.items():
-        # Step 1: Create a mask of valid data (non-NaN values)
-        mask = ~np.isnan(data_array)
-
-        # Step 2: Replace NaNs with zero (or a suitable neutral value)
-        filled_data = data_array.fillna(0)
-
-        # Step 3: Apply Gaussian filter to the filled data
-        smoothed_data = gaussian_filter(filled_data, sigma=sigma)
-
-        # Step 4: Restore NaNs to their original locations
-        smoothed_data = xr.DataArray(smoothed_data,
-                                    dims=data_array.dims,
-                                    coords=data_array.coords,
-                                    attrs=data_array.attrs).where(
-                                        mask)  # Apply the mask to restore NaNs
-
-        # Add the smoothed data to the new Dataset
-        smoothed_dataset[var_name] = smoothed_data
-    return smoothed_dataset
-
-
-def cumulativeMonthly(df_grid_monthly, custom_model):
-    # Make predictions on whole glacier grid
-    features_grid, metadata_grid = custom_model._create_features_metadata(
-        df_grid_monthly, config.META_DATA)
-    y_pred = custom_model.predict(features_grid)
-
-    # df_grid = pd.DataFrame(metadata_grid, columns=config.META_DATA)
-    df_grid_monthly = df_grid_monthly.assign(pred=y_pred)
-    df_grid_monthly['MONTH_NB'] = df_grid_monthly.MONTHS.apply(
-        lambda x: month_abbr_hydr[x])
-
-    # sort by ID
-    df_grid_monthly.sort_values(by=['ID', 'MONTH_NB'], inplace=True)
-
-    # Cumulative monthly sums:
-    df_grid_monthly['cum_pred'] = df_grid_monthly.groupby(
-        "ID")["pred"].cumsum()
-    return df_grid_monthly
 
 

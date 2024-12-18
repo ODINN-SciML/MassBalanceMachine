@@ -3,8 +3,6 @@ This code is taken, and refactored, and inspired from the work performed by: Kam
 
 The CustomXGBoostRegressor class inherits from the XGBoost Regressor and is adapted to account for a monthly resolution.
 
-@Author: Julian Biesheuvel
-Email: j.p.biesheuvel@student.tudelft.nl
 Date Created: 09/08/2024
 """
 
@@ -281,6 +279,35 @@ class CustomXGBoostRegressor(XGBRegressor):
         y_pred_agg = grouped_ids["y_pred"].sum().values
 
         return y_pred_agg
+    
+    def cumulative_pred(self, df):
+        """Make cumulative monthly predictions for each stake measurement.
+
+        Args:
+            df pd.DataFrame: monthly input dataframe
+            custom_model (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """
+        features, metadata = self._create_features_metadata(
+            df, config.META_DATA)
+        
+        # Predictions in monthly format
+        y_pred = super().predict(features)
+
+        df = df.assign(pred=y_pred)
+
+        # Vectorized operation for month abbreviation
+        df['MONTH_NB'] = df['MONTHS'].map(
+            config.month_abbr_hydr)
+
+        # Cumulative monthly sums using groupby
+        df.sort_values(by=['ID', 'MONTH_NB'], inplace=True)
+        df['cum_pred'] = df.groupby(
+            'ID')['pred'].cumsum()
+
+        return df
 
     def save_model(self, fname: str) -> None:
         """Save a grid search or randomized search CV instance to a file"""
