@@ -205,3 +205,13 @@ def format_rgi_code(X):
     Y = str(X).zfill(5)
     # Return the final formatted string
     return f"RGI60-11.{Y}"
+
+def reformat_SGI_id(input_str):
+    # Split the string by "/"
+    part1, part2 = input_str.split("/")
+
+    # Convert part1 to lowercase for the letter and retain the number
+    part1 = part1[:-1] + part1[-1].lower()
+
+    # Combine part1 and part2 with a hyphen in between
+    return f"{part1}-{part2}"
