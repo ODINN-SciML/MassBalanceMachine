@@ -24,6 +24,7 @@ def create_glacier_grids(ds: xr.Dataset, years: list, glacier_indices: "tuple[np
     x_coords = ds['x'].values
     y_coords = ds['y'].values
 
+     
     # Retrieve the x and y values using the glacier indices
     glacier_x_vals = x_coords[glacier_indices[1]]
     glacier_y_vals = y_coords[glacier_indices[0]]
@@ -37,7 +38,6 @@ def create_glacier_grids(ds: xr.Dataset, years: list, glacier_indices: "tuple[np
 
     # Glacier mask as boolean array:
     gl_mask_bool = ds['glacier_mask'].values.astype(bool)
-    
     # Create a DataFrame
     data_grid = {
         'RGIId': [rgi_gl] * len(ds.masked_elev.values[gl_mask_bool]),
