@@ -29,6 +29,7 @@ path_direct_save = '../../../data/GLAMOS/direct/csv/'
 
 path_rgi = '../../../data/GLAMOS/CH_glacier_ids_long.csv'
 path_glogem = '../../../data/GloGEM'
+path_geodetic_MB = '../../../data/GLAMOS/geodetic/'
 
 # ERA5-Land
 path_ERA5_raw = '../../../data/ERA5Land/raw/'
