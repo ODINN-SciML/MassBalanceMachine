@@ -69,7 +69,7 @@ class GeoData:
                 "ds_xy must be either an xarray.Dataset or a valid file path to a NetCDF file"
             )
 
-    def pred_to_xr(self, ds, gdir, pred_var='pred'):
+    def pred_to_xr(self, ds, gdir=None, pred_var='pred', source_type = 'oggm'):
         """Transforms MB predictions to xarray dataset. 
            Makes it easier for plotting and saving to netcdf.
            Keeps on netcdf in OGGM projection and transforms one to WGS84.
@@ -89,12 +89,17 @@ class GeoData:
             pred_masked[x_index, y_index] = self.data.iloc[i][pred_var]
 
         pred_masked = np.where(pred_masked == 1, np.nan, pred_masked)
-        self.ds_xy = ds.assign(pred_masked=(('y', 'x'), pred_masked))
+        
+        if source_type == 'oggm':
+            self.ds_xy = ds.assign(pred_masked=(('y', 'x'), pred_masked))
 
-        # Change from OGGM proj. to wgs84
-        self.ds_latlon = self.oggmToWgs84(self.ds_xy, gdir)
+            # Change from OGGM proj. to wgs84
+            self.ds_latlon = self.oggmToWgs84(self.ds_xy, gdir)
+        if source_type == 'sgi':
+            self.ds_latlon = ds.assign(pred_masked=(('lat', 'lon'), pred_masked))
 
-    def save_arrays(self, path_wgs84: str, path_lv95: str, filename: str):
+
+    def save_arrays(self, filename: str, path:str=None, proj_type:str = 'wgs840'):
         """Saves the xarray datasets in OGGM projection and WGMS84 to netcdf files.
 
         Args:
@@ -102,8 +107,12 @@ class GeoData:
             path_lv95 (str): path to save the dataset in LV95 projection.
             filename (str): filename for the netcdf file.
         """
-        self.__class__.save_to_netcdf(self.ds_latlon, path_wgs84, filename)
-        self.__class__.save_to_netcdf(self.ds_xy, path_lv95, filename)
+        if proj_type == 'wgs84':
+            self.__class__.save_to_netcdf(self.ds_latlon, path, filename)
+        elif proj_type == 'lv95':
+            self.__class__.save_to_netcdf(self.ds_xy, path, filename)
+        else:
+            raise ValueError("proj_type must be either 'wgs84' or 'lv95'.")
 
     def xr_to_gpd(self):
         # Get lat and lon, and variables data

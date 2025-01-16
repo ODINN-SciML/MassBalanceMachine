@@ -22,7 +22,7 @@ path_SMB_GLAMOS_csv = '../../../data/GLAMOS/glacier-wide/csv/'
 path_glacier_grid = '../../../data/GLAMOS/gridded_products/RGI_grid/'
 path_glacier_grid_sgi = '../../../data/GLAMOS/gridded_products/SGI_grid/'
 path_SGI_topo = '../../../data/GLAMOS/topo/SGI2020/'
-
+path_OGGM = '../../../data/OGGM/'
 # Potential incoming clear sky solar radiation from GLAMOS:
 path_direct = '../../../data/GLAMOS/direct/raw/'
 path_direct_save = '../../../data/GLAMOS/direct/csv/'
