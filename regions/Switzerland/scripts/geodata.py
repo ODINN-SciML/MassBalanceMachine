@@ -20,7 +20,9 @@ from shapely.geometry import Polygon, LineString, Point
 from pyproj import Transformer
 import rasterio.features
 from rasterio.transform import from_bounds
-
+from tqdm.notebook import tqdm
+import pyproj
+from pyproj import Transformer
 
 def toRaster(gdf, lon, lat, file_name, source_crs='EPSG:4326'):
     # Assuming your GeoDataFrame is named gdf
@@ -784,8 +786,9 @@ def create_glacier_grid_SGI(
     year,
     rgi_id,
     ds,
-    glacier_indices,
 ):
+    glacier_indices = np.where(ds['glacier_mask'].values == 1)
+
     # Glacier mask as boolean array:
     gl_mask_bool = ds['glacier_mask'].values.astype(bool)
 
@@ -794,7 +797,7 @@ def create_glacier_grid_SGI(
 
     lon = lon_coords[glacier_indices[1]]
     lat = lat_coords[glacier_indices[0]]
-
+    
     # Create a DataFrame
     data_grid = {
         'RGIId': [rgi_id] * len(ds.masked_elev.values[gl_mask_bool]),
@@ -862,3 +865,75 @@ def xr_SGI_masked_topo(rgi_shp, gdf_shapefiles, path_aspect, path_slope,
     })
 
     return ds
+
+def coarsenDS(ds):
+    # Coarson to 30 m resolution
+    # Coarsen non-binary variables with mean
+    ds_non_binary = ds[['masked_slope', 'masked_aspect',
+                        'masked_elev']].coarsen(lon=3, lat=3,
+                                                boundary="trim").mean()
+
+    # Coarsen glacier mask with max
+    ds_glacier_mask = ds[['glacier_mask']].coarsen(lon=3, lat=3,
+                                                boundary="trim").reduce(np.max)
+
+    # Merge back into a single dataset
+    ds_res = xr.merge([ds_non_binary, ds_glacier_mask])
+    return ds_res
+
+
+def add_OGGM_features(df_y_gl, voi, path_OGGM):
+    df_pmb = df_y_gl.copy()
+
+    # Initialize empty columns for the variables
+    for var in voi:
+        df_pmb[var] = np.nan
+
+    # Path to OGGM datasets
+    path_to_data = path_OGGM + 'xr_grids/'
+
+    # Group rows by RGIId
+    grouped = df_pmb.groupby("RGIId")
+
+    # Process each group
+    for rgi_id, group in grouped:
+        file_path = f"{path_to_data}{rgi_id}.nc"
+        
+        try:
+            # Load the xarray dataset for the current RGIId
+            ds_oggm = xr.open_dataset(file_path)
+        except FileNotFoundError:
+            print(f"File not found for RGIId: {rgi_id}")
+            continue
+
+        # Define the coordinate transformation
+        transf = pyproj.Transformer.from_proj(
+            pyproj.CRS.from_user_input("EPSG:4326"),  # Input CRS (WGS84)
+            pyproj.CRS.from_user_input(ds_oggm.pyproj_srs),  # Output CRS from dataset
+            always_xy=True
+        )
+
+        # Transform all coordinates in the group
+        lon, lat = group["POINT_LON"].values, group["POINT_LAT"].values
+        x_stake, y_stake = transf.transform(lon, lat)
+        # Select nearest values for all points
+        try:
+            stake = ds_oggm.sel(
+                x=xr.DataArray(x_stake, dims="points"),
+                y=xr.DataArray(y_stake, dims="points"),
+                method="nearest"
+            )
+
+            # Extract variables of interest
+            stake_var = stake[voi]
+
+            # Convert the extracted data to a DataFrame
+            stake_var_df = stake_var.to_dataframe()
+
+            # Update the DataFrame with the extracted values
+            for var in voi:
+                df_pmb.loc[group.index, var] = stake_var_df[var].values
+        except KeyError as e:
+            print(f"Variable missing in dataset {file_path}: {e}")
+            continue
+    return df_pmb
