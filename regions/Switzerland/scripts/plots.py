@@ -18,6 +18,7 @@ color_tim = '#c51b7d'
 color_winter = '#a6cee3'
 color_annual = '#1f78b4'
 
+
 def visualiseSplits(y_test, y_train, splits, colors=[color_xgb, color_tim]):
     # Visualise the cross validation splits
     fig, ax = plt.subplots(1, 6, figsize=(20, 5))
@@ -77,7 +78,7 @@ def predVSTruth(ax, grouped_ids, scores, hue='GLACIER', palette=None):
             fontsize=20,
             bbox=props)
     if hue is not None:
-        ax.legend(fontsize=14, loc = 'lower right')
+        ax.legend(fontsize=14, loc='lower right')
     else:
         ax.legend([], [], frameon=False)
     # diagonal line
@@ -135,7 +136,8 @@ def plotMeanPred(grouped_ids, ax):
             squared=False), np.corrcoef(
                 grouped_ids.groupby('YEAR')['pred'].mean().values, mean)[0, 1]
     legend_xgb = "\n".join((r"$\mathrm{RMSE}=%.3f, \mathrm{\rho}=%.3f$ " % (
-        rmse,pearson_corr,
+        rmse,
+        pearson_corr,
     ), ))
     ax.text(0.03,
             0.98,
@@ -143,7 +145,7 @@ def plotMeanPred(grouped_ids, ax):
             transform=ax.transAxes,
             verticalalignment="top",
             fontsize=20)
-    ax.legend(fontsize=20, loc = 'lower right')
+    ax.legend(fontsize=20, loc='lower right')
 
 
 def FIPlot(best_estimator, feature_columns, vois_climate):
@@ -208,15 +210,16 @@ def plotGlGrid(df_grid_annual, data_gl):
                label='Winter',
                marker='x',
                color=color_winter,
-               alpha = 0.8)
+               alpha=0.8)
     ax.scatter(data_annual.POINT_LON,
                data_annual.POINT_LAT,
                s=10,
                label='Annual',
                marker='x',
                color=color_annual,
-               alpha = 0.8)
+               alpha=0.8)
     ax.legend(fontsize=18, markerscale=2)
+
 
 def plotNumMeasPerYear(data_gl, glacierName):
     # Plot number of measurements per year
@@ -543,11 +546,10 @@ def PlotIndividualGlacierPred(grouped_ids, figsize=(15, 22)):
         plotMeanPred(df_gl, ax2)
 
     plt.tight_layout()
-    
+
+
 def PlotIndividualGlacierPredVsTruth(grouped_ids, figsize=(15, 22)):
-    fig, axs = plt.subplots(3,
-                            3,
-                            figsize=figsize)
+    fig, axs = plt.subplots(3, 3, figsize=figsize)
 
     colors_glacier = [
         '#a6cee3', '#1f78b4', '#b2df8a', '#33a02c', '#fb9a99', '#e31a1c',
@@ -649,26 +651,25 @@ def TwoDPlots(ds, gdir, glacierName, grouped_ids_annual, grouped_ids_winter,
 
         geoData_annual = mbm.GeoData(pred_y_annual)
         geoData_annual.pred_to_xr(ds, gdir, pred_var='pred')
-        
+
         geoData_winter = mbm.GeoData(pred_y_winter)
         geoData_winter.pred_to_xr(ds, gdir, pred_var='pred')
-        
+
         if j == 0:
             vmin, vmax = geoData_winter.ds_latlon.pred_masked.min(
             ).values, geoData_winter.ds_latlon.pred_masked.max().values
             if vmax >= 0 and vmin < 0:
                 # find the biggest of the two absolute values
                 max_abs_value = max(abs(vmin), abs(vmax))
-                norm = mcolors.TwoSlopeNorm(
-                    vmin=-max_abs_value,
-                    vcenter=0,
-                    vmax=max_abs_value)
+                norm = mcolors.TwoSlopeNorm(vmin=-max_abs_value,
+                                            vcenter=0,
+                                            vmax=max_abs_value)
                 geoData_winter.ds_latlon.pred_masked.plot(
                     cmap='coolwarm_r',
                     norm=norm,
                     ax=ax,
                     cbar_kwargs={'label': "[m w.e.]"})
-                
+
             elif vmax >= 0 and vmin >= 0:
                 geoData_winter.ds_latlon.pred_masked.plot(
                     cmap='Blues', ax=ax, cbar_kwargs={'label': "[m w.e.]"})
@@ -684,10 +685,9 @@ def TwoDPlots(ds, gdir, glacierName, grouped_ids_annual, grouped_ids_winter,
             ).values, geoData_annual.ds_latlon.pred_masked.max().values
             if vmax >= 0 and vmin < 0:
                 max_abs_value = max(abs(vmin), abs(vmax))
-                norm = mcolors.TwoSlopeNorm(
-                    vmin=-max_abs_value,
-                    vcenter=0,
-                    vmax=max_abs_value)
+                norm = mcolors.TwoSlopeNorm(vmin=-max_abs_value,
+                                            vcenter=0,
+                                            vmax=max_abs_value)
                 geoData_annual.ds_latlon.pred_masked.plot(
                     cmap='coolwarm_r',
                     norm=norm,
@@ -706,13 +706,13 @@ def TwoDPlots(ds, gdir, glacierName, grouped_ids_annual, grouped_ids_winter,
     plt.tight_layout()
 
 
-def Plot2DPred(fig, vmin, vmax, ds_pred, YEAR, month, ax, savefig = False):
+def Plot2DPred(fig, vmin, vmax, ds_pred, YEAR, month, ax, savefig=False):
     monthNb = config.month_abbr_hydr[month]
     norm = mcolors.TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
     pcm = ds_pred.pred_masked.plot(cmap='coolwarm_r',
                                    norm=norm,
                                    add_colorbar=False,
-                                   ax = ax)
+                                   ax=ax)
     cb = fig.colorbar(pcm)
     cb.ax.set_yscale('linear')
     cb.set_label("[m w.e.]")  # Set the label here
@@ -723,6 +723,98 @@ def Plot2DPred(fig, vmin, vmax, ds_pred, YEAR, month, ax, savefig = False):
     ax.grid()
     if savefig:
         plt.savefig(f"results/gif/{monthNb}_{month}.png",
-                format="png",
-                dpi=300,
-                bbox_inches="tight")
+                    format="png",
+                    dpi=300,
+                    bbox_inches="tight")
+
+
+def scatter_geodeticMB(df_all, size = False):
+    # Scatter plot for all
+    df_all.dropna(inplace=True)
+    rmse_mbm, corr_mbm = mean_squared_error(df_all['Geodetic MB'],
+                                            df_all['MBM MB'],
+                                            squared=False), np.corrcoef(
+                                                df_all['Geodetic MB'],
+                                                df_all['MBM MB'])[0, 1]
+    rmse_glamos, corr_glamos = mean_squared_error(df_all['Geodetic MB'],
+                                                  df_all['GLAMOS MB'],
+                                                  squared=False), np.corrcoef(
+                                                      df_all['Geodetic MB'],
+                                                      df_all['GLAMOS MB'])[0,
+                                                                           1]
+
+    fig, axs = plt.subplots(1, 2, figsize=(15, 5), sharex=True, sharey=True)
+    if size: 
+        sns.scatterplot(data=df_all,
+                    x='Geodetic MB',
+                    y='MBM MB',
+                    hue='Test glacier',
+                    size='Area', sizes=(10, 1000), alpha=0.7,
+                    ax=axs[0])
+    else:
+        sns.scatterplot(data=df_all,
+                    x='Geodetic MB',
+                    y='MBM MB',
+                    hue='GLACIER',
+                    size='Area', sizes=(10, 1000), alpha=0.7,
+                    ax=axs[0])
+    # diagonal line
+    pt = (0, 0)
+    axs[0].axline(pt, slope=1, color="grey", linestyle="-", linewidth=0.2)
+    axs[0].axvline(0, color="grey", linestyle="--", linewidth=1)
+    axs[0].axhline(0, color="grey", linestyle="--", linewidth=1)
+    axs[0].grid()
+    axs[0].set_xlabel('Geodetic MB [m w.e.]')
+    axs[0].set_ylabel('Modelled MB [m w.e.]')
+    # add title
+    axs[0].set_title('Geodetic vs MBM MB')
+    # hide legend
+    axs[0].get_legend().remove()
+    legend = "\n".join(((r"$\mathrm{RMSE}=%.3f$," % (rmse_mbm, )),
+                        (r"$\mathrm{\rho}=%.3f$" % (corr_mbm, ))))
+    props = dict(boxstyle='round', facecolor='white', alpha=0.5)
+    axs[0].text(0.03,
+                0.98,
+                legend,
+                transform=axs[0].transAxes,
+                verticalalignment="top",
+                fontsize=14,
+                bbox=props)
+
+    # Same for glamos MB
+    if size: 
+        sns.scatterplot(data=df_all,
+                    x='Geodetic MB',
+                    y='GLAMOS MB',
+                    hue='Test glacier',
+                    size='Area', sizes=(10, 1000), alpha=0.7,
+                    ax=axs[1])
+    else:
+        sns.scatterplot(data=df_all,
+                    x='GLAMOS MB',
+                    y='MBM MB',
+                    hue='GLACIER',
+                    size='Area', sizes=(10, 1000), alpha=0.7,
+                    ax=axs[1])
+    # diagonal line
+    pt = (0, 0)
+    axs[1].axline(pt, slope=1, color="grey", linestyle="-", linewidth=0.2)
+    axs[1].axvline(0, color="grey", linestyle="--", linewidth=1)
+    axs[1].axhline(0, color="grey", linestyle="--", linewidth=1)
+    axs[1].grid()
+    # legend
+    axs[1].set_xlabel('Geodetic MB [m w.e.]')
+    axs[1].set_ylabel('Modelled MB [m w.e.]')
+    # add title
+    axs[1].set_title('Geodetic vs GLAMOS MB')
+    legend = "\n".join(((r"$\mathrm{RMSE}=%.3f$," % (rmse_glamos, )),
+                        (r"$\mathrm{\rho}=%.3f$" % (corr_glamos, ))))
+    axs[1].text(0.03,
+                0.98,
+                legend,
+                transform=axs[1].transAxes,
+                verticalalignment="top",
+                fontsize=14,
+                bbox=props)
+    # legend outside of plot
+    plt.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0., ncol = 3)

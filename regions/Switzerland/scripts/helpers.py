@@ -55,6 +55,8 @@ vois_climate_long_name = {
 vois_units = {
     't2m': 'C',
     'tp': 'm w.e.',
+    't2m_corr': 'C',
+    'tp_corr': 'm w.e.',
     'slhf': 'J m-2',
     'sshf': 'J m-2',
     'ssrd': 'J m-2',
