@@ -10,7 +10,7 @@ import rasterio
 from shapely.geometry import Point, box
 import geopandas as gpd
 from scipy.spatial import cKDTree
-
+import matplotlib.pyplot as plt
 
 class GeoData:
     """Class for handling geodata objects such as raster files (nc, tif),
@@ -78,25 +78,81 @@ class GeoData:
             ds (xarray.Dataset): OGGM glacier grid with attributes.
             gdir gdir (oggm.GlacierDirectory): the OGGM glacier directory
             pred_var (str, optional): Name of prediction column in self.data. Defaults to 'pred'.
-        """
-        glacier_indices = np.where(ds['glacier_mask'].values == 1)
-        pred_masked = ds.glacier_mask.values
-
-        # Set pred_masked to nan where 0
-        pred_masked = np.where(pred_masked == 0, np.nan, pred_masked)
-        for i, (x_index, y_index) in enumerate(
-                zip(glacier_indices[0], glacier_indices[1])):
-            pred_masked[x_index, y_index] = self.data.iloc[i][pred_var]
-
-        pred_masked = np.where(pred_masked == 1, np.nan, pred_masked)
-        
+        """            
         if source_type == 'oggm':
+            glacier_indices = np.where(ds['glacier_mask'].values == 1)
+            pred_masked = ds.glacier_mask.values
+
+            # Set pred_masked to nan where 0
+            pred_masked = np.where(pred_masked == 0, np.nan, pred_masked)
+            
+            for i, (x_index, y_index) in enumerate(
+                    zip(glacier_indices[0], glacier_indices[1])):
+                print(x_index, y_index)
+                pred_masked[x_index, y_index] = self.data.iloc[i][pred_var]
+
+            pred_masked = np.where(pred_masked == 1, np.nan, pred_masked)
+            
             self.ds_xy = ds.assign(pred_masked=(('y', 'x'), pred_masked))
 
             # Change from OGGM proj. to wgs84
             self.ds_latlon = self.oggmToWgs84(self.ds_xy, gdir)
         if source_type == 'sgi':
-            self.ds_latlon = ds.assign(pred_masked=(('lat', 'lon'), pred_masked))
+            # Create a new variable pred_masked initialized with NaN
+            # ds["pred_masked"] = xr.DataArray(
+            #     np.full((ds.dims["lat"], ds.dims["lon"]), np.nan),
+            #     dims=("lat", "lon"),
+            #     coords={"lat": ds["lat"], "lon": ds["lon"]},
+            # )
+
+            # # Iterate through DataFrame rows
+            # for i in range(len(self.data)):
+            #     point_lon = self.data["POINT_LON"].values[i]
+            #     point_lat = self.data["POINT_LAT"].values[i]
+            #     pred_value = self.data["pred"].values[i]
+
+            #     # Select the nearest grid cell using x and y dimensions
+            #     nearest_point = ds.sel(lon=point_lon, lat=point_lat, method="nearest")
+            #     lon_idx = nearest_point["lon"].item()  # Get the nearest x index
+            #     lat_idx = nearest_point["lat"].item()  # Get the nearest y index
+
+            #     # Assign the value to the pred_masked array
+            #     ds["pred_masked"].loc[{"lat": lat_idx, "lon": lon_idx}] = pred_value
+                
+            # Faster way:
+            # Create a new variable pred_masked initialized with NaN
+            ds["pred_masked"] = xr.DataArray(
+                np.full((ds.dims["lat"], ds.dims["lon"]), np.nan),
+                dims=("lat", "lon"),
+                coords={"lat": ds["lat"], "lon": ds["lon"]},
+            )
+
+            # Extract the DataFrame columns as numpy arrays
+            point_lon = self.data["POINT_LON"].values
+            point_lat = self.data["POINT_LAT"].values
+            pred_values = self.data["pred"].values
+
+            # Use vectorized nearest neighbor selection
+            nearest_points = ds.sel(
+                lon=xr.DataArray(point_lon, dims="points"),
+                lat=xr.DataArray(point_lat, dims="points"),
+                method="nearest"
+            )
+
+            # Extract the nearest grid indices
+            lon_indices = nearest_points["lon"].values
+            lat_indices = nearest_points["lat"].values
+
+            # Create a mask with NaN, then fill with the predictions at the corresponding indices
+            pred_masked = np.full((ds.dims["lat"], ds.dims["lon"]), np.nan)
+
+            # Loop over the matched points to assign values
+            for lon_idx, lat_idx, pred in zip(lon_indices, lat_indices, pred_values):
+                pred_masked[np.where(ds["lat"] == lat_idx)[0][0], np.where(ds["lon"] == lon_idx)[0][0]] = pred
+
+            # Assign pred_masked back to the dataset
+            ds["pred_masked"] = (("lat", "lon"), pred_masked)
+            self.ds_latlon = ds
 
 
     def save_arrays(self, filename: str, path:str=None, proj_type:str = 'wgs840'):
@@ -116,11 +172,11 @@ class GeoData:
 
     def xr_to_gpd(self):
         # Get lat and lon, and variables data
-        lat = self.ds_latlon['latitude'].values
-        lon = self.ds_latlon['longitude'].values
+        lat = self.ds_latlon['lat'].values
+        lon = self.ds_latlon['lon'].values
         pred_masked_data = self.ds_latlon['pred_masked'].values
         masked_elev_data = self.ds_latlon['masked_elev'].values
-        masked_dis_data = self.ds_latlon['masked_dis'].values
+        #masked_dis_data = self.ds_latlon['masked_dis'].values
 
         # Create meshgrid of coordinates
         lon_grid, lat_grid = np.meshgrid(lon, lat)
@@ -130,7 +186,7 @@ class GeoData:
         lat_flat = lat_grid.flatten()
         pred_masked_data_flat = pred_masked_data.flatten()
         masked_elev_data_flat = masked_elev_data.flatten()
-        masked_dis_data_flat = masked_dis_data.flatten()
+        #masked_dis_data_flat = masked_dis_data.flatten()
 
         # Verify shapes
         assert len(lon_flat) == len(lat_flat) == len(
@@ -143,7 +199,7 @@ class GeoData:
             {
                 "pred_masked": pred_masked_data_flat,
                 "elev_masked": masked_elev_data_flat,
-                "dis_masked": masked_dis_data_flat
+                #"dis_masked": masked_dis_data_flat
             },
             geometry=points,
             crs="EPSG:4326")
@@ -273,26 +329,27 @@ class GeoData:
     def raster_to_gpd(input_raster):
         # Open the raster
         with rasterio.open(input_raster) as src:
-            data = src.read(1)  # Read first band
+            data = src.read(1)  # Read the first band
             transform = src.transform
             crs = src.crs
+            nodata = src.nodata
 
-        # Get indices of non-NaN values
-        rows, cols = np.where(data != src.nodata)
-        values = data[rows, cols]
+        # Get indices of non-NaN values and their corresponding values
+        mask = data != nodata
+        rows, cols = np.nonzero(mask)
+        values = data[mask]
 
-        # Convert raster cells to points
-        points = [
-            Point(transform * (col + 0.5, row + 0.5))
-            for row, col in zip(rows, cols)
-        ]
+        # Vectorize coordinate transformation
+        x_coords, y_coords = rasterio.transform.xy(transform, rows, cols, offset="center")
 
-        # Create GeoDataFrame
-        gdf_raster = gpd.GeoDataFrame({"classes": values},
-                                      geometry=points,
-                                      crs=crs)
+        # Create GeoDataFrame directly using vectorized data
+        gdf_raster = gpd.GeoDataFrame(
+            {"classes": values},
+            geometry=gpd.points_from_xy(x_coords, y_coords),
+            crs=crs
+        )
+        
         return gdf_raster
-
 
     @staticmethod
     def resample_satellite_to_glacier(gdf_glacier, gdf_raster):
