@@ -9,23 +9,71 @@ from pyproj import Transformer
 from scripts.helpers import *
 
 
-# Converts .dat files to .csv
 def processDatFile(fileName, path_dat, path_csv):
-    with open(path_dat + fileName + '.dat', 'r',
-              encoding='latin-1') as dat_file:
-        with open(path_csv + fileName + '.csv',
-                  'w',
-                  newline='',
-                  encoding='latin-1') as csv_file:
+    """
+    Converts a `.dat` file into a `.csv` file.
+
+    This function processes a `.dat` file located in a specified directory, 
+    performs data cleaning and transformations, and saves the processed 
+    content as a `.csv` file in another specified directory.
+
+    Parameters:
+        fileName (str): The name of the file (without extension) to be converted.
+        path_dat (str): The directory path where the `.dat` file is located.
+        path_csv (str): The directory path where the output `.csv` file will be saved.
+
+    File Format Assumptions:
+        - The `.dat` file uses a semicolon (`;`) as a delimiter in the second row.
+        - Rows after the third row use spaces as a delimiter.
+        - Empty spaces and commas in the data are cleaned:
+            - Commas in data values are replaced with hyphens (`-`).
+            - Empty strings are removed from the row.
+
+    Processing Steps:
+        1. The second row of the `.dat` file is treated as the header.
+           - Values are stripped of whitespace and joined with a comma (`,`).
+        2. Rows after the third row are treated as data rows.
+           - Values are stripped of whitespace.
+           - Commas within the data values are replaced with hyphens (`-`).
+           - Empty values are removed.
+        3. The processed rows are written to the `.csv` file.
+
+    Encoding:
+        - The function uses `latin-1` encoding to handle file reading and writing.
+
+    Example:
+        Given a `.dat` file "example.dat" with content:
+        ```
+        Header information (ignored)
+        ;Col1;Col2;Col3;
+        Another header (ignored)
+        Data start
+        Value1 Value2 Value3
+        Value4 Value5,Value6
+        ```
+        The resulting "example.csv" will contain:
+        ```
+        Col1,Col2,Col3
+        Value1,Value2,Value3
+        Value4,Value5-Value6
+        ```
+
+    Notes:
+        - The function assumes the file structure outlined above and may not work with different formats.
+        - Ensure the provided paths end with a directory separator (`/` or `\\`) based on the operating system.
+
+    """
+    with open(path_dat + fileName + '.dat', 'r', encoding='latin-1') as dat_file:
+        with open(path_csv + fileName + '.csv', 'w', newline='', encoding='latin-1') as csv_file:
             for num_rows, row in enumerate(dat_file):
                 if num_rows == 1:
                     row = [value.strip() for value in row.split(';')]
                     csv_file.write(','.join(row) + '\n')
                 if num_rows > 3:
                     row = [value.strip() for value in row.split(' ')]
-                    # replace commas if there are any otherwise will create bug:
+                    # Replace commas if there are any, otherwise this will create a bug.
                     row = [value.replace(',', '-') for value in row]
-                    # remove empty spaces
+                    # Remove empty spaces.
                     row = [i for i in row if i]
                     csv_file.write(','.join(row) + '\n')
 
@@ -158,54 +206,46 @@ def remove_close_points(df_gl):
         for period in ['annual', 'winter']:
             df_gl_y = df_gl[(df_gl.YEAR == year) & (df_gl.PERIOD == period)]
             if len(df_gl_y) <= 1:
+                df_gl_cleaned = pd.concat([df_gl_cleaned, df_gl_y])
                 continue
 
-            # Calculate distances to other points:
+            # Calculate distances to other points
             df_gl_y['x'], df_gl_y['y'] = latlon_to_laea(
                 df_gl_y['POINT_LAT'], df_gl_y['POINT_LON'])
 
-            distance = cdist(df_gl_y[['x', 'y']], df_gl_y[['x', 'y']],
-                             'euclidean')
-            df_gl_y['point'] = [
-                (x, y)
-                for x, y in zip(df_gl_y['POINT_LAT'], df_gl_y['POINT_LON'])
-            ]
-            indices_to_merge = []
+            distance = cdist(df_gl_y[['x', 'y']], df_gl_y[['x', 'y']], 'euclidean')
+
+            # Merge close points
+            merged_indices = set()
             for i in range(len(df_gl_y)):
-                row = df_gl_y.iloc[i]
-                # search points with a distance less than 10m
-                index_closest = np.where(distance[i, :] < 10)[0]
+                if i in merged_indices:
+                    continue  # Skip already merged points
 
-                # if not just itself:
-                if len(index_closest) > 1:
-                    # save the indices to merge
-                    indices_to_merge.append(index_closest)
+                # Find close points (distance < 10m)
+                close_indices = np.where(distance[i, :] < 10)[0]
+                close_indices = [idx for idx in close_indices if idx != i]
 
-            # Convert numpy arrays to tuples and use a set to remove duplicates
-            unique_indices = list(set(tuple(row) for row in indices_to_merge))
+                if close_indices:
+                    mean_MB = df_gl_y.iloc[close_indices + [i]].POINT_BALANCE.mean()
 
-            # Convert tuples back to numpy arrays
-            unique_indices = [np.array(row) for row in unique_indices]
+                    # Assign mean balance to the first point
+                    df_gl_y.loc[df_gl_y.index[i], 'POINT_BALANCE'] = mean_MB
 
-            # Remove surplus points:
-            indices_to_drop = []
-            for index in unique_indices:
-                mean_MB = df_gl_y.iloc[index].POINT_BALANCE.mean()
-                df_gl_y.iloc[index[0]]['POINT_BALANCE'] = mean_MB
-                indices_to_drop.append(index[1:])
+                    # Mark other indices for removal
+                    merged_indices.update(close_indices)
 
-            if len(indices_to_drop) > 1:
-                indices_to_drop = df_gl_y.index[np.concatenate(
-                    indices_to_drop)]
-                df_gl_y.drop(index=indices_to_drop, inplace=True)
-                # print('{}: Dropped points: {}, {}'.format(period, len(indices_to_drop), list(indices_to_drop)))
+            # Drop surplus points
+            indices_to_drop = list(merged_indices)
+            df_gl_y = df_gl_y.drop(df_gl_y.index[indices_to_drop])
+
+            # Append cleaned DataFrame
             df_gl_cleaned = pd.concat([df_gl_cleaned, df_gl_y])
-    if len(df_gl_cleaned) > 0:
-        print('Number of points dropped:', len(df_gl) - len(df_gl_cleaned))
-        return df_gl_cleaned
-    else:
-        print('Number of points dropped:', 0)
-        return df_gl
+
+    # Final output
+    df_gl_cleaned.reset_index(drop=True, inplace=True)
+    points_dropped = len(df_gl) - len(df_gl_cleaned)
+    print(f'Number of points dropped: {points_dropped}')
+    return df_gl_cleaned if points_dropped > 0 else df_gl
 
 
 def xarray_to_dataframe(data_array):
@@ -278,7 +318,6 @@ def convert_to_xarray(grid_data, metadata, num_months):
     xllcorner = metadata['xllcorner']
     yllcorner = metadata['yllcorner']
     cellsize = metadata['cellsize']
-
 
     # Create x and y coordinates based on the metadata
     x_coords = xllcorner + np.arange(ncols) * cellsize

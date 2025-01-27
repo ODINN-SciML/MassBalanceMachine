@@ -97,28 +97,7 @@ class GeoData:
 
             # Change from OGGM proj. to wgs84
             self.ds_latlon = self.oggmToWgs84(self.ds_xy, gdir)
-        if source_type == 'sgi':
-            # Create a new variable pred_masked initialized with NaN
-            # ds["pred_masked"] = xr.DataArray(
-            #     np.full((ds.dims["lat"], ds.dims["lon"]), np.nan),
-            #     dims=("lat", "lon"),
-            #     coords={"lat": ds["lat"], "lon": ds["lon"]},
-            # )
-
-            # # Iterate through DataFrame rows
-            # for i in range(len(self.data)):
-            #     point_lon = self.data["POINT_LON"].values[i]
-            #     point_lat = self.data["POINT_LAT"].values[i]
-            #     pred_value = self.data["pred"].values[i]
-
-            #     # Select the nearest grid cell using x and y dimensions
-            #     nearest_point = ds.sel(lon=point_lon, lat=point_lat, method="nearest")
-            #     lon_idx = nearest_point["lon"].item()  # Get the nearest x index
-            #     lat_idx = nearest_point["lat"].item()  # Get the nearest y index
-
-            #     # Assign the value to the pred_masked array
-            #     ds["pred_masked"].loc[{"lat": lat_idx, "lon": lon_idx}] = pred_value
-                
+        if source_type == 'sgi': 
             # Faster way:
             # Create a new variable pred_masked initialized with NaN
             ds["pred_masked"] = xr.DataArray(

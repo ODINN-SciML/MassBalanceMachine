@@ -278,7 +278,30 @@ def cumulativeMB(df_pred,
     return dfCumMB_all
 
 
+def correct_for_biggest_grid(df, group_columns, value_column="value"):
+    """
+    Assign the most frequent value in the specified column to all rows in each group
+    if there are more than one unique value in the column within the group.
 
+    Parameters:
+        df (pd.DataFrame): The input DataFrame.
+        group_columns (list): The columns to group by (e.g., YEAR, MONTHS).
+        value_column (str): The name of the column to check and replace.
+
+    Returns:
+        pd.DataFrame: The modified DataFrame.
+    """
+    def process_group(group):
+        # Check if the column has more than one unique value in the group
+        if group[value_column].nunique() > 1:
+            # Find the most frequent value
+            most_frequent_value = group[value_column].mode()[0]
+            # Replace all values with the most frequent value
+            group[value_column] = most_frequent_value
+        return group
+
+    # Apply the function to each group
+    return df.groupby(group_columns).apply(process_group).reset_index(drop=True)
 
 
 
