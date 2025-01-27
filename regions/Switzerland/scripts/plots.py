@@ -472,7 +472,7 @@ def PlotPredictions(grouped_ids, y_pred, metadata_test, test_set, model):
     predVSTruth(ax1,
                 grouped_ids_annual,
                 scores_annual,
-                hue='GLACIER',
+                hue='GLACIER', 
                 palette=color_palette_glaciers)
     ax1.set_title('Annual PMB', fontsize=24)
 
@@ -495,8 +495,8 @@ def PlotPredictions(grouped_ids, y_pred, metadata_test, test_set, model):
         predVSTruth(ax3,
                     grouped_ids_winter,
                     scores_winter,
-                    hue='GLACIER',
-                    palette=color_palette_glaciers)
+                hue='GLACIER', 
+                palette=color_palette_glaciers)
         ax3.set_title('Winter PMB', fontsize=24)
 
         ax4 = plt.subplot(2, 2, 4)
@@ -818,34 +818,3 @@ def scatter_geodeticMB(df_all, size = False):
                 bbox=props)
     # legend outside of plot
     plt.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0., ncol = 3)
-
-
-def plotHeatmap(df_):
-    # Heatmap of mean mass balance per glacier:
-    # Get the mean mass balance per glacier
-    mean_mb_per_glacier = df_.groupby(
-        ['GLACIER', 'YEAR', 'PERIOD'])['POINT_BALANCE'].mean().reset_index()
-    mean_mb_per_glacier = mean_mb_per_glacier[mean_mb_per_glacier['PERIOD'] ==
-                                            'annual']
-
-    matrix = mean_mb_per_glacier.pivot(
-        index='GLACIER', columns='YEAR',
-        values='POINT_BALANCE').sort_values(by='GLACIER')
-
-    # get elevation of glaciers:
-    gl_per_el = df_.groupby(['GLACIER'])['POINT_ELEVATION'].mean()
-    gl_per_el = gl_per_el.sort_values(ascending=False)
-    matrix = matrix.loc[gl_per_el.index]
-    matrix = matrix.fillna(np.nan)  # Replace missing values with NaN; adjust as needed
-
-    # make index categorical
-    matrix.index = pd.Categorical(matrix.index,
-                                categories=matrix.index,
-                                ordered=True)
-    fig = plt.figure(figsize=(20, 20))
-    ax = plt.subplot(1, 1, 1)
-    sns.heatmap(data=matrix,
-                center=0,
-                cmap=cm.vik_r,
-                cbar_kws={'label': '[m w.e. $a^{-1}$]'},
-                ax=ax)
