@@ -495,7 +495,7 @@ def load_grid_file(filepath):
     return metadata, grid_data
 
 
-def convert_to_xarray(grid_data, metadata):
+def convert_to_xarray_geodata(grid_data, metadata):
     # Extract metadata values
     ncols = int(metadata['ncols'])
     nrows = int(metadata['nrows'])
@@ -839,9 +839,9 @@ def xr_SGI_masked_topo(rgi_shp, gdf_shapefiles, path_aspect, path_slope,
     metadata_dem, grid_data_dem = load_grid_file(path_DEM + dem_gl)
 
     # convert to xarray
-    aspect = convert_to_xarray(grid_data_aspect, metadata_aspect)
-    slope = convert_to_xarray(grid_data_slope, metadata_slope)
-    dem = convert_to_xarray(grid_data_dem, metadata_dem)
+    aspect = convert_to_xarray_geodata(grid_data_aspect, metadata_aspect)
+    slope = convert_to_xarray_geodata(grid_data_slope, metadata_slope)
+    dem = convert_to_xarray_geodata(grid_data_dem, metadata_dem)
 
     # Transform to WGS84
     aspect_wgs84 = transform_xarray_coords_lv95_to_wgs84(aspect)
