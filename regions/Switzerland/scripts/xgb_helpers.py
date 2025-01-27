@@ -305,3 +305,33 @@ def correct_for_biggest_grid(df, group_columns, value_column="value"):
 
 
 
+def correct_vars_grid(df_grid_monthly, 
+                      c_prec=1.434,
+                      t_off=0.617,
+                      temp_grad=-6.5 / 1000,
+                      dpdz=1.5 / 10000):
+    # Correct climate grids:
+    for voi in [
+            't2m', 'tp', 'slhf', 'sshf', 'ssrd', 'fal', 'str', 'u10',
+            'v10', 'ALTITUDE_CLIMATE'
+    ]:
+        df_grid_monthly = correct_for_biggest_grid(
+            df_grid_monthly,
+            group_columns=["YEAR", "MONTHS"],
+            value_column=voi)
+
+    # New elevation difference with corrected altitude climate (same for all cells of big glacier):
+    df_grid_monthly['ELEVATION_DIFFERENCE'] = df_grid_monthly[
+        "POINT_ELEVATION"] - df_grid_monthly["ALTITUDE_CLIMATE"]
+
+    # Apply T & P correction
+    df_grid_monthly['t2m_corr'] = df_grid_monthly['t2m'] + (
+        df_grid_monthly['ELEVATION_DIFFERENCE'] * temp_grad)
+    df_grid_monthly['tp_corr'] = df_grid_monthly['tp'] * c_prec
+    df_grid_monthly['t2m_corr'] += t_off
+
+    # Apply elevation correction factor
+    df_grid_monthly['tp_corr'] += df_grid_monthly['tp_corr'] * (
+        df_grid_monthly['ELEVATION_DIFFERENCE'] * dpdz)
+    
+    return df_grid_monthly
