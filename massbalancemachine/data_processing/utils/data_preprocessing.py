@@ -17,7 +17,8 @@ from shapely.geometry import Point
 from pyproj import CRS, Transformer
 
 
-def convert_to_wgs84(*, data: pd.DataFrame, from_crs: str | int) -> pd.DataFrame:
+def convert_to_wgs84(*, data: pd.DataFrame,
+                     from_crs: str | int) -> pd.DataFrame:
     """
     Transform coordinates from a given CRS to WGS84.
 
@@ -41,11 +42,9 @@ def convert_to_wgs84(*, data: pd.DataFrame, from_crs: str | int) -> pd.DataFrame
         return lat_wgs84, lon_wgs84
 
     # Apply transformation to the DataFrame
-    data["POINT_LAT"], data["POINT_LON"] = zip(
-        *data.apply(
-            lambda x: transform_coordinates(x["POINT_LAT"], x["POINT_LON"]), axis=1
-        )
-    )
+    data["POINT_LAT"], data["POINT_LON"] = zip(*data.apply(
+        lambda x: transform_coordinates(x["POINT_LAT"], x["POINT_LON"]),
+        axis=1))
 
     return data
 
@@ -59,7 +58,7 @@ def _select_smb_value(row: pd.Series, date_to_smb: dict) -> pd.Series:
     return row[date_to_smb.get(row["date"], np.nan)]
 
 
-def _transform_dates(row: pd.Series) -> list[tuple[Any, Any]]:
+def _transform_dates(row: pd.Series) -> "list[tuple[Any, Any]]":
     """
     Generate measurement periods from three dates.
 
@@ -73,9 +72,8 @@ def _transform_dates(row: pd.Series) -> list[tuple[Any, Any]]:
     return [(date1, date2), (date2, date3), (date1, date3)]
 
 
-def _reshape_dataset(
-    df: pd.DataFrame, date_columns: list[str], smb_columns: list[str], ids: list[str]
-) -> pd.DataFrame:
+def _reshape_dataset(df: pd.DataFrame, date_columns: "list[str]",
+                     smb_columns: "list[str]", ids: "list[str]") -> pd.DataFrame:
     """
     Reshape the dataset to create individual records for each measurement period.
 
@@ -90,18 +88,18 @@ def _reshape_dataset(
     """
 
     # Transform dates
-    transformed_dates = df[date_columns].apply(_transform_dates, axis=1).explode()
-    transformed_dates = pd.DataFrame(
-        transformed_dates.tolist(), columns=["FROM_DATE", "TO_DATE"]
-    )
+    transformed_dates = df[date_columns].apply(_transform_dates,
+                                               axis=1).explode()
+    transformed_dates = pd.DataFrame(transformed_dates.tolist(),
+                                     columns=["FROM_DATE", "TO_DATE"])
 
     # Assign a unique ID to each row
     df["ID"] = np.arange(len(df))
 
     # Melt the dataframe
-    df_melted = df.melt(
-        id_vars=ids + smb_columns + ["ID"], value_vars=date_columns, var_name="date"
-    ).drop(["value"], axis=1)
+    df_melted = df.melt(id_vars=ids + smb_columns + ["ID"],
+                        value_vars=date_columns,
+                        var_name="date").drop(["value"], axis=1)
 
     # Sort the melted dataframe
     df_melted = df_melted.sort_values(by=["ID", "date"]).reset_index(drop=True)
@@ -113,9 +111,9 @@ def _reshape_dataset(
     date_to_smb = dict(zip(date_columns, smb_columns))
 
     # Apply SMB value selection
-    df_combined["POINT_BALANCE"] = df_combined.apply(
-        _select_smb_value, axis=1, date_to_smb=date_to_smb
-    )
+    df_combined["POINT_BALANCE"] = df_combined.apply(_select_smb_value,
+                                                     axis=1,
+                                                     date_to_smb=date_to_smb)
 
     # Drop the original SMB columns and temporary columns
     df_combined.drop(["date", "ID"] + smb_columns, axis=1, inplace=True)
@@ -127,8 +125,8 @@ def convert_to_wgms(
     *,
     wgms_data_columns: dict,
     data: pd.DataFrame,
-    date_columns: list[str],
-    smb_columns: list[str],
+    date_columns: "list[str]",
+    smb_columns: "list[str]",
 ) -> pd.DataFrame:
     """
     Convert dataset to WGMS-like format with individual records for each measurement period.
@@ -143,34 +141,31 @@ def convert_to_wgms(
         pandas.DataFrame: DataFrame in WGMS-like format with individual records for each measurement period.
     """
 
-    df_combined = _reshape_dataset(
-        data, date_columns, smb_columns, list(wgms_data_columns.keys())[:-3]
-    )
+    df_combined = _reshape_dataset(data, date_columns, smb_columns,
+                                   list(wgms_data_columns.keys())[:-3])
 
-    df_combined = df_combined[list(wgms_data_columns.keys())].rename(
-        columns=wgms_data_columns
-    )
+    df_combined = df_combined[list(
+        wgms_data_columns.keys())].rename(columns=wgms_data_columns)
 
     # Convert and format the date columns
     df_combined["TO_DATE"] = pd.to_datetime(
-        df_combined["TO_DATE"], errors="coerce", dayfirst=True
-    ).dt.strftime("%Y%m%d")
+        df_combined["TO_DATE"], errors="coerce",
+        dayfirst=True).dt.strftime("%Y%m%d")
     df_combined["FROM_DATE"] = pd.to_datetime(
-        df_combined["FROM_DATE"], errors="coerce", dayfirst=True
-    ).dt.strftime("%Y%m%d")
+        df_combined["FROM_DATE"], errors="coerce",
+        dayfirst=True).dt.strftime("%Y%m%d")
 
     # Replace NaT with empty string
     df_combined["TO_DATE"] = df_combined["TO_DATE"].apply(
-        lambda x: x if pd.notna(x) else ""
-    )
+        lambda x: x if pd.notna(x) else "")
     df_combined["FROM_DATE"] = df_combined["FROM_DATE"].apply(
-        lambda x: x if pd.notna(x) else ""
-    )
+        lambda x: x if pd.notna(x) else "")
 
     return df_combined
 
 
-def get_rgi(*, data: pd.DataFrame, glacier_outlines: gpd.GeoDataFrame) -> pd.DataFrame:
+def get_rgi(*, data: pd.DataFrame,
+            glacier_outlines: gpd.GeoDataFrame) -> pd.DataFrame:
     """
     Assign RGI IDs to stake measurements based on their spatial location within glacier outlines.
 
@@ -186,9 +181,12 @@ def get_rgi(*, data: pd.DataFrame, glacier_outlines: gpd.GeoDataFrame) -> pd.Dat
     # using the column names for longitude and latitude similar as the WGMS
     # dataset.
     geometry = [
-        Point(lon, lat) for lon, lat in zip(data["POINT_LON"], data["POINT_LAT"])
+        Point(lon, lat)
+        for lon, lat in zip(data["POINT_LON"], data["POINT_LAT"])
     ]
-    points_gdf = gpd.GeoDataFrame(data, geometry=geometry, crs=glacier_outlines.crs)
+    points_gdf = gpd.GeoDataFrame(data,
+                                  geometry=geometry,
+                                  crs=glacier_outlines.crs)
 
     # Perform a spatial joint for all the stake measurements that are within a section of the icecap that is
     # associated with a RGIId.
