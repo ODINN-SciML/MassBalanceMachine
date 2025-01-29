@@ -4,6 +4,7 @@ from os import listdir
 from os.path import isfile, join
 import xarray as xr
 import geopandas as gpd
+import pandas as pd
 from shapely.geometry import Point, box
 import rasterio
 from rasterio.transform import from_origin
@@ -15,7 +16,15 @@ from datetime import datetime
 from collections import defaultdict
 from dateutil.relativedelta import relativedelta
 from sklearn.neighbors import NearestNeighbors
-
+from shapely.geometry import Polygon, LineString, Point
+from pyproj import Transformer
+import rasterio.features
+from rasterio.transform import from_bounds
+from tqdm.notebook import tqdm
+import pyproj
+from pyproj import Transformer
+from rasterio import features
+from shapely.geometry import shape
 
 def toRaster(gdf, lon, lat, file_name, source_crs='EPSG:4326'):
     # Assuming your GeoDataFrame is named gdf
@@ -422,8 +431,8 @@ def classify_elevation_bands(gdf_glacier, band_size=50):
 
     # Handle NaN values in 'elev_masked' and classify into elevation bands
     gdf_glacier['elev_band'] = (
-        gdf_glacier['elev_masked']
-        .fillna(-1)  # Replace NaN with a placeholder (e.g., -1 or another value)
+        gdf_glacier['elev_masked'].fillna(
+            -1)  # Replace NaN with a placeholder (e.g., -1 or another value)
         .floordiv(band_size) * band_size  # Calculate the elevation band
     )
 
@@ -437,7 +446,7 @@ def AddSnowline(gdf_glacier_corr, band_size=100, percentage_threshold=50):
     # Add snowline
     # Remove weird border effect
     #gdf_glacier_corr = gdf_glacier_corr[gdf_glacier_corr.dis_masked > 10]
-    
+
     gdf_glacier_corr = classify_elevation_bands(gdf_glacier_corr, band_size)
 
     snowline(gdf_glacier_corr,
@@ -445,3 +454,570 @@ def AddSnowline(gdf_glacier_corr, band_size=100, percentage_threshold=50):
              percentage_threshold=percentage_threshold)
 
     return gdf_glacier_corr
+
+
+def load_grid_file(filepath):
+    with open(filepath, 'r') as file:
+        # Read metadata
+        metadata = {}
+        for _ in range(6):  # First 6 lines are metadata
+            line = file.readline().strip().split()
+            metadata[line[0].lower()] = float(line[1])
+
+        # Get ncols from metadata to control the number of columns
+        ncols = int(metadata['ncols'])
+        nrows = int(metadata['nrows'])
+        #print(f"ncols: {ncols}, nrows: {nrows}")
+
+        # Initialize an empty list to store rows of the grid
+        data = []
+
+        # Read the grid data line by line
+        row_ = []
+        for line in file:
+            row = line.strip().split()
+            if len(row_) < ncols:
+                row_ += row
+            if len(row_) == ncols:
+                data.append([
+                    np.nan
+                    if float(x) == metadata['nodata_value'] else float(x)
+                    for x in row_
+                ])
+                # reset row_
+                row_ = []
+
+        # Convert list to numpy array
+        grid_data = np.array(data)
+
+        # Check that shape of grid data is correct
+        #print(grid_data.shape)
+        assert grid_data.shape == (nrows, ncols)
+
+    return metadata, grid_data
+
+
+def convert_to_xarray_geodata(grid_data, metadata):
+    # Extract metadata values
+    ncols = int(metadata['ncols'])
+    nrows = int(metadata['nrows'])
+    xllcorner = metadata['xllcorner']
+    yllcorner = metadata['yllcorner']
+    cellsize = metadata['cellsize']
+
+    # Create x and y coordinates based on the metadata
+    x_coords = xllcorner + np.arange(ncols) * cellsize
+    y_coords = yllcorner + np.arange(nrows) * cellsize
+
+    # Create the xarray DataArray
+    data_array = xr.DataArray(np.flip(grid_data, axis=0),
+                              dims=("y", "x"),
+                              coords={
+                                  "y": y_coords,
+                                  "x": x_coords
+                              },
+                              name="grid_data")
+    return data_array
+
+
+def xyzn_to_dataframe(xyzn_filename):
+    """
+    Reads a .xyzn file and converts it into a pandas DataFrame with columns x_pos, y_pos, and z_pos.
+
+    Parameters:
+    - xyzn_filename: Path to the .xyzn file.
+
+    Returns:
+    - A pandas DataFrame containing x, y, and z positions.
+    """
+    # Step 1: Read the .xyzn file and extract X, Y, Z positions
+    data = []
+    with open(xyzn_filename, 'r') as file:
+        for line in file:
+            # Split each line by space and extract the first three values (X, Y, Z)
+            values = list(map(float, line.split()))
+            x, y, z = values[0], values[1], values[2]
+            data.append([x, y, z])  # Store X, Y, and Z
+
+    # Step 2: Convert the list to a pandas DataFrame with columns x_pos, y_pos, z_pos
+    df = pd.DataFrame(data, columns=['x_pos', 'y_pos', 'z_pos'])
+
+    return df
+
+
+def transform_xarray_coords_lv95_to_wgs84(data_array):
+    # Flatten the DataArray (values) and extract x and y coordinates for each time step
+    flattened_values = data_array.values.reshape(
+        -1)  # Flatten entire 2D array (y, x)
+
+    # flattened_values = data_array.values.flatten()
+    y_coords, x_coords = np.meshgrid(data_array.y.values,
+                                     data_array.x.values,
+                                     indexing='ij')
+
+    # Flatten the coordinate arrays
+    flattened_x = x_coords.flatten()  # Repeat for each time step
+    flattened_y = y_coords.flatten()  # Repeat for each time step
+
+    # Create a DataFrame with columns for x, y, and value
+    df = pd.DataFrame({
+        'x_pos': flattened_x,
+        'y_pos': flattened_y,
+        'value': flattened_values
+    })
+    df['z_pos'] = 0
+
+    # Convert to lat/lon
+    #df = LV03toWGS84(df)
+    df = LV95toWGS84(df)
+
+    # Transform LV95 to WGS84 (lat, lon)
+    lon, lat = df.lon.values, df.lat.values
+
+    # Reshape the flattened WGS84 coordinates back to the original grid shape (time, y, x)
+    lon = lon.reshape(x_coords.shape)  # Shape: (y, x)
+    lat = lat.reshape(y_coords.shape)  # Shape: (y, x)
+
+    # Assign the 1D WGS84 coordinates for swapping
+    lon_1d = lon[0, :]  # take x (lon) values
+    lat_1d = lat[:, 0]  # take y (lat) values
+
+    # Assign the WGS84 coordinates back to the xarray
+    data_array = data_array.assign_coords(lon=("x",
+                                               lon_1d))  # Assign longitudes
+    data_array = data_array.assign_coords(lat=("y",
+                                               lat_1d))  # Assign latitudes
+
+    # First, swap 'x' with 'lon' and 'y' with 'lat'
+    data_array = data_array.swap_dims({'x': 'lon', 'y': 'lat'})
+
+    # Reorder the dimensions to be (lon, lat)
+    # data_array = data_array.transpose("lon", "lat")
+
+    return data_array
+
+
+def LV03toWGS84(df):
+    """Converts from swiss data coordinate system to lat/lon/height
+    Args:
+        df (pd.DataFrame): data in x/y swiss coordinates
+    Returns:
+        pd.DataFrame: data in lat/lon/coords
+    """
+    converter = GPSConverter()
+    lat, lon, height = converter.LV03toWGS84(df['x_pos'], df['y_pos'],
+                                             df['z_pos'])
+    df['lat'] = lat
+    df['lon'] = lon
+    df['height'] = height
+    df.drop(['x_pos', 'y_pos', 'z_pos'], axis=1, inplace=True)
+    return df
+
+
+def LV95toWGS84(df):
+    """Converts from swiss data coordinate system to lat/lon/height
+    Args:
+        df (pd.DataFrame): data in x/y swiss coordinates
+    Returns:
+        pd.DataFrame: data in lat/lon/coords
+    """
+    transformer = Transformer.from_crs("EPSG:2056",
+                                       "EPSG:4326",
+                                       always_xy=True)
+
+    # Sample CH1903+ / LV95 coordinates (Easting and Northing)
+
+    # Transform to Latitude and Longitude (WGS84)
+    lon, latitude = transformer.transform(df.x_pos, df.y_pos)
+
+    df['lat'] = latitude
+    df['lon'] = lon
+    df.drop(['x_pos', 'y_pos', 'z_pos'], axis=1, inplace=True)
+    return df
+
+
+def draw_glacier_outline(xarray_data, xyzn_filename):
+    """
+    Add a glacier outline binary mask to an existing xarray. The glacier coordinates 
+    might not perfectly align with the xarray grid, but the closest grid points will be used.
+
+    Parameters:
+    - xarray_data: The existing xarray with 'x' and 'y' coordinates.
+    - xyzn_filename: The .xyzn file containing the glacier outline coordinates.
+
+    Returns:
+    - Updated xarray with a new variable `glacier_outline`.
+    """
+    # Step 1: Read the glacier coordinates from the .xyzn file
+    df = xyzn_to_dataframe(
+        xyzn_filename
+    )  # This function must read the file and return a DataFrame
+    if not all(col in df.columns for col in ['x_pos', 'y_pos']):
+        raise ValueError("The dataframe must contain 'X' and 'Y' columns.")
+
+    # Step 2: Extract the grid's x and y coordinates from the existing xarray
+    x_coords = xarray_data.coords['x'].values
+    y_coords = xarray_data.coords['y'].values
+
+    # Step 3: Initialize the glacier outline mask with zeros (matching shape y, x)
+    glacier_mask = np.zeros((len(y_coords), len(x_coords)), dtype=int)
+
+    # Step 4: Loop through glacier coordinates and map to closest grid points
+    for _, row in df.iterrows():
+        gx, gy = row['x_pos'], row['y_pos']
+
+        # Find the closest grid point (using absolute difference)
+        closest_x_idx = (np.abs(x_coords - gx)).argmin()
+        closest_y_idx = (np.abs(y_coords - gy)).argmin()
+
+        # Update the glacier mask
+        glacier_mask[closest_y_idx,
+                     closest_x_idx] = 1  # Note: y index first, then x index
+
+    # Step 5: Create an xarray DataArray for the glacier outline mask
+    glacier_outline = xr.DataArray(glacier_mask,
+                                   coords={
+                                       "y": y_coords,
+                                       "x": x_coords
+                                   },
+                                   dims=["y", "x"],
+                                   name="glacier_outline")
+
+    return glacier_outline
+
+
+def xarray_to_geodataframe(xarray_data, var_name, crs=None):
+    """
+    Converts an xarray.DataArray into a GeoPandas GeoDataFrame with point geometries.
+
+    Parameters:
+    - xarray_data: xarray.DataArray or xarray.Dataset
+    - var_name: Name of the variable to include in the GeoDataFrame.
+    - crs: Coordinate Reference System (e.g., "EPSG:4326") for the GeoDataFrame.
+
+    Returns:
+    - GeoPandas GeoDataFrame with x, y coordinates and the variable values.
+    """
+    # Ensure xarray_data is a DataArray
+    if isinstance(xarray_data, xr.Dataset):
+        data_array = xarray_data[var_name]
+    elif isinstance(xarray_data, xr.DataArray):
+        data_array = xarray_data
+    else:
+        raise ValueError(
+            "Input must be an xarray.DataArray or xarray.Dataset.")
+
+    # Flatten the DataArray into a 1D array
+    flat_values = data_array.values.flatten()
+    lon_coords, lat_coords = data_array.coords[
+        'lon'].values, data_array.coords['lat'].values
+
+    # Create a meshgrid of x and y coordinates
+    grid_lon, grid_lat = np.meshgrid(lon_coords, lat_coords)
+
+    # Flatten the coordinate grids
+    flat_lon = grid_lon.flatten()
+    flat_lat = grid_lat.flatten()
+
+    # Create geometries (Point objects) for the GeoDataFrame
+    geometries = [Point(lon, lat) for lon, lat in zip(flat_lon, flat_lat)]
+
+    # Create a GeoDataFrame
+    gdf = gpd.GeoDataFrame(
+        {"value": flat_values},  # Add variable values as a column
+        geometry=geometries,  # Add geometries
+        crs=crs  # Set CRS if provided
+    )
+
+    return gdf
+
+def xarray_to_geopolygon(xarray_data, var_name, crs=None):
+    """
+    Converts an xarray.DataArray into a GeoPandas GeoDataFrame with polygon geometries.
+    
+    Parameters:
+    - xarray_data: xarray.DataArray or xarray.Dataset
+    - var_name: Name of the variable to include in the GeoDataFrame.
+    - crs: Coordinate Reference System (e.g., "EPSG:4326") for the GeoDataFrame.
+    
+    Returns:
+    - GeoPandas GeoDataFrame with polygon geometries representing valid (non-NaN) areas.
+    """
+    # Ensure xarray_data is a DataArray
+    if isinstance(xarray_data, xr.Dataset):
+        data_array = xarray_data[var_name]
+    elif isinstance(xarray_data, xr.DataArray):
+        data_array = xarray_data
+    else:
+        raise ValueError("Input must be an xarray.DataArray or xarray.Dataset.")
+
+    # Create a binary mask (1 where not NaN, 0 where NaN)
+    mask = np.where(np.isnan(data_array.values), 0, 1).astype(np.uint8)
+
+    # Define transform assuming regular grid spacing
+    lon_coords, lat_coords = data_array.coords['lon'].values, data_array.coords['lat'].values
+    transform = [lon_coords[0], lon_coords[1] - lon_coords[0], 0,
+                 lat_coords[0], 0, lat_coords[1] - lat_coords[0]]  # Affine-like transform
+
+    # Convert raster to vector polygons
+    shapes = features.shapes(mask, transform=transform)
+
+    # Extract polygons where mask is 1
+    polygons = [shape(geom) for geom, value in shapes if value == 1]
+
+    # Create a GeoDataFrame
+    gdf = gpd.GeoDataFrame(geometry=polygons, crs=crs)
+
+    return gdf
+
+
+def extract_topo_over_outline(aspect_xarray, glacier_polygon_gdf):
+    """
+    Extracts aspect values over a glacier outline (polygon) from an xarray in WGS84 coordinates.
+
+    Parameters:
+    - aspect_xarray: xarray.DataArray containing the aspect values, with WGS84 coordinates.
+    - glacier_polygon_gdf: GeoPandas GeoDataFrame with the glacier outline polygon (WGS84 CRS).
+
+    Returns:
+    - A masked xarray.DataArray with aspect values only within the glacier polygon.
+    """
+    # Ensure the GeoDataFrame is in WGS84 CRS
+    if glacier_polygon_gdf.crs is None:
+        raise ValueError("Glacier GeoDataFrame must have a defined CRS.")
+    if glacier_polygon_gdf.crs.to_epsg() != 4326:
+        glacier_polygon_gdf = glacier_polygon_gdf.to_crs("EPSG:4326")
+
+    # Get the x and y coordinates from the xarray
+    lon_coords = aspect_xarray.coords['lon'].values
+    lat_coords = aspect_xarray.coords['lat'].values
+
+    # Compute the transform using rasterio's from_bounds
+    transform = from_bounds(lon_coords.min(),
+                            lat_coords.min(),
+                            lon_coords.max(),
+                            lat_coords.max(),
+                            width=len(lon_coords),
+                            height=len(lat_coords))
+
+    # Rasterize the glacier polygon
+    shapes = [(geom, 1) for geom in glacier_polygon_gdf.geometry]
+    mask = rasterio.features.rasterize(
+        shapes,
+        out_shape=(len(lat_coords),
+                   len(lon_coords)),  # height (rows), width (cols)
+        transform=transform,
+        fill=0,
+        dtype="int32")
+
+    # Apply the mask to the xarray
+    masked_aspect = aspect_xarray.where(np.flip(mask, 0) == 1)
+
+    # Convert the mask to an xarray with the same coordinates as aspect_xarray
+    mask_xarray = xr.DataArray(
+        np.flip(mask, 0),
+        coords=[aspect_xarray.coords['lat'], aspect_xarray.coords['lon']],
+        dims=['lat', 'lon'])
+
+    return mask_xarray, masked_aspect
+
+
+def create_glacier_grid_SGI(
+    glacierName,
+    year,
+    rgi_id,
+    ds,
+):
+    glacier_indices = np.where(ds['glacier_mask'].values == 1)
+
+    # Glacier mask as boolean array:
+    gl_mask_bool = ds['glacier_mask'].values.astype(bool)
+
+    lon_coords = ds['lon'].values
+    lat_coords = ds['lat'].values
+
+    lon = lon_coords[glacier_indices[1]]
+    lat = lat_coords[glacier_indices[0]]
+    
+    # Create a DataFrame
+    data_grid = {
+        'RGIId': [rgi_id] * len(ds.masked_elev.values[gl_mask_bool]),
+        'POINT_LAT': lat,
+        'POINT_LON': lon,
+        'aspect': ds.masked_aspect.values[gl_mask_bool],
+        'slope': ds.masked_slope.values[gl_mask_bool],
+        'topo': ds.masked_elev.values[gl_mask_bool],
+    }
+    df_grid = pd.DataFrame(data_grid)
+
+    # Match to WGMS format:
+    df_grid['POINT_ID'] = np.arange(1, len(df_grid) + 1)
+    df_grid['N_MONTHS'] = 12
+    df_grid['POINT_ELEVATION'] = df_grid[
+        'topo']  # no other elevation available
+    df_grid['POINT_BALANCE'] = 0  # fake PMB for simplicity (not used)
+
+    # Add metadata that is not in WGMS dataset
+    df_grid["PERIOD"] = "annual"
+    df_grid['GLACIER'] = glacierName
+    # Add the 'year' and date columns to the DataFrame
+    df_grid['YEAR'] = np.tile(year, len(df_grid))
+    df_grid['FROM_DATE'] = df_grid['YEAR'].apply(lambda x: str(x) + '1001')
+    df_grid['TO_DATE'] = df_grid['YEAR'].apply(lambda x: str(x + 1) + '0930')
+
+    return df_grid
+
+
+def xr_SGI_masked_topo(rgi_shp, gdf_shapefiles, path_aspect, path_slope,
+                       path_DEM, sgi_id):
+    # SGI topo files
+    aspect_gl = [f for f in os.listdir(path_aspect) if sgi_id in f][0]
+    slope_gl = [f for f in os.listdir(path_slope) if sgi_id in f][0]
+    dem_gl = [f for f in os.listdir(path_DEM) if sgi_id in f][0]
+
+    metadata_aspect, grid_data_aspect = load_grid_file(path_aspect + aspect_gl)
+    metadata_slope, grid_data_slope = load_grid_file(path_slope + slope_gl)
+    metadata_dem, grid_data_dem = load_grid_file(path_DEM + dem_gl)
+
+    # convert to xarray
+    aspect = convert_to_xarray_geodata(grid_data_aspect, metadata_aspect)
+    slope = convert_to_xarray_geodata(grid_data_slope, metadata_slope)
+    dem = convert_to_xarray_geodata(grid_data_dem, metadata_dem)
+
+    # Transform to WGS84
+    aspect_wgs84 = transform_xarray_coords_lv95_to_wgs84(aspect)
+    slope_wgs84 = transform_xarray_coords_lv95_to_wgs84(slope)
+    dem_wgs84 = transform_xarray_coords_lv95_to_wgs84(dem)
+
+    # 2016 shapefile of glacier
+    gdf_mask_gl = gdf_shapefiles[gdf_shapefiles.RGIId == rgi_shp]
+
+    # Mask over glacier outline
+    mask, masked_aspect = extract_topo_over_outline(aspect_wgs84, gdf_mask_gl)
+    mask, masked_slope = extract_topo_over_outline(slope_wgs84, gdf_mask_gl)
+    mask, masked_dem = extract_topo_over_outline(dem_wgs84, gdf_mask_gl)
+
+    # Create new dataset
+    ds = xr.Dataset({
+        "masked_aspect": masked_aspect,
+        "masked_slope": masked_slope,
+        "masked_elev": masked_dem,
+        "glacier_mask": mask
+    })
+    
+    # Mask elevations below 0 (bug values)
+    ds["masked_elev"] = ds.masked_elev.where(ds.masked_elev >= 0, np.nan)
+    return ds
+
+def xr_GLAMOS_masked_topo(path_aspect, path_slope, sgi_id, ds_gl):
+    # Load SGI topo files
+    aspect_gl = [f for f in os.listdir(path_aspect) if sgi_id in f][0]
+    slope_gl = [f for f in os.listdir(path_slope) if sgi_id in f][0]
+
+    metadata_aspect, grid_data_aspect = load_grid_file(path_aspect + aspect_gl)
+    metadata_slope, grid_data_slope = load_grid_file(path_slope + slope_gl)
+
+    # Convert to xarray
+    aspect = convert_to_xarray_geodata(grid_data_aspect, metadata_aspect)
+    slope = convert_to_xarray_geodata(grid_data_slope, metadata_slope)
+
+    # Transform to WGS84
+    aspect_wgs84 = transform_xarray_coords_lv95_to_wgs84(aspect)
+    slope_wgs84 = transform_xarray_coords_lv95_to_wgs84(slope)
+
+    # Step 1: Upscale glacier mask to match aspect resolution
+    glacier_mask_resampled = ds_gl["glacier_mask"].interp_like(aspect_wgs84, method="nearest")
+    # Replace NaN values in glacier mask by 0 
+    glacier_mask_resampled = glacier_mask_resampled.fillna(0)
+    
+    dem_resampled = ds_gl["dem"].interp_like(aspect_wgs84, method="nearest")
+
+    # Step 2: Apply the glacier mask to aspect data (keeping values where glacier_mask == 1)
+    masked_aspect = aspect_wgs84.where(glacier_mask_resampled == 1, np.nan)
+    masked_slope = slope_wgs84.where(glacier_mask_resampled == 1, np.nan)
+    
+    # Create new dataset with downsampled variables
+    ds = xr.Dataset({
+        "masked_aspect": masked_aspect,
+        "masked_elev": dem_resampled,
+        "masked_slope": masked_slope,
+        "glacier_mask": glacier_mask_resampled
+    })
+
+    # Mask elevations below 0 (bug values)
+    ds["masked_elev"] = ds.masked_elev.where(ds.masked_elev >= 0, np.nan)
+    
+    return ds
+
+
+def coarsenDS(ds, resampling_fac = 3):
+    # Coarson to 30 m resolution
+    # Coarsen non-binary variables with mean
+    ds_non_binary = ds[['masked_slope', 'masked_aspect',
+                        'masked_elev']].coarsen(lon=resampling_fac, lat=resampling_fac,
+                                                boundary="trim").mean()
+
+    # Coarsen glacier mask with max
+    ds_glacier_mask = ds[['glacier_mask']].coarsen(lon=resampling_fac, lat=resampling_fac,
+                                                boundary="trim").reduce(np.max)
+
+    # Merge back into a single dataset
+    ds_res = xr.merge([ds_non_binary, ds_glacier_mask])
+    return ds_res
+
+
+def add_OGGM_features(df_y_gl, voi, path_OGGM):
+    df_pmb = df_y_gl.copy()
+
+    # Initialize empty columns for the variables
+    for var in voi:
+        df_pmb[var] = np.nan
+
+    # Path to OGGM datasets
+    path_to_data = path_OGGM + 'xr_grids/'
+
+    # Group rows by RGIId
+    grouped = df_pmb.groupby("RGIId")
+
+    # Process each group
+    for rgi_id, group in grouped:
+        file_path = f"{path_to_data}{rgi_id}.nc"
+        
+        try:
+            # Load the xarray dataset for the current RGIId
+            ds_oggm = xr.open_dataset(file_path)
+        except FileNotFoundError:
+            print(f"File not found for RGIId: {rgi_id}")
+            continue
+
+        # Define the coordinate transformation
+        transf = pyproj.Transformer.from_proj(
+            pyproj.CRS.from_user_input("EPSG:4326"),  # Input CRS (WGS84)
+            pyproj.CRS.from_user_input(ds_oggm.pyproj_srs),  # Output CRS from dataset
+            always_xy=True
+        )
+
+        # Transform all coordinates in the group
+        lon, lat = group["POINT_LON"].values, group["POINT_LAT"].values
+        x_stake, y_stake = transf.transform(lon, lat)
+        # Select nearest values for all points
+        try:
+            stake = ds_oggm.sel(
+                x=xr.DataArray(x_stake, dims="points"),
+                y=xr.DataArray(y_stake, dims="points"),
+                method="nearest"
+            )
+
+            # Extract variables of interest
+            stake_var = stake[voi]
+
+            # Convert the extracted data to a DataFrame
+            stake_var_df = stake_var.to_dataframe()
+
+            # Update the DataFrame with the extracted values
+            for var in voi:
+                df_pmb.loc[group.index, var] = stake_var_df[var].values
+        except KeyError as e:
+            print(f"Variable missing in dataset {file_path}: {e}")
+            continue
+    return df_pmb

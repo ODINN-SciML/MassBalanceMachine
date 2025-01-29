@@ -19,14 +19,17 @@ path_PMB_GLAMOS_csv_w_clean = path_PMB_GLAMOS_csv + 'winter_clean/'
 path_PMB_GLAMOS_csv_a = path_PMB_GLAMOS_csv + 'annual/'
 path_SMB_GLAMOS_raw = '../../../data/GLAMOS/glacier-wide/raw/'
 path_SMB_GLAMOS_csv = '../../../data/GLAMOS/glacier-wide/csv/'
-path_glacier_grid = '../../../data/GLAMOS/glacier-wide/grid/'
-
+path_glacier_grid = '../../../data/GLAMOS/gridded_products/RGI_grid/'
+path_glacier_grid_sgi = '../../../data/GLAMOS/gridded_products/SGI_grid/'
+path_SGI_topo = '../../../data/GLAMOS/topo/SGI2020/'
+path_OGGM = '../../../data/OGGM/'
 # Potential incoming clear sky solar radiation from GLAMOS:
 path_direct = '../../../data/GLAMOS/direct/raw/'
 path_direct_save = '../../../data/GLAMOS/direct/csv/'
 
 path_rgi = '../../../data/GLAMOS/CH_glacier_ids_long.csv'
 path_glogem = '../../../data/GloGEM'
+path_geodetic_MB = '../../../data/GLAMOS/geodetic/'
 
 # ERA5-Land
 path_ERA5_raw = '../../../data/ERA5Land/raw/'
@@ -52,6 +55,8 @@ vois_climate_long_name = {
 vois_units = {
     't2m': 'C',
     'tp': 'm w.e.',
+    't2m_corr': 'C',
+    'tp_corr': 'm w.e.',
     'slhf': 'J m-2',
     'sshf': 'J m-2',
     'ssrd': 'J m-2',
@@ -204,3 +209,13 @@ def format_rgi_code(X):
     Y = str(X).zfill(5)
     # Return the final formatted string
     return f"RGI60-11.{Y}"
+
+def reformat_SGI_id(input_str):
+    # Split the string by "/"
+    part1, part2 = input_str.split("/")
+
+    # Convert part1 to lowercase for the letter and retain the number
+    part1 = part1[:-1] + part1[-1].lower()
+
+    # Combine part1 and part2 with a hyphen in between
+    return f"{part1}-{part2}"
