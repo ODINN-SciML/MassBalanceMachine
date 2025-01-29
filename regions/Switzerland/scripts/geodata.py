@@ -23,6 +23,8 @@ from rasterio.transform import from_bounds
 from tqdm.notebook import tqdm
 import pyproj
 from pyproj import Transformer
+from rasterio import features
+from shapely.geometry import shape
 
 def toRaster(gdf, lon, lat, file_name, source_crs='EPSG:4326'):
     # Assuming your GeoDataFrame is named gdf
@@ -685,7 +687,7 @@ def draw_glacier_outline(xarray_data, xyzn_filename):
 
 
 def xarray_to_geodataframe(xarray_data, var_name, crs=None):
-    """12
+    """
     Converts an xarray.DataArray into a GeoPandas GeoDataFrame with point geometries.
 
     Parameters:
@@ -726,6 +728,45 @@ def xarray_to_geodataframe(xarray_data, var_name, crs=None):
         geometry=geometries,  # Add geometries
         crs=crs  # Set CRS if provided
     )
+
+    return gdf
+
+def xarray_to_geopolygon(xarray_data, var_name, crs=None):
+    """
+    Converts an xarray.DataArray into a GeoPandas GeoDataFrame with polygon geometries.
+    
+    Parameters:
+    - xarray_data: xarray.DataArray or xarray.Dataset
+    - var_name: Name of the variable to include in the GeoDataFrame.
+    - crs: Coordinate Reference System (e.g., "EPSG:4326") for the GeoDataFrame.
+    
+    Returns:
+    - GeoPandas GeoDataFrame with polygon geometries representing valid (non-NaN) areas.
+    """
+    # Ensure xarray_data is a DataArray
+    if isinstance(xarray_data, xr.Dataset):
+        data_array = xarray_data[var_name]
+    elif isinstance(xarray_data, xr.DataArray):
+        data_array = xarray_data
+    else:
+        raise ValueError("Input must be an xarray.DataArray or xarray.Dataset.")
+
+    # Create a binary mask (1 where not NaN, 0 where NaN)
+    mask = np.where(np.isnan(data_array.values), 0, 1).astype(np.uint8)
+
+    # Define transform assuming regular grid spacing
+    lon_coords, lat_coords = data_array.coords['lon'].values, data_array.coords['lat'].values
+    transform = [lon_coords[0], lon_coords[1] - lon_coords[0], 0,
+                 lat_coords[0], 0, lat_coords[1] - lat_coords[0]]  # Affine-like transform
+
+    # Convert raster to vector polygons
+    shapes = features.shapes(mask, transform=transform)
+
+    # Extract polygons where mask is 1
+    polygons = [shape(geom) for geom, value in shapes if value == 1]
+
+    # Create a GeoDataFrame
+    gdf = gpd.GeoDataFrame(geometry=polygons, crs=crs)
 
     return gdf
 
@@ -863,18 +904,61 @@ def xr_SGI_masked_topo(rgi_shp, gdf_shapefiles, path_aspect, path_slope,
         "masked_elev": masked_dem,
         "glacier_mask": mask
     })
-
+    
+    # Mask elevations below 0 (bug values)
+    ds["masked_elev"] = ds.masked_elev.where(ds.masked_elev >= 0, np.nan)
     return ds
 
-def coarsenDS(ds):
+def xr_GLAMOS_masked_topo(path_aspect, path_slope, sgi_id, ds_gl):
+    # Load SGI topo files
+    aspect_gl = [f for f in os.listdir(path_aspect) if sgi_id in f][0]
+    slope_gl = [f for f in os.listdir(path_slope) if sgi_id in f][0]
+
+    metadata_aspect, grid_data_aspect = load_grid_file(path_aspect + aspect_gl)
+    metadata_slope, grid_data_slope = load_grid_file(path_slope + slope_gl)
+
+    # Convert to xarray
+    aspect = convert_to_xarray_geodata(grid_data_aspect, metadata_aspect)
+    slope = convert_to_xarray_geodata(grid_data_slope, metadata_slope)
+
+    # Transform to WGS84
+    aspect_wgs84 = transform_xarray_coords_lv95_to_wgs84(aspect)
+    slope_wgs84 = transform_xarray_coords_lv95_to_wgs84(slope)
+
+    # Step 1: Upscale glacier mask to match aspect resolution
+    glacier_mask_resampled = ds_gl["glacier_mask"].interp_like(aspect_wgs84, method="nearest")
+    # Replace NaN values in glacier mask by 0 
+    glacier_mask_resampled = glacier_mask_resampled.fillna(0)
+    
+    dem_resampled = ds_gl["dem"].interp_like(aspect_wgs84, method="nearest")
+
+    # Step 2: Apply the glacier mask to aspect data (keeping values where glacier_mask == 1)
+    masked_aspect = aspect_wgs84.where(glacier_mask_resampled == 1, np.nan)
+    masked_slope = slope_wgs84.where(glacier_mask_resampled == 1, np.nan)
+    
+    # Create new dataset with downsampled variables
+    ds = xr.Dataset({
+        "masked_aspect": masked_aspect,
+        "masked_elev": dem_resampled,
+        "masked_slope": masked_slope,
+        "glacier_mask": glacier_mask_resampled
+    })
+
+    # Mask elevations below 0 (bug values)
+    ds["masked_elev"] = ds.masked_elev.where(ds.masked_elev >= 0, np.nan)
+    
+    return ds
+
+
+def coarsenDS(ds, resampling_fac = 3):
     # Coarson to 30 m resolution
     # Coarsen non-binary variables with mean
     ds_non_binary = ds[['masked_slope', 'masked_aspect',
-                        'masked_elev']].coarsen(lon=3, lat=3,
+                        'masked_elev']].coarsen(lon=resampling_fac, lat=resampling_fac,
                                                 boundary="trim").mean()
 
     # Coarsen glacier mask with max
-    ds_glacier_mask = ds[['glacier_mask']].coarsen(lon=3, lat=3,
+    ds_glacier_mask = ds[['glacier_mask']].coarsen(lon=resampling_fac, lat=resampling_fac,
                                                 boundary="trim").reduce(np.max)
 
     # Merge back into a single dataset

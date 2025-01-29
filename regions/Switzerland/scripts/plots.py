@@ -788,6 +788,7 @@ def scatter_geodeticMB(df_all, size = False):
                     y='GLAMOS MB',
                     hue='Test glacier',
                     size='Area', sizes=(10, 1000), alpha=0.7,
+                    hue_order=[False, True],
                     ax=axs[1])
     else:
         sns.scatterplot(data=df_all,
