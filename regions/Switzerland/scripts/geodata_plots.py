@@ -69,6 +69,9 @@ def plotClasses(gdf_glacier,
         markersize=5,  # Adjust size if points are too small or large
         missing_kwds={"color": "lightgrey"}  # Define color for NaN datas
     )
+    # make colorbar small
+    # cbar = axs[0].get_figure().get_axes()[1]
+    # cbar.set_ylabel("Mass balance [m w.e.]", fontsize=12)   
     #cx.add_basemap(axs[0], crs=gdf_glacier.crs, source=provider)
     axs[0].set_title(f"Mass balance: {gl_date}")
 
@@ -129,7 +132,7 @@ def plotClasses(gdf_glacier,
                   loc='upper left')
     
     # Show the plot with consistent colors
-    plt.tight_layout()
+    # plt.tight_layout()
     plt.show()
 
 
