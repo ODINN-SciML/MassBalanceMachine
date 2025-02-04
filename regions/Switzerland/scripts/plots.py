@@ -743,7 +743,7 @@ def scatter_geodeticMB(df_all, size = False):
                                                       df_all['GLAMOS MB'])[0,
                                                                            1]
 
-    fig, axs = plt.subplots(1, 2, figsize=(15, 5), sharex=True, sharey=True)
+    fig, axs = plt.subplots(1, 2, figsize=(15, 5), sharex=True)
     if size: 
         sns.scatterplot(data=df_all,
                     x='Geodetic MB',
@@ -765,10 +765,8 @@ def scatter_geodeticMB(df_all, size = False):
     axs[0].axhline(0, color="grey", linestyle="--", linewidth=1)
     axs[0].grid()
     axs[0].set_xlabel('Geodetic MB [m w.e.]')
-    axs[0].set_ylabel('Modelled MB [m w.e.]')
-    # add title
+    axs[0].set_ylabel('MBM MB [m w.e.]')
     axs[0].set_title('Geodetic vs MBM MB')
-    # hide legend
     axs[0].get_legend().remove()
     legend = "\n".join(((r"$\mathrm{RMSE}=%.3f$," % (rmse_mbm, )),
                         (r"$\mathrm{\rho}=%.3f$" % (corr_mbm, ))))
@@ -792,8 +790,8 @@ def scatter_geodeticMB(df_all, size = False):
                     ax=axs[1])
     else:
         sns.scatterplot(data=df_all,
-                    x='GLAMOS MB',
-                    y='MBM MB',
+                    x='Geodetic MB',
+                    y='GLAMOS MB',
                     hue='GLACIER',
                     size='Area', sizes=(10, 1000), alpha=0.7,
                     ax=axs[1])
@@ -805,7 +803,7 @@ def scatter_geodeticMB(df_all, size = False):
     axs[1].grid()
     # legend
     axs[1].set_xlabel('Geodetic MB [m w.e.]')
-    axs[1].set_ylabel('Modelled MB [m w.e.]')
+    axs[1].set_ylabel('GLAMOS MB [m w.e.]')
     # add title
     axs[1].set_title('Geodetic vs GLAMOS MB')
     legend = "\n".join(((r"$\mathrm{RMSE}=%.3f$," % (rmse_glamos, )),

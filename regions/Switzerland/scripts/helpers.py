@@ -19,17 +19,19 @@ path_PMB_GLAMOS_csv_w_clean = path_PMB_GLAMOS_csv + 'winter_clean/'
 path_PMB_GLAMOS_csv_a = path_PMB_GLAMOS_csv + 'annual/'
 path_SMB_GLAMOS_raw = '../../../data/GLAMOS/glacier-wide/raw/'
 path_SMB_GLAMOS_csv = '../../../data/GLAMOS/glacier-wide/csv/'
-path_glacier_grid = '../../../data/GLAMOS/gridded_products/RGI_grid/'
-path_glacier_grid_sgi = '../../../data/GLAMOS/gridded_products/SGI_grid/'
+path_glacier_grid = '../../../data/GLAMOS/topo/gridded_topo_inputs/RGI_grid/'
+path_glacier_grid_sgi = '../../../data/GLAMOS/topo/gridded_topo_inputs/SGI_grid/'
 path_SGI_topo = '../../../data/GLAMOS/topo/SGI2020/'
 path_OGGM = '../../../data/OGGM/'
+
+# GLAMOS data
 # Potential incoming clear sky solar radiation from GLAMOS:
 path_direct = '../../../data/GLAMOS/direct/raw/'
 path_direct_save = '../../../data/GLAMOS/direct/csv/'
-
+path_distributed_MB_glamos = '../../../data/GLAMOS/distributed_MB_grids/'
+path_geodetic_MB_glamos = '../../../data/GLAMOS/geodetic/'
 path_rgi = '../../../data/GLAMOS/CH_glacier_ids_long.csv'
 path_glogem = '../../../data/GloGEM'
-path_geodetic_MB = '../../../data/GLAMOS/geodetic/'
 
 # ERA5-Land
 path_ERA5_raw = '../../../data/ERA5Land/raw/'
