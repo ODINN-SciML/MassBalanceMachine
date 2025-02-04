@@ -124,18 +124,18 @@ class DataLoader:
         self.test_indices = test_indices
 
     def get_cv_split(
-        self, *, n_splits: int = None, type_fold: str = "random"
+        self, *, n_splits: int = None, type_fold: str = "group-meas-id"
     ) -> "list[tuple[ndarray, ndarray]]":
         """
         Create a cross-validation split of the training data.
 
         This method orchestrates the process of creating a cross-validation split,
-        using either a random or group-based strategy. For groups, it uses scikit-learn's GroupKFold to ensure that data from the same glacier is not split
-        across different folds.
+        using one of the group-based strategies. It uses scikit-learn's GroupKFold
+        to ensure that data from the same glacier is not split across different folds.
 
         Args:
             n_splits (int): Number of splits for cross-validation.
-            type_fold (str): Type of cross-validation fold. Options are 'random', 'group-rgi', or 'group-meas-id'.
+            type_fold (str): Type of cross-validation fold. Options are 'group-rgi', or 'group-meas-id'.
 
         Returns:
             tuple[list[tuple[ndarray, ndarray]]]: A dictionary containing glacier IDs and CV split information.
@@ -181,7 +181,7 @@ class DataLoader:
         """Retrieve the training data using the train_iterator."""
         train_indices = self.train_indices
         return self.data.iloc[train_indices]
-    
+
     def correct_for_elevation(self,
                                 *,
                                 temp_grad: float = -6.5 / 1000,
@@ -193,7 +193,7 @@ class DataLoader:
                                 t_off: float = 0.617) -> None:
             """Corrects the temperature and precipitation data for elevation differences and correction factors.
             This factors can be glacier specific, when given as a dictionary or as a constant value for all glaciers.
-    
+
             Args:
                 temp_grad (float, optional): temperature gradient. Defaults to -6.5/1000 [deg/1000m].
                 dpdz (float, optional): Precipitation increase in % per 100m. Defaults to 1.5/10000.
@@ -228,16 +228,11 @@ class DataLoader:
         fold_types = {
             "group-rgi": (GroupKFold, glacier_ids),
             "group-meas-id": (GroupKFold, stake_meas_id),
-            "random": (KFold, None),
         }
 
         FoldClass, groups = fold_types.get(type_fold, (KFold, None))
 
         kf = FoldClass(n_splits=self.n_splits)
-
-        if isinstance(kf, KFold) and type_fold == "random":
-            kf.shuffle = True
-            kf.random_state = self.random_seed
 
         split_args = [X, y, groups] if groups is not None else [X, y]
         return list(kf.split(*split_args))

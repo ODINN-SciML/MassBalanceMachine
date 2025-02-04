@@ -9,6 +9,7 @@ Date Created: 21/07/2024
 """
 
 import os
+from typing import Union, Callable
 
 import numpy as np
 import xarray as xr
@@ -17,7 +18,7 @@ import oggm
 import config
 import logging
 import pandas as pd
-import xarray as xr
+import torch
 from get_climate_data import get_climate_features, retrieve_clear_sky_rad
 from get_topo_data import get_topographical_features, get_glacier_mask
 from transform_to_monthly import transform_to_monthly
@@ -87,13 +88,13 @@ class Dataset:
         df = self.data.copy()
         glaciers = df['GLACIER'].unique()
         df_concat = pd.DataFrame()
-        
+
         for glacierName in glaciers:
             df_glacier = df[df['GLACIER'] == glacierName]
             path_to_file = path_to_direct + f'xr_direct_{glacierName}.nc'
             df_glacier = retrieve_clear_sky_rad(df_glacier, path_to_file)
             df_concat = pd.concat([df_concat, df_glacier], axis = 0)
-        
+
         # reset index
         df_concat.reset_index(drop=True, inplace=True)
         self.data = df_concat
@@ -162,7 +163,7 @@ class Dataset:
         for year in years_stake:
             df_grid.loc[df_grid['YEAR'] == year, 'STAKE_MEAS'] = 1
         return df_grid
-    
+
 
     def _get_output_filename(self, feature_type: str) -> str:
         """
@@ -228,3 +229,115 @@ class Dataset:
                     & ~data["TO_DATE"].str.endswith("99")]
 
 
+class AggregatedDataset(torch.utils.data.Dataset):
+    """
+    A dataset class that groups together all entries based on their IDs. The number
+    of features of each element of the dataset is equal to the true number of
+    features times the maximum number of elements that are assigned to the same ID
+    in the original dataset. The number of elements is equal to the number of unique
+    IDs.
+
+    Attributes:
+        features (np.ndarray): A numpy like array containing the features. Shape should be (nbPoints, nbFeatures)
+        metadata (np.ndarray): A numpy like array containing the meta data. Shape should be (nbPoints, nbMetadata). Used only to retrieve the ID of each stake measurement
+        metadataColumns (list): List containing the labels of each metadata column
+        targets (np.ndarray, optional): A numpy like array containing the targets
+    """
+    def __init__(self, features: np.ndarray, metadata: np.ndarray,
+                 metadataColumns: list[str], targets:np.ndarray=None) -> None:
+        self.features = features
+        self.metadata = metadata
+        self.metadataColumns = metadataColumns
+        self.targets = targets
+        self.ID = np.array([
+            self.metadata[i][self.metadataColumns.index('ID')]
+                for i in range(len(self.metadata))
+        ])
+        self.uniqueID = np.unique(self.ID)
+        self.maxConcatNb = max([ len(np.argwhere(self.ID==id)[:,0])
+                                for id in self.uniqueID ])
+        self.nbFeatures = self.features.shape[1]
+    def mapSplitsToDataset(self,splits: list[tuple[np.ndarray, np.ndarray]]
+                           ) -> list[tuple[np.ndarray, np.ndarray]]:
+        """
+        Maps split indices (usually the result of DataLoader.get_cv_split) to the
+        indices used by the AggregatedDataset class.
+
+        Attributes:
+            splits (list of tuple): List containing the splits indices for the cross
+                validation groups
+
+        Returns:
+            list[tuple[np.ndarray, np.ndarray]]: List with the same number of tuples
+                as the input. Each tuple contains numpy arrays which provide the
+                corresponding indices the cross validation should use according to
+                the input splits variable.
+        """
+        ret = []
+        for split in splits:
+            t = []
+            for e in split:
+                uniqueSelectedId = np.unique(self.ID[e])
+                ind = np.argwhere(self.uniqueID[None,:]==uniqueSelectedId[:,None])[:,1]
+                assert all(uniqueSelectedId==self.uniqueID[ind])
+                t.append(ind)
+            ret.append(tuple(t))
+        return ret
+    def __len__(self) -> int:
+        return len(self.uniqueID)
+    def __getitem__(self, index: int) -> tuple:
+        ind = np.argwhere(self.ID==self.uniqueID[index])[:,0]
+        f = self.features[ind][:,:]
+        fpad = np.empty((self.maxConcatNb,self.nbFeatures))
+        fpad.fill(np.nan)
+        fpad[:f.shape[0],:] = f
+        fpad = fpad.reshape(-1)
+        if self.targets is None:
+            return (fpad, )
+        else:
+            t = self.targets[ind][:]
+            tpad = np.empty(self.maxConcatNb)
+            tpad.fill(np.nan)
+            tpad[:t.shape[0]] = t
+            return fpad, tpad
+    def indexToId(self, index):
+        """Maps an index of the dataset to the ID of the stake measurement."""
+        return self.uniqueID[index]
+
+
+class Normalizer:
+    """
+    A normalizer class to normalize data based on lower and upper bounds.
+
+    Attributes:
+        bnds (dict of tuple): Dictionary where each key is the name of a feature and
+            the two values in the tuple are respectively the lower and upper bounds.
+    """
+    def __init__(self, bnds: dict[str, tuple[float, float]]) -> None:
+        self.bnds = bnds
+    def _norm(self, data, lower_bnd, upper_bnd):
+        return (data-lower_bnd)/(upper_bnd-lower_bnd)
+    def _unorm(self, data, lower_bnd, upper_bnd):
+        return data*(upper_bnd-lower_bnd)+lower_bnd
+    def _map(self, x: Union[dict, torch.Tensor, np.ndarray], fct: Callable
+             ) ->  Union[dict, torch.Tensor, np.ndarray]:
+        if isinstance(x, dict):
+            z = {}
+            for k in x:
+                z[k] = fct(x[k], self.bnds[k][0], self.bnds[k][1])
+            return z
+        elif isinstance(x, (torch.Tensor, np.ndarray)):
+            assert x.shape[-1]==len(self.bnds)
+            z = torch.zeros_like(x) if isinstance(x, torch.Tensor) else np.zeros_like(x)
+            for i,k in enumerate(self.bnds):
+                z[...,i] = fct(x[...,i], self.bnds[k][0], self.bnds[k][1])
+            return z
+        else: raise NotImplementedError(f"Type {type(x)} is not supported yet")
+    def normalize(self, x: Union[dict, torch.Tensor, np.ndarray]
+                  ) -> Union[dict, torch.Tensor, np.ndarray]:
+        """Normalize data."""
+        return self._map(x, self._norm)
+    def unnormalize(self, x: Union[dict, torch.Tensor, np.ndarray]
+                   ) -> Union[dict, torch.Tensor, np.ndarray]:
+        """Unnormalize data, the opposite operation of normalize"""
+        return self._map(x, self._unorm)

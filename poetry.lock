@@ -4885,6 +4885,30 @@ files = [
 ]
 
 [[package]]
+name = "skorch"
+version = "1.1.0"
+description = "scikit-learn compatible neural network library for pytorch"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+markers = "python_version <= \"3.11\" or python_version >= \"3.12\""
+files = [
+    {file = "skorch-1.1.0-py3-none-any.whl", hash = "sha256:2a444993bc34d31f3582d6ba7198fcd0e7b8df27bd9d0b853c6da6b85ffd5f41"},
+    {file = "skorch-1.1.0.tar.gz", hash = "sha256:020b8c848fcc3b80cd7b17b96b35445cec3b95a4d104dd1e7055bcd6aaa1d2b6"},
+]
+
+[package.dependencies]
+numpy = ">=1.13.3"
+scikit-learn = ">=0.22.0"
+scipy = ">=1.1.0"
+tabulate = ">=0.7.7"
+tqdm = ">=4.14.0"
+
+[package.extras]
+docs = ["Sphinx", "numpydoc", "sphinx_rtd_theme"]
+testing = ["accelerate (>=0.22.0)", "fire", "flaky", "future (>=0.17.1)", "gpytorch (>=1.5)", "jupyter", "matplotlib (>=2.0.2)", "neptune", "numpydoc", "openpyxl", "pandas", "pillow", "protobuf", "pylint", "pytest (>=3.4)", "pytest-cov", "sacred", "safetensors (>=0.3.1)", "sphinx", "sphinx_rtd_theme", "tensorboard (>=1.14.0)", "tokenizers", "transformers", "wandb (>=0.12.17)"]
+
+[[package]]
 name = "smmap"
 version = "5.0.1"
 description = "A pure Python implementation of a sliding window memory map manager"
@@ -5240,6 +5264,22 @@ typing-extensions = ">=4.4.0"
 
 [package.extras]
 doc = ["ipython", "numpydoc", "sphinx (>=1.1,<6)", "sphinx-rtd-theme"]
+
+[[package]]
+name = "tabulate"
+version = "0.9.0"
+description = "Pretty-print tabular data"
+optional = false
+python-versions = ">=3.7"
+groups = ["main"]
+markers = "python_version <= \"3.11\" or python_version >= \"3.12\""
+files = [
+    {file = "tabulate-0.9.0-py3-none-any.whl", hash = "sha256:024ca478df22e9340661486f85298cff5f6dcdba14f3813e8830015b9ed1948f"},
+    {file = "tabulate-0.9.0.tar.gz", hash = "sha256:0095b12bf5966de529c0feb1fa08671671b3368eec77d7ef7ab114be2c068b3c"},
+]
+
+[package.extras]
+widechars = ["wcwidth"]
 
 [[package]]
 name = "terminado"
@@ -5819,4 +5859,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.13"
-content-hash = "b3e5c552f5a0afe188a6be4c44088cf50b9ea2a2c38dff1e52220f1323f7fe55"
+content-hash = "23106dfb92c111a51e4a61e3821de87dbc7e826294406fb6b04709da7faa7e2d"
