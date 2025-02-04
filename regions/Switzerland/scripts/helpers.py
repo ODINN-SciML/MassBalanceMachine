@@ -4,6 +4,7 @@ import numpy as np
 import random as rd
 import torch
 import gc
+import shutil
 
 from matplotlib import pyplot as plt
 from matplotlib.colors import to_hex
@@ -107,18 +108,20 @@ def seed_all(seed):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
+
 def emptyfolder(path):
     if os.path.exists(path):
-        # Loop through all items in the directory
         for item in os.listdir(path):
             item_path = join(path, item)
-            if isfile(item_path):
-                os.remove(item_path)  # Remove file
-            elif isdir(item_path):
-                emptyfolder(item_path)  # Recursively empty the folder
-                os.rmdir(item_path)  # Remove the now-empty folder
+            try:
+                if isfile(item_path):
+                    os.remove(item_path)  # Remove file
+                elif isdir(item_path):
+                    shutil.rmtree(item_path)  # Remove folder and all its contents
+            except Exception as e:
+                print(f"Error removing {item_path}: {e}")
     else:
-        createPath(path)
+        os.makedirs(path, exist_ok=True)  # Ensures the path exists
 
 
 def createPath(path):
