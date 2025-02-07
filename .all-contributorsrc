@@ -69,6 +69,16 @@
         "ideas",
         "mentoring"
       ]
+    },
+    {
+      "login": "albangossard",
+      "name": "Alban Gossard",
+      "avatar_url": "https://avatars.githubusercontent.com/u/24877968?v=4",
+      "profile": "https://albangossard.github.io/",
+      "contributions": [
+        "code",
+        "research"
+      ]
     }
   ]
 }
