@@ -186,9 +186,6 @@ class DataLoader:
                                 *,
                                 temp_grad: float = -6.5 / 1000,
                                 dpdz: float = 1.5 / 10000,
-                                gl_specific: bool = False,
-                                c_prec_dic: dict = {},
-                                t_off_dic: dict = {},
                                 c_prec: float = 1.434,
                                 t_off: float = 0.617) -> None:
             """Corrects the temperature and precipitation data for elevation differences and correction factors.
@@ -203,7 +200,7 @@ class DataLoader:
                 c_prec (float, optional): Constant precipitation correction factor. Defaults to 1.434.
                 t_off (float, optional): Constant temperature offset. Defaults to 0.617.
             """
-            self.data = correct_T_P(self.data, temp_grad, dpdz, gl_specific, c_prec_dic, t_off_dic, c_prec, t_off)
+            self.data = correct_T_P(self.data, temp_grad, dpdz, c_prec, t_off)
 
     @staticmethod
     def _prepare_data_for_cv(

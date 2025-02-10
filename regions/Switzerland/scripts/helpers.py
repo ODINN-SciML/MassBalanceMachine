@@ -27,8 +27,8 @@ path_SMB_GLAMOS_csv = '../../../data/GLAMOS/glacier-wide/csv/'
 # Gridded data for MBM to use for making predictions over whole grid (SGI or RGI grid)
 path_glacier_grid_rgi = '../../../data/GLAMOS/topo/gridded_topo_inputs/RGI_grid/' # DEMs & topo
 path_glacier_grid_sgi = '../../../data/GLAMOS/topo/gridded_topo_inputs/SGI_grid/' # DEMs & topo 
-path_glacier_grid_glamos = '../../../data/GLAMOS/topo/gridded_topo_inputs/GLAMOS_grid/'
-
+path_glacier_grid_glamos = '../../../data/GLAMOS/topo/gridded_topo_inputs/GLAMOS_grid_oggm/'
+# path_glacier_grid_glamos = '../../../data/GLAMOS/topo/gridded_topo_inputs/GLAMOS_grid/'
 
 # Topo data
 path_SGI_topo = '../../../data/GLAMOS/topo/SGI2020/' # DEMs & topo from SGI
@@ -231,3 +231,5 @@ def reformat_SGI_id(input_str):
 
     # Combine part1 and part2 with a hyphen in between
     return f"{part1}-{part2}"
+
+

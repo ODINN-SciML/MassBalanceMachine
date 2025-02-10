@@ -728,92 +728,133 @@ def Plot2DPred(fig, vmin, vmax, ds_pred, YEAR, month, ax, savefig=False):
                     bbox_inches="tight")
 
 
-def scatter_geodeticMB(df_all, size = False):
-    # Scatter plot for all
-    df_all.dropna(inplace=True)
-    rmse_mbm, corr_mbm = mean_squared_error(df_all['Geodetic MB'],
-                                            df_all['MBM MB'],
-                                            squared=False), np.corrcoef(
-                                                df_all['Geodetic MB'],
-                                                df_all['MBM MB'])[0, 1]
-    rmse_glamos, corr_glamos = mean_squared_error(df_all['Geodetic MB'],
-                                                  df_all['GLAMOS MB'],
-                                                  squared=False), np.corrcoef(
-                                                      df_all['Geodetic MB'],
-                                                      df_all['GLAMOS MB'])[0,
-                                                                           1]
+def scatter_geodeticMB(df_all, hue = 'GLACIER', size=False):
+    """
+    Creates scatter plots comparing Geodetic MB to MBM MB and GLAMOS MB, with RMSE and correlation annotations.
 
+    Parameters:
+    -----------
+    df_all : pd.DataFrame
+        DataFrame containing 'Geodetic MB', 'MBM MB', 'GLAMOS MB', 'GLACIER', 'Area', and 'Test Glacier'.
+    size : bool, optional
+        If True, scales points based on glacier area.
+    """
+    # Drop rows where any required columns are NaN
+    df_all = df_all.dropna(subset=['Geodetic MB', 'MBM MB', 'GLAMOS MB'])
+
+    # Compute RMSE and Pearson correlation
+    rmse_mbm = mean_squared_error(df_all["Geodetic MB"], df_all["MBM MB"], squared=False)
+    corr_mbm = np.corrcoef(df_all["Geodetic MB"], df_all["MBM MB"])[0, 1]
+    rmse_glamos = mean_squared_error(df_all["Geodetic MB"], df_all["GLAMOS MB"], squared=False)
+    corr_glamos = np.corrcoef(df_all["Geodetic MB"], df_all["GLAMOS MB"])[0, 1]
+
+    # Define figure and axes
     fig, axs = plt.subplots(1, 2, figsize=(15, 5), sharex=True)
-    if size: 
-        sns.scatterplot(data=df_all,
-                    x='Geodetic MB',
-                    y='MBM MB',
-                    hue='Test glacier',
-                    size='Area', sizes=(10, 1000), alpha=0.7,
-                    ax=axs[0])
-    else:
-        sns.scatterplot(data=df_all,
-                    x='Geodetic MB',
-                    y='MBM MB',
-                    hue='GLACIER',
-                    size='Area', sizes=(10, 1000), alpha=0.7,
-                    ax=axs[0])
-    # diagonal line
-    pt = (0, 0)
-    axs[0].axline(pt, slope=1, color="grey", linestyle="-", linewidth=0.2)
-    axs[0].axvline(0, color="grey", linestyle="--", linewidth=1)
-    axs[0].axhline(0, color="grey", linestyle="--", linewidth=1)
-    axs[0].grid()
-    axs[0].set_xlabel('Geodetic MB [m w.e.]')
-    axs[0].set_ylabel('MBM MB [m w.e.]')
-    axs[0].set_title('Geodetic vs MBM MB')
-    axs[0].get_legend().remove()
-    legend = "\n".join(((r"$\mathrm{RMSE}=%.3f$," % (rmse_mbm, )),
-                        (r"$\mathrm{\rho}=%.3f$" % (corr_mbm, ))))
-    props = dict(boxstyle='round', facecolor='white', alpha=0.5)
-    axs[0].text(0.03,
-                0.98,
-                legend,
-                transform=axs[0].transAxes,
-                verticalalignment="top",
-                fontsize=14,
-                bbox=props)
 
-    # Same for glamos MB
-    if size: 
-        sns.scatterplot(data=df_all,
-                    x='Geodetic MB',
-                    y='GLAMOS MB',
-                    hue='Test glacier',
-                    size='Area', sizes=(10, 1000), alpha=0.7,
-                    hue_order=[False, True],
-                    ax=axs[1])
+    def plot_scatter(ax, y_col, title, rmse, corr):
+        """ Helper function to plot a scatter plot with annotations """
+        sns.scatterplot(
+            data=df_all,
+            x="Geodetic MB",
+            y=y_col,
+            hue=hue,
+            size="Area" if size else None,
+            sizes=(10, 1000),
+            alpha=0.7,
+            ax=ax
+        )
+
+        # Identity line (diagonal y=x)
+        # min_val, max_val = df_all["Geodetic MB"].min(), df_all["Geodetic MB"].max()
+        # ax.plot([min_val, max_val], [min_val, max_val], color="grey", linestyle="--", linewidth=0.8)
+        # diagonal line
+        pt = (0, 0)
+        ax.axline(pt, slope=1, color="grey", linestyle="--", linewidth=1)
+
+        # Grid and axis labels
+        ax.axvline(0, color="grey", linestyle="--", linewidth=1)
+        ax.axhline(0, color="grey", linestyle="--", linewidth=1)
+        ax.grid(True, linestyle="--", linewidth=0.5)
+        ax.set_xlabel("Geodetic MB [m w.e.]")
+        ax.set_ylabel(f"{y_col} [m w.e.]")
+        ax.set_title(title)
+
+        # RMSE and correlation annotation
+        legend_text = "\n".join((r"$\mathrm{RMSE}=%.3f$" % rmse, r"$\mathrm{\rho}=%.3f$" % corr))
+        props = dict(boxstyle="round", facecolor="white", alpha=0.5)
+        ax.text(0.03, 0.98, legend_text, transform=ax.transAxes, verticalalignment="top", fontsize=14, bbox=props)
+        ax.legend([], [], frameon=False)
+        
+    # Plot MBM MB vs Geodetic MB
+    plot_scatter(axs[0], "MBM MB", "Geodetic vs MBM MB", rmse_mbm, corr_mbm)
+
+    # Plot GLAMOS MB vs Geodetic MB
+    plot_scatter(axs[1], "GLAMOS MB", "Geodetic vs GLAMOS MB", rmse_glamos, corr_glamos)
+
+    # Adjust legend outside of plot
+    handles, labels = axs[0].get_legend_handles_labels()
+    fig.legend(handles, labels, bbox_to_anchor=(1.05, 1), loc="upper left", borderaxespad=0., ncol=2, fontsize=14)
+
+    plt.tight_layout()
+    plt.show()
+
+    
+def plotGeodeticMB(geodetic_mb,
+                   mbm_mb_mean,
+                   glamos_mb_mean,
+                   glacier_name,
+                   color_xgb='blue',
+                   color_tim='red'):
+    # Convert lists to NumPy arrays for filtering NaNs
+    geodetic_mb = np.array(geodetic_mb)
+    mbm_mb_mean = np.array(mbm_mb_mean)
+    glamos_mb_mean = np.array(glamos_mb_mean)
+
+    # Remove NaN values to avoid plotting errors
+    valid_idx = ~np.isnan(geodetic_mb) & ~np.isnan(mbm_mb_mean) & ~np.isnan(
+        glamos_mb_mean)
+    geodetic_mb, mbm_mb_mean, glamos_mb_mean = geodetic_mb[
+        valid_idx], mbm_mb_mean[valid_idx], glamos_mb_mean[valid_idx]
+
+    # Ensure data exists before plotting
+    if len(geodetic_mb) == 0:
+        print("No valid data points to plot.")
     else:
-        sns.scatterplot(data=df_all,
-                    x='Geodetic MB',
-                    y='GLAMOS MB',
-                    hue='GLACIER',
-                    size='Area', sizes=(10, 1000), alpha=0.7,
-                    ax=axs[1])
-    # diagonal line
-    pt = (0, 0)
-    axs[1].axline(pt, slope=1, color="grey", linestyle="-", linewidth=0.2)
-    axs[1].axvline(0, color="grey", linestyle="--", linewidth=1)
-    axs[1].axhline(0, color="grey", linestyle="--", linewidth=1)
-    axs[1].grid()
-    # legend
-    axs[1].set_xlabel('Geodetic MB [m w.e.]')
-    axs[1].set_ylabel('GLAMOS MB [m w.e.]')
-    # add title
-    axs[1].set_title('Geodetic vs GLAMOS MB')
-    legend = "\n".join(((r"$\mathrm{RMSE}=%.3f$," % (rmse_glamos, )),
-                        (r"$\mathrm{\rho}=%.3f$" % (corr_glamos, ))))
-    axs[1].text(0.03,
-                0.98,
-                legend,
-                transform=axs[1].transAxes,
-                verticalalignment="top",
-                fontsize=14,
-                bbox=props)
-    # legend outside of plot
-    plt.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0., ncol = 3)
+        # Create figure and axis
+        fig, ax = plt.subplots(figsize=(10, 5))
+
+        # Scatter plot
+        ax.scatter(geodetic_mb,
+                   mbm_mb_mean,
+                   color=color_xgb,
+                   alpha=0.7,
+                   label="MBM MB",
+                   marker="o")
+        ax.scatter(geodetic_mb,
+                   glamos_mb_mean,
+                   color=color_tim,
+                   alpha=0.7,
+                   label="GLAMOS MB",
+                   marker="s")
+
+        # diagonal line
+        pt = (0, 0)
+        ax.axline(pt, slope=1, color="grey", linestyle="--", linewidth=1)
+        ax.axvline(0, color="grey", linestyle="--", linewidth=1)
+        ax.axhline(0, color="grey", linestyle="--", linewidth=1)
+        ax.grid(True, linestyle="--", linewidth=0.5)
+
+        # Labels & Title
+        ax.set_xlabel("Geodetic MB [m w.e.]", fontsize=12)
+        ax.set_ylabel("Modeled MB [m w.e.]", fontsize=12)
+        ax.set_title(f"{glacier_name.capitalize()} Glacier", fontsize=14)
+        ax.legend(loc="upper left", fontsize=10)
+
+        # Show plot
+        plt.show()
+
+        # return figure
+        return fig
+    
+    
+    
