@@ -234,12 +234,12 @@ class AggregatedDataset(torch.utils.data.Dataset):
     A dataset class that groups together all entries based on their IDs. The number
     of features of each element of the dataset is equal to the true number of
     features times the maximum number of elements that are assigned to the same ID
-    in the original dataset. The number of elements is equal to the number of unique
-    IDs.
+    in the original dataset. The size of the aggregated dataset is equal to the
+    number of unique IDs.
 
     Attributes:
         features (np.ndarray): A numpy like array containing the features. Shape should be (nbPoints, nbFeatures)
-        metadata (np.ndarray): A numpy like array containing the meta data. Shape should be (nbPoints, nbMetadata). Used only to retrieve the ID of each stake measurement
+        metadata (np.ndarray): A numpy like array containing the meta data. Shape should be (nbPoints, nbMetadata). Used for example to retrieve the ID of each stake measurement
         metadataColumns (list): List containing the labels of each metadata column
         targets (np.ndarray, optional): A numpy like array containing the targets
     """
@@ -285,8 +285,14 @@ class AggregatedDataset(torch.utils.data.Dataset):
         return ret
     def __len__(self) -> int:
         return len(self.uniqueID)
-    def __getitem__(self, index: int) -> tuple:
+    def _getInd(self, index):
         ind = np.argwhere(self.ID==self.uniqueID[index])[:,0]
+        months = self.metadata[ind][:,self.metadataColumns.index('MONTHS')]
+        numMonths = [config.month_abbr_hydr[m] for m in months]
+        ind = ind[np.argsort(numMonths)] # Sort ind to get monthly data in chronological order
+        return ind
+    def __getitem__(self, index: int) -> tuple:
+        ind = self._getInd(index)
         f = self.features[ind][:,:]
         fpad = np.empty((self.maxConcatNb,self.nbFeatures))
         fpad.fill(np.nan)
@@ -303,6 +309,9 @@ class AggregatedDataset(torch.utils.data.Dataset):
     def indexToId(self, index):
         """Maps an index of the dataset to the ID of the stake measurement."""
         return self.uniqueID[index]
+    def indexToMetadata(self, index):
+        ind = self._getInd(index)
+        return self.metadata[ind][:,:]
 
 
 class Normalizer:

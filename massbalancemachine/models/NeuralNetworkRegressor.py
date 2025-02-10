@@ -3,7 +3,7 @@ from pathlib import Path
 from contextlib import contextmanager
 from collections.abc import Mapping
 
-import dill
+import pickle
 import config
 import torch
 
@@ -33,8 +33,10 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         Initialize the CustomNeuralNetRegressor.
 
         Args:
-            meta_data_columns (list): The metadata columns of the dataset.
-            **kwargs: Keyword arguments to be passed to the parent XGBRegressor class.
+            *args: Arguments to be passed to the parent NeuralNetRegressor class.
+            nbFeatures (int): The number of features of the non aggregated data.
+            metadataColumns (list): The metadata columns of the dataset.
+            **kwargs: Keyword arguments to be passed to the parent NeuralNetRegressor class.
         """
         super().__init__(*args, **kwargs)
         self.param_search = None
@@ -46,8 +48,7 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         self,
         parameters: Dict[str, Union[list, np.ndarray]],
         splits: Dict[str, Union[list, np.ndarray]],
-        features: pd.DataFrame,
-        targets: np.ndarray,
+        dataset: list[SliceDataset],
     ) -> None:
         """
         Perform a grid search for hyperparameter tuning.
@@ -57,8 +58,7 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         Args:
             parameters (dict): A dictionary of parameters to search over.
             splits (tuple[list[tuple[ndarray, ndarray]]]): A dictionary containing cross-validation split information.
-            features (pandas.DataFrame): The input features for training.
-            targets (array-like): The target values for training.
+            dataset (list of skorch.helper.SliceDataset): The datasets that provides both input features and targets for training.
 
         Sets:
             self.param_search (GridSearchCV): The fitted GridSearchCV object.
@@ -76,7 +76,7 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
             return_train_score=True,
         )
 
-        clf.fit(features, targets)
+        clf.fit(dataset[0], y=dataset[1])
         self.param_search = clf
 
     def randomsearch(
@@ -84,7 +84,7 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         parameters: Dict[str, Union[list, np.ndarray]],
         n_iter: int,
         splits: Dict[str, Union[list, np.ndarray]],
-        dataset: SliceDataset,
+        dataset: list[SliceDataset],
     ) -> None:
         """
         Perform a randomized search for hyperparameter tuning.
@@ -95,7 +95,7 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
             parameters (dict): A dictionary of parameters and their distributions to sample from.
             n_iter (int): Number of parameter settings that are sampled.
             splits (tuple[list[tuple[ndarray, ndarray]]]): A dictionary containing cross-validation split information.
-            dataset (skorch.helper.SliceDataset): The dataset that provides both input features and targets for training.
+            dataset (list of skorch.helper.SliceDataset): The datasets that provides both input features and targets for training.
 
         Sets:
             self.param_search (RandomizedSearchCV): The fitted RandomizedSearchCV object.
@@ -138,13 +138,12 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
 
         Parameters
         ----------
-        x : input data
-          A batch of the input data.
+        x: input data
+            A batch of the input data.
 
-        **fit_params : dict
-          Additional parameters passed to the ``forward`` method of
-          the module and to the ``self.train_split`` call.
-
+        **fit_params: dict
+            Additional parameters passed to the ``forward`` method of
+            the module and to the ``self.train_split`` call.
         """
         x = to_tensor(x, device=self.device)
         if len(x.shape)==1:
@@ -163,36 +162,13 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
             loss += (yi_pred[~yi_pred.isnan()].sum() - yi_true[~yi_true.isnan()].mean())**2
         return loss/len(y_true)
 
-    def fit(self, X: pd.DataFrame,
-            y: np.ndarray, **fit_params) -> "CustomNeuralNetRegressor":
-        """
-        Fit the model to the training data.
-
-        This method overrides the parent class fit method to incorporate
-        a custom objective function that uses metadata.
-
-        Args:
-            **kwargs:
-            X (pd.DataFrame): The input features including metadata columns.
-            y (array-like): The target values.
-            **fit_params: Additional parameters to be passed to the parent fit method.
-
-        Returns:
-            self: The fitted estimator.
-        """
-
-        # Call the fit function from the skorch library with the custom objective
-        # function defined in get_loss
-        super().fit(X, y=y, **fit_params)
-        return self
-
-    def score(self, X: pd.DataFrame, y: np.array) -> float:
+    def score(self, X: SliceDataset, y: SliceDataset) -> float:
         """
         Compute the mean squared error of the model on the given test data and labels.
 
         Args:
-            X (pd.DataFrame): The input features including metadata columns.
-            y (array-like): The true labels.
+            X (skorch.helper.SliceDataset): The dataset that contains input features.
+            y (skorch.helper.SliceDataset): The dataset that contains targets.
 
         Returns:
             float: The negative mean squared error (for compatibility with sklearn's GridSearchCV).
@@ -215,12 +191,12 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         else:
             raise ValueError(f"Loss function {config.LOSS} not supported.")
 
-    def predict(self, features: pd.DataFrame) -> np.ndarray:
+    def predict(self, features: SliceDataset) -> np.ndarray:
         """
         Predict using the fitted model.
 
         Args:
-            features (pd.DataFrame): The input features.
+            features (skorch.helper.SliceDataset): The dataset that contains input features.
 
         Returns:
             array-like: The predicted values (in monthly format).
@@ -275,73 +251,56 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
             return np.array(y_true_agg)
         else: raise TypeError
 
-    def aggrPredict(self, dataset) -> np.ndarray:
+    def aggrPredict(self, features: SliceDataset) -> np.ndarray:
         """
         Makes predictions in aggregated format using the fitted model.
         Args:
-            features (pd.DataFrame): The input features.
-            meta_data_columns (list[str]): The metadata columns.
-            metadata (np.array): The metadata values.
+            features (skorch.helper.SliceDataset): The dataset that contains input features.
 
         Returns:
-            array-like: The predicted values (in monthly format).
+            np.ndarray: The predicted values.
         """
         # Check if the model is fitted
         check_is_fitted(self)
 
         # Predictions in monthly format
-        y_pred = super().predict(dataset)
+        y_pred = super().predict(features)
         y_pred_agg = self.aggrPred(y_pred)
 
         return y_pred_agg
 
-    def cumulative_pred(self, df):
+    def cumulative_pred(self, features: SliceDataset) -> np.ndarray:
         """Make cumulative monthly predictions for each stake measurement.
 
         Args:
-            df pd.DataFrame: monthly input dataframe
-            custom_model (_type_): _description_
+            features (skorch.helper.SliceDataset): The dataset that contains input features.
 
         Returns:
-            _type_: _description_
+            np.ndarray: The cumulative predicted values.
         """
-        raise NotImplementedError
-        features, metadata = self._create_features_metadata(
-            df, config.META_DATA)
 
-        # Predictions in monthly format
         y_pred = super().predict(features)
-
-        df = df.assign(pred=y_pred)
-
-        # Vectorized operation for month abbreviation
-        df['MONTH_NB'] = df['MONTHS'].map(
-            config.month_abbr_hydr)
-
-        # Cumulative monthly sums using groupby
-        df.sort_values(by=['ID', 'MONTH_NB'], inplace=True)
-        df['cum_pred'] = df.groupby(
-            'ID')['pred'].cumsum()
-
-        return df
+        cum_pred = np.zeros_like(y_pred)
+        cum_pred.fill(np.nan)
+        for i in range(len(y_pred)):
+            ind = ~np.isnan(y_pred[i])
+            cum_pred[i][ind] = np.cumsum(y_pred[i][ind])
+        return cum_pred
 
     def save_model(self, fname: str) -> None:
         """Save a grid search or randomized search CV instance to a file"""
-        raise NotImplementedError
         with self.model_file(fname, "wb") as f:
-            dill.dump(self.param_search, f)
+            pickle.dump(self.param_search, f)
 
     def load_model(self, fname: str) -> GridSearchCV | RandomizedSearchCV:
         """Load a grid search or randomized search CV instance from a file"""
-        raise NotImplementedError
         with self.model_file(fname, "rb") as f:
-            self.param_search = dill.load(f)
+            self.param_search = pickle.load(f)
 
     @classmethod
     @contextmanager
     def model_file(cls, fname: str, mode: str):
         """Context manager to handle model file and directory operations"""
-        raise NotImplementedError
         models_dir = Path("./models")
         # Check if the directory already exists
         models_dir.mkdir(exist_ok=True)
