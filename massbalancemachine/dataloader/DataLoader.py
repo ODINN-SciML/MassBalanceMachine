@@ -55,12 +55,12 @@ class DataLoader:
         """
         self.data = data
         self.n_splits = config.N_SPLITS
-        self.random_seed = config.SEED
+        self.random_seed = random_seed or config.SEED
         self.test_size = config.TEST_SIZE
         self.cv_split = None
         self.train_indices = None
         self.test_indices = None
-        self.meta_data_columns = config.META_DATA
+        self.meta_data_columns = meta_data_columns or config.META_DATA
 
     def set_train_test_split(
         self,
