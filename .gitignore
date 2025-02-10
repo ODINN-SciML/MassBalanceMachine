@@ -11,7 +11,8 @@ notebooks/models
 notebooks/.ipynb_checkpoints
 
 regions/Switzerland/models/**
-regions/Switzerland/results
+regions/Switzerland/results/**
+regions/Switzerland/figures/**
 regions/Switzerland/.ipynb_checkpoints
 
 regions/Norway/data/

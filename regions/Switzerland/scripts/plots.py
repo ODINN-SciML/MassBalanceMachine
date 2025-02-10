@@ -850,9 +850,6 @@ def plotGeodeticMB(geodetic_mb,
         ax.set_title(f"{glacier_name.capitalize()} Glacier", fontsize=14)
         ax.legend(loc="upper left", fontsize=10)
 
-        # Show plot
-        plt.show()
-
         # return figure
         return fig
     
