@@ -66,15 +66,14 @@ class DataLoader:
         self,
         *,
         test_size: float = None,
-        # random_seed: int = None,
-        shuffle: bool = True,
+        type_fold: str = "group-meas-id"
     ) -> Tuple[Iterator[Any], Iterator[Any]]:
         """
         Split the dataset into training and testing sets.
 
         Args:
             test_size (float): Proportion of the dataset to include in the test split.
-            shuffle (bool): Whether to shuffle the data before splitting.
+            type_fold (str): Type of splitting between train and test sets. Options are 'group-rgi', or 'group-meas-id'.
 
         Returns:
             Tuple[Iterator[Any], Iterator[Any]]: Iterators for training and testing indices.
@@ -97,12 +96,13 @@ class DataLoader:
         gss = GroupShuffleSplit(
             n_splits=1, test_size=test_size, random_state=self.random_seed
         )
-        train_indices, test_indices = next(gss.split(X, y, stake_meas_id))
+        groups = {'group-meas-id': stake_meas_id, 'group-rgi': glacier_ids}.get(type_fold)
+        train_indices, test_indices = next(gss.split(X, y, groups))
 
         # Check that the intersection train and test ids is empty
-        train_stake_meas_id = stake_meas_id[train_indices]
-        test_stake_meas_id = stake_meas_id[test_indices]
-        assert len(np.intersect1d(train_stake_meas_id, test_stake_meas_id)) == 0
+        train_group_id = groups[train_indices]
+        test_group_id = groups[test_indices]
+        assert len(np.intersect1d(train_group_id, test_group_id)) == 0
 
         # Make it iterators and set as an attribute of the class
         self.train_indices = train_indices
