@@ -137,6 +137,8 @@ def _create_result_dataframe(
     """Create the final result DataFrame."""
     apply_func = lambda row: _get_climate_values(row, vois_climate, column_names)
     if chunk_size>0:
+        # Split call to apply in chunks
+        # This is useful when working with large dataframes to avoid having OOM errors
         climate_records = []
         for start in range(0, df_exploded.shape[0], chunk_size):
             chunk = df_exploded.iloc[start:start + chunk_size]
