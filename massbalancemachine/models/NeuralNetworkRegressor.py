@@ -117,13 +117,13 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         clf.fit(dataset[0], y=dataset[1])
         self.param_search = clf
 
-    def _unpack(self, x):
+    def _unpack_inp(self, x):
         indNonNan = [~xi.isnan() for xi in x]
         v = [x[i][indNonNan[i]].reshape(-1, self.nbFeatures) for i in range(x.shape[0])]
         x = torch.concatenate(v, dim=0)
         return x, indNonNan
 
-    def _pack(self, y, indNonNan):
+    def _pack_out(self, y, indNonNan):
         out = torch.empty((len(indNonNan), indNonNan[0].shape[0]//self.nbFeatures), dtype=y.dtype, device=y.device)
         out.fill_(torch.nan)
         cnt = 0
@@ -148,13 +148,13 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         x = to_tensor(x, device=self.device)
         if len(x.shape)==1:
             x = x[None]
-        x, indNonNan = self._unpack(x)
+        x, indNonNan = self._unpack_inp(x)
         if self.modelDtype is not None:
             x = x.type(self.modelDtype)
         if isinstance(x, Mapping):
-            raise NotImplementedError("The case when x is a Mapping has not been implemented yet. If you need it, copy the implementation of the infer method in the NeuralNet class and add the _pack and _unpack methods.")
+            raise NotImplementedError("The case when x is a Mapping has not been implemented yet. If you need it, copy the implementation of the infer method in the NeuralNet class and add the _pack_out and _unpack_inp methods.")
         res = self.module_(x, **fit_params)
-        return self._pack(res, indNonNan)
+        return self._pack_out(res, indNonNan)
 
     def get_loss(self, y_pred, y_true, X=None, training=False):
         loss = 0.
