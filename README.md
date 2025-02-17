@@ -1,7 +1,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![GitHub contributors](https://img.shields.io/github/contributors/ODINN-SciML/MassBalanceMachine?style=social)](#contributors)
 
 <p align="center">
-  <img src="./MBM_logo.png" width="300" title="MBM_Logo">
+  <img src="./MBM_logo.jpg" width="300" title="MBM_Logo">
 </p>
 
 # MassBalanceMachine
