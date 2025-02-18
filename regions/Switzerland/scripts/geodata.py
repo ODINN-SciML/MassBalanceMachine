@@ -875,9 +875,9 @@ def xr_SGI_masked_topo(rgi_shp, gdf_shapefiles, path_aspect, path_slope,
     slope_gl = [f for f in os.listdir(path_slope) if sgi_id in f][0]
     dem_gl = [f for f in os.listdir(path_DEM) if sgi_id in f][0]
 
-    metadata_aspect, grid_data_aspect = load_grid_file(path_aspect + aspect_gl)
-    metadata_slope, grid_data_slope = load_grid_file(path_slope + slope_gl)
-    metadata_dem, grid_data_dem = load_grid_file(path_DEM + dem_gl)
+    metadata_aspect, grid_data_aspect = load_grid_file(join(path_aspect, aspect_gl))
+    metadata_slope, grid_data_slope = load_grid_file(join(path_slope, slope_gl))
+    metadata_dem, grid_data_dem = load_grid_file(join(path_DEM, dem_gl))
 
     # convert to xarray
     aspect = convert_to_xarray_geodata(grid_data_aspect, metadata_aspect)
@@ -914,8 +914,8 @@ def xr_GLAMOS_masked_topo(path_aspect, path_slope, sgi_id, ds_gl):
     aspect_gl = [f for f in os.listdir(path_aspect) if sgi_id in f][0]
     slope_gl = [f for f in os.listdir(path_slope) if sgi_id in f][0]
 
-    metadata_aspect, grid_data_aspect = load_grid_file(path_aspect + aspect_gl)
-    metadata_slope, grid_data_slope = load_grid_file(path_slope + slope_gl)
+    metadata_aspect, grid_data_aspect = load_grid_file(join(path_aspect, aspect_gl))
+    metadata_slope, grid_data_slope = load_grid_file(join(path_slope, slope_gl))
 
     # Convert to xarray
     aspect = convert_to_xarray_geodata(grid_data_aspect, metadata_aspect)

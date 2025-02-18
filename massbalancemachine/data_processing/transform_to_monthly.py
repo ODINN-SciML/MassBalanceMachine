@@ -129,11 +129,22 @@ def _get_climate_values(
 
 
 def _create_result_dataframe(
-    df_exploded: pd.DataFrame, column_names: "list[str]", vois_climate: "list[str]"
+    df_exploded: pd.DataFrame,
+    column_names: "list[str]",
+    vois_climate: "list[str]",
+    chunk_size = 10000,
 ) -> pd.DataFrame:
     """Create the final result DataFrame."""
-    climate_records = df_exploded.apply(
-        lambda row: _get_climate_values(row, vois_climate, column_names), axis=1
-    ).tolist()
+    apply_func = lambda row: _get_climate_values(row, vois_climate, column_names)
+    if chunk_size>0:
+        # Split call to apply in chunks
+        # This is useful when working with large dataframes to avoid having OOM errors
+        climate_records = []
+        for start in range(0, df_exploded.shape[0], chunk_size):
+            chunk = df_exploded.iloc[start:start + chunk_size]
+            chunk_records = chunk.apply(apply_func, axis=1).tolist()
+            climate_records.extend(chunk_records)
+    else:
+        climate_records = df_exploded.apply(apply_func, axis=1).tolist()
     final_column_names = column_names + vois_climate
     return pd.DataFrame(climate_records, columns=final_column_names)
