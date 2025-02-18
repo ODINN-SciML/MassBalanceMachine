@@ -4,5 +4,5 @@ __all__ = ['dataloader', 'models', 'data_processing', 'geodata']
 
 from .dataloader import *
 from .models import CustomXGBoostRegressor, utils
-from .data_processing import Dataset, utils
+from .data_processing import Dataset, utils, Normalizer, AggregatedDataset
 from .geodata import *
