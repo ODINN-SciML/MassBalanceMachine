@@ -247,11 +247,11 @@ class GeoData:
             os.makedirs(path)
 
         # delete file if already exists
-        if os.path.exists(path + filename):
-            os.remove(path + filename)
-
+        if os.path.exists(os.path.join(path, filename)):
+            os.remove(os.path.join(path, filename))
+        
         # save prediction to netcdf
-        ds.to_netcdf(path + filename)
+        ds.to_netcdf(os.path.join(path, filename))
         
     @staticmethod
     def oggmToWgs84(ds, gdir):

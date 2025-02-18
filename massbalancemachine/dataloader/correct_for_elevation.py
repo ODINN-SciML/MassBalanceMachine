@@ -10,9 +10,6 @@ import pandas as pd
 def correct_T_P(df: pd.DataFrame,
                 temp_grad: float = -6.5 / 1000,
                 dpdz: float = 1.5 / 10000,
-                gl_specific: bool = False,
-                c_prec_dic: dict = {},
-                t_off_dic: dict = {},
                 c_prec: float = 1.434,
                 t_off: float = 0.617) -> pd.DataFrame:
     """Applies temperature and precipitation corrections to the DataFrame.
@@ -32,18 +29,9 @@ def correct_T_P(df: pd.DataFrame,
     """
     # Apply temperature gradient correction
     df['t2m_corr'] = df['t2m'] + (df['ELEVATION_DIFFERENCE'] * temp_grad)
-
-    if gl_specific:
-        # Vectorized application for GLACIER-specific correction factors
-        glacier_specific_prec = df['GLACIER'].map(c_prec_dic).fillna(1)
-        df['tp_corr'] = df['tp'] * glacier_specific_prec
-
-        # Vectorized application for temperature bias offset
-        glacier_specific_toff = df['GLACIER'].map(t_off_dic).fillna(1)
-        df['t2m_corr'] += glacier_specific_toff
-    else:
-        df['tp_corr'] = df['tp'] * c_prec
-        df['t2m_corr'] += t_off
+    
+    df['tp_corr'] = df['tp'] * c_prec
+    df['t2m_corr'] += t_off
 
     # Apply elevation correction factor
     df['tp_corr'] += df['tp_corr'] * (df['ELEVATION_DIFFERENCE'] * dpdz)
