@@ -27,7 +27,7 @@ path_SMB_GLAMOS_csv = '../../../data/GLAMOS/glacier-wide/csv/'
 # Gridded data for MBM to use for making predictions over whole grid (SGI or RGI grid)
 path_glacier_grid_rgi = '../../../data/GLAMOS/topo/gridded_topo_inputs/RGI_grid/' # DEMs & topo
 path_glacier_grid_sgi = '../../../data/GLAMOS/topo/gridded_topo_inputs/SGI_grid/' # DEMs & topo 
-path_glacier_grid_glamos = '../../../data/GLAMOS/topo/gridded_topo_inputs/GLAMOS_grid_oggm/'
+path_glacier_grid_glamos = '../../../data/GLAMOS/topo/gridded_topo_inputs/GLAMOS_grid_with_oggm_vars/'
 # path_glacier_grid_glamos = '../../../data/GLAMOS/topo/gridded_topo_inputs/GLAMOS_grid/'
 
 # Topo data
