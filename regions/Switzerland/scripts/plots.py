@@ -342,7 +342,7 @@ def plotGridSearchScore(cv_results_, lossType: str):
 
 
 def visualiseValPreds(model, splits, train_set, feature_columns, cfg: config.Config):
-    all_columns = feature_columns + cfg.metaData + cfg.notMetaDataNotFeatures
+    all_columns = feature_columns + cfg.fieldsNotFeatures
     fig, axs = plt.subplots(1, 5, sharex=True, sharey=True, figsize=(25, 8))
     a = 0
     for (train_index, val_index), ax in zip(splits, axs.flatten()):
@@ -357,11 +357,9 @@ def visualiseValPreds(model, splits, train_set, feature_columns, cfg: config.Con
         model_cpu = model.set_params(device='cpu')
 
         # Make predictions on validation set:
-        features_val, metadata_val = model_cpu._create_features_metadata(
-            X_val, cfg.metaData)
+        features_val, metadata_val = model_cpu._create_features_metadata(X_val)
         y_pred = model_cpu.predict(features_val)
-        y_pred_agg = model_cpu.aggrPredict(metadata_val, cfg.metaData,
-                                           features_val)
+        y_pred_agg = model_cpu.aggrPredict(metadata_val, features_val)
 
         # Aggregate predictions to annual or winter:
         df_pred = X_val[all_columns].copy()

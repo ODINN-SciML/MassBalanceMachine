@@ -56,6 +56,10 @@ class Config:
             #'sep_': 13,
         }
 
+        @property
+        def fieldsNotFeatures(self):
+            return self.metaData + self.notMetaDataNotFeatures
+
 class SwitzerlandConfig(Config):
     def __init__(
             self,
