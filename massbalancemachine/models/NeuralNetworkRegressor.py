@@ -28,17 +28,19 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
     period and should therefore take be into account when evaluating the score/loss.
     """
 
-    def __init__(self, *args, nbFeatures:int=None, metadataColumns=None, **kwargs):
+    def __init__(self, cfg: config.Config, *args, nbFeatures:int=None, metadataColumns=None, **kwargs):
         """
         Initialize the CustomNeuralNetRegressor.
 
         Args:
+            cfg (config.Config): Configuration instance.
             *args: Arguments to be passed to the parent NeuralNetRegressor class.
             nbFeatures (int): The number of features of the non aggregated data.
             metadataColumns (list): The metadata columns of the dataset.
             **kwargs: Keyword arguments to be passed to the parent NeuralNetRegressor class.
         """
         super().__init__(*args, **kwargs)
+        self.cfg = cfg
         self.param_search = None
         self.metadataColumns = metadataColumns
         self.nbFeatures = nbFeatures
@@ -69,7 +71,7 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
             param_grid=parameters,
             cv=splits,
             verbose=1,
-            n_jobs=config.NUM_JOBS,
+            n_jobs=self.cfg.numJobs,
             scoring=None,
             refit=True,
             error_score="raise",
@@ -106,12 +108,12 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
             n_iter=n_iter,
             cv=splits,
             verbose=1,
-            n_jobs=config.NUM_JOBS,
+            n_jobs=self.cfg.numJobs,
             scoring=None,
             refit=True,
             error_score="raise",
             return_train_score=True,
-            random_state=config.SEED,
+            random_state=self.cfg.seed,
         )
 
         clf.fit(dataset[0], y=dataset[1])
@@ -186,10 +188,10 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         y_true = torch.concatenate(y_true, dim=0)
         mse = self.get_loss(y_pred, y_true).item()
 
-        if config.LOSS == 'MSE':
+        if self.cfg.loss == 'MSE':
             return -mse  # Return negative because GridSearchCV maximizes score
         else:
-            raise ValueError(f"Loss function {config.LOSS} not supported.")
+            raise ValueError(f"Loss function {self.cfg.loss} not supported.")
 
     def predict(self, features: SliceDataset) -> np.ndarray:
         """
@@ -312,8 +314,7 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
             print(f"Error accessing file: {file_path}")
             raise
 
-    @staticmethod
-    def _create_features_metadata(
+    def _create_features_metadata(self,
             X: pd.DataFrame,
             meta_data_columns: list) -> Tuple[np.array, np.ndarray]:
         """
@@ -333,8 +334,7 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         feature_columns = X.columns.difference(meta_data_columns)
 
         # remove columns that are not used in metadata or features
-        feature_columns = feature_columns.drop(
-            config.NOT_METADATA_NOT_FEATURES)
+        feature_columns = feature_columns.drop(self.cfg.notMetaDataNotFeatures)
         # Convert feature_columns to a list (if needed)
         feature_columns = list(feature_columns)
 

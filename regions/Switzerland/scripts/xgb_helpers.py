@@ -6,7 +6,7 @@ from sklearn.model_selection import GroupKFold, KFold, train_test_split, GroupSh
 import xarray as xr
 
 
-def getMonthlyDataLoaderOneGl(glacierName, vois_climate, voi_topographical):
+def getMonthlyDataLoaderOneGl(glacierName, vois_climate, voi_topographical, cfg: config.Config):
     # Load stakes data from GLAMOS
     data_glamos = pd.read_csv(path_PMB_GLAMOS_csv + 'CH_wgms_dataset.csv')
 
@@ -18,7 +18,8 @@ def getMonthlyDataLoaderOneGl(glacierName, vois_climate, voi_topographical):
     rgi_gl = rgi_df.loc[glacierName]['rgi_id.v6']
     data_gl = data_glamos[data_glamos.RGIId == rgi_gl]
 
-    dataset_gl = mbm.Dataset(data=data_gl,
+    dataset_gl = mbm.Dataset(cfg,
+                             data=data_gl,
                              region_name='CH',
                              data_path=path_PMB_GLAMOS_csv)
 
@@ -37,25 +38,25 @@ def getMonthlyDataLoaderOneGl(glacierName, vois_climate, voi_topographical):
 
     # For each record, convert to a monthly time resolution
     dataset_gl.convert_to_monthly(
-        meta_data_columns=config.META_DATA,
+        meta_data_columns=cfg.metaData,
         vois_climate=vois_climate + ['pcsr'],  # add potential radiation
         vois_topographical=voi_topographical)
 
     # Create a new DataLoader object with the monthly stake data measurements.
-    dataloader_gl = mbm.DataLoader(data=dataset_gl.data,
-                                   random_seed=config.SEED,
-                                   meta_data_columns=config.META_DATA)
+    dataloader_gl = mbm.DataLoader(cfg,
+                                   data=dataset_gl.data,
+                                   meta_data_columns=cfg.metaData)
 
     return dataloader_gl
 
 
-def getCVSplits(dataloader_gl, test_split_on='YEAR', test_splits=None):
+def getCVSplits(dataloader_gl, test_split_on='YEAR', test_splits=None, random_state=0):
     # Split into training and test splits with train_test_split
     if test_splits is None:
         train_splits, test_splits = train_test_split(
             dataloader_gl.data[test_split_on].unique(),
             test_size=0.2,
-            random_state=config.SEED)
+            random_state=random_state)
     else:
         split_data = dataloader_gl.data[test_split_on].unique()
         train_splits = [x for x in split_data if x not in test_splits]
@@ -173,11 +174,11 @@ def GlacierWidePred(custom_model, df_grid_monthly, type_pred='annual'):
     if type_pred == 'annual':
         # Make predictions on whole glacier grid
         features_grid, metadata_grid = custom_model._create_features_metadata(
-            df_grid_monthly, config.META_DATA)
+            df_grid_monthly, custom_model.cfg.metaData)
 
         # Make predictions aggregated to measurement ID:
         y_pred_grid_agg = custom_model.aggrPredict(metadata_grid,
-                                                   config.META_DATA,
+                                                   custom_model.cfg.metaData,
                                                    features_grid)
 
         # Aggregate predictions to annual:
@@ -201,11 +202,11 @@ def GlacierWidePred(custom_model, df_grid_monthly, type_pred='annual'):
 
         # Make predictions on whole glacier grid
         features_grid, metadata_grid = custom_model._create_features_metadata(
-            df_grid_winter, config.META_DATA)
+            df_grid_winter, custom_model.cfg.metaData)
 
         # Make predictions aggregated to measurement ID:
         y_pred_grid_agg = custom_model.aggrPredict(metadata_grid,
-                                                   config.META_DATA,
+                                                   custom_model.cfg.metaData,
                                                    features_grid)
 
         # Aggregate predictions for winter:
