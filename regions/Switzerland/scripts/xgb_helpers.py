@@ -1,12 +1,11 @@
 from scripts.helpers import *
 import massbalancemachine as mbm
-import config
 import pandas as pd
 from sklearn.model_selection import GroupKFold, KFold, train_test_split, GroupShuffleSplit
 import xarray as xr
 
 
-def getMonthlyDataLoaderOneGl(glacierName, vois_climate, voi_topographical, cfg: config.Config):
+def getMonthlyDataLoaderOneGl(glacierName, vois_climate, voi_topographical, cfg: mbm.Config):
     # Load stakes data from GLAMOS
     data_glamos = pd.read_csv(path_PMB_GLAMOS_csv + 'CH_wgms_dataset.csv')
 
@@ -224,7 +223,8 @@ def GlacierWidePred(custom_model, df_grid_monthly, type_pred='annual'):
 
 def cumulativeMB(df_pred,
                  test_gl,
-                 ids_year_dict):
+                 ids_year_dict,
+                 month_abbr_hydr):
     df_pred_gl = df_pred[df_pred['GLACIER'] == test_gl]
 
     dfCumMB_all = pd.DataFrame(columns=[
@@ -234,7 +234,7 @@ def cumulativeMB(df_pred,
         'ID',
         'monthNb',
     ])
-    month_abbr_hydr = config.month_abbr_hydr.copy()
+    month_abbr_hydr = month_abbr_hydr.copy()
     for ID in df_pred_gl['ID'].unique():
         df_pred_stake = df_pred_gl[df_pred_gl['ID'] == ID]
 

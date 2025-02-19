@@ -5,11 +5,11 @@ import matplotlib.colors as mcolors
 
 import pandas as pd
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
-import config
 from matplotlib.patches import Rectangle
 
 from scripts.helpers import *
 from scripts.xgb_helpers import *
+import massbalancemachine as mbm
 
 colors = get_cmap_hex(cm.batlow, 2)
 color_xgb = colors[0]
@@ -341,7 +341,7 @@ def plotGridSearchScore(cv_results_, lossType: str):
     plt.legend()
 
 
-def visualiseValPreds(model, splits, train_set, feature_columns, cfg: config.Config):
+def visualiseValPreds(model, splits, train_set, feature_columns, cfg: mbm.Config):
     all_columns = feature_columns + cfg.fieldsNotFeatures
     fig, axs = plt.subplots(1, 5, sharex=True, sharey=True, figsize=(25, 8))
     a = 0
@@ -704,8 +704,8 @@ def TwoDPlots(ds, gdir, glacierName, grouped_ids_annual, grouped_ids_winter,
     plt.tight_layout()
 
 
-def Plot2DPred(fig, vmin, vmax, ds_pred, YEAR, month, ax, savefig=False):
-    monthNb = config.month_abbr_hydr[month]
+def Plot2DPred(fig, vmin, vmax, ds_pred, YEAR, month, ax, cfg:mbm.Config savefig=False):
+    monthNb = cfg.month_abbr_hydr[month]
     norm = mcolors.TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
     pcm = ds_pred.pred_masked.plot(cmap='coolwarm_r',
                                    norm=norm,
