@@ -146,8 +146,7 @@ class CustomXGBoostRegressor(XGBRegressor):
         """
 
         # Separate the features from the metadata provided in the dataset
-        features, metadata = self._create_features_metadata(
-            X, self.cfg.metaData)
+        features, metadata = self._create_features_metadata(X)
 
         # If running on GPU need to be converted to cupy
         if "cuda" in self.get_params()["device"]:
@@ -180,8 +179,7 @@ class CustomXGBoostRegressor(XGBRegressor):
         """
 
         # Separate the features from the metadata provided in the dataset
-        features, metadata = self._create_features_metadata(
-            X, self.cfg.metaData)
+        features, metadata = self._create_features_metadata(X)
 
         # If running on GPU need to be converted to cupy
         if "cuda" in self.get_params()["device"]:
@@ -253,13 +251,18 @@ class CustomXGBoostRegressor(XGBRegressor):
 
         return mse, rmse, mae, pearson_corr
 
-    def aggrPredict(self, metadata: np.array, meta_data_columns: list,
-                    features: pd.DataFrame) -> np.ndarray:
+    def aggrPredict(
+            self,
+            metadata: np.array,
+            features: pd.DataFrame,
+            meta_data_columns: list = None,
+        ) -> np.ndarray:
         """
         Makes predictions in aggregated format using the fitted model.
         Args:
             features (pd.DataFrame): The input features.
-            meta_data_columns (list[str]): The metadata columns.
+            meta_data_columns (list[str]): The metadata columns. If not specified,
+                metadata fields of the configuration instance will be used.
             metadata (np.array): The metadata values.
 
         Returns:
@@ -272,6 +275,7 @@ class CustomXGBoostRegressor(XGBRegressor):
         y_pred = super().predict(features)
 
         # Aggregate to meas ID level (annual or seasonal, etc.)
+        meta_data_columns = meta_data_columns or self.cfg.metaData
         df_metadata = pd.DataFrame(metadata, columns=meta_data_columns)
 
         # Aggregate y_pred and y_true for each group
@@ -290,8 +294,7 @@ class CustomXGBoostRegressor(XGBRegressor):
         Returns:
             _type_: _description_
         """
-        features, metadata = self._create_features_metadata(
-            df, self.cfg.metaData)
+        features, metadata = self._create_features_metadata(df)
 
         # Predictions in monthly format
         y_pred = super().predict(features)
@@ -336,19 +339,22 @@ class CustomXGBoostRegressor(XGBRegressor):
 
     def _create_features_metadata(self,
             X: pd.DataFrame,
-            meta_data_columns: list) -> Tuple[np.array, np.ndarray]:
+            meta_data_columns: list = None) -> Tuple[np.array, np.ndarray]:
         """
         Split the input DataFrame into features and metadata.
 
         Args:
             X (pd.DataFrame): The input DataFrame containing both features and metadata.
-            meta_data_columns (list): The metadata columns to be extracted.
+            meta_data_columns (list): The metadata columns to be extracted. If not
+                specified, metadata fields of the configuration instance will be used.
 
         Returns:
             tuple: A tuple containing:
                 - features (array-like): The feature values.
                 - metadata (array-like): The metadata values.
         """
+        meta_data_columns = meta_data_columns or self.cfg.metaData
+
         # Split features from metadata
         # Get feature columns by subtracting metadata columns from all columns
         feature_columns = X.columns.difference(meta_data_columns)

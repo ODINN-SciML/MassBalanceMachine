@@ -36,13 +36,15 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
             cfg (config.Config): Configuration instance.
             *args: Arguments to be passed to the parent NeuralNetRegressor class.
             nbFeatures (int): The number of features of the non aggregated data.
-            metadataColumns (list): The metadata columns of the dataset.
-            **kwargs: Keyword arguments to be passed to the parent NeuralNetRegressor class.
+            metadataColumns (list): The metadata columns of the dataset. If not
+                specified, metadata fields of the configuration instance are used.
+            **kwargs: Keyword arguments to be passed to the parent NeuralNetRegressor
+                class.
         """
         super().__init__(*args, **kwargs)
         self.cfg = cfg
         self.param_search = None
-        self.metadataColumns = metadataColumns
+        self.metadataColumns = metadataColumns or self.cfg.metaData
         self.nbFeatures = nbFeatures
         self.modelDtype = list(self.module.parameters())[0].dtype if len(list(self.module.parameters()))>0 else None
 
@@ -316,19 +318,22 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
 
     def _create_features_metadata(self,
             X: pd.DataFrame,
-            meta_data_columns: list) -> Tuple[np.array, np.ndarray]:
+            meta_data_columns: list = None) -> Tuple[np.array, np.ndarray]:
         """
         Split the input DataFrame into features and metadata.
 
         Args:
             X (pd.DataFrame): The input DataFrame containing both features and metadata.
-            meta_data_columns (list): The metadata columns to be extracted.
+            meta_data_columns (list): The metadata columns to be extracted. If not
+                specified, metadata fields of the configuration instance will be used.
 
         Returns:
             tuple: A tuple containing:
                 - features (array-like): The feature values.
                 - metadata (array-like): The metadata values.
         """
+        meta_data_columns = meta_data_columns or self.cfg.metaData
+
         # Split features from metadata
         # Get feature columns by subtracting metadata columns from all columns
         feature_columns = X.columns.difference(meta_data_columns)

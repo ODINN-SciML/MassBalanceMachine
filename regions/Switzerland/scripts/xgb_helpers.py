@@ -173,13 +173,10 @@ def getDfAggregatePred(test_set, y_pred_agg, all_columns):
 def GlacierWidePred(custom_model, df_grid_monthly, type_pred='annual'):
     if type_pred == 'annual':
         # Make predictions on whole glacier grid
-        features_grid, metadata_grid = custom_model._create_features_metadata(
-            df_grid_monthly, custom_model.cfg.metaData)
+        features_grid, metadata_grid = custom_model._create_features_metadata(df_grid_monthly)
 
         # Make predictions aggregated to measurement ID:
-        y_pred_grid_agg = custom_model.aggrPredict(metadata_grid,
-                                                   custom_model.cfg.metaData,
-                                                   features_grid)
+        y_pred_grid_agg = custom_model.aggrPredict(metadata_grid, features_grid)
 
         # Aggregate predictions to annual:
         grouped_ids_annual = df_grid_monthly.groupby('ID').agg({
@@ -201,13 +198,10 @@ def GlacierWidePred(custom_model, df_grid_monthly, type_pred='annual'):
             winter_months)]
 
         # Make predictions on whole glacier grid
-        features_grid, metadata_grid = custom_model._create_features_metadata(
-            df_grid_winter, custom_model.cfg.metaData)
+        features_grid, metadata_grid = custom_model._create_features_metadata(df_grid_winter)
 
         # Make predictions aggregated to measurement ID:
-        y_pred_grid_agg = custom_model.aggrPredict(metadata_grid,
-                                                   custom_model.cfg.metaData,
-                                                   features_grid)
+        y_pred_grid_agg = custom_model.aggrPredict(metadata_grid, features_grid)
 
         # Aggregate predictions for winter:
         grouped_ids_winter = df_grid_monthly.groupby('ID').agg({

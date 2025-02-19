@@ -244,17 +244,21 @@ class AggregatedDataset(torch.utils.data.Dataset):
 
     Attributes:
         cfg (config.Config): Configuration instance.
-        features (np.ndarray): A numpy like array containing the features. Shape should be (nbPoints, nbFeatures)
-        metadata (np.ndarray): A numpy like array containing the meta data. Shape should be (nbPoints, nbMetadata). Used for example to retrieve the ID of each stake measurement
-        metadataColumns (list): List containing the labels of each metadata column
-        targets (np.ndarray, optional): A numpy like array containing the targets
+        features (np.ndarray): A numpy like array containing the features. Shape
+            should be (nbPoints, nbFeatures).
+        metadata (np.ndarray): A numpy like array containing the meta data. Shape
+            should be (nbPoints, nbMetadata). Used for example to retrieve the ID
+            of each stake measurement.
+        metadataColumns (list): List containing the labels of each metadata column.
+            If not specified, metadata fields of the configuration instance are used.
+        targets (np.ndarray, optional): A numpy like array containing the targets.
     """
     def __init__(self, cfg: config.Config, features: np.ndarray, metadata: np.ndarray,
-                 metadataColumns: list[str], targets:np.ndarray=None) -> None:
+                 metadataColumns: list[str]=None, targets:np.ndarray=None) -> None:
         self.cfg = cfg
         self.features = features
         self.metadata = metadata
-        self.metadataColumns = metadataColumns
+        self.metadataColumns = metadataColumns or self.cfg.metaData
         self.targets = targets
         self.ID = np.array([
             self.metadata[i][self.metadataColumns.index('ID')]
