@@ -18,7 +18,9 @@ def test_aggregatedDataset():
     targets = np.array([10, 11, 12])
     splits = [(np.array([0, 1]), np.array([2]))]
 
-    dataset = mbm.data_processing.AggregatedDataset(features=features, metadata=metadata, metadataColumns=meta_data_columns, targets=targets)
+    cfg = mbm.Config()
+
+    dataset = mbm.data_processing.AggregatedDataset(cfg, features=features, metadata=metadata, metadataColumns=meta_data_columns, targets=targets)
     assert len(dataset)==2
 
     splits = dataset.mapSplitsToDataset(splits)
