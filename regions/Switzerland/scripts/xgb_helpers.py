@@ -3,9 +3,11 @@ import massbalancemachine as mbm
 import pandas as pd
 from sklearn.model_selection import GroupKFold, KFold, train_test_split, GroupShuffleSplit
 import xarray as xr
+import geopandas as gpd
 
 
-def getMonthlyDataLoaderOneGl(glacierName, vois_climate, voi_topographical, cfg: mbm.Config):
+def getMonthlyDataLoaderOneGl(glacierName, vois_climate, voi_topographical,
+                              cfg: mbm.Config):
     # Load stakes data from GLAMOS
     data_glamos = pd.read_csv(path_PMB_GLAMOS_csv + 'CH_wgms_dataset.csv')
 
@@ -17,7 +19,7 @@ def getMonthlyDataLoaderOneGl(glacierName, vois_climate, voi_topographical, cfg:
     rgi_gl = rgi_df.loc[glacierName]['rgi_id.v6']
     data_gl = data_glamos[data_glamos.RGIId == rgi_gl]
 
-    dataset_gl = mbm.Dataset(cfg,
+    dataset_gl = mbm.Dataset(cfg=cfg,
                              data=data_gl,
                              region_name='CH',
                              data_path=path_PMB_GLAMOS_csv)
@@ -42,14 +44,17 @@ def getMonthlyDataLoaderOneGl(glacierName, vois_climate, voi_topographical, cfg:
         vois_topographical=voi_topographical)
 
     # Create a new DataLoader object with the monthly stake data measurements.
-    dataloader_gl = mbm.DataLoader(cfg,
+    dataloader_gl = mbm.DataLoader(cfg=cfg,
                                    data=dataset_gl.data,
                                    meta_data_columns=cfg.metaData)
 
     return dataloader_gl
 
 
-def getCVSplits(dataloader_gl, test_split_on='YEAR', test_splits=None, random_state=0):
+def getCVSplits(dataloader_gl,
+                test_split_on='YEAR',
+                test_splits=None,
+                random_state=0):
     # Split into training and test splits with train_test_split
     if test_splits is None:
         train_splits, test_splits = train_test_split(
@@ -169,13 +174,14 @@ def getDfAggregatePred(test_set, y_pred_agg, all_columns):
     return grouped_ids
 
 
-def GlacierWidePred(custom_model, df_grid_monthly, type_pred='annual'):
+def GlacierWidePred(xgb_model, df_grid_monthly, type_pred='annual'):
     if type_pred == 'annual':
         # Make predictions on whole glacier grid
-        features_grid, metadata_grid = custom_model._create_features_metadata(df_grid_monthly)
+        features_grid, metadata_grid = xgb_model._create_features_metadata(
+            df_grid_monthly)
 
         # Make predictions aggregated to measurement ID:
-        y_pred_grid_agg = custom_model.aggrPredict(metadata_grid, features_grid)
+        y_pred_grid_agg = xgb_model.aggrPredict(metadata_grid, features_grid)
 
         # Aggregate predictions to annual:
         grouped_ids_annual = df_grid_monthly.groupby('ID').agg({
@@ -197,10 +203,11 @@ def GlacierWidePred(custom_model, df_grid_monthly, type_pred='annual'):
             winter_months)]
 
         # Make predictions on whole glacier grid
-        features_grid, metadata_grid = custom_model._create_features_metadata(df_grid_winter)
+        features_grid, metadata_grid = xgb_model._create_features_metadata(
+            df_grid_winter)
 
         # Make predictions aggregated to measurement ID:
-        y_pred_grid_agg = custom_model.aggrPredict(metadata_grid, features_grid)
+        y_pred_grid_agg = xgb_model.aggrPredict(metadata_grid, features_grid)
 
         # Aggregate predictions for winter:
         grouped_ids_winter = df_grid_monthly.groupby('ID').agg({
@@ -221,10 +228,7 @@ def GlacierWidePred(custom_model, df_grid_monthly, type_pred='annual'):
         )
 
 
-def cumulativeMB(df_pred,
-                 test_gl,
-                 ids_year_dict,
-                 month_abbr_hydr):
+def cumulativeMB(df_pred, test_gl, ids_year_dict, month_abbr_hydr):
     df_pred_gl = df_pred[df_pred['GLACIER'] == test_gl]
 
     dfCumMB_all = pd.DataFrame(columns=[
@@ -286,6 +290,7 @@ def correct_for_biggest_grid(df, group_columns, value_column="value"):
     Returns:
         pd.DataFrame: The modified DataFrame.
     """
+
     def process_group(group):
         # Check if the column has more than one unique value in the group
         if group[value_column].nunique() > 1:
@@ -296,19 +301,19 @@ def correct_for_biggest_grid(df, group_columns, value_column="value"):
         return group
 
     # Apply the function to each group
-    return df.groupby(group_columns).apply(process_group).reset_index(drop=True)
+    return df.groupby(group_columns).apply(process_group).reset_index(
+        drop=True)
 
 
-
-def correct_vars_grid(df_grid_monthly, 
+def correct_vars_grid(df_grid_monthly,
                       c_prec=1.434,
                       t_off=0.617,
                       temp_grad=-6.5 / 1000,
                       dpdz=1.5 / 10000):
     # Correct climate grids:
     for voi in [
-            't2m', 'tp', 'slhf', 'sshf', 'ssrd', 'fal', 'str', 'u10',
-            'v10', 'ALTITUDE_CLIMATE'
+            't2m', 'tp', 'slhf', 'sshf', 'ssrd', 'fal', 'str', 'u10', 'v10',
+            'ALTITUDE_CLIMATE'
     ]:
         df_grid_monthly = correct_for_biggest_grid(
             df_grid_monthly,
@@ -328,5 +333,43 @@ def correct_vars_grid(df_grid_monthly,
     # Apply elevation correction factor
     df_grid_monthly['tp_corr'] += df_grid_monthly['tp_corr'] * (
         df_grid_monthly['ELEVATION_DIFFERENCE'] * dpdz)
-    
+
     return df_grid_monthly
+
+
+def get_gl_area():
+    # Load glacier metadata
+    rgi_df = pd.read_csv(path_glacier_ids, sep=',')
+    rgi_df.rename(columns=lambda x: x.strip(), inplace=True)
+    rgi_df.sort_values(by='short_name', inplace=True)
+    rgi_df.set_index('short_name', inplace=True)
+
+    # Load the shapefile
+    shapefile_path = "../../../data/GLAMOS/topo/SGI2020/SGI_2016_glaciers_copy.shp"
+    gdf_shapefiles = gpd.read_file(shapefile_path)
+
+    gl_area = {}
+
+    for glacierName in rgi_df.index:
+        if glacierName == 'clariden':
+            rgi_shp = rgi_df.loc[
+                'claridenL',
+                'rgi_id_v6_2016_shp'] if 'claridenL' in rgi_df.index else None
+        else:
+            rgi_shp = rgi_df.loc[glacierName, 'rgi_id_v6_2016_shp']
+
+        # Skip if rgi_shp is not found
+        if pd.isna(rgi_shp) or rgi_shp is None:
+            continue
+
+        # Ensure matching data types
+        rgi_shp = str(rgi_shp)
+        gdf_mask_gl = gdf_shapefiles[gdf_shapefiles.RGIId.astype(str) ==
+                                     rgi_shp]
+
+        # If a glacier is found, get its area
+        if not gdf_mask_gl.empty:
+            gl_area[glacierName] = gdf_mask_gl.Area.iloc[
+                0]  # Use .iloc[0] safely
+
+    return gl_area

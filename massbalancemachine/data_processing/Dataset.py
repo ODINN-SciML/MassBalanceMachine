@@ -14,11 +14,11 @@ from typing import Union, Callable
 import numpy as np
 import xarray as xr
 import oggm
-
 import config
 import logging
 import pandas as pd
 import torch
+
 from get_climate_data import get_climate_features, retrieve_clear_sky_rad
 from get_topo_data import get_topographical_features, get_glacier_mask
 from transform_to_monthly import transform_to_monthly
@@ -27,7 +27,6 @@ from create_glacier_grid import create_glacier_grids
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
-
 
 class Dataset:
     """
@@ -42,8 +41,8 @@ class Dataset:
         RGIIds (pd.Series): Series of RGI IDs from the data
     """
 
-    def __init__(self, *, cfg: config.Config, data: pd.DataFrame, region_name: str,
-                 data_path: str):
+    def __init__(self, *, cfg: config.Config, data: pd.DataFrame,
+                 region_name: str, data_path: str):
         self.cfg = cfg
         self.data = self._clean_data(data=data.copy())
         self.region = region_name
@@ -96,7 +95,7 @@ class Dataset:
             df_glacier = df[df['GLACIER'] == glacierName]
             path_to_file = path_to_direct + f'xr_direct_{glacierName}.nc'
             df_glacier = retrieve_clear_sky_rad(df_glacier, path_to_file)
-            df_concat = pd.concat([df_concat, df_glacier], axis = 0)
+            df_concat = pd.concat([df_concat, df_glacier], axis=0)
 
         # reset index
         df_concat.reset_index(drop=True, inplace=True)
@@ -162,13 +161,13 @@ class Dataset:
         # of climate data to end (not just when there are stake measurements)
         years = range(1951, 2023)
         rgi_gl = self.data['RGIId'].unique()[0]
-        df_grid = create_glacier_grids(ds, years, glacier_indices, gdir, rgi_gl)
+        df_grid = create_glacier_grids(ds, years, glacier_indices, gdir,
+                                       rgi_gl)
         # add column of presence of stake
         df_grid['STAKE_MEAS'] = 0
         for year in years_stake:
             df_grid.loc[df_grid['YEAR'] == year, 'STAKE_MEAS'] = 1
         return df_grid
-
 
     def _get_output_filename(self, feature_type: str) -> str:
         """
@@ -253,8 +252,13 @@ class AggregatedDataset(torch.utils.data.Dataset):
             If not specified, metadata fields of the configuration instance are used.
         targets (np.ndarray, optional): A numpy like array containing the targets.
     """
-    def __init__(self, cfg: config.Config, features: np.ndarray, metadata: np.ndarray,
-                 metadataColumns: list[str]=None, targets:np.ndarray=None) -> None:
+
+    def __init__(self,
+                 cfg: config.Config,
+                 features: np.ndarray,
+                 metadata: np.ndarray,
+                 metadataColumns: "list[str]" = None,
+                 targets: np.ndarray = None) -> None:
         self.cfg = cfg
         self.features = features
         self.metadata = metadata
@@ -262,14 +266,16 @@ class AggregatedDataset(torch.utils.data.Dataset):
         self.targets = targets
         self.ID = np.array([
             self.metadata[i][self.metadataColumns.index('ID')]
-                for i in range(len(self.metadata))
+            for i in range(len(self.metadata))
         ])
         self.uniqueID = np.unique(self.ID)
-        self.maxConcatNb = max([ len(np.argwhere(self.ID==id)[:,0])
-                                for id in self.uniqueID ])
+        self.maxConcatNb = max(
+            [len(np.argwhere(self.ID == id)[:, 0]) for id in self.uniqueID])
         self.nbFeatures = self.features.shape[1]
-    def mapSplitsToDataset(self,splits: list[tuple[np.ndarray, np.ndarray]]
-                           ) -> list[tuple[np.ndarray, np.ndarray]]:
+
+    def mapSplitsToDataset(
+        self, splits: "list[tuple[np.ndarray, np.ndarray]]"
+    ) -> "list[tuple[np.ndarray, np.ndarray]]":
         """
         Maps split indices (usually the result of DataLoader.get_cv_split) to the
         indices used by the AggregatedDataset class.
@@ -289,25 +295,30 @@ class AggregatedDataset(torch.utils.data.Dataset):
             t = []
             for e in split:
                 uniqueSelectedId = np.unique(self.ID[e])
-                ind = np.argwhere(self.uniqueID[None,:]==uniqueSelectedId[:,None])[:,1]
-                assert all(uniqueSelectedId==self.uniqueID[ind])
+                ind = np.argwhere(
+                    self.uniqueID[None, :] == uniqueSelectedId[:, None])[:, 1]
+                assert all(uniqueSelectedId == self.uniqueID[ind])
                 t.append(ind)
             ret.append(tuple(t))
         return ret
+
     def __len__(self) -> int:
         return len(self.uniqueID)
+
     def _getInd(self, index):
-        ind = np.argwhere(self.ID==self.uniqueID[index])[:,0]
-        months = self.metadata[ind][:,self.metadataColumns.index('MONTHS')]
+        ind = np.argwhere(self.ID == self.uniqueID[index])[:, 0]
+        months = self.metadata[ind][:, self.metadataColumns.index('MONTHS')]
         numMonths = [self.cfg.month_abbr_hydr[m] for m in months]
-        ind = ind[np.argsort(numMonths)] # Sort ind to get monthly data in chronological order
+        ind = ind[np.argsort(
+            numMonths)]  # Sort ind to get monthly data in chronological order
         return ind
+
     def __getitem__(self, index: int) -> tuple:
         ind = self._getInd(index)
-        f = self.features[ind][:,:]
-        fpad = np.empty((self.maxConcatNb,self.nbFeatures))
+        f = self.features[ind][:, :]
+        fpad = np.empty((self.maxConcatNb, self.nbFeatures))
         fpad.fill(np.nan)
-        fpad[:f.shape[0],:] = f
+        fpad[:f.shape[0], :] = f
         fpad = fpad.reshape(-1)
         if self.targets is None:
             return (fpad, )
@@ -317,12 +328,14 @@ class AggregatedDataset(torch.utils.data.Dataset):
             tpad.fill(np.nan)
             tpad[:t.shape[0]] = t
             return fpad, tpad
+
     def indexToId(self, index):
         """Maps an index of the dataset to the ID of the stake measurement."""
         return self.uniqueID[index]
+
     def indexToMetadata(self, index):
         ind = self._getInd(index)
-        return self.metadata[ind][:,:]
+        return self.metadata[ind][:, :]
 
 
 class Normalizer:
@@ -333,31 +346,41 @@ class Normalizer:
         bnds (dict of tuple): Dictionary where each key is the name of a feature and
             the two values in the tuple are respectively the lower and upper bounds.
     """
-    def __init__(self, bnds: dict[str, tuple[float, float]]) -> None:
+
+    def __init__(self, bnds: "dict[str, tuple[float, float]]") -> None:
         self.bnds = bnds
+
     def _norm(self, data, lower_bnd, upper_bnd):
-        return (data-lower_bnd)/(upper_bnd-lower_bnd)
+        return (data - lower_bnd) / (upper_bnd - lower_bnd)
+
     def _unorm(self, data, lower_bnd, upper_bnd):
-        return data*(upper_bnd-lower_bnd)+lower_bnd
-    def _map(self, x: Union[dict, torch.Tensor, np.ndarray], fct: Callable
-             ) ->  Union[dict, torch.Tensor, np.ndarray]:
+        return data * (upper_bnd - lower_bnd) + lower_bnd
+
+    def _map(self, x: Union[dict, torch.Tensor, np.ndarray],
+             fct: Callable) -> Union[dict, torch.Tensor, np.ndarray]:
         if isinstance(x, dict):
             z = {}
             for k in x:
                 z[k] = fct(x[k], self.bnds[k][0], self.bnds[k][1])
             return z
         elif isinstance(x, (torch.Tensor, np.ndarray)):
-            assert x.shape[-1]==len(self.bnds)
-            z = torch.zeros_like(x) if isinstance(x, torch.Tensor) else np.zeros_like(x)
-            for i,k in enumerate(self.bnds):
-                z[...,i] = fct(x[...,i], self.bnds[k][0], self.bnds[k][1])
+            assert x.shape[-1] == len(self.bnds)
+            z = torch.zeros_like(x) if isinstance(
+                x, torch.Tensor) else np.zeros_like(x)
+            for i, k in enumerate(self.bnds):
+                z[..., i] = fct(x[..., i], self.bnds[k][0], self.bnds[k][1])
             return z
-        else: raise NotImplementedError(f"Type {type(x)} is not supported yet")
-    def normalize(self, x: Union[dict, torch.Tensor, np.ndarray]
-                  ) -> Union[dict, torch.Tensor, np.ndarray]:
+        else:
+            raise NotImplementedError(f"Type {type(x)} is not supported yet")
+
+    def normalize(
+        self, x: Union[dict, torch.Tensor, np.ndarray]
+    ) -> Union[dict, torch.Tensor, np.ndarray]:
         """Normalize data."""
         return self._map(x, self._norm)
-    def unnormalize(self, x: Union[dict, torch.Tensor, np.ndarray]
-                   ) -> Union[dict, torch.Tensor, np.ndarray]:
+
+    def unnormalize(
+        self, x: Union[dict, torch.Tensor, np.ndarray]
+    ) -> Union[dict, torch.Tensor, np.ndarray]:
         """Unnormalize data, the opposite operation of normalize"""
         return self._map(x, self._unorm)
