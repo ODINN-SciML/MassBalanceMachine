@@ -35,14 +35,16 @@ class Dataset:
     transforms the data to a monthly time resolution.
 
     Attributes:
+        cfg (config.Config): Configuration instance.
         data (pd.DataFrame): A pandas dataframe containing the raw data
         region (str): The name of the region, for saving the files accordingly
         data_dir (str): Path to the directory containing the raw data, and save intermediate results
         RGIIds (pd.Series): Series of RGI IDs from the data
     """
 
-    def __init__(self, *, data: pd.DataFrame, region_name: str,
+    def __init__(self, *, cfg: config.Config, data: pd.DataFrame, region_name: str,
                  data_path: str):
+        self.cfg = cfg
         self.data = self._clean_data(data=data.copy())
         self.region = region_name
         self.data_dir = data_path
@@ -61,7 +63,8 @@ class Dataset:
         """
         output_fname = self._get_output_filename("topographical_features")
         self.data = get_topographical_features(self.data, output_fname, vois,
-                                               self.RGIIds, custom_working_dir)
+                                               self.RGIIds, custom_working_dir,
+                                               self.cfg)
 
     def get_climate_features(self,
                              *,
@@ -113,7 +116,7 @@ class Dataset:
             meta_data_columns (list[str]): metadata columns
         """
         if meta_data_columns is None:
-            meta_data_columns = config.META_DATA
+            meta_data_columns = self.cfg.metaData
         output_fname = self._get_output_filename("monthly_dataset")
         self.data = transform_to_monthly(self.data, meta_data_columns,
                                          vois_climate, vois_topographical,
@@ -135,7 +138,8 @@ class Dataset:
 
         """
         ds, glacier_indices, gdir = get_glacier_mask(self.data,
-                                                     custom_working_dir)
+                                                     custom_working_dir,
+                                                     self.cfg)
         return ds, glacier_indices, gdir
 
     def create_glacier_grid(self,
@@ -151,7 +155,8 @@ class Dataset:
         """
         # Get glacier mask from OGGM
         ds, glacier_indices, gdir = get_glacier_mask(self.data,
-                                                     custom_working_dir)
+                                                     custom_working_dir,
+                                                     self.cfg)
         years_stake = self.data['YEAR'].unique()
         # Fixed time range because we want the grid from the beginning
         # of climate data to end (not just when there are stake measurements)
@@ -238,16 +243,22 @@ class AggregatedDataset(torch.utils.data.Dataset):
     number of unique IDs.
 
     Attributes:
-        features (np.ndarray): A numpy like array containing the features. Shape should be (nbPoints, nbFeatures)
-        metadata (np.ndarray): A numpy like array containing the meta data. Shape should be (nbPoints, nbMetadata). Used for example to retrieve the ID of each stake measurement
-        metadataColumns (list): List containing the labels of each metadata column
-        targets (np.ndarray, optional): A numpy like array containing the targets
+        cfg (config.Config): Configuration instance.
+        features (np.ndarray): A numpy like array containing the features. Shape
+            should be (nbPoints, nbFeatures).
+        metadata (np.ndarray): A numpy like array containing the meta data. Shape
+            should be (nbPoints, nbMetadata). Used for example to retrieve the ID
+            of each stake measurement.
+        metadataColumns (list): List containing the labels of each metadata column.
+            If not specified, metadata fields of the configuration instance are used.
+        targets (np.ndarray, optional): A numpy like array containing the targets.
     """
-    def __init__(self, features: np.ndarray, metadata: np.ndarray,
-                 metadataColumns: list[str], targets:np.ndarray=None) -> None:
+    def __init__(self, cfg: config.Config, features: np.ndarray, metadata: np.ndarray,
+                 metadataColumns: list[str]=None, targets:np.ndarray=None) -> None:
+        self.cfg = cfg
         self.features = features
         self.metadata = metadata
-        self.metadataColumns = metadataColumns
+        self.metadataColumns = metadataColumns or self.cfg.metaData
         self.targets = targets
         self.ID = np.array([
             self.metadata[i][self.metadataColumns.index('ID')]
@@ -288,7 +299,7 @@ class AggregatedDataset(torch.utils.data.Dataset):
     def _getInd(self, index):
         ind = np.argwhere(self.ID==self.uniqueID[index])[:,0]
         months = self.metadata[ind][:,self.metadataColumns.index('MONTHS')]
-        numMonths = [config.month_abbr_hydr[m] for m in months]
+        numMonths = [self.cfg.month_abbr_hydr[m] for m in months]
         ind = ind[np.argsort(numMonths)] # Sort ind to get monthly data in chronological order
         return ind
     def __getitem__(self, index: int) -> tuple:

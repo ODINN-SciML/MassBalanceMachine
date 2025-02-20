@@ -5,11 +5,11 @@ import matplotlib.colors as mcolors
 
 import pandas as pd
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
-import config
 from matplotlib.patches import Rectangle
 
 from scripts.helpers import *
 from scripts.xgb_helpers import *
+import massbalancemachine as mbm
 
 colors = get_cmap_hex(cm.batlow, 2)
 color_xgb = colors[0]
@@ -238,7 +238,7 @@ def plotNumMeasPerYear(data_gl, glacierName):
     plt.tight_layout()
 
 
-def plotGridSearchParams(cv_results_, param_grid, N=None):
+def plotGridSearchParams(cv_results_, param_grid, lossType:str, N=None):
     dfCVResults = pd.DataFrame(cv_results_)
     best_params = dfCVResults.sort_values('mean_test_score',
                                           ascending=False).iloc[0].params
@@ -297,7 +297,7 @@ def plotGridSearchParams(cv_results_, param_grid, N=None):
         # add vertical line of best param
         ax.axvline(best_params[param], color='red', linestyle='--')
 
-        ax.set_ylabel(f'{config.LOSS} {loss_units[config.LOSS]}')
+        ax.set_ylabel(f'{lossType} {loss_units[lossType]}')
         ax.set_title(param)
         ax.legend()
 
@@ -305,7 +305,7 @@ def plotGridSearchParams(cv_results_, param_grid, N=None):
     plt.tight_layout()
 
 
-def plotGridSearchScore(cv_results_):
+def plotGridSearchScore(cv_results_, lossType: str):
     dfCVResults = pd.DataFrame(cv_results_)
     mask_raisonable = dfCVResults['mean_train_score'] >= -10
     dfCVResults = dfCVResults[mask_raisonable]
@@ -336,13 +336,13 @@ def plotGridSearchScore(cv_results_):
     plt.axvline(pos_min, color='red', linestyle='--', label='min validation')
 
     plt.xlabel('Iteration')
-    plt.ylabel(f'{config.LOSS} {loss_units[config.LOSS]}')
+    plt.ylabel(f'{lossType} {loss_units[lossType]}')
     plt.title('Grid search score over iterations')
     plt.legend()
 
 
-def visualiseValPreds(model, splits, train_set, feature_columns):
-    all_columns = feature_columns + config.META_DATA + config.NOT_METADATA_NOT_FEATURES
+def visualiseValPreds(model, splits, train_set, feature_columns, cfg: mbm.Config):
+    all_columns = feature_columns + cfg.fieldsNotFeatures
     fig, axs = plt.subplots(1, 5, sharex=True, sharey=True, figsize=(25, 8))
     a = 0
     for (train_index, val_index), ax in zip(splits, axs.flatten()):
@@ -357,11 +357,9 @@ def visualiseValPreds(model, splits, train_set, feature_columns):
         model_cpu = model.set_params(device='cpu')
 
         # Make predictions on validation set:
-        features_val, metadata_val = model_cpu._create_features_metadata(
-            X_val, config.META_DATA)
+        features_val, metadata_val = model_cpu._create_features_metadata(X_val)
         y_pred = model_cpu.predict(features_val)
-        y_pred_agg = model_cpu.aggrPredict(metadata_val, config.META_DATA,
-                                           features_val)
+        y_pred_agg = model_cpu.aggrPredict(metadata_val, features_val)
 
         # Aggregate predictions to annual or winter:
         df_pred = X_val[all_columns].copy()
@@ -706,8 +704,8 @@ def TwoDPlots(ds, gdir, glacierName, grouped_ids_annual, grouped_ids_winter,
     plt.tight_layout()
 
 
-def Plot2DPred(fig, vmin, vmax, ds_pred, YEAR, month, ax, savefig=False):
-    monthNb = config.month_abbr_hydr[month]
+def Plot2DPred(fig, vmin, vmax, ds_pred, YEAR, month, ax, cfg:mbm.Config, savefig=False):
+    monthNb = cfg.month_abbr_hydr[month]
     norm = mcolors.TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
     pcm = ds_pred.pred_masked.plot(cmap='coolwarm_r',
                                    norm=norm,
