@@ -1,4 +1,5 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![GitHub contributors](https://img.shields.io/github/contributors/ODINN-SciML/MassBalanceMachine?style=social)](#contributors)
+[![Build Status](https://github.com/ODINN-SciML/MassBalanceMachine/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/ODINN-SciML/MassBalanceMachine/actions/workflows/CI.yml?query=branch%3Amain)
 
 <p align="center">
   <img src="./MBM_logo.png" width="300" title="MBM_Logo">

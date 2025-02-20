@@ -42,6 +42,7 @@ class DataLoader:
 
     def __init__(
         self,
+        cfg: config.Config,
         data: pd.DataFrame,
         meta_data_columns: List[str] = None,
         random_seed: int = None,
@@ -49,18 +50,19 @@ class DataLoader:
         """
         Initialize the DataLoader with the provided dataset.
         Args:
+            cfg (config.Config): Configuration instance.
             data (pd.DataFrame): The input dataset to be processed.
             meta_data_columns (list): List of columns that contain metadata.
             random_seed (int): Seed for random operations to ensure reproducibility.
         """
         self.data = data
-        self.n_splits = config.N_SPLITS
-        self.random_seed = random_seed or config.SEED
-        self.test_size = config.TEST_SIZE
+        self.n_splits = cfg.nSplits
+        self.random_seed = random_seed or cfg.seed
+        self.test_size = cfg.testSize
         self.cv_split = None
         self.train_indices = None
         self.test_indices = None
-        self.meta_data_columns = meta_data_columns or config.META_DATA
+        self.meta_data_columns = meta_data_columns or cfg.metaData
 
     def set_train_test_split(
         self,
