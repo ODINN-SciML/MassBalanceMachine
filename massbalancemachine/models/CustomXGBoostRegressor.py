@@ -43,7 +43,6 @@ class CustomXGBoostRegressor(XGBRegressor):
 
         Args:
             cfg (config.Config): Configuration instance.
-            meta_data_columns (list): The metadata columns of the dataset.
             **kwargs: Keyword arguments to be passed to the parent XGBRegressor class.
         """
         super().__init__(**kwargs)
@@ -303,7 +302,7 @@ class CustomXGBoostRegressor(XGBRegressor):
 
         # Vectorized operation for month abbreviation
         df['MONTH_NB'] = df['MONTHS'].map(
-            config.month_abbr_hydr)
+            self.cfg.month_abbr_hydr)
 
         # Cumulative monthly sums using groupby
         df.sort_values(by=['ID', 'MONTH_NB'], inplace=True)
