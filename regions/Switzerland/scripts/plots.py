@@ -704,7 +704,7 @@ def TwoDPlots(ds, gdir, glacierName, grouped_ids_annual, grouped_ids_winter,
     plt.tight_layout()
 
 
-def Plot2DPred(fig, vmin, vmax, ds_pred, YEAR, month, ax, cfg:mbm.Config savefig=False):
+def Plot2DPred(fig, vmin, vmax, ds_pred, YEAR, month, ax, cfg:mbm.Config, savefig=False):
     monthNb = cfg.month_abbr_hydr[month]
     norm = mcolors.TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
     pcm = ds_pred.pred_masked.plot(cmap='coolwarm_r',
