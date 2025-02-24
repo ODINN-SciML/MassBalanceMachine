@@ -28,11 +28,7 @@ def seed_all(seed=None):
     # Ensuring deterministic behavior in CuDNN
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-    
-    # Ensuring deterministic algorithms in PyTorch (if available)
-    if hasattr(torch, 'use_deterministic_algorithms'):
-        torch.use_deterministic_algorithms(True)
-    
+
     # Setting CUBLAS environment variable (helps in newer versions)
     os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
     
