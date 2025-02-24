@@ -75,7 +75,7 @@ def emptyfolder(path):
 
 # difference between two lists
 def Diff(li1, li2):
-    li_dif = [i for i in li1 + li2 if i not in li1 or i not in li2]
+    li_dif = list(set(li1) - set(li2))
     return li_dif
 
 def format_rgi_code(X):
