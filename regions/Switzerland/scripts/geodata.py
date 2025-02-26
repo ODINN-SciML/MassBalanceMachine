@@ -5,6 +5,8 @@ import pyproj
 import numpy as np
 from collections import defaultdict
 from dateutil.relativedelta import relativedelta
+import rasterio
+from os.path import isfile, join
 
 from scripts.config_CH import *
 from scripts.glamos_preprocess import *
@@ -247,3 +249,112 @@ def IceSnowCover(gdf_class, gdf_class_raster):
         valid_classes.classes == 1].count() / valid_classes.classes.count()
 
     return snow_cover_glacier
+
+
+def xr_SGI_masked_topo(rgi_shp, gdf_shapefiles, path_aspect, path_slope,
+                       path_DEM, sgi_id):
+    # SGI topo files
+    aspect_gl = [f for f in os.listdir(path_aspect) if sgi_id in f][0]
+    slope_gl = [f for f in os.listdir(path_slope) if sgi_id in f][0]
+    dem_gl = [f for f in os.listdir(path_DEM) if sgi_id in f][0]
+
+    metadata_aspect, grid_data_aspect = load_grid_file(join(path_aspect, aspect_gl))
+    metadata_slope, grid_data_slope = load_grid_file(join(path_slope, slope_gl))
+    metadata_dem, grid_data_dem = load_grid_file(join(path_DEM, dem_gl))
+
+    # convert to xarray
+    aspect = convert_to_xarray_geodata(grid_data_aspect, metadata_aspect)
+    slope = convert_to_xarray_geodata(grid_data_slope, metadata_slope)
+    dem = convert_to_xarray_geodata(grid_data_dem, metadata_dem)
+
+    # Transform to WGS84
+    aspect_wgs84 = transform_xarray_coords_lv95_to_wgs84(aspect)
+    slope_wgs84 = transform_xarray_coords_lv95_to_wgs84(slope)
+    dem_wgs84 = transform_xarray_coords_lv95_to_wgs84(dem)
+
+    # 2016 shapefile of glacier
+    gdf_mask_gl = gdf_shapefiles[gdf_shapefiles.RGIId == rgi_shp]
+
+    # Mask over glacier outline
+    mask, masked_aspect = extract_topo_over_outline(aspect_wgs84, gdf_mask_gl)
+    mask, masked_slope = extract_topo_over_outline(slope_wgs84, gdf_mask_gl)
+    mask, masked_dem = extract_topo_over_outline(dem_wgs84, gdf_mask_gl)
+
+    # Create new dataset
+    ds = xr.Dataset({
+        "masked_aspect": masked_aspect,
+        "masked_slope": masked_slope,
+        "masked_elev": masked_dem,
+        "glacier_mask": mask
+    })
+    
+    # Mask elevations below 0 (bug values)
+    ds["masked_elev"] = ds.masked_elev.where(ds.masked_elev >= 0, np.nan)
+    return ds
+
+
+def extract_topo_over_outline(aspect_xarray, glacier_polygon_gdf):
+    """
+    Extracts aspect values over a glacier outline (polygon) from an xarray in WGS84 coordinates.
+
+    Parameters:
+    - aspect_xarray: xarray.DataArray containing the aspect values, with WGS84 coordinates.
+    - glacier_polygon_gdf: GeoPandas GeoDataFrame with the glacier outline polygon (WGS84 CRS).
+
+    Returns:
+    - A masked xarray.DataArray with aspect values only within the glacier polygon.
+    """
+    # Ensure the GeoDataFrame is in WGS84 CRS
+    if glacier_polygon_gdf.crs is None:
+        raise ValueError("Glacier GeoDataFrame must have a defined CRS.")
+    if glacier_polygon_gdf.crs.to_epsg() != 4326:
+        glacier_polygon_gdf = glacier_polygon_gdf.to_crs("EPSG:4326")
+
+    # Get the x and y coordinates from the xarray
+    lon_coords = aspect_xarray.coords['lon'].values
+    lat_coords = aspect_xarray.coords['lat'].values
+
+    # Compute the transform using rasterio's from_bounds
+    transform = rasterio.transform.from_bounds(lon_coords.min(),
+                            lat_coords.min(),
+                            lon_coords.max(),
+                            lat_coords.max(),
+                            width=len(lon_coords),
+                            height=len(lat_coords))
+
+    # Rasterize the glacier polygon
+    shapes = [(geom, 1) for geom in glacier_polygon_gdf.geometry]
+    mask = rasterio.features.rasterize(
+        shapes,
+        out_shape=(len(lat_coords),
+                   len(lon_coords)),  # height (rows), width (cols)
+        transform=transform,
+        fill=0,
+        dtype="int32")
+
+    # Apply the mask to the xarray
+    masked_aspect = aspect_xarray.where(np.flip(mask, 0) == 1)
+
+    # Convert the mask to an xarray with the same coordinates as aspect_xarray
+    mask_xarray = xr.DataArray(
+        np.flip(mask, 0),
+        coords=[aspect_xarray.coords['lat'], aspect_xarray.coords['lon']],
+        dims=['lat', 'lon'])
+
+    return mask_xarray, masked_aspect
+
+
+def coarsenDS(ds, resampling_fac = 3):
+    # Coarson to 30 m resolution
+    # Coarsen non-binary variables with mean
+    ds_non_binary = ds[['masked_slope', 'masked_aspect',
+                        'masked_elev']].coarsen(lon=resampling_fac, lat=resampling_fac,
+                                                boundary="trim").mean()
+
+    # Coarsen glacier mask with max
+    ds_glacier_mask = ds[['glacier_mask']].coarsen(lon=resampling_fac, lat=resampling_fac,
+                                                boundary="trim").reduce(np.max)
+
+    # Merge back into a single dataset
+    ds_res = xr.merge([ds_non_binary, ds_glacier_mask])
+    return ds_res
