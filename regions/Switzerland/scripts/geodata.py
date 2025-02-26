@@ -253,7 +253,7 @@ def IceSnowCover(gdf_class, gdf_class_raster):
 
 def xr_SGI_masked_topo(rgi_shp, gdf_shapefiles, path_aspect, path_slope,
                        path_DEM, sgi_id):
-    # SGI topo files
+    # Get SGI topo files
     aspect_gl = [f for f in os.listdir(path_aspect) if sgi_id in f][0]
     slope_gl = [f for f in os.listdir(path_slope) if sgi_id in f][0]
     dem_gl = [f for f in os.listdir(path_DEM) if sgi_id in f][0]
@@ -262,7 +262,7 @@ def xr_SGI_masked_topo(rgi_shp, gdf_shapefiles, path_aspect, path_slope,
     metadata_slope, grid_data_slope = load_grid_file(join(path_slope, slope_gl))
     metadata_dem, grid_data_dem = load_grid_file(join(path_DEM, dem_gl))
 
-    # convert to xarray
+    # Convert to xarray
     aspect = convert_to_xarray_geodata(grid_data_aspect, metadata_aspect)
     slope = convert_to_xarray_geodata(grid_data_slope, metadata_slope)
     dem = convert_to_xarray_geodata(grid_data_dem, metadata_dem)
@@ -358,3 +358,137 @@ def coarsenDS(ds, resampling_fac = 3):
     # Merge back into a single dataset
     ds_res = xr.merge([ds_non_binary, ds_glacier_mask])
     return ds_res
+
+
+def get_rgi_sgi_ids(glacier_name):
+    path_rgi = '../../../data/GLAMOS/CH_glacier_ids_long.csv'
+    rgi_df = pd.read_csv(path_rgi, sep=',')
+    rgi_df.rename(columns=lambda x: x.strip(), inplace=True)
+    rgi_df.sort_values(by='short_name', inplace=True)
+    rgi_df.set_index('short_name', inplace=True)
+        
+    # Handle 'clariden' separately due to its unique ID format
+    if glacier_name == 'clariden':
+        sgi_id = rgi_df.at[
+            'claridenU',
+            'sgi-id'].strip() if 'claridenU' in rgi_df.index else ''
+        rgi_id = rgi_df.at[
+            'claridenU',
+            'rgi_id.v6'] if 'claridenU' in rgi_df.index else ''
+        rgi_shp = rgi_df.at[
+            'claridenU',
+            'rgi_id_v6_2016_shp'] if 'claridenU' in rgi_df.index else ''
+    else:
+        sgi_id = rgi_df.at[
+            glacier_name,
+            'sgi-id'].strip() if glacier_name in rgi_df.index else ''
+        rgi_id = rgi_df.at[
+            glacier_name,
+            'rgi_id.v6'] if glacier_name in rgi_df.index else ''
+        rgi_shp = rgi_df.at[
+            glacier_name,
+            'rgi_id_v6_2016_shp'] if glacier_name in rgi_df.index else ''
+        
+    return sgi_id, rgi_id, rgi_shp
+
+
+def create_glacier_grid_SGI(
+    glacierName,
+    year,
+    rgi_id,
+    ds,
+):
+    glacier_indices = np.where(ds['glacier_mask'].values == 1)
+
+    # Glacier mask as boolean array:
+    gl_mask_bool = ds['glacier_mask'].values.astype(bool)
+
+    lon_coords = ds['lon'].values
+    lat_coords = ds['lat'].values
+
+    lon = lon_coords[glacier_indices[1]]
+    lat = lat_coords[glacier_indices[0]]
+
+    # Create a DataFrame
+    data_grid = {
+        'RGIId': [rgi_id] * len(ds.masked_elev.values[gl_mask_bool]),
+        'POINT_LAT': lat,
+        'POINT_LON': lon,
+        'aspect': ds.masked_aspect.values[gl_mask_bool],
+        'slope': ds.masked_slope.values[gl_mask_bool],
+        'topo': ds.masked_elev.values[gl_mask_bool],
+    }
+    df_grid = pd.DataFrame(data_grid)
+
+    # Match to WGMS format:
+    df_grid['POINT_ID'] = np.arange(1, len(df_grid) + 1)
+    df_grid['N_MONTHS'] = 12
+    df_grid['POINT_ELEVATION'] = df_grid[
+        'topo']  # no other elevation available
+    df_grid['POINT_BALANCE'] = 0  # fake PMB for simplicity (not used)
+
+    # Add metadata that is not in WGMS dataset
+    df_grid["PERIOD"] = "annual"
+    df_grid['GLACIER'] = glacierName
+    # Add the 'year' and date columns to the DataFrame
+    df_grid['YEAR'] = np.tile(year, len(df_grid))
+    df_grid['FROM_DATE'] = df_grid['YEAR'].apply(lambda x: str(x) + '1001')
+    df_grid['TO_DATE'] = df_grid['YEAR'].apply(lambda x: str(x + 1) + '0930')
+
+    return df_grid
+
+def add_OGGM_features(df_y_gl, voi, path_OGGM):
+    df_pmb = df_y_gl.copy()
+
+    # Initialize empty columns for the variables
+    for var in voi:
+        df_pmb[var] = np.nan
+
+    # Path to OGGM datasets
+    path_to_data = path_OGGM + 'xr_grids/'
+
+    # Group rows by RGIId
+    grouped = df_pmb.groupby("RGIId")
+
+    # Process each group
+    for rgi_id, group in grouped:
+        file_path = f"{path_to_data}{rgi_id}.nc"
+        
+        try:
+            # Load the xarray dataset for the current RGIId
+            ds_oggm = xr.open_dataset(file_path)
+        except FileNotFoundError:
+            print(f"File not found for RGIId: {rgi_id}")
+            continue
+
+        # Define the coordinate transformation
+        transf = pyproj.Transformer.from_proj(
+            pyproj.CRS.from_user_input("EPSG:4326"),  # Input CRS (WGS84)
+            pyproj.CRS.from_user_input(ds_oggm.pyproj_srs),  # Output CRS from dataset
+            always_xy=True
+        )
+
+        # Transform all coordinates in the group
+        lon, lat = group["POINT_LON"].values, group["POINT_LAT"].values
+        x_stake, y_stake = transf.transform(lon, lat)
+        # Select nearest values for all points
+        try:
+            stake = ds_oggm.sel(
+                x=xr.DataArray(x_stake, dims="points"),
+                y=xr.DataArray(y_stake, dims="points"),
+                method="nearest"
+            )
+
+            # Extract variables of interest
+            stake_var = stake[voi]
+
+            # Convert the extracted data to a DataFrame
+            stake_var_df = stake_var.to_dataframe()
+
+            # Update the DataFrame with the extracted values
+            for var in voi:
+                df_pmb.loc[group.index, var] = stake_var_df[var].values
+        except KeyError as e:
+            print(f"Variable missing in dataset {file_path}: {e}")
+            continue
+    return df_pmb

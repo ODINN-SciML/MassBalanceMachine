@@ -54,6 +54,7 @@ skorch = "^1.1.0"
 cdsapi = "^0.7.4"
 pytest = "^8.2.2"
 zarr = "2.18.4"
+pyarrow = "^19.0.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.2"
