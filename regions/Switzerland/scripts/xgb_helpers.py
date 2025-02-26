@@ -8,6 +8,7 @@ import xarray as xr
 
 from scripts.config_CH import *
 
+
 def process_or_load_data(run_flag, data_glamos, paths, cfg, vois_climate,
                          vois_topographical):
     """
@@ -96,8 +97,8 @@ def process_or_load_data(run_flag, data_glamos, paths, cfg, vois_climate,
         except FileNotFoundError as e:
             logging.error("Preprocessed data file not found: %s", e)
             return None
-        
-        
+
+
 def getCVSplits(dataloader_gl,
                 test_split_on='YEAR',
                 test_splits=None,
@@ -149,6 +150,7 @@ def getCVSplits(dataloader_gl,
     }
 
     return splits, test_set, train_set
+
 
 def getDfAggregatePred(test_set, y_pred_agg, all_columns):
     # Aggregate predictions to annual or winter:
@@ -204,6 +206,7 @@ def get_gl_area():
                 0]  # Use .iloc[0] safely
 
     return gl_area
+
 
 def correct_for_biggest_grid(df, group_columns, value_column="value"):
     """
@@ -265,7 +268,7 @@ def correct_vars_grid(df_grid_monthly,
     return df_grid_monthly
 
 
-def GlacierWidePred(xgb_model, df_grid_monthly, type_pred='annual'):
+def glacier_wide_pred(xgb_model, df_grid_monthly, type_pred='annual'):
     if type_pred == 'annual':
         # Make predictions on whole glacier grid
         features_grid, metadata_grid = xgb_model._create_features_metadata(
@@ -318,9 +321,10 @@ def GlacierWidePred(xgb_model, df_grid_monthly, type_pred='annual'):
             "Unsupported prediction type. Only 'annual' and 'winter' are currently supported."
         )
 
+
 # Function to process a single glacier file
-def process_glacier_file(cfg, xgb_model, glacier_name, file_name, path_save_glw,
-                         path_xr_grids, all_columns):
+def process_glacier_file(cfg, xgb_model, glacier_name, file_name,
+                         path_save_glw, path_xr_grids, all_columns):
     try:
         year = int(file_name.split('_')[2].split('.')[0])
         file_path = os.path.join(path_glacier_grid_glamos, glacier_name,
@@ -346,10 +350,10 @@ def process_glacier_file(cfg, xgb_model, glacier_name, file_name, path_save_glw,
         df_grid_monthly = xgb_model.cumulative_pred(df_grid_monthly)
 
         # Generate predictions
-        pred_annual = GlacierWidePred(xgb_model,
+        pred_annual = glacier_wide_pred(xgb_model,
                                       df_grid_monthly[all_columns],
                                       type_pred='annual')
-        pred_winter = GlacierWidePred(xgb_model,
+        pred_winter = glacier_wide_pred(xgb_model,
                                       df_grid_monthly[all_columns],
                                       type_pred='winter')
 
@@ -389,7 +393,7 @@ def save_predictions(pred_df, ds, glacier_name, year, season, path_save_glw):
     save_path = os.path.join(path_save_glw, glacier_name)
     os.makedirs(save_path, exist_ok=True)
     geoData.save_arrays(f"{glacier_name}_{year}_{season}.nc",
-                        path=save_path+'/',
+                        path=save_path + '/',
                         proj_type='wgs84')
 
 
@@ -417,5 +421,6 @@ def save_monthly_predictions(cfg, df, ds, glacier_name, year, path_save_glw):
         save_path = os.path.join(path_save_glw, glacier_name)
         os.makedirs(save_path, exist_ok=True)
         geoData.save_arrays(f"{glacier_name}_{year}_{month_nb}.nc",
-                            path=save_path+'/',
+                            path=save_path + '/',
                             proj_type='wgs84')
+
