@@ -11,6 +11,7 @@ from os.path import isfile, join
 from scripts.config_CH import *
 from scripts.glamos_preprocess import *
 
+
 def get_GLAMOS_glwmb(glacier_name):
     """
     Loads and processes GLAMOS glacier-wide mass balance data.
@@ -84,7 +85,18 @@ def apply_gaussian_filter(ds, variable_name='pred_masked', sigma: float = 1):
     ds[variable_name] = smoothed_data
     return ds
 
+
 def convert_to_xarray_geodata(grid_data, metadata):
+    """Converts .grid file data to an xarray DataArray.
+
+    Args:
+        grid_data (.grid): grid file of glacier DEM
+        metadata (dic): metadata of the grid file
+
+    Returns:
+        xr.DataSet: xarray DataArray of the grid data in LV95 coordinates
+    """
+
     # Extract metadata values
     ncols = int(metadata['ncols'])
     nrows = int(metadata['nrows'])
@@ -158,6 +170,7 @@ def transform_xarray_coords_lv95_to_wgs84(data_array):
 
     return data_array
 
+
 def LV03toWGS84(df):
     """Converts from swiss data coordinate system to lat/lon/height
     Args:
@@ -174,6 +187,7 @@ def LV03toWGS84(df):
     df.drop(['x_pos', 'y_pos', 'z_pos'], axis=1, inplace=True)
     return df
 
+
 def LV95toWGS84(df):
     """Converts from swiss data coordinate system to lat/lon/height
     Args:
@@ -182,8 +196,8 @@ def LV95toWGS84(df):
         pd.DataFrame: data in lat/lon/coords
     """
     transformer = pyproj.Transformer.from_crs("EPSG:2056",
-                                       "EPSG:4326",
-                                       always_xy=True)
+                                              "EPSG:4326",
+                                              always_xy=True)
 
     # Sample CH1903+ / LV95 coordinates (Easting and Northing)
 
@@ -194,6 +208,7 @@ def LV95toWGS84(df):
     df['lon'] = lon
     df.drop(['x_pos', 'y_pos', 'z_pos'], axis=1, inplace=True)
     return df
+
 
 def organize_rasters_by_hydro_year(path_S2, satellite_years):
     rasters = defaultdict(
@@ -214,6 +229,7 @@ def organize_rasters_by_hydro_year(path_S2, satellite_years):
                     rasters[hydro_year][closest_month].append(f)
 
     return rasters
+
 
 def get_hydro_year_and_month(file_date):
     if file_date.day < 15:
@@ -251,15 +267,20 @@ def IceSnowCover(gdf_class, gdf_class_raster):
     return snow_cover_glacier
 
 
-def xr_SGI_masked_topo(rgi_shp, gdf_shapefiles, path_aspect, path_slope,
-                       path_DEM, sgi_id):
+def xr_SGI_masked_topo(rgi_shp, gdf_shapefiles, sgi_id):
+    path_aspect = os.path.join(path_SGI_topo, 'aspect')
+    path_slope = os.path.join(path_SGI_topo, 'slope')
+    path_DEM = os.path.join(path_SGI_topo, 'dem_HR')
+
     # Get SGI topo files
     aspect_gl = [f for f in os.listdir(path_aspect) if sgi_id in f][0]
     slope_gl = [f for f in os.listdir(path_slope) if sgi_id in f][0]
     dem_gl = [f for f in os.listdir(path_DEM) if sgi_id in f][0]
 
-    metadata_aspect, grid_data_aspect = load_grid_file(join(path_aspect, aspect_gl))
-    metadata_slope, grid_data_slope = load_grid_file(join(path_slope, slope_gl))
+    metadata_aspect, grid_data_aspect = load_grid_file(
+        join(path_aspect, aspect_gl))
+    metadata_slope, grid_data_slope = load_grid_file(join(
+        path_slope, slope_gl))
     metadata_dem, grid_data_dem = load_grid_file(join(path_DEM, dem_gl))
 
     # Convert to xarray
@@ -287,7 +308,7 @@ def xr_SGI_masked_topo(rgi_shp, gdf_shapefiles, path_aspect, path_slope,
         "masked_elev": masked_dem,
         "glacier_mask": mask
     })
-    
+
     # Mask elevations below 0 (bug values)
     ds["masked_elev"] = ds.masked_elev.where(ds.masked_elev >= 0, np.nan)
     return ds
@@ -316,11 +337,11 @@ def extract_topo_over_outline(aspect_xarray, glacier_polygon_gdf):
 
     # Compute the transform using rasterio's from_bounds
     transform = rasterio.transform.from_bounds(lon_coords.min(),
-                            lat_coords.min(),
-                            lon_coords.max(),
-                            lat_coords.max(),
-                            width=len(lon_coords),
-                            height=len(lat_coords))
+                                               lat_coords.min(),
+                                               lon_coords.max(),
+                                               lat_coords.max(),
+                                               width=len(lon_coords),
+                                               height=len(lat_coords))
 
     # Rasterize the glacier polygon
     shapes = [(geom, 1) for geom in glacier_polygon_gdf.geometry]
@@ -344,20 +365,32 @@ def extract_topo_over_outline(aspect_xarray, glacier_polygon_gdf):
     return mask_xarray, masked_aspect
 
 
-def coarsenDS(ds, resampling_fac = 3):
-    # Coarson to 30 m resolution
-    # Coarsen non-binary variables with mean
-    ds_non_binary = ds[['masked_slope', 'masked_aspect',
-                        'masked_elev']].coarsen(lon=resampling_fac, lat=resampling_fac,
-                                                boundary="trim").mean()
+def coarsenDS(ds, target_res_m=50):
+    dx_m, dy_m = get_res_from_degrees(ds)  # Get resolution in meters
 
-    # Coarsen glacier mask with max
-    ds_glacier_mask = ds[['glacier_mask']].coarsen(lon=resampling_fac, lat=resampling_fac,
-                                                boundary="trim").reduce(np.max)
+    # Compute resampling factor
+    resampling_fac_lon = max(1, round(target_res_m / dx_m))
+    resampling_fac_lat = max(1, round(target_res_m / dy_m))
 
-    # Merge back into a single dataset
-    ds_res = xr.merge([ds_non_binary, ds_glacier_mask])
-    return ds_res
+    # print(f"Resampling factor: lon={resampling_fac_lon}, lat={resampling_fac_lat}")
+
+    if dx_m < target_res_m or dy_m < target_res_m:
+        # Coarsen non-binary variables with mean
+        ds_non_binary = ds[['masked_slope', 'masked_aspect', 'masked_elev']].coarsen(
+            lon=resampling_fac_lon, lat=resampling_fac_lat, boundary="trim"
+        ).mean()
+
+        # Coarsen glacier mask with max
+        ds_glacier_mask = ds[['glacier_mask']].coarsen(
+            lon=resampling_fac_lon, lat=resampling_fac_lat, boundary="trim"
+        ).reduce(np.max)
+
+        # Merge back into a single dataset
+        ds_res = xr.merge([ds_non_binary, ds_glacier_mask])
+        return ds_res
+
+    # If resolution is already >= 30m, return the original dataset
+    return ds
 
 
 def get_rgi_sgi_ids(glacier_name):
@@ -366,15 +399,14 @@ def get_rgi_sgi_ids(glacier_name):
     rgi_df.rename(columns=lambda x: x.strip(), inplace=True)
     rgi_df.sort_values(by='short_name', inplace=True)
     rgi_df.set_index('short_name', inplace=True)
-        
+
     # Handle 'clariden' separately due to its unique ID format
     if glacier_name == 'clariden':
         sgi_id = rgi_df.at[
             'claridenU',
             'sgi-id'].strip() if 'claridenU' in rgi_df.index else ''
-        rgi_id = rgi_df.at[
-            'claridenU',
-            'rgi_id.v6'] if 'claridenU' in rgi_df.index else ''
+        rgi_id = rgi_df.at['claridenU',
+                           'rgi_id.v6'] if 'claridenU' in rgi_df.index else ''
         rgi_shp = rgi_df.at[
             'claridenU',
             'rgi_id_v6_2016_shp'] if 'claridenU' in rgi_df.index else ''
@@ -382,13 +414,12 @@ def get_rgi_sgi_ids(glacier_name):
         sgi_id = rgi_df.at[
             glacier_name,
             'sgi-id'].strip() if glacier_name in rgi_df.index else ''
-        rgi_id = rgi_df.at[
-            glacier_name,
-            'rgi_id.v6'] if glacier_name in rgi_df.index else ''
+        rgi_id = rgi_df.at[glacier_name,
+                           'rgi_id.v6'] if glacier_name in rgi_df.index else ''
         rgi_shp = rgi_df.at[
             glacier_name,
             'rgi_id_v6_2016_shp'] if glacier_name in rgi_df.index else ''
-        
+
     return sgi_id, rgi_id, rgi_shp
 
 
@@ -437,6 +468,7 @@ def create_glacier_grid_SGI(
 
     return df_grid
 
+
 def add_OGGM_features(df_y_gl, voi, path_OGGM):
     df_pmb = df_y_gl.copy()
 
@@ -453,7 +485,7 @@ def add_OGGM_features(df_y_gl, voi, path_OGGM):
     # Process each group
     for rgi_id, group in grouped:
         file_path = f"{path_to_data}{rgi_id}.nc"
-        
+
         try:
             # Load the xarray dataset for the current RGIId
             ds_oggm = xr.open_dataset(file_path)
@@ -464,20 +496,18 @@ def add_OGGM_features(df_y_gl, voi, path_OGGM):
         # Define the coordinate transformation
         transf = pyproj.Transformer.from_proj(
             pyproj.CRS.from_user_input("EPSG:4326"),  # Input CRS (WGS84)
-            pyproj.CRS.from_user_input(ds_oggm.pyproj_srs),  # Output CRS from dataset
-            always_xy=True
-        )
+            pyproj.CRS.from_user_input(
+                ds_oggm.pyproj_srs),  # Output CRS from dataset
+            always_xy=True)
 
         # Transform all coordinates in the group
         lon, lat = group["POINT_LON"].values, group["POINT_LAT"].values
         x_stake, y_stake = transf.transform(lon, lat)
         # Select nearest values for all points
         try:
-            stake = ds_oggm.sel(
-                x=xr.DataArray(x_stake, dims="points"),
-                y=xr.DataArray(y_stake, dims="points"),
-                method="nearest"
-            )
+            stake = ds_oggm.sel(x=xr.DataArray(x_stake, dims="points"),
+                                y=xr.DataArray(y_stake, dims="points"),
+                                method="nearest")
 
             # Extract variables of interest
             stake_var = stake[voi]
@@ -492,3 +522,75 @@ def add_OGGM_features(df_y_gl, voi, path_OGGM):
             print(f"Variable missing in dataset {file_path}: {e}")
             continue
     return df_pmb
+
+
+def xr_GLAMOS_masked_topo(sgi_id, ds_gl):
+    path_aspect = os.path.join(path_SGI_topo, "aspect")
+    path_slope = os.path.join(path_SGI_topo, "slope")
+
+    # Load SGI topo files
+    aspect_gl = [f for f in os.listdir(path_aspect) if sgi_id in f][0]
+    slope_gl = [f for f in os.listdir(path_slope) if sgi_id in f][0]
+
+    metadata_aspect, grid_data_aspect = load_grid_file(
+        join(path_aspect, aspect_gl))
+    metadata_slope, grid_data_slope = load_grid_file(join(
+        path_slope, slope_gl))
+
+    # Convert to xarray
+    aspect = convert_to_xarray_geodata(grid_data_aspect, metadata_aspect)
+    slope = convert_to_xarray_geodata(grid_data_slope, metadata_slope)
+
+    # Transform to WGS84
+    aspect_wgs84 = transform_xarray_coords_lv95_to_wgs84(aspect)
+    slope_wgs84 = transform_xarray_coords_lv95_to_wgs84(slope)
+
+    # Compute original resolution (for checking)
+    dx_m, dy_m = get_res_from_degrees(aspect_wgs84)
+    # print(f"aspect resolution: {dx_m} x {dy_m} meters")
+
+    # Step 1: Downsample aspect & slope to glacier mask resolution
+    aspect_resampled = aspect_wgs84.interp_like(ds_gl["glacier_mask"], method="nearest")
+    slope_resampled = slope_wgs84.interp_like(ds_gl["glacier_mask"], method="nearest")
+
+    # Compute new resolution (after downsampling)
+    dx_m, dy_m = get_res_from_degrees(ds_gl["glacier_mask"])
+    # print(f"New resolution (after downsampling): {dx_m} x {dy_m} meters")
+
+    # Step 2: Apply the glacier mask
+    masked_aspect = aspect_resampled.where(ds_gl["glacier_mask"] == 1, np.nan)
+    masked_slope = slope_resampled.where(ds_gl["glacier_mask"] == 1, np.nan)
+
+    # Resample DEM to the same resolution
+    dem_resampled = ds_gl["dem"].interp_like(ds_gl["glacier_mask"], method="nearest")
+
+    # Create a new dataset
+    ds = xr.Dataset({
+        "masked_aspect": masked_aspect,
+        "masked_elev": dem_resampled,
+        "masked_slope": masked_slope,
+        "glacier_mask": ds_gl["glacier_mask"]
+    })
+
+    # Mask elevations below 0 (to remove erroneous values)
+    ds["masked_elev"] = ds.masked_elev.where(ds.masked_elev >= 0, np.nan)
+
+    return ds
+
+
+def get_res_from_degrees(ds):
+    # Get central latitude (mean of lat values)
+    lat_center = ds.lat.values.mean()
+
+    # Earth's approximate conversion factor (meters per degree)
+    meters_per_degree_lat = 111320  # Roughly constant for latitude
+    meters_per_degree_lon = 111320 * np.cos(
+        np.radians(lat_center))  # Adjust for longitude
+
+    # Compute resolution
+    dx_m = np.round(
+        abs(ds.lon[1] - ds.lon[0]).values * meters_per_degree_lon, 3)
+    dy_m = np.round(
+        abs(ds.lat[1] - ds.lat[0]).values * meters_per_degree_lat, 3)
+
+    return dx_m, dy_m
