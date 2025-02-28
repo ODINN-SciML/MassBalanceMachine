@@ -47,7 +47,7 @@ or if you are using micromamba:
 ```
 micromamba env create -f environment_cpu.yml
 ```
-For **MacOS and a GPU**, you need to install cupy separately: 
+**If you're on MacOS and plan to use a GPU**, you need to install cupy separately: 
 ```conda install -c conda-forge cupy```
 
 
