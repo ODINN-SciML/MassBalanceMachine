@@ -331,7 +331,7 @@ def process_glacier_file(cfg, xgb_model, glacier_name, file_name,
                                  file_name)
 
         # Load and preprocess glacier grid data
-        df_grid_monthly = pd.read_csv(file_path)
+        df_grid_monthly = pd.read_parquet(file_path)
         df_grid_monthly = correct_vars_grid(df_grid_monthly)
         df_grid_monthly.rename(columns={
             'aspect': 'aspect_sgi',
@@ -363,8 +363,8 @@ def process_glacier_file(cfg, xgb_model, glacier_name, file_name,
         pred_y_winter = pred_winter[pred_winter.YEAR == year].drop(
             columns=['YEAR'], errors='ignore')
 
-        # Load glacier DEM
-        dem_path = os.path.join(path_xr_grids, f"{glacier_name}_{year}.nc")
+        # Load glacier DEM data
+        dem_path = os.path.join(path_xr_grids, f"{glacier_name}_{year}.zarr")
         if not os.path.exists(dem_path):
             print(
                 f"DEM file not found for {glacier_name} ({year}), skipping...")
