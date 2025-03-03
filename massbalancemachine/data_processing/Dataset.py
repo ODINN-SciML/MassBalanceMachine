@@ -22,7 +22,7 @@ import torch
 from get_climate_data import get_climate_features, retrieve_clear_sky_rad
 from get_topo_data import get_topographical_features, get_glacier_mask
 from transform_to_monthly import transform_to_monthly
-from create_glacier_grid import create_glacier_grids
+from create_glacier_grid import create_glacier_grid_RGI
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s - %(levelname)s - %(message)s")
@@ -141,9 +141,9 @@ class Dataset:
                                                      self.cfg)
         return ds, glacier_indices, gdir
 
-    def create_glacier_grid(self,
+    def create_glacier_grid_RGI(self,
                             custom_working_dir: str = '') -> pd.DataFrame:
-        """Creates a dataframe with the glacier grid data,
+        """Creates a dataframe with the glacier grid data from RGI v.6,
             which contains the glacier data from OGGM mapped over the glacier outline in yearly format.
 
         Args:
@@ -157,16 +157,13 @@ class Dataset:
                                                      custom_working_dir,
                                                      self.cfg)
         years_stake = self.data['YEAR'].unique()
+        
         # Fixed time range because we want the grid from the beginning
         # of climate data to end (not just when there are stake measurements)
         years = range(1951, 2023)
         rgi_gl = self.data['RGIId'].unique()[0]
-        df_grid = create_glacier_grids(ds, years, glacier_indices, gdir,
+        df_grid = create_glacier_grid_RGI(ds, years, glacier_indices, gdir,
                                        rgi_gl)
-        # add column of presence of stake
-        df_grid['STAKE_MEAS'] = 0
-        for year in years_stake:
-            df_grid.loc[df_grid['YEAR'] == year, 'STAKE_MEAS'] = 1
         return df_grid
 
     def _get_output_filename(self, feature_type: str) -> str:
