@@ -389,7 +389,6 @@ def coarsenDS(ds, target_res_m=50):
         ds_res = xr.merge([ds_non_binary, ds_glacier_mask])
         return ds_res
 
-    # If resolution is already >= 30m, return the original dataset
     return ds
 
 
