@@ -134,7 +134,7 @@ def getCVSplits(dataloader_gl,
     test_splits = df_X_test[test_split_on].unique()
 
     # Create the CV splits based on the training dataset. The default value for the number of splits is 5.
-    splits = dataloader_gl.get_cv_split(n_splits=5, type_fold='group-meas-id')
+    cv_splits = dataloader_gl.get_cv_split(n_splits=5, type_fold='group-meas-id')
 
     test_set = {
         'df_X': df_X_test,
@@ -149,7 +149,7 @@ def getCVSplits(dataloader_gl,
         'meas_id': train_meas_id,
     }
 
-    return splits, test_set, train_set
+    return cv_splits, test_set, train_set
 
 
 def getDfAggregatePred(test_set, y_pred_agg, all_columns):
