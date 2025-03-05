@@ -393,8 +393,7 @@ def coarsenDS(ds, target_res_m=50):
 
 
 def get_rgi_sgi_ids(glacier_name):
-    path_rgi = '../../../data/GLAMOS/CH_glacier_ids_long.csv'
-    rgi_df = pd.read_csv(path_rgi, sep=',')
+    rgi_df = pd.read_csv(path_glacier_ids, sep=',')
     rgi_df.rename(columns=lambda x: x.strip(), inplace=True)
     rgi_df.sort_values(by='short_name', inplace=True)
     rgi_df.set_index('short_name', inplace=True)

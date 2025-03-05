@@ -20,7 +20,7 @@ path_glacier_grid_glamos = '../../../data/GLAMOS/topo/gridded_topo_inputs/GLAMOS
 
 # Topo data
 path_SGI_topo = '../../../data/GLAMOS/topo/SGI2020/' # DEMs & topo from SGI
-path_GLAMOS_topo = '../../../data/GLAMOS/topo/GLAMOS_DEM/lv95/' # yearly DEMs from GLAMOS
+path_GLAMOS_topo = '../../../data/GLAMOS/topo/GLAMOS_DEM/' # yearly DEMs from GLAMOS
 path_pcsr = '../../../data/GLAMOS/topo/pcsr/' # Potential incoming clear sky solar radiation from GLAMOS
 
 path_distributed_MB_glamos = '../../../data/GLAMOS/distributed_MB_grids/'
@@ -32,6 +32,7 @@ path_ERA5_raw = '../../../data/ERA5Land/raw/' # ERA5-Land
 path_S2 = '../../../data/Sentinel/' # Sentinel-2
 path_OGGM = '../../../data/OGGM/'
 path_glogem = '../../../data/GloGEM' # glogem c_prec and t_off factors
+path_rgi_outlines = '../../../data/GLAMOS/RGI/nsidc0770_11.rgi60.CentralEurope/11_rgi60_CentralEurope.shp'
 
 # <------------------OTHER USEFUL FUNCTIONS & ATTRIBUTES: ------------------>
 vois_climate_long_name = {
