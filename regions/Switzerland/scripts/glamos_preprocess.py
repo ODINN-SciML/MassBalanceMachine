@@ -6,7 +6,7 @@ import pyproj
 import xarray as xr
 
 from scripts.wgs84_ch1903 import *
-
+from scripts.config_CH import *
 
 def processDatFile(fileName, path_dat, path_csv):
     """
@@ -531,3 +531,71 @@ def transform_xarray_coords_lv03_to_wgs84(data_array):
     data_array = data_array.transpose("time", "lon", "lat")
 
     return data_array
+
+def get_geodetic_MB():
+    """
+    Reads and processes the geodetic mass balance dataset for Swiss glaciers.
+    - Filters out invalid date entries.
+    - Ensures Astart matches the year from date_start, and Aend matches the year from date_end.
+    - Identifies duplicates based on (Astart, Aend) and keeps only the row where date_end is closest to the end of the month.
+    
+    Returns:
+        pd.DataFrame: Processed geodetic mass balance data.
+    """
+    
+    # Load necessary data
+    glacier_ids = get_glacier_ids()
+    data_glamos = pd.read_csv(path_PMB_GLAMOS_csv + 'CH_wgms_dataset_all.csv')
+    
+    # Read geodetic MB dataset
+    geodetic_mb = pd.read_csv(path_geodetic_MB_glamos + 'dV_DOI2024_allcomb.csv')
+
+    # Get RGI IDs for the glaciers
+    rgi_gl = data_glamos.RGIId.unique()
+    sgi_gl = [
+        glacier_ids[glacier_ids['rgi_id.v6'] == rgi]['sgi-id'].values[0] for rgi in rgi_gl
+    ]
+    geodetic_mb = geodetic_mb[geodetic_mb['SGI-ID'].isin(sgi_gl)]
+
+    # Add glacier_name to geodetic_mb based on SGI-ID
+    glacier_names = [
+        glacier_ids[glacier_ids['sgi-id'] == sgi_id].index[0]
+        for sgi_id in geodetic_mb['SGI-ID'].values
+    ]
+    geodetic_mb['glacier_name'] = glacier_names
+
+    # Replace 'claridenL' with 'clariden'
+    geodetic_mb['glacier_name'] = geodetic_mb['glacier_name'].replace('claridenL', 'clariden')
+
+    # Rename A_end to Aend
+    geodetic_mb.rename(columns={'A_end': 'Aend'}, inplace=True)
+
+    # Function to replace 9999 with September 30
+    def fix_invalid_dates(date):
+        date_str = str(date)
+        if date_str.endswith('9999'):
+            return f"{date_str[:4]}0930"  # Replace '9999' with '0930'
+        return date_str
+
+    # Apply the function to both columns
+    geodetic_mb['date_start'] = geodetic_mb['date_start'].apply(fix_invalid_dates)
+    geodetic_mb['date_end'] = geodetic_mb['date_end'].apply(fix_invalid_dates)
+    
+    # Convert to datetime format
+    geodetic_mb['date_start'] = pd.to_datetime(geodetic_mb['date_start'], format='%Y%m%d', errors='coerce')
+    geodetic_mb['date_end'] = pd.to_datetime(geodetic_mb['date_end'], format='%Y%m%d', errors='coerce')
+    
+    # Manually set Astart and Aend based on date_start and date_end
+    geodetic_mb['Astart'] = geodetic_mb['date_start'].dt.year
+    geodetic_mb['Aend'] = geodetic_mb['date_end'].dt.year
+
+    return geodetic_mb
+
+
+def get_glacier_ids():
+    glacier_ids = pd.read_csv(path_glacier_ids, sep=',')
+    glacier_ids.rename(columns=lambda x: x.strip(), inplace=True)
+    glacier_ids.sort_values(by='short_name', inplace=True)
+    glacier_ids.set_index('short_name', inplace=True)
+    
+    return glacier_ids

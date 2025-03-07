@@ -143,9 +143,9 @@ class GeoData:
             filename (str): filename for the netcdf file.
         """
         if proj_type == 'wgs84':
-            self.__class__.save_to_netcdf(self.ds_latlon, path, filename)
+            self.__class__.save_to_zarr(self.ds_latlon, path, filename)
         elif proj_type == 'lv95':
-            self.__class__.save_to_netcdf(self.ds_xy, path, filename)
+            self.__class__.save_to_zarr(self.ds_xy, path, filename)
         else:
             raise ValueError("proj_type must be either 'wgs84' or 'lv95'.")
 
@@ -239,7 +239,7 @@ class GeoData:
             np.where(self.gdf['pred_masked'] <= -tol, 3, np.nan))
 
     @staticmethod
-    def save_to_netcdf(ds: xr.Dataset, path: str, filename: str):
+    def save_to_zarr(ds: xr.Dataset, path: str, filename: str):
         """Saves the xarray dataset to a netcdf file.
         """
         # Create path if not exists
@@ -251,7 +251,7 @@ class GeoData:
             os.remove(path + filename)
 
         # save prediction to netcdf
-        ds.to_netcdf(path + filename)
+        ds.to_zarr(path + filename)
         
     @staticmethod
     def oggmToWgs84(ds, gdir):
