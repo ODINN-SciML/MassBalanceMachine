@@ -10,7 +10,8 @@ from scripts.config_CH import *
 
 
 def process_or_load_data(run_flag, data_glamos, paths, cfg, vois_climate,
-                         vois_topographical):
+                         vois_topographical, 
+                         output_file = 'CH_wgms_dataset_monthly_full.csv'):
     """
     Process or load the data based on the RUN flag.
     """
@@ -69,7 +70,7 @@ def process_or_load_data(run_flag, data_glamos, paths, cfg, vois_climate,
 
         # Save processed data
         output_file = os.path.join(paths['csv_path'],
-                                   'CH_wgms_dataset_monthly_full.csv')
+                                   output_file)
         dataloader_gl.data.to_csv(output_file, index=False)
         logging.info("Processed data saved to: %s", output_file)
 
@@ -78,7 +79,7 @@ def process_or_load_data(run_flag, data_glamos, paths, cfg, vois_climate,
         # Load preprocessed data
         try:
             input_file = os.path.join(paths['csv_path'],
-                                      'CH_wgms_dataset_monthly_full.csv')
+                                      output_file)
             data_monthly = pd.read_csv(input_file)
             dataloader_gl = mbm.DataLoader(cfg,
                                            data=data_monthly,
@@ -99,15 +100,16 @@ def process_or_load_data(run_flag, data_glamos, paths, cfg, vois_climate,
             return None
 
 
-def getCVSplits(dataloader_gl,
+def get_CV_splits(dataloader_gl,
                 test_split_on='YEAR',
                 test_splits=None,
-                random_state=0):
+                random_state=0,
+                test_size=0.2):
     # Split into training and test splits with train_test_split
     if test_splits is None:
         train_splits, test_splits = train_test_split(
             dataloader_gl.data[test_split_on].unique(),
-            test_size=0.2,
+            test_size=test_size,
             random_state=random_state)
     else:
         split_data = dataloader_gl.data[test_split_on].unique()
@@ -324,7 +326,7 @@ def glacier_wide_pred(xgb_model, df_grid_monthly, type_pred='annual'):
 
 # Function to process a single glacier file
 def process_glacier_file(cfg, xgb_model, glacier_name, file_name,
-                         path_save_glw, path_xr_grids, all_columns):
+                         path_save_glw, path_xr_grids, all_columns, save_monthly_pred = True):
     try:
         year = int(file_name.split('_')[2].split('.')[0])
         file_path = os.path.join(path_glacier_grid_glamos, glacier_name,
@@ -379,7 +381,8 @@ def process_glacier_file(cfg, xgb_model, glacier_name, file_name,
                          path_save_glw)
 
         # Save monthly grids
-        save_monthly_predictions(cfg, df_grid_monthly, ds, glacier_name, year,
+        if save_monthly_pred:
+            save_monthly_predictions(cfg, df_grid_monthly, ds, glacier_name, year,
                                  path_save_glw)
 
     except Exception as e:
@@ -392,7 +395,7 @@ def save_predictions(pred_df, ds, glacier_name, year, season, path_save_glw):
     geoData.pred_to_xr(ds, pred_var='pred', source_type='sgi')
     save_path = os.path.join(path_save_glw, glacier_name)
     os.makedirs(save_path, exist_ok=True)
-    geoData.save_arrays(f"{glacier_name}_{year}_{season}.nc",
+    geoData.save_arrays(f"{glacier_name}_{year}_{season}.zarr",
                         path=save_path + '/',
                         proj_type='wgs84')
 
@@ -420,7 +423,7 @@ def save_monthly_predictions(cfg, df, ds, glacier_name, year, path_save_glw):
         geoData.pred_to_xr(ds, pred_var='cum_pred', source_type='sgi')
         save_path = os.path.join(path_save_glw, glacier_name)
         os.makedirs(save_path, exist_ok=True)
-        geoData.save_arrays(f"{glacier_name}_{year}_{month_nb}.nc",
+        geoData.save_arrays(f"{glacier_name}_{year}_{month_nb}.zarr",
                             path=save_path + '/',
                             proj_type='wgs84')
 
