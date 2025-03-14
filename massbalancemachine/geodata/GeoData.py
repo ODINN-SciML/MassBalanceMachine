@@ -253,7 +253,7 @@ class GeoData:
         Computes and saves gridded mass balance (MB) predictions for a given glacier and year.
 
         This function predicts seasonal and annual surface mass balance (SMB) using 
-        an XGBoost model, saves the results as NetCDF/Zarr files, and optionally 
+        an XGBoost model, saves the results as Zarr files, and optionally 
         saves monthly predictions.
 
         Args:
