@@ -241,7 +241,7 @@ class GeoData:
         return self
 
     def gridded_MB_pred(self,
-                        xgb_model,
+                        custom_model,
                         glacier_name,
                         year,
                         all_columns,
@@ -253,11 +253,11 @@ class GeoData:
         Computes and saves gridded mass balance (MB) predictions for a given glacier and year.
 
         This function predicts seasonal and annual surface mass balance (SMB) using 
-        an XGBoost model, saves the results as Zarr files, and optionally 
+        the ML model, saves the results as Zarr files, and optionally 
         saves monthly predictions.
 
         Args:
-            xgb_model (object): The trained XGBoost model used for prediction.
+            custom_model (object): The trained MassBalanceMachine model used for prediction.
             glacier_name (str): Name of the glacier being processed.
             year (int): Year for which predictions are made.
             all_columns (list of str): List of feature column names used for predictions.
@@ -270,7 +270,7 @@ class GeoData:
             None
 
         Notes:
-            - The function first computes cumulative SMB predictions using the XGBoost model.
+            - The function first computes cumulative SMB predictions using the MassBalanceMachine model.
             - Annual and winter SMB predictions are extracted and saved.
             - The function loads the glacier's DEM dataset from a Zarr file.
             - If the DEM file is missing, the function prints a warning and exits.
@@ -282,13 +282,13 @@ class GeoData:
         """
 
         # Compute cumulative SMB predictions
-        df_grid_monthly = xgb_model.cumulative_pred(self.data)
+        df_grid_monthly = custom_model.cumulative_pred(self.data)
 
         # Generate annual and winter predictions
         pred_annual = self.__class__.glacier_wide_pred(
-            xgb_model, df_grid_monthly[all_columns], type_pred='annual')
+            custom_model, df_grid_monthly[all_columns], type_pred='annual')
         pred_winter = self.__class__.glacier_wide_pred(
-            xgb_model, df_grid_monthly[all_columns], type_pred='winter')
+            custom_model, df_grid_monthly[all_columns], type_pred='winter')
 
         # Filter results for the current year
         pred_y_annual = pred_annual.drop(columns=['YEAR'], errors='ignore')
@@ -357,14 +357,14 @@ class GeoData:
                              proj_type='wgs84')
 
     @staticmethod
-    def glacier_wide_pred(xgb_model, df_grid_monthly, type_pred='annual'):
+    def glacier_wide_pred(custom_model, df_grid_monthly, type_pred='annual'):
         if type_pred == 'annual':
             # Make predictions on whole glacier grid
-            features_grid, metadata_grid = xgb_model._create_features_metadata(
+            features_grid, metadata_grid = custom_model._create_features_metadata(
                 df_grid_monthly)
 
             # Make predictions aggregated to measurement ID:
-            y_pred_grid_agg = xgb_model.aggrPredict(metadata_grid,
+            y_pred_grid_agg = custom_model.aggrPredict(metadata_grid,
                                                     features_grid)
 
             # Aggregate predictions to annual:
@@ -387,11 +387,11 @@ class GeoData:
                 winter_months)]
 
             # Make predictions on whole glacier grid
-            features_grid, metadata_grid = xgb_model._create_features_metadata(
+            features_grid, metadata_grid = custom_model._create_features_metadata(
                 df_grid_winter)
 
             # Make predictions aggregated to measurement ID:
-            y_pred_grid_agg = xgb_model.aggrPredict(metadata_grid,
+            y_pred_grid_agg = custom_model.aggrPredict(metadata_grid,
                                                     features_grid)
 
             # Aggregate predictions for winter:
