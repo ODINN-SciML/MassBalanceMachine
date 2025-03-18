@@ -314,6 +314,22 @@ class GeoData:
             self._save_monthly_predictions(cfg, df_grid_monthly, ds,
                                            glacier_name, year, path_save_glw)
 
+    def get_mean_SMB(self, custom_model, all_columns):
+        # Compute cumulative SMB predictions
+        df_grid_monthly = custom_model.cumulative_pred(self.data)
+
+        # Generate annual and winter predictions
+        pred_annual = self.__class__.glacier_wide_pred(
+            custom_model, df_grid_monthly[all_columns], type_pred='annual')
+
+        # Filter results for the current year
+        pred_y_annual = pred_annual.drop(columns=['YEAR'], errors='ignore')
+
+        # Take mean over all points:
+        mean_SMB = pred_y_annual.pred.mean()
+        
+        return mean_SMB
+        
     
     def _save_prediction(self, ds, pred_data, glacier_name, year,
                          path_save_glw, season):
