@@ -10,7 +10,8 @@ from scripts.config_CH import *
 
 
 def process_or_load_data(run_flag, data_glamos, paths, cfg, vois_climate,
-                         vois_topographical):
+                         vois_topographical, 
+                         output_file = 'CH_wgms_dataset_monthly_full.csv'):
     """
     Process or load the data based on the RUN flag.
     """
@@ -69,7 +70,7 @@ def process_or_load_data(run_flag, data_glamos, paths, cfg, vois_climate,
 
         # Save processed data
         output_file = os.path.join(paths['csv_path'],
-                                   'CH_wgms_dataset_monthly_full.csv')
+                                   output_file)
         dataloader_gl.data.to_csv(output_file, index=False)
         logging.info("Processed data saved to: %s", output_file)
 
@@ -78,7 +79,7 @@ def process_or_load_data(run_flag, data_glamos, paths, cfg, vois_climate,
         # Load preprocessed data
         try:
             input_file = os.path.join(paths['csv_path'],
-                                      'CH_wgms_dataset_monthly_full.csv')
+                                      output_file)
             data_monthly = pd.read_csv(input_file)
             dataloader_gl = mbm.DataLoader(cfg,
                                            data=data_monthly,
@@ -99,15 +100,16 @@ def process_or_load_data(run_flag, data_glamos, paths, cfg, vois_climate,
             return None
 
 
-def getCVSplits(dataloader_gl,
+def get_CV_splits(dataloader_gl,
                 test_split_on='YEAR',
                 test_splits=None,
-                random_state=0):
+                random_state=0,
+                test_size=0.2):
     # Split into training and test splits with train_test_split
     if test_splits is None:
         train_splits, test_splits = train_test_split(
             dataloader_gl.data[test_split_on].unique(),
-            test_size=0.2,
+            test_size=test_size,
             random_state=random_state)
     else:
         split_data = dataloader_gl.data[test_split_on].unique()
@@ -266,161 +268,3 @@ def correct_vars_grid(df_grid_monthly,
         df_grid_monthly['ELEVATION_DIFFERENCE'] * dpdz)
 
     return df_grid_monthly
-
-
-def glacier_wide_pred(xgb_model, df_grid_monthly, type_pred='annual'):
-    if type_pred == 'annual':
-        # Make predictions on whole glacier grid
-        features_grid, metadata_grid = xgb_model._create_features_metadata(
-            df_grid_monthly)
-
-        # Make predictions aggregated to measurement ID:
-        y_pred_grid_agg = xgb_model.aggrPredict(metadata_grid, features_grid)
-
-        # Aggregate predictions to annual:
-        grouped_ids_annual = df_grid_monthly.groupby('ID').agg({
-            'YEAR':
-            'mean',
-            'POINT_LAT':
-            'mean',
-            'POINT_LON':
-            'mean'
-        })
-        grouped_ids_annual['pred'] = y_pred_grid_agg
-
-        return grouped_ids_annual
-
-    elif type_pred == 'winter':
-        # winter months from October to April
-        winter_months = ['oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr']
-        df_grid_winter = df_grid_monthly[df_grid_monthly.MONTHS.isin(
-            winter_months)]
-
-        # Make predictions on whole glacier grid
-        features_grid, metadata_grid = xgb_model._create_features_metadata(
-            df_grid_winter)
-
-        # Make predictions aggregated to measurement ID:
-        y_pred_grid_agg = xgb_model.aggrPredict(metadata_grid, features_grid)
-
-        # Aggregate predictions for winter:
-        grouped_ids_winter = df_grid_monthly.groupby('ID').agg({
-            'YEAR':
-            'mean',
-            'POINT_LAT':
-            'mean',
-            'POINT_LON':
-            'mean'
-        })
-        grouped_ids_winter['pred'] = y_pred_grid_agg
-
-        return grouped_ids_winter
-
-    else:
-        raise ValueError(
-            "Unsupported prediction type. Only 'annual' and 'winter' are currently supported."
-        )
-
-
-# Function to process a single glacier file
-def process_glacier_file(cfg, xgb_model, glacier_name, file_name,
-                         path_save_glw, path_xr_grids, all_columns):
-    try:
-        year = int(file_name.split('_')[2].split('.')[0])
-        file_path = os.path.join(path_glacier_grid_glamos, glacier_name,
-                                 file_name)
-
-        # Load and preprocess glacier grid data
-        df_grid_monthly = pd.read_parquet(file_path)
-        df_grid_monthly = correct_vars_grid(df_grid_monthly)
-        df_grid_monthly.rename(columns={
-            'aspect': 'aspect_sgi',
-            'slope': 'slope_sgi'
-        },
-                               inplace=True)
-        df_grid_monthly['POINT_ELEVATION'] = df_grid_monthly['topo']
-        df_grid_monthly.drop_duplicates(inplace=True)
-
-        # Keep only necessary columns, avoiding missing columns issues
-        df_grid_monthly = df_grid_monthly[[
-            col for col in all_columns if col in df_grid_monthly.columns
-        ]]
-
-        # Compute cumulative SMB predictions
-        df_grid_monthly = xgb_model.cumulative_pred(df_grid_monthly)
-
-        # Generate predictions
-        pred_annual = glacier_wide_pred(xgb_model,
-                                      df_grid_monthly[all_columns],
-                                      type_pred='annual')
-        pred_winter = glacier_wide_pred(xgb_model,
-                                      df_grid_monthly[all_columns],
-                                      type_pred='winter')
-
-        # Filter results for the current year
-        pred_y_annual = pred_annual[pred_annual.YEAR == year].drop(
-            columns=['YEAR'], errors='ignore')
-        pred_y_winter = pred_winter[pred_winter.YEAR == year].drop(
-            columns=['YEAR'], errors='ignore')
-
-        # Load glacier DEM data
-        dem_path = os.path.join(path_xr_grids, f"{glacier_name}_{year}.zarr")
-        if not os.path.exists(dem_path):
-            print(
-                f"DEM file not found for {glacier_name} ({year}), skipping...")
-            return
-
-        ds = xr.open_dataset(dem_path)
-
-        # Save predictions
-        save_predictions(pred_y_annual, ds, glacier_name, year, "annual",
-                         path_save_glw)
-        save_predictions(pred_y_winter, ds, glacier_name, year, "winter",
-                         path_save_glw)
-
-        # Save monthly grids
-        save_monthly_predictions(cfg, df_grid_monthly, ds, glacier_name, year,
-                                 path_save_glw)
-
-    except Exception as e:
-        print(f"Error processing {glacier_name} ({year}): {e}")
-
-
-# Function to save predictions
-def save_predictions(pred_df, ds, glacier_name, year, season, path_save_glw):
-    geoData = mbm.GeoData(pred_df)
-    geoData.pred_to_xr(ds, pred_var='pred', source_type='sgi')
-    save_path = os.path.join(path_save_glw, glacier_name)
-    os.makedirs(save_path, exist_ok=True)
-    geoData.save_arrays(f"{glacier_name}_{year}_{season}.nc",
-                        path=save_path + '/',
-                        proj_type='wgs84')
-
-
-# Function to save monthly grids
-def save_monthly_predictions(cfg, df, ds, glacier_name, year, path_save_glw):
-    for month, month_nb in cfg.month_abbr_hydr.items():
-        if month in {'sep_', 'oct', 'nov', 'dec', 'jan', 'feb'}:
-            continue
-
-        df_month = df[df['MONTHS'] == month].groupby('ID').agg({
-            'YEAR':
-            'mean',
-            'POINT_LAT':
-            'mean',
-            'POINT_LON':
-            'mean',
-            'pred':
-            'mean',
-            'cum_pred':
-            'mean'
-        }).drop(columns=['YEAR'], errors='ignore')
-
-        geoData = mbm.GeoData(df_month)
-        geoData.pred_to_xr(ds, pred_var='cum_pred', source_type='sgi')
-        save_path = os.path.join(path_save_glw, glacier_name)
-        os.makedirs(save_path, exist_ok=True)
-        geoData.save_arrays(f"{glacier_name}_{year}_{month_nb}.nc",
-                            path=save_path + '/',
-                            proj_type='wgs84')
-

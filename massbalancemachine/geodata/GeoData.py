@@ -12,6 +12,7 @@ import geopandas as gpd
 from scipy.spatial import cKDTree
 import matplotlib.pyplot as plt
 
+
 class GeoData:
     """Class for handling geodata objects such as raster files (nc, tif),
        xarray datasets, shapefiles and geopandas dataframes.
@@ -50,7 +51,7 @@ class GeoData:
             )
         # Apply Gaussian filter
         self.apply_gaussian_filter()
-        
+
         # Convert to geopandas
         self.xr_to_gpd()
 
@@ -69,7 +70,7 @@ class GeoData:
                 "ds_xy must be either an xarray.Dataset or a valid file path to a NetCDF file"
             )
 
-    def pred_to_xr(self, ds, gdir=None, pred_var='pred', source_type = 'oggm'):
+    def pred_to_xr(self, ds, gdir=None, pred_var='pred', source_type='oggm'):
         """Transforms MB predictions to xarray dataset. 
            Makes it easier for plotting and saving to netcdf.
            Keeps on netcdf in OGGM projection and transforms one to WGS84.
@@ -78,32 +79,35 @@ class GeoData:
             ds (xarray.Dataset): OGGM glacier grid with attributes.
             gdir gdir (oggm.GlacierDirectory): the OGGM glacier directory
             pred_var (str, optional): Name of prediction column in self.data. Defaults to 'pred'.
-        """            
+        """
         if source_type == 'oggm':
             glacier_indices = np.where(ds['glacier_mask'].values == 1)
             pred_masked = ds.glacier_mask.values
 
             # Set pred_masked to nan where 0
             pred_masked = np.where(pred_masked == 0, np.nan, pred_masked)
-            
+
             for i, (x_index, y_index) in enumerate(
                     zip(glacier_indices[0], glacier_indices[1])):
                 print(x_index, y_index)
                 pred_masked[x_index, y_index] = self.data.iloc[i][pred_var]
 
             pred_masked = np.where(pred_masked == 1, np.nan, pred_masked)
-            
+
             self.ds_xy = ds.assign(pred_masked=(('y', 'x'), pred_masked))
 
             # Change from OGGM proj. to wgs84
             self.ds_latlon = self.oggmToWgs84(self.ds_xy, gdir)
-        if source_type == 'sgi': 
+        if source_type == 'sgi':
             # Faster way:
             # Create a new variable pred_masked initialized with NaN
             ds["pred_masked"] = xr.DataArray(
                 np.full((ds.dims["lat"], ds.dims["lon"]), np.nan),
                 dims=("lat", "lon"),
-                coords={"lat": ds["lat"], "lon": ds["lon"]},
+                coords={
+                    "lat": ds["lat"],
+                    "lon": ds["lon"]
+                },
             )
 
             # Extract the DataFrame columns as numpy arrays
@@ -112,11 +116,9 @@ class GeoData:
             pred_values = self.data["pred"].values
 
             # Use vectorized nearest neighbor selection
-            nearest_points = ds.sel(
-                lon=xr.DataArray(point_lon, dims="points"),
-                lat=xr.DataArray(point_lat, dims="points"),
-                method="nearest"
-            )
+            nearest_points = ds.sel(lon=xr.DataArray(point_lon, dims="points"),
+                                    lat=xr.DataArray(point_lat, dims="points"),
+                                    method="nearest")
 
             # Extract the nearest grid indices
             lon_indices = nearest_points["lon"].values
@@ -126,15 +128,19 @@ class GeoData:
             pred_masked = np.full((ds.dims["lat"], ds.dims["lon"]), np.nan)
 
             # Loop over the matched points to assign values
-            for lon_idx, lat_idx, pred in zip(lon_indices, lat_indices, pred_values):
-                pred_masked[np.where(ds["lat"] == lat_idx)[0][0], np.where(ds["lon"] == lon_idx)[0][0]] = pred
+            for lon_idx, lat_idx, pred in zip(lon_indices, lat_indices,
+                                              pred_values):
+                pred_masked[np.where(ds["lat"] == lat_idx)[0][0],
+                            np.where(ds["lon"] == lon_idx)[0][0]] = pred
 
             # Assign pred_masked back to the dataset
             ds["pred_masked"] = (("lat", "lon"), pred_masked)
             self.ds_latlon = ds
 
-
-    def save_arrays(self, filename: str, path:str=None, proj_type:str = 'wgs840'):
+    def save_arrays(self,
+                    filename: str,
+                    path: str = None,
+                    proj_type: str = 'wgs840'):
         """Saves the xarray datasets in OGGM projection and WGMS84 to netcdf files.
 
         Args:
@@ -143,9 +149,9 @@ class GeoData:
             filename (str): filename for the netcdf file.
         """
         if proj_type == 'wgs84':
-            self.__class__.save_to_netcdf(self.ds_latlon, path, filename)
+            self.__class__.save_to_zarr(self.ds_latlon, path, filename)
         elif proj_type == 'lv95':
-            self.__class__.save_to_netcdf(self.ds_xy, path, filename)
+            self.__class__.save_to_zarr(self.ds_xy, path, filename)
         else:
             raise ValueError("proj_type must be either 'wgs84' or 'lv95'.")
 
@@ -185,8 +191,10 @@ class GeoData:
 
         #return gdf, lon, lat
         self.gdf = gdf
-        
-    def apply_gaussian_filter(self, variable_name: str = 'pred_masked', sigma: float = 1):
+
+    def apply_gaussian_filter(self,
+                              variable_name: str = 'pred_masked',
+                              sigma: float = 1):
         """
         Apply Gaussian filter only to the specified variable in the xarray.Dataset.
 
@@ -198,11 +206,13 @@ class GeoData:
         - self: Returns the instance for method chaining.
         """
         if self.ds_latlon is None:
-            raise ValueError("ds_latlon attribute is not set. Please set it first.")
-        
+            raise ValueError(
+                "ds_latlon attribute is not set. Please set it first.")
+
         # Check if the variable exists in the dataset
         if variable_name not in self.ds_latlon:
-            raise ValueError(f"Variable '{variable_name}' not found in the dataset.")
+            raise ValueError(
+                f"Variable '{variable_name}' not found in the dataset.")
 
         # Get the DataArray for the specified variable
         data_array = self.ds_latlon[variable_name]
@@ -221,25 +231,205 @@ class GeoData:
             smoothed_data,
             dims=data_array.dims,
             coords=data_array.coords,
-            attrs=data_array.attrs).where(mask)  # Apply the mask to restore NaNs
+            attrs=data_array.attrs).where(
+                mask)  # Apply the mask to restore NaNs
 
         # Replace the original variable with the smoothed one in the dataset
         self.ds_latlon[variable_name] = smoothed_data
-        
+
         # Return self to allow method chaining
         return self
+
+    def gridded_MB_pred(self,
+                        custom_model,
+                        glacier_name,
+                        year,
+                        all_columns,
+                        path_glacier_dem,
+                        path_save_glw,
+                        cfg,
+                        save_monthly_pred=True):
+        """
+        Computes and saves gridded mass balance (MB) predictions for a given glacier and year.
+
+        This function predicts seasonal and annual surface mass balance (SMB) using 
+        the ML model, saves the results as Zarr files, and optionally 
+        saves monthly predictions.
+
+        Args:
+            custom_model (object): The trained MassBalanceMachine model used for prediction.
+            glacier_name (str): Name of the glacier being processed.
+            year (int): Year for which predictions are made.
+            all_columns (list of str): List of feature column names used for predictions.
+            path_glacier_dem (str): Path to the directory containing glacier DEM files.
+            path_save_glw (str): Path to the directory where output files will be saved.
+            cfg (dict): Configuration dictionary containing additional processing parameters.
+            save_monthly_pred (bool, optional): If True, saves monthly mass balance predictions. Defaults to True.
+
+        Returns:
+            None
+
+        Notes:
+            - The function first computes cumulative SMB predictions using the MassBalanceMachine model.
+            - Annual and winter SMB predictions are extracted and saved.
+            - The function loads the glacier's DEM dataset from a Zarr file.
+            - If the DEM file is missing, the function prints a warning and exits.
+            - Predictions are saved using `_save_prediction` for annual and winter MB.
+            - If `save_monthly_pred` is True, `_save_monthly_predictions` is called.
+
+        Raises:
+            FileNotFoundError: If the DEM file for the glacier and year is not found.
+        """
+
+        # Compute cumulative SMB predictions
+        df_grid_monthly = custom_model.cumulative_pred(self.data)
+
+        # Generate annual and winter predictions
+        pred_annual = self.__class__.glacier_wide_pred(
+            custom_model, df_grid_monthly[all_columns], type_pred='annual')
+        pred_winter = self.__class__.glacier_wide_pred(
+            custom_model, df_grid_monthly[all_columns], type_pred='winter')
+
+        # Filter results for the current year
+        pred_y_annual = pred_annual.drop(columns=['YEAR'], errors='ignore')
+        pred_y_winter = pred_winter.drop(columns=['YEAR'], errors='ignore')
+
+        # Save seasonal predictions
+        # Load glacier DEM data
+        dem_path = os.path.join(path_glacier_dem,
+                                f"{glacier_name}_{year}.zarr")
+        if not os.path.exists(dem_path):
+            print(f"DEM file not found for {dem_path}, skipping...")
+            return
+        ds = xr.open_dataset(dem_path)
+
+        # Save both annual and winter predictions using the helper function
+        self._save_prediction(ds, pred_y_annual, glacier_name, year,
+                              path_save_glw, "annual")
+        self._save_prediction(ds, pred_y_winter, glacier_name, year,
+                              path_save_glw, "winter")
+
+        # Save monthly grids
+        if save_monthly_pred:
+            self._save_monthly_predictions(cfg, df_grid_monthly, ds,
+                                           glacier_name, year, path_save_glw)
+
+    def get_mean_SMB(self, custom_model, all_columns):
+        # Compute cumulative SMB predictions
+        df_grid_monthly = custom_model.cumulative_pred(self.data)
+
+        # Generate annual and winter predictions
+        pred_annual = self.__class__.glacier_wide_pred(
+            custom_model, df_grid_monthly[all_columns], type_pred='annual')
+
+        # Filter results for the current year
+        pred_y_annual = pred_annual.drop(columns=['YEAR'], errors='ignore')
+
+        # Take mean over all points:
+        mean_SMB = pred_y_annual.pred.mean()
+        
+        return mean_SMB
+        
     
-    def classify_snow_cover(self, tol = 0.1):
-        # Apply classification logic:
-        # - If pred_masked > -tol, assign 1 (snow)
-        # - If pred_masked <= -tol, assign 3 (ice)
-        # - If pred_masked is NaN, assign NaN
-        self.gdf['classes'] = np.where(
-            self.gdf['pred_masked'] > -tol, 1,
-            np.where(self.gdf['pred_masked'] <= -tol, 3, np.nan))
+    def _save_prediction(self, ds, pred_data, glacier_name, year,
+                         path_save_glw, season):
+        """Helper function to save seasonal glacier-wide predictions."""
+        self.data = pred_data
+        self.pred_to_xr(ds, pred_var='pred', source_type='sgi')
+
+        save_path = os.path.join(path_save_glw, glacier_name)
+        os.makedirs(save_path, exist_ok=True)
+
+        self.save_arrays(f"{glacier_name}_{year}_{season}.zarr",
+                         path=save_path + '/',
+                         proj_type='wgs84')
+        
+    def _save_monthly_predictions(self, cfg, df, ds, glacier_name, year,
+                                  path_save_glw):
+        """Helper function to save monthly predictions."""
+        for month, month_nb in cfg.month_abbr_hydr.items():
+            if month in {'sep_', 'oct', 'nov', 'dec', 'jan', 'feb'}:
+                continue
+
+            df_month = df[df['MONTHS'] == month].groupby('ID').agg({
+                'YEAR':
+                'mean',
+                'POINT_LAT':
+                'mean',
+                'POINT_LON':
+                'mean',
+                'pred':
+                'mean',
+                'cum_pred':
+                'mean'
+            }).drop(columns=['YEAR'], errors='ignore')
+
+            self.data = df_month
+            self.pred_to_xr(ds, pred_var='cum_pred', source_type='sgi')
+            save_path = os.path.join(path_save_glw, glacier_name)
+            os.makedirs(save_path, exist_ok=True)
+            self.save_arrays(f"{glacier_name}_{year}_{month_nb}.zarr",
+                             path=save_path + '/',
+                             proj_type='wgs84')
 
     @staticmethod
-    def save_to_netcdf(ds: xr.Dataset, path: str, filename: str):
+    def glacier_wide_pred(custom_model, df_grid_monthly, type_pred='annual'):
+        if type_pred == 'annual':
+            # Make predictions on whole glacier grid
+            features_grid, metadata_grid = custom_model._create_features_metadata(
+                df_grid_monthly)
+
+            # Make predictions aggregated to measurement ID:
+            y_pred_grid_agg = custom_model.aggrPredict(metadata_grid,
+                                                    features_grid)
+
+            # Aggregate predictions to annual:
+            grouped_ids_annual = df_grid_monthly.groupby('ID').agg({
+                'YEAR':
+                'mean',
+                'POINT_LAT':
+                'mean',
+                'POINT_LON':
+                'mean'
+            })
+            grouped_ids_annual['pred'] = y_pred_grid_agg
+
+            return grouped_ids_annual
+
+        elif type_pred == 'winter':
+            # winter months from October to April
+            winter_months = ['oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr']
+            df_grid_winter = df_grid_monthly[df_grid_monthly.MONTHS.isin(
+                winter_months)]
+
+            # Make predictions on whole glacier grid
+            features_grid, metadata_grid = custom_model._create_features_metadata(
+                df_grid_winter)
+
+            # Make predictions aggregated to measurement ID:
+            y_pred_grid_agg = custom_model.aggrPredict(metadata_grid,
+                                                    features_grid)
+
+            # Aggregate predictions for winter:
+            grouped_ids_winter = df_grid_monthly.groupby('ID').agg({
+                'YEAR':
+                'mean',
+                'POINT_LAT':
+                'mean',
+                'POINT_LON':
+                'mean'
+            })
+            grouped_ids_winter['pred'] = y_pred_grid_agg
+
+            return grouped_ids_winter
+
+        else:
+            raise ValueError(
+                "Unsupported prediction type. Only 'annual' and 'winter' are currently supported."
+            )
+
+    @staticmethod
+    def save_to_zarr(ds: xr.Dataset, path: str, filename: str):
         """Saves the xarray dataset to a netcdf file.
         """
         # Create path if not exists
@@ -251,8 +441,8 @@ class GeoData:
             os.remove(path + filename)
 
         # save prediction to netcdf
-        ds.to_netcdf(path + filename)
-        
+        ds.to_zarr(path + filename)
+
     @staticmethod
     def oggmToWgs84(ds, gdir):
         """Transforms a xarray dataset from OGGM projection to WGS84.
@@ -319,15 +509,17 @@ class GeoData:
         values = data[mask]
 
         # Vectorize coordinate transformation
-        x_coords, y_coords = rasterio.transform.xy(transform, rows, cols, offset="center")
+        x_coords, y_coords = rasterio.transform.xy(transform,
+                                                   rows,
+                                                   cols,
+                                                   offset="center")
 
         # Create GeoDataFrame directly using vectorized data
-        gdf_raster = gpd.GeoDataFrame(
-            {"classes": values},
-            geometry=gpd.points_from_xy(x_coords, y_coords),
-            crs=crs
-        )
-        
+        gdf_raster = gpd.GeoDataFrame({"classes": values},
+                                      geometry=gpd.points_from_xy(
+                                          x_coords, y_coords),
+                                      crs=crs)
+
         return gdf_raster
 
     @staticmethod
