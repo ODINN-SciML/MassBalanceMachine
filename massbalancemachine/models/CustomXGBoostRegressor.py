@@ -126,7 +126,7 @@ class CustomXGBoostRegressor(XGBRegressor):
         clf.fit(features, targets)
         self.param_search = clf
 
-    def fit(self, X: pd.DataFrame, y: np.array,
+    def fit(self, X: pd.DataFrame, y: np.array,  
             **fit_params) -> "CustomXGBoostRegressor":
         """
         Fit the model to the training data.
