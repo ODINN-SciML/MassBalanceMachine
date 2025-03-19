@@ -316,21 +316,20 @@ class GeoData:
 
     def get_mean_SMB(self, custom_model, all_columns):
         # Compute cumulative SMB predictions
-        df_grid_monthly = custom_model.cumulative_pred(self.data)
+        df_grid_monthly = custom_model.cumulative_pred(self.data[all_columns])
 
         # Generate annual and winter predictions
         pred_annual = self.__class__.glacier_wide_pred(
             custom_model, df_grid_monthly[all_columns], type_pred='annual')
 
-        # Filter results for the current year
+        # Drop year column
         pred_y_annual = pred_annual.drop(columns=['YEAR'], errors='ignore')
 
         # Take mean over all points:
         mean_SMB = pred_y_annual.pred.mean()
-        
+
         return mean_SMB
-        
-    
+
     def _save_prediction(self, ds, pred_data, glacier_name, year,
                          path_save_glw, season):
         """Helper function to save seasonal glacier-wide predictions."""
@@ -343,7 +342,7 @@ class GeoData:
         self.save_arrays(f"{glacier_name}_{year}_{season}.zarr",
                          path=save_path + '/',
                          proj_type='wgs84')
-        
+
     def _save_monthly_predictions(self, cfg, df, ds, glacier_name, year,
                                   path_save_glw):
         """Helper function to save monthly predictions."""
@@ -381,16 +380,17 @@ class GeoData:
 
             # Make predictions aggregated to measurement ID:
             y_pred_grid_agg = custom_model.aggrPredict(metadata_grid,
-                                                    features_grid)
+                                                       features_grid)
 
-            # Aggregate predictions to annual:
             grouped_ids_annual = df_grid_monthly.groupby('ID').agg({
                 'YEAR':
-                'mean',
+                lambda x: x.unique().item(),
                 'POINT_LAT':
-                'mean',
+                lambda x: x.unique().item(),
                 'POINT_LON':
-                'mean'
+                lambda x: x.unique().item(),
+                'GLWD_ID':
+                lambda x: x.unique().item()
             })
             grouped_ids_annual['pred'] = y_pred_grid_agg
 
@@ -408,7 +408,7 @@ class GeoData:
 
             # Make predictions aggregated to measurement ID:
             y_pred_grid_agg = custom_model.aggrPredict(metadata_grid,
-                                                    features_grid)
+                                                       features_grid)
 
             # Aggregate predictions for winter:
             grouped_ids_winter = df_grid_monthly.groupby('ID').agg({
