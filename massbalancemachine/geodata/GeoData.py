@@ -285,9 +285,9 @@ class GeoData:
         df_grid_monthly = custom_model.cumulative_pred(self.data)
 
         # Generate annual and winter predictions
-        pred_annual = self.__class__.glacier_wide_pred(
+        pred_annual = custom_model.glacier_wide_pred(
             custom_model, df_grid_monthly[all_columns], type_pred='annual')
-        pred_winter = self.__class__.glacier_wide_pred(
+        pred_winter = custom_model.glacier_wide_pred(
             custom_model, df_grid_monthly[all_columns], type_pred='winter')
 
         # Filter results for the current year
@@ -319,7 +319,7 @@ class GeoData:
         df_grid_monthly = custom_model.cumulative_pred(self.data[all_columns])
 
         # Generate annual and winter predictions
-        pred_annual = self.__class__.glacier_wide_pred(
+        pred_annual = custom_model.glacier_wide_pred(
             custom_model, df_grid_monthly[all_columns], type_pred='annual')
 
         # Drop year column
@@ -370,63 +370,6 @@ class GeoData:
             self.save_arrays(f"{glacier_name}_{year}_{month_nb}.zarr",
                              path=save_path + '/',
                              proj_type='wgs84')
-
-    @staticmethod
-    def glacier_wide_pred(custom_model, df_grid_monthly, type_pred='annual'):
-        if type_pred == 'annual':
-            # Make predictions on whole glacier grid
-            features_grid, metadata_grid = custom_model._create_features_metadata(
-                df_grid_monthly)
-
-            # Make predictions aggregated to measurement ID:
-            y_pred_grid_agg = custom_model.aggrPredict(metadata_grid,
-                                                       features_grid)
-
-            grouped_ids_annual = df_grid_monthly.groupby('ID').agg({
-                'YEAR':
-                lambda x: x.unique().item(),
-                'POINT_LAT':
-                lambda x: x.unique().item(),
-                'POINT_LON':
-                lambda x: x.unique().item(),
-                'GLWD_ID':
-                lambda x: x.unique().item()
-            })
-            grouped_ids_annual['pred'] = y_pred_grid_agg
-
-            return grouped_ids_annual
-
-        elif type_pred == 'winter':
-            # winter months from October to April
-            winter_months = ['oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr']
-            df_grid_winter = df_grid_monthly[df_grid_monthly.MONTHS.isin(
-                winter_months)]
-
-            # Make predictions on whole glacier grid
-            features_grid, metadata_grid = custom_model._create_features_metadata(
-                df_grid_winter)
-
-            # Make predictions aggregated to measurement ID:
-            y_pred_grid_agg = custom_model.aggrPredict(metadata_grid,
-                                                       features_grid)
-
-            # Aggregate predictions for winter:
-            grouped_ids_winter = df_grid_monthly.groupby('ID').agg({
-                'YEAR':
-                'mean',
-                'POINT_LAT':
-                'mean',
-                'POINT_LON':
-                'mean'
-            })
-            grouped_ids_winter['pred'] = y_pred_grid_agg
-
-            return grouped_ids_winter
-
-        else:
-            raise ValueError(
-                "Unsupported prediction type. Only 'annual' and 'winter' are currently supported."
-            )
 
     @staticmethod
     def save_to_zarr(ds: xr.Dataset, path: str, filename: str):
