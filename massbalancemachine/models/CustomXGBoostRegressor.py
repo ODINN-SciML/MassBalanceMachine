@@ -162,7 +162,50 @@ class CustomXGBoostRegressor(XGBRegressor):
 
         # Call the fit function from the XGBoost library with the custom
         # objective function
+        print(features.shape, y.shape)
         super().fit(features, y, **fit_params)
+
+        return self
+
+    def fit_geod(self, X: pd.DataFrame, y: np.array,
+                 geod_periods = [],
+                 **fit_params) -> "CustomXGBoostRegressor":
+        """
+        Fit the model to the training data.
+
+        This method overrides the parent class fit method to incorporate
+        a custom objective function that uses metadata.
+
+        Args:
+            **kwargs:
+            X (pd.DataFrame): The input features including metadata columns.
+            y (array-like): The target values.
+            **fit_params: Additional parameters to be passed to the parent fit method.
+
+        Returns:
+            self: The fitted estimator.
+        """
+
+        # Separate the features from the metadata provided in the dataset
+        features_grid, metadata_grid = self._create_features_metadata(X)
+
+        # If running on GPU need to be converted to cupy
+        if "cuda" in self.get_params()["device"]:
+            features_grid = cp.array(features_grid)
+            y = cp.array(y)
+
+        # Define closure that captures metadata for use in custom objective
+        def custom_objective(y_true, y_pred):
+            return self._custom_mse_metadata(y_true, y_pred, metadata_grid,
+                                             self.cfg.metaData, geod_periods, input_type = 'geod')
+
+        # Set custom objective
+        self.set_params(objective=custom_objective)
+
+        # Call the fit function from the XGBoost library with the custom
+        # objective function
+        print(features_grid.shape, y.shape)
+        super().fit(features_grid, y, **fit_params)
 
         return self
 
@@ -198,6 +241,40 @@ class CustomXGBoostRegressor(XGBRegressor):
 
         if self.cfg.loss == 'MSE':
             return -mse  # Return negative because GridSearchCV maximizes score
+        else:
+            raise ValueError(f"Loss function {self.cfg.loss} not supported.")
+
+    def score_geod(self, X: pd.DataFrame, y: np.array, periods: list) -> float:
+        """
+        Compute the mean squared error of the model on the given test data and labels.
+
+        Args:
+            X (pd.DataFrame): The input features of whole glacier grid including metadata columns.
+            y (array-like): The true geodetic mass balance.
+
+        Returns:
+            float: The negative mean squared error (for compatibility with sklearn's GridSearchCV).
+        """
+
+        # Separate the features from the metadata provided in the dataset
+        features_grid, metadata_grid = self._create_features_metadata(X)
+
+        # If running on GPU need to be converted to cupy
+        if "cuda" in self.get_params()["device"]:
+            features_grid = cp.array(features_grid)
+
+        # Make a prediction based on the features available in the dataset
+        y_pred_grid = self.predict(features_grid)
+
+        y_pred_agg, _ = self._create_metadata_scores_geod(
+            metadata_grid, y_pred_grid, self.cfg.metaData, periods)
+
+        # Compute Mean Squared Error, ignoring NaNs in case of missing data
+        mse = np.nanmean((y_pred_agg - y)**2)
+
+        # Return negative MSE for GridSearchCV compatibility
+        if self.cfg.loss == 'MSE':
+            return -mse
         else:
             raise ValueError(f"Loss function {self.cfg.loss} not supported.")
 
@@ -313,8 +390,7 @@ class CustomXGBoostRegressor(XGBRegressor):
 
     def glacier_wide_pred(self, df_grid):
         # Make predictions on whole glacier grid
-        features_grid, metadata_grid = self._create_features_metadata(
-            df_grid)
+        features_grid, metadata_grid = self._create_features_metadata(df_grid)
 
         # Make predictions aggregated to measurement ID:
         y_pred_grid_agg = self.aggrPredict(metadata_grid, features_grid)
@@ -330,35 +406,16 @@ class CustomXGBoostRegressor(XGBRegressor):
             lambda x: x.unique().item()
         })
         grouped_ids_annual['pred'] = y_pred_grid_agg
+        grouped_ids_annual.reset_index(inplace=True)
+        grouped_ids_annual.sort_values(by='YEAR', inplace=True)
+
+        # check that each GLWD_ID has a unique YEAR
+        assert grouped_ids_annual.groupby(
+            'GLWD_ID').YEAR.nunique().value_counts().values == len(
+                range(df_grid.YEAR.min(),
+                      df_grid.YEAR.max() + 1))
 
         return grouped_ids_annual
-
-        # elif type_pred == 'winter':
-        #     # winter months from October to April
-        #     winter_months = ['oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr']
-        #     df_grid_winter = df_grid[df_grid.MONTHS.isin(winter_months)]
-
-        #     # Make predictions on whole glacier grid
-        #     features_grid, metadata_grid = self._create_features_metadata(
-        #         df_grid_winter)
-
-        #     # Make predictions aggregated to measurement ID:
-        #     y_pred_grid_agg = self.aggrPredict(metadata_grid, features_grid)
-
-        #     # Aggregate predictions for winter:
-        #     grouped_ids_winter = df_grid.groupby('ID').agg({
-        #         'YEAR': 'mean',
-        #         'POINT_LAT': 'mean',
-        #         'POINT_LON': 'mean'
-        #     })
-        #     grouped_ids_winter['pred'] = y_pred_grid_agg
-
-        #     return grouped_ids_winter
-
-        # else:
-        #     raise ValueError(
-        #         "Unsupported prediction type. Only 'annual' and 'winter' are currently supported."
-        #     )
 
     def save_model(self, fname: str) -> None:
         """Save a grid search or randomized search CV instance to a file"""
@@ -419,9 +476,13 @@ class CustomXGBoostRegressor(XGBRegressor):
 
         return features, metadata
 
-    def _custom_mse_metadata(
-            self, y_true: np.array, y_pred: np.array, metadata: np.array,
-            meta_data_columns: list) -> Tuple[np.array, np.array]:
+    def _custom_mse_metadata(self,
+                             y_true: np.array,
+                             y_pred: np.array,
+                             metadata: np.array,
+                             meta_data_columns: list,
+                             geod_periods=[],
+                             input_type='stake',) -> Tuple[np.array, np.array]:
         """
         Compute custom gradients and hessians for the MSE loss, taking into account metadata.
 
@@ -441,14 +502,16 @@ class CustomXGBoostRegressor(XGBRegressor):
         gradients = np.zeros_like(y_pred)
         hessians = np.ones_like(y_pred)
 
-        # Get the aggregated predictions and the mean score based on the true labels, and predicted labels
-        # based on the metadata.
-        y_pred_agg, y_true_mean, grouped_ids, df_metadata = (
-            CustomXGBoostRegressor._create_metadata_scores(metadata,
-                                                           y_true,
-                                                           y_pred,
-                                                           meta_data_columns,
-                                                           period=None))
+        if input_type == 'stake':
+            # Get the aggregated predictions and the mean score based on the true labels, and predicted labels
+            # based on the metadata.
+            y_pred_agg, y_true_mean, grouped_ids, df_metadata = (
+                CustomXGBoostRegressor._create_metadata_scores(
+                    metadata, y_true, y_pred, meta_data_columns, period=None))
+        elif input_type == 'geod':
+            y_pred_agg, grouped_ids = self._create_metadata_scores_geod(
+                metadata, y_pred, self.cfg.metaData, geod_periods)
+
         if self.cfg.loss == 'MSE':
             # Compute gradients and hessians
             # Source: https://xgboosting.com/xgboost-train-model-with-custom-objective-function/#:~:text=XGBoost%20allows%20users%20to%20define,MSE)%20for%20a%20regression%20task.
@@ -503,3 +566,71 @@ class CustomXGBoostRegressor(XGBRegressor):
         y_pred_agg = grouped_ids["y_pred"].sum().values
         y_true_mean = grouped_ids["y_true"].mean().values
         return y_pred_agg, y_true_mean, grouped_ids, df_metadata
+
+    def _create_metadata_scores_geod(
+            self,
+            metadata: np.array,
+            y1: np.array,
+            meta_data_columns: list,
+            geod_periods: list,
+            period: str = None) -> Tuple[np.array, pd.DataFrame]:
+        """
+        Create aggregated scores based on metadata.
+
+        """
+        df_metadata = pd.DataFrame(metadata, columns=meta_data_columns)
+        df_metadata = df_metadata.assign(y_pred=y1)
+
+        # Filter to specific period if necessary
+        if period is not None:
+            df_metadata = df_metadata[df_metadata.PERIOD == period]
+
+        grouped_ids = df_metadata.groupby("ID")
+        y_pred_agg = grouped_ids["y_pred"].sum().values
+
+        grouped_ids = df_metadata.groupby('ID').agg({
+            'YEAR':
+            lambda x: x.unique().item(),
+            'POINT_LAT':
+            lambda x: x.unique().item(),
+            'POINT_LON':
+            lambda x: x.unique().item(),
+            'GLWD_ID':
+            lambda x: x.unique().item()
+        })
+
+        grouped_ids['pred'] = y_pred_agg
+        grouped_ids.reset_index(inplace=True)
+        grouped_ids.sort_values(by='YEAR', inplace=True)
+
+        # Check that each GLWD_ID has a unique YEAR
+        assert grouped_ids.groupby(
+            'GLWD_ID').YEAR.nunique().value_counts().values == len(
+                range(df_metadata.YEAR.min(),
+                      df_metadata.YEAR.max() + 1))
+
+        # Calculate mean SMB per year and store in a DataFrame
+        grouped_ids = grouped_ids.groupby('GLWD_ID').agg(
+            pred_mean=('pred', 'mean'),
+            YEAR=('YEAR', 'first')  # Assumes YEAR is unique per GLWD_ID
+        ).set_index('YEAR')
+
+        # Compute geodetic mass balance predictions
+        geodetic_MB_pred = []
+        for start_year, end_year in geod_periods:
+            geodetic_range = range(start_year, end_year + 1)
+
+            # Ensure years exist in index before selection
+            valid_years = [
+                yr for yr in geodetic_range if yr in grouped_ids.index
+            ]
+            if valid_years:
+                geodetic_MB_pred.append(grouped_ids.loc[valid_years,
+                                                        'pred_mean'].mean())
+            else:
+                geodetic_MB_pred.append(np.nan)  # Handle missing years
+
+        # Convert to NumPy for numerical operations
+        y_pred_agg = np.array(geodetic_MB_pred)
+
+        return y_pred_agg, grouped_ids

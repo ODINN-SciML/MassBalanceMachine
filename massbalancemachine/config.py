@@ -64,8 +64,9 @@ class SwitzerlandConfig(Config):
     def __init__(
             self,
             *args,
-            metaData: List[str] = ["RGIId", "POINT_ID", "ID", "GLWD_ID", "N_MONTHS", "MONTHS", "PERIOD", "GLACIER"],
-            notMetaDataNotFeatures: List[str] = ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"],
+            metaData: List[str] = ["RGIId", "POINT_ID", "ID", "GLWD_ID", "GEOD_ID", "N_MONTHS", "MONTHS", "PERIOD", "GLACIER", "YEAR", "POINT_LAT", "POINT_LON"],
+            # notMetaDataNotFeatures: List[str] = ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"],
+            notMetaDataNotFeatures: List[str] = ["POINT_BALANCE", ],
             **kwargs,
         ):
         super().__init__(*args, **kwargs, metaData=metaData, notMetaDataNotFeatures=notMetaDataNotFeatures)
