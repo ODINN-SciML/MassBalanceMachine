@@ -126,7 +126,7 @@ class CustomXGBoostRegressor(XGBRegressor):
         clf.fit(features, targets)
         self.param_search = clf
 
-    def fit(self, X: pd.DataFrame, y: np.array,  
+    def fit(self, X: pd.DataFrame, y: np.array,
             **fit_params) -> "CustomXGBoostRegressor":
         """
         Fit the model to the training data.
@@ -154,7 +154,8 @@ class CustomXGBoostRegressor(XGBRegressor):
 
         # Define closure that captures metadata for use in custom objective
         def custom_objective(y_true, y_pred):
-            return self._custom_mse_metadata(y_true, y_pred, metadata, self.cfg.metaData)
+            return self._custom_mse_metadata(y_true, y_pred, metadata,
+                                             self.cfg.metaData)
 
         # Set custom objective
         self.set_params(objective=custom_objective)
@@ -251,13 +252,14 @@ class CustomXGBoostRegressor(XGBRegressor):
         return mse, rmse, mae, pearson_corr
 
     def aggrPredict(
-            self,
-            metadata: np.array,
-            features: pd.DataFrame,
-            meta_data_columns: list = None,
-        ) -> np.ndarray:
+        self,
+        metadata: np.array,
+        features: pd.DataFrame,
+        meta_data_columns: list = None,
+    ) -> np.ndarray:
         """
         Makes predictions in aggregated format using the fitted model.
+        Aggregate to meas ID level (annual or seasonal, etc.)
         Args:
             features (pd.DataFrame): The input features.
             meta_data_columns (list[str]): The metadata columns. If not specified,
@@ -301,15 +303,62 @@ class CustomXGBoostRegressor(XGBRegressor):
         df = df.assign(pred=y_pred)
 
         # Vectorized operation for month abbreviation
-        df['MONTH_NB'] = df['MONTHS'].map(
-            self.cfg.month_abbr_hydr)
+        df['MONTH_NB'] = df['MONTHS'].map(self.cfg.month_abbr_hydr)
 
         # Cumulative monthly sums using groupby
         df.sort_values(by=['ID', 'MONTH_NB'], inplace=True)
-        df['cum_pred'] = df.groupby(
-            'ID')['pred'].cumsum()
+        df['cum_pred'] = df.groupby('ID')['pred'].cumsum()
 
         return df
+
+    def glacier_wide_pred(self, df_grid):
+        # Make predictions on whole glacier grid
+        features_grid, metadata_grid = self._create_features_metadata(
+            df_grid)
+
+        # Make predictions aggregated to measurement ID:
+        y_pred_grid_agg = self.aggrPredict(metadata_grid, features_grid)
+
+        grouped_ids_annual = df_grid.groupby('ID').agg({
+            'YEAR':
+            lambda x: x.unique().item(),
+            'POINT_LAT':
+            lambda x: x.unique().item(),
+            'POINT_LON':
+            lambda x: x.unique().item(),
+            'GLWD_ID':
+            lambda x: x.unique().item()
+        })
+        grouped_ids_annual['pred'] = y_pred_grid_agg
+
+        return grouped_ids_annual
+
+        # elif type_pred == 'winter':
+        #     # winter months from October to April
+        #     winter_months = ['oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr']
+        #     df_grid_winter = df_grid[df_grid.MONTHS.isin(winter_months)]
+
+        #     # Make predictions on whole glacier grid
+        #     features_grid, metadata_grid = self._create_features_metadata(
+        #         df_grid_winter)
+
+        #     # Make predictions aggregated to measurement ID:
+        #     y_pred_grid_agg = self.aggrPredict(metadata_grid, features_grid)
+
+        #     # Aggregate predictions for winter:
+        #     grouped_ids_winter = df_grid.groupby('ID').agg({
+        #         'YEAR': 'mean',
+        #         'POINT_LAT': 'mean',
+        #         'POINT_LON': 'mean'
+        #     })
+        #     grouped_ids_winter['pred'] = y_pred_grid_agg
+
+        #     return grouped_ids_winter
+
+        # else:
+        #     raise ValueError(
+        #         "Unsupported prediction type. Only 'annual' and 'winter' are currently supported."
+        #     )
 
     def save_model(self, fname: str) -> None:
         """Save a grid search or randomized search CV instance to a file"""
@@ -336,7 +385,8 @@ class CustomXGBoostRegressor(XGBRegressor):
             print(f"Error accessing file: {file_path}")
             raise
 
-    def _create_features_metadata(self,
+    def _create_features_metadata(
+            self,
             X: pd.DataFrame,
             meta_data_columns: list = None) -> Tuple[np.array, np.ndarray]:
         """
@@ -369,8 +419,8 @@ class CustomXGBoostRegressor(XGBRegressor):
 
         return features, metadata
 
-    def _custom_mse_metadata(self,
-            y_true: np.array, y_pred: np.array, metadata: np.array,
+    def _custom_mse_metadata(
+            self, y_true: np.array, y_pred: np.array, metadata: np.array,
             meta_data_columns: list) -> Tuple[np.array, np.array]:
         """
         Compute custom gradients and hessians for the MSE loss, taking into account metadata.
