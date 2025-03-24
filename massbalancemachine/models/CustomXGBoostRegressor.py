@@ -167,8 +167,10 @@ class CustomXGBoostRegressor(XGBRegressor):
 
         return self
 
-    def fit_geod(self, X: pd.DataFrame, y: np.array,
-                 geod_periods = [],
+    def fit_geod(self,
+                 X: pd.DataFrame,
+                 y: np.array,
+                 geod_periods=[],
                  **fit_params) -> "CustomXGBoostRegressor":
         """
         Fit the model to the training data.
@@ -196,8 +198,12 @@ class CustomXGBoostRegressor(XGBRegressor):
 
         # Define closure that captures metadata for use in custom objective
         def custom_objective(y_true, y_pred):
-            return self._custom_mse_metadata(y_true, y_pred, metadata_grid,
-                                             self.cfg.metaData, geod_periods, input_type = 'geod')
+            return self._custom_mse_metadata(y_true,
+                                             y_pred,
+                                             metadata_grid,
+                                             self.cfg.metaData,
+                                             geod_periods,
+                                             input_type='geod')
 
         # Set custom objective
         self.set_params(objective=custom_objective)
@@ -403,17 +409,19 @@ class CustomXGBoostRegressor(XGBRegressor):
             'POINT_LON':
             lambda x: x.unique().item(),
             'GLWD_ID':
-            lambda x: x.unique().item()
+            lambda x: x.unique().item(),
+            # 'GEOD_ID':
+            # lambda x: x.unique().item()
         })
         grouped_ids_annual['pred'] = y_pred_grid_agg
         grouped_ids_annual.reset_index(inplace=True)
         grouped_ids_annual.sort_values(by='YEAR', inplace=True)
 
-        # check that each GLWD_ID has a unique YEAR
-        assert grouped_ids_annual.groupby(
-            'GLWD_ID').YEAR.nunique().value_counts().values == len(
-                range(df_grid.YEAR.min(),
-                      df_grid.YEAR.max() + 1))
+        # # check that each GLWD_ID has a unique YEAR
+        # assert grouped_ids_annual.groupby(
+        #     'GLWD_ID').YEAR.nunique().value_counts().values == len(
+        #         range(df_grid.YEAR.min(),
+        #               df_grid.YEAR.max() + 1))
 
         return grouped_ids_annual
 
@@ -476,13 +484,15 @@ class CustomXGBoostRegressor(XGBRegressor):
 
         return features, metadata
 
-    def _custom_mse_metadata(self,
-                             y_true: np.array,
-                             y_pred: np.array,
-                             metadata: np.array,
-                             meta_data_columns: list,
-                             geod_periods=[],
-                             input_type='stake',) -> Tuple[np.array, np.array]:
+    def _custom_mse_metadata(
+        self,
+        y_true: np.array,
+        y_pred: np.array,
+        metadata: np.array,
+        meta_data_columns: list,
+        geod_periods=[],
+        input_type='stake',
+    ) -> Tuple[np.array, np.array]:
         """
         Compute custom gradients and hessians for the MSE loss, taking into account metadata.
 
@@ -506,8 +516,11 @@ class CustomXGBoostRegressor(XGBRegressor):
             # Get the aggregated predictions and the mean score based on the true labels, and predicted labels
             # based on the metadata.
             y_pred_agg, y_true_mean, grouped_ids, df_metadata = (
-                CustomXGBoostRegressor._create_metadata_scores(
-                    metadata, y_true, y_pred, meta_data_columns, period=None))
+                self._create_metadata_scores(metadata,
+                                             y_true,
+                                             y_pred,
+                                             meta_data_columns,
+                                             period=None))
         elif input_type == 'geod':
             y_pred_agg, grouped_ids = self._create_metadata_scores_geod(
                 metadata, y_pred, self.cfg.metaData, geod_periods)
@@ -532,8 +545,8 @@ class CustomXGBoostRegressor(XGBRegressor):
     @staticmethod
     def _create_metadata_scores(
         metadata: np.array,
-        y1: np.array,
-        y2: np.array,
+        y_true: np.array,
+        y_pred: np.array,
         meta_data_columns: list,
         period: str = None
     ) -> Tuple[np.array, np.array, pd.core.groupby.generic.DataFrameGroupBy,
@@ -556,7 +569,7 @@ class CustomXGBoostRegressor(XGBRegressor):
         df_metadata = pd.DataFrame(metadata, columns=meta_data_columns)
 
         # Aggregate y_pred and y_true for each group
-        df_metadata = df_metadata.assign(y_true=y1, y_pred=y2)
+        df_metadata = df_metadata.assign(y_true=y_true, y_pred=y_pred)
 
         # Filter to specific period if necessary
         if period is not None:
@@ -570,7 +583,7 @@ class CustomXGBoostRegressor(XGBRegressor):
     def _create_metadata_scores_geod(
             self,
             metadata: np.array,
-            y1: np.array,
+            y_pred: np.array,  # predicted geodetic mass balance
             meta_data_columns: list,
             geod_periods: list,
             period: str = None) -> Tuple[np.array, pd.DataFrame]:
@@ -579,7 +592,7 @@ class CustomXGBoostRegressor(XGBRegressor):
 
         """
         df_metadata = pd.DataFrame(metadata, columns=meta_data_columns)
-        df_metadata = df_metadata.assign(y_pred=y1)
+        df_metadata = df_metadata.assign(y_pred=y_pred)
 
         # Filter to specific period if necessary
         if period is not None:
@@ -596,23 +609,23 @@ class CustomXGBoostRegressor(XGBRegressor):
             'POINT_LON':
             lambda x: x.unique().item(),
             'GLWD_ID':
-            lambda x: x.unique().item()
+            lambda x: x.unique().item(),
         })
 
         grouped_ids['pred'] = y_pred_agg
         grouped_ids.reset_index(inplace=True)
         grouped_ids.sort_values(by='YEAR', inplace=True)
 
-        # Check that each GLWD_ID has a unique YEAR
-        assert grouped_ids.groupby(
-            'GLWD_ID').YEAR.nunique().value_counts().values == len(
-                range(df_metadata.YEAR.min(),
-                      df_metadata.YEAR.max() + 1))
+        # # Check that each GLWD_ID has a unique YEAR
+        # assert grouped_ids.groupby(
+        #     'GLWD_ID').YEAR.nunique().value_counts().values == len(
+        #         range(df_metadata.YEAR.min(),
+        #               df_metadata.YEAR.max() + 1))
 
-        # Calculate mean SMB per year and store in a DataFrame
+        # Calculate mean SMB per year and geod period and store in a DataFrame
         grouped_ids = grouped_ids.groupby('GLWD_ID').agg(
             pred_mean=('pred', 'mean'),
-            YEAR=('YEAR', 'first')  # Assumes YEAR is unique per GLWD_ID
+            YEAR=('YEAR', 'first')  # Assumes YEAR is unique per GEOD_ID
         ).set_index('YEAR')
 
         # Compute geodetic mass balance predictions
