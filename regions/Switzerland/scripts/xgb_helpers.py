@@ -5,16 +5,21 @@ import massbalancemachine as mbm
 from sklearn.model_selection import GroupKFold, KFold, train_test_split, GroupShuffleSplit
 import geopandas as gpd
 import xarray as xr
-import numpy as np 
+import numpy as np
 import hashlib
 from tqdm.notebook import tqdm
 
 from scripts.config_CH import *
+from scripts.helpers import Diff
 
 
-def process_or_load_data(run_flag, data_glamos, paths, cfg, vois_climate,
-                         vois_topographical, 
-                         output_file = 'CH_wgms_dataset_monthly_full.csv'):
+def process_or_load_data(run_flag,
+                         data_glamos,
+                         paths,
+                         cfg,
+                         vois_climate,
+                         vois_topographical,
+                         output_file='CH_wgms_dataset_monthly_full.csv'):
     """
     Process or load the data based on the RUN flag.
     """
@@ -72,8 +77,7 @@ def process_or_load_data(run_flag, data_glamos, paths, cfg, vois_climate,
         logging.info("Columns in the dataset: %s", dataloader_gl.data.columns)
 
         # Save processed data
-        output_file = os.path.join(paths['csv_path'],
-                                   output_file)
+        output_file = os.path.join(paths['csv_path'], output_file)
         dataloader_gl.data.to_csv(output_file, index=False)
         logging.info("Processed data saved to: %s", output_file)
 
@@ -81,8 +85,7 @@ def process_or_load_data(run_flag, data_glamos, paths, cfg, vois_climate,
     else:
         # Load preprocessed data
         try:
-            input_file = os.path.join(paths['csv_path'],
-                                      output_file)
+            input_file = os.path.join(paths['csv_path'], output_file)
             data_monthly = pd.read_csv(input_file)
             dataloader_gl = mbm.DataLoader(cfg,
                                            data=data_monthly,
@@ -104,10 +107,10 @@ def process_or_load_data(run_flag, data_glamos, paths, cfg, vois_climate,
 
 
 def get_CV_splits(dataloader_gl,
-                test_split_on='YEAR',
-                test_splits=None,
-                random_state=0,
-                test_size=0.2):
+                  test_split_on='YEAR',
+                  test_splits=None,
+                  random_state=0,
+                  test_size=0.2):
     # Split into training and test splits with train_test_split
     if test_splits is None:
         train_splits, test_splits = train_test_split(
@@ -139,7 +142,8 @@ def get_CV_splits(dataloader_gl,
     test_splits = df_X_test[test_split_on].unique()
 
     # Create the CV splits based on the training dataset. The default value for the number of splits is 5.
-    cv_splits = dataloader_gl.get_cv_split(n_splits=5, type_fold='group-meas-id')
+    cv_splits = dataloader_gl.get_cv_split(n_splits=5,
+                                           type_fold='group-meas-id')
 
     test_set = {
         'df_X': df_X_test,
@@ -272,70 +276,86 @@ def correct_vars_grid(df_grid_monthly,
 
     return df_grid_monthly
 
+
 # Generate a unique glacier-wide ID
 def get_hash(unique_string):
     unique_id = hashlib.md5(
         unique_string.encode()).hexdigest()[:10]  # Shortened hash
     return unique_id
 
+
+# def create_geodetic_input_full(glacier_name, periods_per_glacier, geodetic_mb):
+#     """
+#     Creates a geodetic input array for MBM for a given glacier.
+    
+#     Parameters:
+#     - glacier_name (str): Name of the glacier.
+#     - path_glacier_grid_glamos (str): Path to the glacier grid files.
+#     - periods_per_glacier (dict): Dictionary mapping glacier names to year ranges.
+#     - all_columns (list): List of required columns.
+
+#     Returns:
+#     - pd.DataFrame: Processed geodetic input dataframe.
+#     """
+
+#     df_X_geod = pd.DataFrame()
+
+#     if glacier_name not in periods_per_glacier:
+#         print(
+#             f"Warning: No geodetic periods found for {glacier_name}, skipping..."
+#         )
+#         return df_X_geod
+
+#     for geod_period in tqdm(periods_per_glacier[glacier_name]):
+#         # Get the target geod mb for that period
+#         geodetic_MB_target = geodetic_mb[
+#             (geodetic_mb.glacier_name == glacier_name)
+#             & (geodetic_mb.Astart == geod_period[0])
+#             & (geodetic_mb.Aend == geod_period[1])].Bgeod.values[0]
+
+#         for year in range(geod_period[0], geod_period[1] + 1):
+#             file_name = f"{glacier_name}_grid_{year}.parquet"
+#             file_path = os.path.join(path_glacier_grid_glamos, glacier_name,
+#                                      file_name)
+
+#             if not os.path.exists(file_path):
+#                 print(f"Warning: File {file_name} not found, skipping...")
+#                 continue
+
+#             # Load parquet input glacier grid file in monthly format (pre-processed)
+#             df_grid_monthly = pd.read_parquet(file_path)
+#             df_grid_monthly.drop_duplicates(inplace=True)
+
+#             # Transform to seasonal
+#             df_grid_seas = transform_df_to_seasonal(df_grid_monthly)
+
+#             # Add GLWD_ID (unique glacier-wide ID for the year)
+#             df_grid_seas['GLWD_ID'] = get_hash(f"{glacier_name}_{year}_{str(geod_period)}")
+#             df_grid_seas['GEOD_ID'] = get_hash(
+#                 f"{glacier_name}_{str(geod_period)}")
+
+#             # Generate a unique ID per stake measurement & geod period by modifying the existing ID
+#             # Otherwise would repeat the same ID for all periods as years repeat themselves
+#             if 'ID' in df_grid_seas.columns:
+#                 df_grid_seas['ID'] = df_grid_seas.apply(
+#                     lambda x: get_hash(f"{x.ID}_{x.GEOD_ID}_{x.GLWD_ID}"), axis=1)
+#             else:
+#                 print(
+#                     f"Warning: 'ID' column missing in {file_name}, skipping ID modification."
+#                 )
+#             # Add the target geodetic mass balance
+#             df_grid_seas['GEOD_MB_TARGET'] = geodetic_MB_target
+            
+#             # Append to the final dataframe
+#             df_X_geod = pd.concat([df_X_geod, df_grid_seas], ignore_index=True)
+
+#     return df_X_geod
+
+
 def create_geodetic_input(glacier_name, periods_per_glacier):
     """
     Creates a geodetic input array for MBM for a given glacier.
-    
-    Parameters:
-    - glacier_name (str): Name of the glacier.
-    - path_glacier_grid_glamos (str): Path to the glacier grid files.
-    - periods_per_glacier (dict): Dictionary mapping glacier names to year ranges.
-    - all_columns (list): List of required columns.
 
-    Returns:
-    - pd.DataFrame: Processed geodetic input dataframe.
-    """
-
-    df_X_geod = pd.DataFrame()
-    
-    if glacier_name not in periods_per_glacier:
-        print(f"Warning: No geodetic periods found for {glacier_name}, skipping...")
-        return df_X_geod
-
-    for geod_period in tqdm(periods_per_glacier[glacier_name]):
-        for year in range(geod_period[0], geod_period[1] + 1):
-            file_name = f"{glacier_name}_grid_{year}.parquet"
-            file_path = os.path.join(path_glacier_grid_glamos, glacier_name,
-                                    file_name)
-
-            if not os.path.exists(file_path):
-                print(f"Warning: File {file_name} not found, skipping...")
-                continue
-
-            # Load parquet input glacier grid file in monthly format (pre-processed)
-            df_grid_monthly = pd.read_parquet(file_path)
-            df_grid_monthly.drop_duplicates(inplace=True)
-
-            # Add GLWD_ID (unique glacier-wide ID for the year)
-            df_grid_monthly['GLWD_ID'] = get_hash(f"{glacier_name}_{year}")
-            df_grid_monthly['GEOD_ID'] = get_hash(f"{glacier_name}_{str(geod_period)}")
- 
-            # Generate a unique ID per stake measurement & geod period by modifying the existing ID
-            # Otherwise would repeat the same ID for all periods as years repeat themselves
-            if 'ID' in df_grid_monthly.columns:
-                df_grid_monthly['ID'] = df_grid_monthly.apply(
-                    lambda x: get_hash(f"{x.ID}_{x.GEOD_ID}"), axis=1)
-            else:
-                print(
-                    f"Warning: 'ID' column missing in {file_name}, skipping ID modification."
-                )
-
-            # Append to the final dataframe
-            df_X_geod = pd.concat([df_X_geod, df_grid_monthly], ignore_index=True)
-
-    return df_X_geod
-
-
-def create_geodetic_input_old(glacier_name, periods_per_glacier):
-    """
-    Creates a geodetic input array for MBM for a given glacier.
-    
     Parameters:
     - glacier_name (str): Name of the glacier.
     - path_glacier_grid_glamos (str): Path to the glacier grid files.
@@ -365,12 +385,16 @@ def create_geodetic_input_old(glacier_name, periods_per_glacier):
         df_grid_monthly = pd.read_parquet(file_path)
         df_grid_monthly.drop_duplicates(inplace=True)
 
+        
+        # Transform to seasonal
+        df_grid_seas = transform_df_to_seasonal(df_grid_monthly)
+
         # Add GLWD_ID (unique glacier-wide ID for the year)
-        df_grid_monthly['GLWD_ID'] = get_hash(f"{glacier_name}_{year}")
+        df_grid_seas['GLWD_ID'] = get_hash(f"{glacier_name}_{year}")
 
         # Generate a unique ID per year by modifying the existing ID
-        if 'ID' in df_grid_monthly.columns:
-            df_grid_monthly['ID'] = df_grid_monthly.apply(
+        if 'ID' in df_grid_seas.columns:
+            df_grid_seas['ID'] = df_grid_seas.apply(
                 lambda x: get_hash(f"{x.ID}_{x.YEAR}"), axis=1)
         else:
             print(
@@ -378,6 +402,68 @@ def create_geodetic_input_old(glacier_name, periods_per_glacier):
             )
 
         # Append to the final dataframe
-        df_X_geod = pd.concat([df_X_geod, df_grid_monthly], ignore_index=True)
+        df_X_geod = pd.concat([df_X_geod, df_grid_seas], ignore_index=True)
 
     return df_X_geod
+
+
+def transform_df_to_seasonal(data_monthly):
+    # Aggregate to seasonal MB:
+    months_winter = ['oct', 'nov', 'dec', 'jan', 'feb', 'mar']
+    months_summer = ['apr', 'may', 'jun', 'jul', 'aug', 'sep']
+
+    data_monthly['SEASON'] = np.where(
+        data_monthly['MONTHS'].isin(months_winter), 'winter', 'summer')
+
+    numerical_cols = [
+        'YEAR',
+        'POINT_LON',
+        'POINT_LAT',
+        'POINT_BALANCE',
+        'ALTITUDE_CLIMATE',
+        'ELEVATION_DIFFERENCE',
+        'POINT_ELEVATION',
+        'N_MONTHS',
+        'aspect_sgi',
+        'slope_sgi',
+        'hugonnet_dhdt',
+        'consensus_ice_thickness',
+        'millan_v',
+        't2m',
+        'tp',
+        'slhf',
+        'sshf',
+        'ssrd',
+        'fal',
+        'str',
+        'u10',
+        'v10',
+        'pcsr',
+    ]
+
+    # All other non-numerical, non-grouping columns are assumed categorical
+    exclude_cols = set(numerical_cols + ['ID', 'MONTHS', 'SEASON'])
+    categorical_cols = [
+        col for col in data_monthly.columns if col not in exclude_cols
+    ]
+
+    # Aggregate numerical
+    data_seas_num = data_monthly.groupby(
+        ['ID', 'SEASON'], as_index=False)[numerical_cols].mean()
+
+    # Get one row per group for categoricals (assumes values per group are consistent)
+    data_seas_cat = (data_monthly[['ID', 'SEASON'] +
+                                  categorical_cols].drop_duplicates(
+                                      subset=['ID', 'SEASON']))
+
+    # Merge numerical + categorical
+    data_seas = pd.merge(data_seas_num,
+                         data_seas_cat,
+                         on=['ID', 'SEASON'],
+                         how='inner')
+
+    # Add MONTHS list back in
+    season_months = {'winter': months_winter, 'summer': months_summer}
+    data_seas['MONTHS'] = data_seas['SEASON'].map(season_months)
+
+    return data_seas
