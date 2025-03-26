@@ -65,7 +65,6 @@ class SwitzerlandConfig(Config):
             self,
             *args,
             metaData: List[str] = ["RGIId", "POINT_ID", "ID", "GLWD_ID", "N_MONTHS", "MONTHS", "PERIOD", "GLACIER", "YEAR", "POINT_LAT", "POINT_LON"],
-            # notMetaDataNotFeatures: List[str] = ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"],
             notMetaDataNotFeatures: List[str] = ["POINT_BALANCE", ],
             **kwargs,
         ):

@@ -156,6 +156,7 @@ class GeoData:
             raise ValueError("proj_type must be either 'wgs84' or 'lv95'.")
 
     def xr_to_gpd(self):
+        """Converts an xarray dataset to a geopandas dataframe."""
         # Get lat and lon, and variables data
         lat = self.ds_latlon['lat'].values
         lon = self.ds_latlon['lon'].values
@@ -286,9 +287,9 @@ class GeoData:
 
         # Generate annual and winter predictions
         pred_annual = custom_model.glacier_wide_pred(
-            custom_model, df_grid_monthly[all_columns], type_pred='annual')
+            df_grid_monthly[all_columns], type_pred='annual')
         pred_winter = custom_model.glacier_wide_pred(
-            custom_model, df_grid_monthly[all_columns], type_pred='winter')
+            df_grid_monthly[all_columns], type_pred='winter')
 
         # Filter results for the current year
         pred_y_annual = pred_annual.drop(columns=['YEAR'], errors='ignore')
@@ -315,6 +316,7 @@ class GeoData:
                                            glacier_name, year, path_save_glw)
 
     def get_mean_SMB(self, custom_model, all_columns):
+        """Computes the mean surface mass balance (SMB) for a glacier using the MassBalanceMachine model."""
         # Compute cumulative SMB predictions
         df_grid_monthly = custom_model.cumulative_pred(self.data[all_columns])
 
