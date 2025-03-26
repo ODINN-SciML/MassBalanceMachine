@@ -450,7 +450,6 @@ class CustomXGBoostRegressor(XGBRegressor):
         metadata: np.array,
         meta_data_columns: list,
         geod_periods=[],
-        input_type='stake',
     ) -> Tuple[np.array, np.array]:
         """
         Compute custom gradients and hessians for the MSE loss, taking into account metadata.
@@ -471,18 +470,14 @@ class CustomXGBoostRegressor(XGBRegressor):
         gradients = np.zeros_like(y_pred)
         hessians = np.ones_like(y_pred)
 
-        if input_type == 'stake':
-            # Get the aggregated predictions and the mean score based on the true labels, and predicted labels
-            # based on the metadata.
-            y_pred_agg, y_true_mean, grouped_ids, df_metadata = (
-                self._create_metadata_scores(metadata,
-                                             y_true,
-                                             y_pred,
-                                             meta_data_columns,
-                                             period=None))
-        elif input_type == 'geod':
-            y_pred_agg, grouped_ids = self._create_metadata_scores_geod(
-                metadata, y_pred, self.cfg.metaData, geod_periods)
+        # Get the aggregated predictions and the mean score based on the true labels, and predicted labels
+        # based on the metadata.
+        y_pred_agg, y_true_mean, grouped_ids, df_metadata = (
+            self._create_metadata_scores(metadata,
+                                            y_true,
+                                            y_pred,
+                                            meta_data_columns,
+                                            period=None))
 
         if self.cfg.loss == 'MSE':
             # Compute gradients and hessians
