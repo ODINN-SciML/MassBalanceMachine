@@ -167,54 +167,6 @@ class CustomXGBoostRegressor(XGBRegressor):
 
         return self
 
-    def fit_geod(self,
-                 X: pd.DataFrame,
-                 y: np.array,
-                 geod_periods=[],
-                 **fit_params) -> "CustomXGBoostRegressor":
-        """
-        Fit the model to the training data.
-
-        This method overrides the parent class fit method to incorporate
-        a custom objective function that uses metadata.
-
-        Args:
-            **kwargs:
-            X (pd.DataFrame): The input features including metadata columns.
-            y (array-like): The target values.
-            **fit_params: Additional parameters to be passed to the parent fit method.
-
-        Returns:
-            self: The fitted estimator.
-        """
-
-        # Separate the features from the metadata provided in the dataset
-        features_grid, metadata_grid = self._create_features_metadata(X)
-
-        # If running on GPU need to be converted to cupy
-        if "cuda" in self.get_params()["device"]:
-            features_grid = cp.array(features_grid)
-            y = cp.array(y)
-
-        # Define closure that captures metadata for use in custom objective
-        def custom_objective(y_true, y_pred):
-            return self._custom_mse_metadata(y_true,
-                                             y_pred,
-                                             metadata_grid,
-                                             self.cfg.metaData,
-                                             geod_periods,
-                                             input_type='geod')
-
-        # Set custom objective
-        self.set_params(objective=custom_objective)
-
-        # Call the fit function from the XGBoost library with the custom
-        # objective function
-        print(features_grid.shape, y.shape)
-        super().fit(features_grid, y, **fit_params)
-
-        return self
-
     def score(self, X: pd.DataFrame, y: np.array) -> float:
         """
         Compute the mean squared error of the model on the given test data and labels.
@@ -252,7 +204,7 @@ class CustomXGBoostRegressor(XGBRegressor):
 
     def score_geod(self, X: pd.DataFrame, y: np.array, periods: list) -> float:
         """
-        Compute the mean squared error of the model on the given test data and labels.
+        Compute the mean squared error of the model on the given geodetic data and target MB.
 
         Args:
             X (pd.DataFrame): The input features of whole glacier grid including metadata columns.
@@ -394,14 +346,29 @@ class CustomXGBoostRegressor(XGBRegressor):
 
         return df
 
-    def glacier_wide_pred(self, df_grid):
+    def glacier_wide_pred(self, df_grid, type_pred='annual'):
+        """    
+        Generate predictions for an entire glacier grid 
+        and return them aggregated by measurement point ID.
+        
+        Args:
+            df_grid (pd.DataFrame): The input features of whole glacier grid including metadata columns.
+            
+        Returns:
+            pd.DataFrame: The aggregated predictions for each measurement point ID.
+        """
+        if type_pred == 'winter':
+            # winter months from October to April
+            winter_months = ['oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr']
+            df_grid = df_grid[df_grid.MONTHS.isin(winter_months)]
+
         # Make predictions on whole glacier grid
         features_grid, metadata_grid = self._create_features_metadata(df_grid)
 
         # Make predictions aggregated to measurement ID:
         y_pred_grid_agg = self.aggrPredict(metadata_grid, features_grid)
 
-        grouped_ids_annual = df_grid.groupby('ID').agg({
+        grouped_ids = df_grid.groupby('ID').agg({
             'YEAR':
             lambda x: x.unique().item(),
             'POINT_LAT':
@@ -410,20 +377,12 @@ class CustomXGBoostRegressor(XGBRegressor):
             lambda x: x.unique().item(),
             'GLWD_ID':
             lambda x: x.unique().item(),
-            # 'GEOD_ID':
-            # lambda x: x.unique().item()
         })
-        grouped_ids_annual['pred'] = y_pred_grid_agg
-        grouped_ids_annual.reset_index(inplace=True)
-        grouped_ids_annual.sort_values(by='YEAR', inplace=True)
+        grouped_ids['pred'] = y_pred_grid_agg
+        grouped_ids.reset_index(inplace=True)
+        grouped_ids.sort_values(by='YEAR', inplace=True)
 
-        # # check that each GLWD_ID has a unique YEAR
-        # assert grouped_ids_annual.groupby(
-        #     'GLWD_ID').YEAR.nunique().value_counts().values == len(
-        #         range(df_grid.YEAR.min(),
-        #               df_grid.YEAR.max() + 1))
-
-        return grouped_ids_annual
+        return grouped_ids
 
     def save_model(self, fname: str) -> None:
         """Save a grid search or randomized search CV instance to a file"""
@@ -588,7 +547,7 @@ class CustomXGBoostRegressor(XGBRegressor):
             geod_periods: list,
             period: str = None) -> Tuple[np.array, pd.DataFrame]:
         """
-        Create aggregated scores based on metadata.
+        Create aggregated geodetic scores based on metadata.
 
         """
         df_metadata = pd.DataFrame(metadata, columns=meta_data_columns)
@@ -615,12 +574,6 @@ class CustomXGBoostRegressor(XGBRegressor):
         grouped_ids['pred'] = y_pred_agg
         grouped_ids.reset_index(inplace=True)
         grouped_ids.sort_values(by='YEAR', inplace=True)
-
-        # # Check that each GLWD_ID has a unique YEAR
-        # assert grouped_ids.groupby(
-        #     'GLWD_ID').YEAR.nunique().value_counts().values == len(
-        #         range(df_metadata.YEAR.min(),
-        #               df_metadata.YEAR.max() + 1))
 
         # Calculate mean SMB per year and geod period and store in a DataFrame
         grouped_ids = grouped_ids.groupby('GLWD_ID').agg(
