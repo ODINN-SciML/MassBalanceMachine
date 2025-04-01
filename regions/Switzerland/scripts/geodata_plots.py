@@ -207,13 +207,13 @@ def plot_mass_balance(glacier_name, year, df_stakes,
 
     # Load MBM predictions (Annual)
     mbm_file_ann = os.path.join(PATH_PREDICTIONS, glacier_name,
-                                f"{glacier_name}_{year}_annual.nc")
+                                f"{glacier_name}_{year}_annual.zarr")
     ds_mbm_ann = xr.open_dataset(mbm_file_ann)
     ds_mbm_ann = apply_gaussian_filter(ds_mbm_ann)
 
     # Load MBM predictions (Winter)
     mbm_file_win = os.path.join(PATH_PREDICTIONS, glacier_name,
-                                f"{glacier_name}_{year}_winter.nc")
+                                f"{glacier_name}_{year}_winter.zarr")
     ds_mbm_win = xr.open_dataset(mbm_file_win)
     ds_mbm_win = apply_gaussian_filter(ds_mbm_win)
 
