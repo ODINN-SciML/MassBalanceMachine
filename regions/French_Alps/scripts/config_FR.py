@@ -1,38 +1,38 @@
-# <------------------ GLAMOS DATA: ------------------>
+# <------------------ GLACIOCLIM DATA: ------------------>
 # Point data
-path_PMB_GLAMOS_raw = '/home/mburlet/DATA_MBM/GLAMOS/point/point_raw/'
-path_PMB_GLAMOS_w_raw = path_PMB_GLAMOS_raw + 'winter/'
-path_PMB_GLAMOS_a_raw = path_PMB_GLAMOS_raw + 'annual/'
+path_PMB_GLACIOCLIM_raw = '/home/mburlet/DATA_MBM/GLACIOCLIM/point/point_raw/'
+path_PMB_GLACIOCLIM_w_raw = path_PMB_GLACIOCLIM_raw + 'winter/'
+path_PMB_GLACIOCLIM_a_raw = path_PMB_GLACIOCLIM_raw + 'annual/'
 
-path_PMB_GLAMOS_csv = '/home/mburlet/DATA_MBM/GLAMOS/point/csv/'
-path_PMB_GLAMOS_csv_w = path_PMB_GLAMOS_csv + 'winter/'
-path_PMB_GLAMOS_csv_w_clean = path_PMB_GLAMOS_csv + 'winter_clean/'
-path_PMB_GLAMOS_csv_a = path_PMB_GLAMOS_csv + 'annual/'
+path_PMB_GLACIOCLIM_csv = '/home/mburlet/DATA_MBM/GLACIOCLIM/point/csv/'
+path_PMB_GLACIOCLIM_csv_w = path_PMB_GLACIOCLIM_csv + 'winter/'
+path_PMB_GLACIOCLIM_csv_w_clean = path_PMB_GLACIOCLIM_csv + 'winter_clean/'
+path_PMB_GLACIOCLIM_csv_a = path_PMB_GLACIOCLIM_csv + 'annual/'
 
 # Glacier wide data
-path_SMB_GLAMOS_raw = '/home/mburlet/DATA_MBM/GLAMOS/glacier-wide/raw/'
-path_SMB_GLAMOS_csv = '/home/mburlet/DATA_MBM/GLAMOS/glacier-wide/csv/'
+path_SMB_GLACIOCLIM_raw = '/home/mburlet/DATA_MBM/GLACIOCLIM/glacier-wide/raw/'
+path_SMB_GLACIOCLIM_csv = '/home/mburlet/DATA_MBM/GLACIOCLIM/glacier-wide/csv/'
 
 # Gridded data for MBM to use for making predictions over whole grid (SGI or RGI grid)
-path_glacier_grid_rgi = '/home/mburlet/DATA_MBM/GLAMOS/topo/gridded_topo_inputs/RGI_grid/' # DEMs & topo
-path_glacier_grid_sgi = '/home/mburlet/DATA_MBM/GLAMOS/topo/gridded_topo_inputs/SGI_grid/' # DEMs & topo 
-path_glacier_grid_glamos = '/home/mburlet/DATA_MBM/GLAMOS/topo/gridded_topo_inputs/GLAMOS_grid/'
+path_glacier_grid_rgi = '/home/mburlet/DATA_MBM/GLACIOCLIM/topo/gridded_topo_inputs/RGI_grid/' # DEMs & topo
+path_glacier_grid_sgi = '/home/mburlet/DATA_MBM/GLACIOCLIM/topo/gridded_topo_inputs/SGI_grid/' # DEMs & topo 
+path_glacier_grid_GLACIOCLIM = '/home/mburlet/DATA_MBM/GLACIOCLIM/topo/gridded_topo_inputs/GLACIOCLIM_grid/'
 
 # Topo data
-path_SGI_topo = '/home/mburlet/DATA_MBM/GLAMOS/topo/SGI2020/' # DEMs & topo from SGI
-path_GLAMOS_topo = '/home/mburlet/DATA_MBM/GLAMOS/topo/GLAMOS_DEM/' # yearly DEMs from GLAMOS
-path_pcsr = '/home/mburlet/DATA_MBM/GLAMOS/topo/pcsr/' # Potential incoming clear sky solar radiation from GLAMOS
+path_SGI_topo = '/home/mburlet/DATA_MBM/GLACIOCLIM/topo/SGI2020/' # DEMs & topo from SGI
+path_GLACIOCLIM_topo = '/home/mburlet/DATA_MBM/GLACIOCLIM/topo/GLACIOCLIM_DEM/' # yearly DEMs from GLACIOCLIM
+path_pcsr = '/home/mburlet/DATA_MBM/GLACIOCLIM/topo/pcsr/' # Potential incoming clear sky solar radiation from GLACIOCLIM
 
-path_distributed_MB_glamos = '/home/mburlet/DATA_MBM/GLAMOS/distributed_MB_grids/'
-path_geodetic_MB_glamos = '/home/mburlet/DATA_MBM/GLAMOS/geodetic/'
-path_glacier_ids = '/home/mburlet/DATA_MBM/GLAMOS/CH_glacier_ids_long.csv' # glacier ids for CH glaciers
+path_distributed_MB_GLACIOCLIM = '/home/mburlet/DATA_MBM/GLACIOCLIM/distributed_MB_grids/'
+path_geodetic_MB_GLACIOCLIM = '/home/mburlet/DATA_MBM/GLACIOCLIM/geodetic/'
+path_glacier_ids = '/home/mburlet/DATA_MBM/GLACIOCLIM/CH_glacier_ids_long.csv' # glacier ids for CH glaciers
 
 # <------------------ OTHER PATHS: ------------------>
 path_ERA5_raw = '/home/mburlet/DATA_MBM/ERA5Land/raw/' # ERA5-Land
 path_S2 = '/home/mburlet/DATA_MBM/Sentinel/' # Sentinel-2
 path_OGGM = '/home/mburlet/DATA_MBM/OGGM/'
 path_glogem = '/home/mburlet/DATA_MBM/GloGEM' # glogem c_prec and t_off factors
-path_rgi_outlines = '/home/mburlet/DATA_MBM/GLAMOS/RGI/nsidc0770_11.rgi60.CentralEurope/11_rgi60_CentralEurope.shp'
+path_rgi_outlines = '/home/mburlet/DATA_MBM/GLACIOCLIM/RGI/nsidc0770_11.rgi60.CentralEurope/11_rgi60_CentralEurope.shp'
 
 # <------------------OTHER USEFUL FUNCTIONS & ATTRIBUTES: ------------------>
 vois_climate_long_name = {
