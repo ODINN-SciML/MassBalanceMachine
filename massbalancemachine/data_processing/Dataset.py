@@ -156,11 +156,11 @@ class Dataset:
         ds, glacier_indices, gdir = get_glacier_mask(self.data,
                                                      custom_working_dir,
                                                      self.cfg)
-        years_stake = self.data['YEAR'].unique()
+        # years_stake = self.data['YEAR'].unique()
         
         # Fixed time range because we want the grid from the beginning
         # of climate data to end (not just when there are stake measurements)
-        years = range(1951, 2023)
+        years = range(1951, 2024)
         rgi_gl = self.data['RGIId'].unique()[0]
         df_grid = create_glacier_grid_RGI(ds, years, glacier_indices, gdir,
                                        rgi_gl)
