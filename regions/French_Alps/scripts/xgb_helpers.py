@@ -11,7 +11,7 @@ from scripts.config_FR import *
 
 def process_or_load_data(run_flag, data_glamos, paths, cfg, vois_climate,
                          vois_topographical, 
-                         output_file = 'CH_wgms_dataset_monthly_full.csv'):
+                         output_file = 'FR_wgms_dataset_monthly_full.csv'):
     """
     Process or load the data based on the RUN flag.
     """
