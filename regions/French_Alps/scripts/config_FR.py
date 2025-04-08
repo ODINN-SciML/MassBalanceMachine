@@ -5,7 +5,7 @@ path_PMB_GLACIOCLIM_w_raw = path_PMB_GLACIOCLIM_raw + 'winter/'
 path_PMB_GLACIOCLIM_a_raw = path_PMB_GLACIOCLIM_raw + 'annual/'
 path_PMB_GLACIOCLIM_s_raw = path_PMB_GLACIOCLIM_raw + 'summer/'
 
-path_PMB_GLACIOCLIM_csv = '/home/mburlet/DATA_MBM/GLACIOCLIM/point/csv/'
+path_PMB_GLACIOCLIM_csv = '/home/mburlet/DATA_MBM/GLACIOCLIM/WGMS_all/'
 path_PMB_GLACIOCLIM_csv_w = path_PMB_GLACIOCLIM_csv + 'winter/'
 path_PMB_GLACIOCLIM_csv_w_clean = path_PMB_GLACIOCLIM_csv + 'winter_clean/'
 path_PMB_GLACIOCLIM_csv_a = path_PMB_GLACIOCLIM_csv + 'annual/'
