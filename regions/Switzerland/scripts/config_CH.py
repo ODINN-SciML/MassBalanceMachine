@@ -31,6 +31,7 @@ path_glacier_ids = '../../../data/GLAMOS/CH_glacier_ids_long.csv' # glacier ids 
 path_ERA5_raw = '../../../data/ERA5Land/raw/' # ERA5-Land
 path_S2 = '../../../data/Sentinel/' # Sentinel-2
 path_OGGM = '../../../data/OGGM/'
+path_OGGM_xrgrids = '../../../data/OGGM/xr_grids/'
 path_glogem = '../../../data/GloGEM' # glogem c_prec and t_off factors
 path_rgi_outlines = '../../../data/GLAMOS/RGI/nsidc0770_11.rgi60.CentralEurope/11_rgi60_CentralEurope.shp'
 
