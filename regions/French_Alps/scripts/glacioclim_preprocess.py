@@ -283,7 +283,7 @@ def clean_rgi_ids(df):
 def remove_close_points(df_gl):
     df_gl_cleaned = pd.DataFrame()
     for year in df_gl.YEAR.unique():
-        for period in ['annual', 'winter']:
+        for period in ['annual', 'winter', 'summer']:
             df_gl_y = df_gl[(df_gl.YEAR == year) & (df_gl.PERIOD == period)]
             if len(df_gl_y) <= 1:
                 df_gl_cleaned = pd.concat([df_gl_cleaned, df_gl_y])
