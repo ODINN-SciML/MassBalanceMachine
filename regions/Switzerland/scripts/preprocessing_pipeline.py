@@ -146,7 +146,10 @@ def main():
                                            )
     
     # Remove 'pers' glacier
-    df_pmb_topo = df_pmb_topo.loc[df_pmb_topo.GLACIER != 'pers']
+    # only if pers is in the dataset
+    if 'pers' in df_pmb_topo.GLACIER.unique():
+        # Remove 'pers' glacier
+        df_pmb_topo = df_pmb_topo.loc[df_pmb_topo.GLACIER != 'pers']
    
     # Drop points that are not within the glacier shape
     df_pmb_topo = df_pmb_topo[df_pmb_topo['within_glacier_shape']]
@@ -165,16 +168,23 @@ def main():
         df_pmb_topo,  # cleaned PMB DataFrame
         path_masked_grids,  # path to SGI grids
         voi=["masked_aspect", "masked_slope", "masked_elev"])
+    
+    # ------------------------------------------------------------------------------
+    # 8. Give new stake IDs
+    # ------------------------------------------------------------------------------
+    log.info('Renaming stake IDs:')
+    # Give new stake IDs with glacier name and then a number according to the elevation. 
+    # This is because accross glaciers some stakes have the same ID which is not practical.
+    df_pmb_sgi = rename_stakes_by_elevation(df_pmb_sgi)
 
-    # Save to CSV
-    output_path = os.path.join(path_PMB_GLAMOS_csv, 'CH_wgms_dataset_all.csv')
-    df_pmb_sgi.to_csv(output_path, index=False)
+    # Check the condition
+    check_point_ids_contain_glacier(df_pmb_sgi)
     
     # Save to CSV
     fname = 'CH_wgms_dataset_all.csv'
     df_pmb_sgi.to_csv(os.path.join(path_PMB_GLAMOS_csv, fname),
                   index=False)
-    log.info(f"-- Saved pmb & oggm dataset {fname} to: {path_PMB_GLAMOS_csv}")
+    log.info(f"-- Saved final dataset {fname} to: {path_PMB_GLAMOS_csv}")
 
     # Check information
     log.info(
