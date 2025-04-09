@@ -5,10 +5,23 @@ from scipy.spatial.distance import cdist
 import pyproj
 import xarray as xr
 import re
+import geopandas as gpd
+from shapely.geometry import Point
+from tqdm.notebook import tqdm
+import logging
+from oggm import utils, workflow, tasks
+from oggm import cfg as oggmCfg
+
+import massbalancemachine as mbm
 
 from scripts.wgs84_ch1903 import *
 from scripts.config_CH import *
 from scripts.helpers import *
+
+# Setup logging
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(message)s')
+log = logging.getLogger(__name__)
 
 
 def dat_to_csv(fileName, path_dat, path_csv):
@@ -201,10 +214,9 @@ def check_multiple_rgi_ids(df):
     rgi_per_glacier = df.groupby('GLACIER')['RGIId'].nunique()
     glaciers_with_multiple_rgi = rgi_per_glacier[rgi_per_glacier > 1]
     if not glaciers_with_multiple_rgi.empty:
-        print("Alert: The following glaciers have more than one RGIId:")
-        print(glaciers_with_multiple_rgi)
+        return True
     else:
-        print("All glaciers are correctly associated with a single RGIId.")
+        return False
 
 
 def clean_rgi_ids(df):
@@ -361,7 +373,7 @@ def remove_close_points(df_gl):
     # Final output
     df_gl_cleaned.reset_index(drop=True, inplace=True)
     points_dropped = len(df_gl) - len(df_gl_cleaned)
-    print(f'Number of points dropped: {points_dropped}')
+    log.info(f'--- Number of points dropped: {points_dropped}')
     return df_gl_cleaned if points_dropped > 0 else df_gl
 
 
@@ -874,13 +886,14 @@ def assemble_all_stake_data(df_annual_raw, path_winter_clean, path_output):
 
     winter_dataframes = []
     for file in files_stakes:
-        glacier_name = re.split(r'_', re.split(r'\.csv', file)[0])[0]
         df_winter = pd.read_csv(os.path.join(path_winter_clean, file),
                                 sep=',',
                                 header=0,
                                 encoding='latin-1').drop(columns='Unnamed: 0',
                                                          errors='ignore')
-        winter_dataframes.append(df_winter)
+        # Filter out empty or all-NA DataFrames
+        if not df_winter.empty and not df_winter.isna().all(axis=None):
+            winter_dataframes.append(df_winter)
 
     # Combine with annual data
     df_all_raw = pd.concat([df_annual_raw] + winter_dataframes,
@@ -890,23 +903,308 @@ def assemble_all_stake_data(df_annual_raw, path_winter_clean, path_output):
     # Clean winter date inconsistencies
     df_all_raw = CleanWinterDates(df_all_raw)
 
-    # Display data stats
-    print('Number of winter and annual samples:', len(df_all_raw))
-    print('Number of winter samples:',
-          len(df_all_raw[df_all_raw['PERIOD'] == 'winter']))
-    print('Number of annual samples:',
-          len(df_all_raw[df_all_raw['PERIOD'] == 'annual']))
+    # # Display data stats
+    # print('Number of winter and annual samples:', len(df_all_raw))
+    # print('Number of winter samples:',
+    #       len(df_all_raw[df_all_raw['PERIOD'] == 'winter']))
+    # print('Number of annual samples:',
+    #       len(df_all_raw[df_all_raw['PERIOD'] == 'annual']))
 
     # Remove Pers glacier (part of Morteratsch ensemble)
     df_all_raw = df_all_raw[df_all_raw['GLACIER'] != 'pers']
 
-    # Save full dataset
-    os.makedirs(path_output, exist_ok=True)
-    df_all_raw.to_csv(os.path.join(path_output, 'df_all_raw.csv'), index=False)
+    # # Save full dataset
+    # os.makedirs(path_output, exist_ok=True)
+    # df_all_raw.to_csv(os.path.join(path_output, 'df_all_raw.csv'), index=False)
 
-    # Save stake coordinates
-    df_all_raw[['GLACIER', 'POINT_ID', 'POINT_LAT', 'POINT_LON', 'PERIOD']] \
-        .drop_duplicates() \
-        .to_csv(os.path.join(path_output,'coordinates_all.csv'), index=False)
+    # # Save stake coordinates
+    # df_all_raw[['GLACIER', 'POINT_ID', 'POINT_LAT', 'POINT_LON', 'PERIOD']] \
+    #     .drop_duplicates() \
+    #     .to_csv(os.path.join(path_output,'raw_stake_coordinates.csv'), index=False)
 
     return df_all_raw
+
+
+def add_rgi_ids_to_df(df_all_raw, glacier_outline_fname):
+    # Select relevant columns
+    df_pmb = df_all_raw[[
+        'YEAR',
+        'POINT_ID',
+        'GLACIER',
+        'FROM_DATE',
+        'TO_DATE',
+        'POINT_LAT',
+        'POINT_LON',
+        'POINT_ELEVATION',
+        'POINT_BALANCE',
+        'PERIOD',
+    ]].copy()
+
+    # Load the glacier outlines
+    glacier_outline = gpd.read_file(glacier_outline_fname)
+
+    # Add RGI IDs through intersection
+    df_pmb = mbm.data_processing.utils.get_rgi(
+        data=df_pmb, glacier_outlines=glacier_outline)
+
+    # Handle unmatched points
+    no_match_df = df_pmb[df_pmb['RGIId'].isna()]
+    geometry = [
+        Point(lon, lat)
+        for lon, lat in zip(no_match_df["POINT_LON"], no_match_df["POINT_LAT"])
+    ]
+    points_gdf = gpd.GeoDataFrame(no_match_df,
+                                  geometry=geometry,
+                                  crs=glacier_outline.crs)
+
+    for index in tqdm(no_match_df.index, desc='Finding closest RGIId'):
+        point = points_gdf.loc[index]['geometry']
+        polygon_index = glacier_outline.distance(point).sort_values().index[0]
+        closest_rgi = glacier_outline.loc[polygon_index].RGIId
+        df_pmb.at[index, 'RGIId'] = closest_rgi
+
+    return df_pmb
+
+
+def initialize_oggm_glacier_directories(
+    working_dir='../../../data/OGGM/',
+    rgi_region="11",
+    rgi_version="6",
+    base_url="https://cluster.klima.uni-bremen.de/~oggm/gdirs/oggm_v1.6/L3-L5_files/2023.1/elev_bands/W5E5_w_data/",
+    log_level='WARNING',
+    task_list=None,
+):
+    # Initialize OGGM config
+    oggmCfg.initialize(logging_level=log_level)
+    oggmCfg.PARAMS['border'] = 10
+    oggmCfg.PARAMS['use_multiprocessing'] = True
+    oggmCfg.PARAMS['continue_on_error'] = True
+
+    # Module logger
+    log = logging.getLogger('.'.join(__name__.split('.')[:-1]))
+    log.setLevel(log_level)
+
+    # Set working directory
+    oggmCfg.PATHS['working_dir'] = working_dir
+
+    # Get RGI file
+    rgi_dir = utils.get_rgi_dir(version=rgi_version)
+    path = utils.get_rgi_region_file(region=rgi_region, version=rgi_version)
+    rgidf = gpd.read_file(path)
+
+    # Initialize glacier directories from preprocessed data
+    gdirs = workflow.init_glacier_directories(
+        rgidf,
+        from_prepro_level=3,
+        prepro_base_url=base_url,
+        prepro_border=10,
+        reset=True,
+        force=True,
+    )
+
+    # Default task list if none provided
+    if task_list is None:
+        task_list = [
+            tasks.gridded_attributes,
+            # tasks.gridded_mb_attributes,
+            # get_gridded_features,
+        ]
+
+    # Run tasks
+    for task in task_list:
+        workflow.execute_entity_task(task, gdirs, print_log=False)
+
+    return gdirs, rgidf
+
+
+def export_oggm_grids(df_pmb,
+                      gdirs,
+                      output_path='../../../data/OGGM/xr_grids/'):
+    unique_rgis = df_pmb['RGIId'].unique()
+
+    # Save OGGM xr for all needed glaciers:
+    emptyfolder(output_path)
+    for gdir in gdirs:
+        RGIId = gdir.rgi_id
+        if RGIId not in unique_rgis:
+            continue
+        with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
+            ds = ds.load()
+        # save ds
+        ds.to_netcdf(os.path.join(output_path, f'{RGIId}.nc'))
+
+
+def merge_pmb_with_oggm_data(df_pmb,
+                             gdirs,
+                             rgi_region="11",
+                             rgi_version="6",
+                             variables_of_interest=None,
+                             verbose=True):
+    if variables_of_interest is None:
+        variables_of_interest = [
+            "aspect",
+            "slope",
+            "topo",
+            "hugonnet_dhdt",
+            "consensus_ice_thickness",
+            "millan_v",
+        ]
+        # other options: "millan_ice_thickness", "millan_vx", "millan_vy", "dis_from_border"
+
+    # Load RGI shapefile
+    path = utils.get_rgi_region_file(region=rgi_region, version=rgi_version)
+    rgidf = gpd.read_file(path)
+
+    # Initialize empty columns
+    for var in variables_of_interest:
+        df_pmb[var] = np.nan
+    df_pmb['within_glacier_shape'] = False
+
+    grouped = df_pmb.groupby("RGIId")
+
+    for rgi_id, group in grouped:
+        # Find corresponding glacier directory
+        gdir = next((gd for gd in gdirs if gd.rgi_id == rgi_id), None)
+        if gdir is None:
+            if verbose:
+                log.error(
+                    f"Warning: No glacier directory for RGIId {rgi_id}, skipping..."
+                )
+            continue
+
+        with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
+            ds = ds.load()
+
+        # Match RGI shape
+        glacier_shape = rgidf[rgidf["RGIId"] == rgi_id]
+        if glacier_shape.empty:
+            if verbose:
+                log.error(
+                    f"Warning: No shape found for RGIId {rgi_id}, skipping...")
+            continue
+
+        # Coordinate transformation from WGS84 to the projection of OGGM data
+        transf = pyproj.Transformer.from_proj(
+            pyproj.CRS.from_user_input("EPSG:4326"),
+            pyproj.CRS.from_user_input(ds.pyproj_srs),
+            always_xy=True)
+        lon, lat = group["POINT_LON"].values, group["POINT_LAT"].values
+        x_stake, y_stake = transf.transform(lon, lat)
+
+        # Create GeoDataFrame of points
+        geometry = [Point(xy) for xy in zip(lon, lat)]
+        points_rgi = gpd.GeoDataFrame(group,
+                                      geometry=geometry,
+                                      crs="EPSG:4326")
+
+        # Intersect with glacier shape
+        glacier_shape = glacier_shape.to_crs(points_rgi.crs)
+        points_in_glacier = gpd.sjoin(points_rgi.loc[group.index],
+                                      glacier_shape,
+                                      predicate="within",
+                                      how="inner")
+
+        # Get nearest OGGM grid data for points
+        stake = ds.sel(x=xr.DataArray(x_stake, dims="points"),
+                       y=xr.DataArray(y_stake, dims="points"),
+                       method="nearest")
+        stake_var_df = stake[variables_of_interest].to_dataframe()
+
+        # Assign to original DataFrame
+        for var in variables_of_interest:
+            df_pmb.loc[group.index, var] = stake_var_df[var].values
+
+        df_pmb.loc[points_in_glacier.index, 'within_glacier_shape'] = True
+
+    # Convert radians to degrees
+    df_pmb['aspect'] = df_pmb['aspect'].apply(lambda x: math.degrees(x)
+                                              if not pd.isna(x) else x)
+    df_pmb['slope'] = df_pmb['slope'].apply(lambda x: math.degrees(x)
+                                            if not pd.isna(x) else x)
+
+    if verbose:
+        log.info('-- Number of winter and annual samples:', len(df_pmb))
+        log.info('-- Number of annual samples:',
+                 len(df_pmb[df_pmb.PERIOD == 'annual']))
+        log.info('-- Number of winter samples:',
+                 len(df_pmb[df_pmb.PERIOD == 'winter']))
+
+    return df_pmb
+
+
+def rename_stakes_by_elevation(df_pmb_topo):
+    for glacierName in tqdm(df_pmb_topo.GLACIER.unique(), desc='glaciers'):
+        gl_data = df_pmb_topo[df_pmb_topo.GLACIER == glacierName]
+        stakeIDS = gl_data.groupby('POINT_ID')[[
+            'POINT_LAT', 'POINT_LON', 'POINT_ELEVATION'
+        ]].mean()
+        stakeIDS.reset_index(inplace=True)
+        # Change the ID according to elevation
+        new_ids = stakeIDS[['POINT_ID', 'POINT_ELEVATION'
+                            ]].sort_values(by='POINT_ELEVATION')
+        new_ids['POINT_ID_new'] = [
+            f'{glacierName}_{i}' for i in range(len(new_ids))
+        ]
+        for i, row in new_ids.iterrows():
+            df_pmb_topo.loc[(df_pmb_topo.GLACIER == glacierName) &
+                            (df_pmb_topo.POINT_ID == row.POINT_ID),
+                            'POINT_ID'] = row.POINT_ID_new
+    return df_pmb_topo
+
+
+def merge_pmb_with_sgi_data(
+        df_pmb_50s_clean,  # cleaned PMB DataFrame
+        path_masked_grids,  # path to SGI grids
+        voi=["masked_aspect", "masked_slope", "masked_elev"]):
+
+    # Get fully processed SGI glacier names
+    sgi_glaciers = set(
+        re.split(r'.zarr', f)[0] for f in os.listdir(path_masked_grids)
+        if f.endswith('.zarr'))
+
+    # Filter DataFrame for glaciers with SGI grid only
+    df_pmb_sgi = df_pmb_50s_clean[df_pmb_50s_clean.GLACIER.isin(
+        sgi_glaciers)].copy()
+
+    # Initialize empty columns for variables of interest
+    for var in voi:
+        df_pmb_sgi[var] = np.nan
+
+    # Group rows by glacier name to process each glacier in bulk
+    grouped = df_pmb_sgi.groupby("GLACIER")
+
+    # Process each glacier
+    for glacier_name, group in grouped:
+        try:
+            # Open the dataset for the current glacier
+            file_path = os.path.join(path_masked_grids, f"{glacier_name}.zarr")
+            ds_sgi = xr.open_dataset(file_path)
+
+            # Transform coordinates for the group
+            lon = group["POINT_LON"].values
+            lat = group["POINT_LAT"].values
+
+            # Select nearest values for all points in the group
+            stake = ds_sgi.sel(lon=xr.DataArray(lon, dims="points"),
+                               lat=xr.DataArray(lat, dims="points"),
+                               method="nearest")
+
+            # Extract variables of interest and convert to a DataFrame
+            stake_var = stake[voi].to_dataframe().reset_index()
+
+            # Map extracted values back to the original DataFrame
+            for var in voi:
+                df_pmb_sgi.loc[group.index, var] = stake_var[var].values
+        except FileNotFoundError:
+            log.error(f"File not found for glacier: {glacier_name}")
+            continue
+
+    # Rename columns
+    df_pmb_sgi.rename(columns={
+        "masked_aspect": "aspect_sgi",
+        "masked_slope": "slope_sgi",
+        "masked_elev": "topo_sgi"
+    },
+                      inplace=True)
+
+    return df_pmb_sgi
