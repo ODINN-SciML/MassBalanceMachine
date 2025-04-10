@@ -1264,9 +1264,13 @@ def process_SMB_GLAMOS():
         
 
 def process_pcsr():
-    glDirect = np.sort(os.listdir(path_pcsr + 'raw/'))  # Glaciers with data
-
-    path_pcsr_save = path_pcsr + 'csv/'
+    glDirect = np.sort(os.listdir(path_pcsr + 'raw/'))  # Glaciers with data    
+    path_pcsr_save = path_pcsr + 'zarr/'
+    
+    # check folder exists otherwise create it
+    if not os.path.exists(path_pcsr_save):
+        os.makedirs(path_pcsr_save)
+    # Clean output folder
     emptyfolder(path_pcsr_save)
 
     for glacierName in tqdm(glDirect, desc='glaciers', position=0):
@@ -1307,11 +1311,11 @@ def process_pcsr():
 
         # Save xarray
         if glacierName == 'findelen':
-            data_array_transf.to_netcdf(path_pcsr_save +
-                                        f'xr_direct_{glacierName}.nc')
-            data_array_transf.to_netcdf(path_pcsr_save + f'xr_direct_adler.nc')
+            data_array_transf.to_zarr(path_pcsr_save +
+                                        f'xr_direct_{glacierName}.zarr')
+            data_array_transf.to_zarr(path_pcsr_save + f'xr_direct_adler.zarr')
         elif glacierName == 'stanna':
-            data_array_transf.to_netcdf(path_pcsr_save + f'xr_direct_sanktanna.nc')
+            data_array_transf.to_zarr(path_pcsr_save + f'xr_direct_sanktanna.zarr')
         else:
-            data_array_transf.to_netcdf(path_pcsr_save +
-                                        f'xr_direct_{glacierName}.nc')
+            data_array_transf.to_zarr(path_pcsr_save +
+                                        f'xr_direct_{glacierName}.zarr')
