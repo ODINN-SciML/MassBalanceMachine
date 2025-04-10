@@ -11,6 +11,7 @@ from tqdm.notebook import tqdm
 import logging
 from oggm import utils, workflow, tasks
 from oggm import cfg as oggmCfg
+from calendar import monthrange
 
 import massbalancemachine as mbm
 
@@ -1226,3 +1227,91 @@ def merge_pmb_with_sgi_data(
                       inplace=True)
 
     return df_pmb_sgi
+
+def process_SMB_GLAMOS():
+    # OBS:
+    # Get all files with pmb (for winter and annual mb):
+    glamosfiles_smb = []
+    for file in os.listdir(path_SMB_GLAMOS_raw):
+        # check if current path is a file
+        if os.path.isfile(os.path.join(path_SMB_GLAMOS_raw,
+                                    file)) and 'obs' in file:
+            glamosfiles_smb.append(file)
+    # print('Examples of index stake raw files:\n', glamosfiles_smb[:5])
+
+    # Transform all files to csv
+    emptyfolder(path_SMB_GLAMOS_csv + 'obs/')
+    for file in glamosfiles_smb:
+        fileName = re.split('.dat', file)[0]
+        processDatFileGLWMB(fileName, path_SMB_GLAMOS_raw,
+                            path_SMB_GLAMOS_csv + 'obs/')
+          
+    # FIX:
+    # Get all files with pmb (for winter and annual mb):
+    glamosfiles_smb = []
+    for file in os.listdir(path_SMB_GLAMOS_raw):
+        # check if current path is a file
+        if os.path.isfile(os.path.join(path_SMB_GLAMOS_raw,
+                                    file)) and 'fix' in file:
+            glamosfiles_smb.append(file)
+    # print('Examples of index stake raw files:\n', glamosfiles_smb[:5])
+    # Transform all files to csv
+    emptyfolder(path_SMB_GLAMOS_csv + 'fix/')
+    for file in glamosfiles_smb:
+        fileName = re.split('.dat', file)[0]
+        processDatFileGLWMB(fileName, path_SMB_GLAMOS_raw,
+                            path_SMB_GLAMOS_csv + 'fix/')
+        
+
+def process_pcsr():
+    glDirect = np.sort(os.listdir(path_pcsr + 'raw/'))  # Glaciers with data
+
+    path_pcsr_save = path_pcsr + 'csv/'
+    emptyfolder(path_pcsr_save)
+
+    for glacierName in tqdm(glDirect, desc='glaciers', position=0):
+        grid = os.listdir(path_pcsr + 'raw/' + glacierName)
+        grid_year = int(re.findall(r'\d+', grid[0])[0])
+        daily_grids = os.listdir(path_pcsr + 'raw/' + glacierName + '/' + grid[0])
+        # Sort by day number from 001 to 365
+        daily_grids.sort()
+        grids = []
+        for fileName in daily_grids:
+            if 'grid' not in fileName:
+                continue
+
+            # Load daily grid file
+            file_path = path_pcsr + 'raw/' + glacierName + '/' + grid[
+                0] + '/' + fileName
+            metadata, grid_data = load_grid_file(file_path)
+            grids.append(grid_data)
+
+        # Take monthly means:
+        monthly_grids = []
+        for i in range(12):
+            num_days_month = monthrange(grid_year, i + 1)[1]
+            monthly_grids.append(
+                np.mean(np.stack(grids[i * num_days_month:(i + 1) *
+                                    num_days_month],
+                                axis=0),
+                        axis=0))
+
+        monthly_grids = np.array(monthly_grids)
+        num_months = monthly_grids.shape[0]
+
+        # Convert to xarray (CH coordinates)
+        data_array = convert_to_xarray(monthly_grids, metadata, num_months)
+
+        # Convert to WGS84 (lat/lon) coordinates
+        data_array_transf = transform_xarray_coords_lv03_to_wgs84(data_array)
+
+        # Save xarray
+        if glacierName == 'findelen':
+            data_array_transf.to_netcdf(path_pcsr_save +
+                                        f'xr_direct_{glacierName}.nc')
+            data_array_transf.to_netcdf(path_pcsr_save + f'xr_direct_adler.nc')
+        elif glacierName == 'stanna':
+            data_array_transf.to_netcdf(path_pcsr_save + f'xr_direct_sanktanna.nc')
+        else:
+            data_array_transf.to_netcdf(path_pcsr_save +
+                                        f'xr_direct_{glacierName}.nc')
