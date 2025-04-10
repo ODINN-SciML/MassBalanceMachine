@@ -26,7 +26,7 @@ path_pcsr = '/home/mburlet/scratch/data/DATA_MB/GLACIOCLIM/topo/pcsr/' # Potenti
 
 path_distributed_MB_GLACIOCLIM = '/home/mburlet/scratch/data/DATA_MB/GLACIOCLIM/distributed_MB_grids/'
 path_geodetic_MB_GLACIOCLIM = '/home/mburlet/scratch/data/DATA_MB/GLACIOCLIM/geodetic/'
-path_glacier_ids = '/home/mburlet/scratch/data/DATA_MB/GLACIOCLIM/CH_glacier_ids_long.csv' # glacier ids for CH glaciers
+path_glacier_ids = '/home/mburlet/scratch/data/DATA_MB/GLACIOCLIM/FR_glacier_ids_long.csv' # glacier ids for CH glaciers
 
 # <------------------ OTHER PATHS: ------------------>
 path_ERA5_raw = '/home/mburlet/scratch/data/DATA_MB/ERA5Land/raw/' # ERA5-Land
