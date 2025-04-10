@@ -9,7 +9,7 @@ import xarray as xr
 from scripts.config_FR import *
 
 
-def process_or_load_data(run_flag, data_glamos, paths, cfg, vois_climate,
+def process_or_load_data_glacioclim(run_flag, df, paths, cfg, vois_climate,
                          vois_topographical, 
                          output_file = 'FR_wgms_dataset_monthly_full.csv'):
     """
@@ -17,24 +17,24 @@ def process_or_load_data(run_flag, data_glamos, paths, cfg, vois_climate,
     """
     if run_flag:
         logging.info("Number of annual and seasonal samples: %d",
-                     len(data_glamos))
+                     len(df))
 
         # Filter data
         logging.info("Running on %d glaciers:\n%s",
-                     len(data_glamos.GLACIER.unique()),
-                     data_glamos.GLACIER.unique())
+                     len(df.GLACIER.unique()),
+                     df.GLACIER.unique())
 
         # Create dataset
         dataset_gl = mbm.Dataset(cfg=cfg,
-                                 data=data_glamos,
-                                 region_name='CH',
+                                 data=df,
+                                 region_name='FR',
                                  data_path=paths['csv_path'])
-        logging.info("Number of winter and annual samples: %d",
-                     len(data_glamos))
+        logging.info("Number of winter, summer and annual samples: %d",
+                     len(df))
         logging.info("Number of annual samples: %d",
-                     len(data_glamos[data_glamos.PERIOD == 'annual']))
+                     len(df[df.PERIOD == 'annual']))
         logging.info("Number of winter samples: %d",
-                     len(data_glamos[data_glamos.PERIOD == 'winter']))
+                     len(df[df.PERIOD == 'winter']))
 
         # Add climate data
         logging.info("Adding climate features...")
@@ -46,18 +46,19 @@ def process_or_load_data(run_flag, data_glamos, paths, cfg, vois_climate,
         except Exception as e:
             logging.error("Failed to add climate features: %s", e)
             return None
-
+        """
         # Add radiation data
         logging.info("Adding potential clear sky radiation...")
         logging.info("Shape before adding radiation: %s",
                      dataset_gl.data.shape)
         dataset_gl.get_potential_rad(paths['radiation_save_path'])
         logging.info("Shape after adding radiation: %s", dataset_gl.data.shape)
+        """
 
         # Convert to monthly resolution
         logging.info("Converting to monthly resolution...")
         dataset_gl.convert_to_monthly(meta_data_columns=cfg.metaData,
-                                      vois_climate=vois_climate + ['pcsr'],
+                                      vois_climate=vois_climate, # + ['pcsr']
                                       vois_topographical=vois_topographical)
 
         # Create DataLoader
