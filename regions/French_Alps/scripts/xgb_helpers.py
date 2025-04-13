@@ -43,6 +43,13 @@ def process_or_load_data_glacioclim(run_flag, df, paths, cfg, vois_climate,
                 climate_data=paths['era5_climate_data'],
                 geopotential_data=paths['geopotential_data'],
                 change_units=True)
+            
+            # Print dataset information after adding climate features
+            logging.info("Dataset after adding climate features:")
+            logging.info(f"Shape: {dataset_gl.data.shape}")
+            logging.info(f"Columns: {dataset_gl.data.columns.tolist()}")
+            logging.info(f"Sample data:\n{dataset_gl.data.head().to_string()}")
+            
         except Exception as e:
             logging.error("Failed to add climate features: %s", e)
             return None
