@@ -1036,21 +1036,25 @@ def initialize_oggm_glacier_directories(
     return gdirs, rgidf
 
 
-def export_oggm_grids(df_pmb,
-                      gdirs,
+def export_oggm_grids(gdirs,
+                      subset_rgis = None,
                       output_path='../../../data/OGGM/xr_grids/'):
-    unique_rgis = df_pmb['RGIId'].unique()
+    
 
     # Save OGGM xr for all needed glaciers:
     emptyfolder(output_path)
     for gdir in gdirs:
         RGIId = gdir.rgi_id
-        if RGIId not in unique_rgis:
-            continue
+        # only save a subset if it's not empty
+        if subset_rgis is not None:
+            # check if the glacier is in the subset
+            # if not, skip it
+            if RGIId not in subset_rgis:
+                continue
         with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
             ds = ds.load()
         # save ds
-        ds.to_netcdf(os.path.join(output_path, f'{RGIId}.nc'))
+        ds.to_zarr(os.path.join(output_path, f'{RGIId}.zarr'))
 
 
 def merge_pmb_with_oggm_data(df_pmb,
