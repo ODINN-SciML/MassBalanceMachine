@@ -674,3 +674,74 @@ def load_grid_file(filepath):
         assert grid_data.shape == (nrows, ncols)
 
     return metadata, grid_data
+
+
+def datetime_obj(value):
+    date = str(value)
+    year = date[:4]
+    month = date[4:6]
+    day = date[6:8]
+    return pd.to_datetime(month + '-' + day + '-' + year)
+
+
+# def transformDates(df_or):
+#     """Some dates are missing in the original glamos data and need to be corrected.
+#     Args:
+#         df_or (pd.DataFrame): raw glamos dataframe
+#     Returns:
+#         pd.DataFrame: dataframe with corrected dates
+#     """
+#     df = df_or.copy()
+#     # Correct dates that have years:
+#     df.date0 = df.date0.apply(lambda x: datetime_obj(x))
+#     df.date1 = df.date1.apply(lambda x: datetime_obj(x))
+
+#     df['date_fix0'] = [np.nan for i in range(len(df))]
+#     df['date_fix1'] = [np.nan for i in range(len(df))]
+
+#     # transform rest of date columns who have missing years:
+#     for i in range(len(df)):
+#         year = df.date0.iloc[i].year
+#         df.date_fix0.iloc[i] = '10' + '-' + '01' + '-' + str(year)
+#         df.date_fix1.iloc[i] = '09' + '-' + '30' + '-' + str(year + 1)
+
+#     # hydrological dates
+#     df.date_fix0 = pd.to_datetime(df.date_fix0)
+#     df.date_fix1 = pd.to_datetime(df.date_fix1)
+
+#     # dates in wgms format:
+#     df['date0'] = df.date0.apply(lambda x: x.strftime('%Y%m%d'))
+#     df['date1'] = df.date1.apply(lambda x: x.strftime('%Y%m%d'))
+#     return df
+
+
+def transformDates(df_or):
+    """Some dates are missing in the original GLAMOS data and need to be corrected.
+
+    Args:
+        df_or (pd.DataFrame): Raw GLAMOS DataFrame
+
+    Returns:
+        pd.DataFrame: DataFrame with corrected dates
+    """
+    df = df_or.copy()
+
+    # Ensure 'date0' and 'date1' are datetime objects
+    df['date0'] = df['date0'].apply(lambda x: datetime_obj(x))
+    df['date1'] = df['date1'].apply(lambda x: datetime_obj(x))
+
+    # Initialize new columns with NaT (not np.nan, since we'll use datetime later)
+    df['date_fix0'] = pd.NaT
+    df['date_fix1'] = pd.NaT
+
+    # Assign fixed dates using .loc to avoid chained assignment warning
+    for i in range(len(df)):
+        year = df.loc[i, 'date0'].year
+        df.loc[i, 'date_fix0'] = pd.Timestamp(f"{year}-10-01")
+        df.loc[i, 'date_fix1'] = pd.Timestamp(f"{year + 1}-09-30")
+
+    # Format original dates for WGMS
+    df['date0'] = df['date0'].apply(lambda x: x.strftime('%Y%m%d'))
+    df['date1'] = df['date1'].apply(lambda x: x.strftime('%Y%m%d'))
+
+    return df
