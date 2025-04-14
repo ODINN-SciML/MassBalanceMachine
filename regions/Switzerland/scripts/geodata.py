@@ -482,7 +482,7 @@ def add_OGGM_features(df_y_gl, voi, path_OGGM):
 
     # Process each group
     for rgi_id, group in grouped:
-        file_path = f"{path_to_data}{rgi_id}.nc"
+        file_path = f"{path_to_data}{rgi_id}.zarr"
 
         try:
             # Load the xarray dataset for the current RGIId

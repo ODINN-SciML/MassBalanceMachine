@@ -93,7 +93,7 @@ class Dataset:
 
         for glacierName in glaciers:
             df_glacier = df[df['GLACIER'] == glacierName]
-            path_to_file = path_to_direct + f'xr_direct_{glacierName}.nc'
+            path_to_file = path_to_direct + f'xr_direct_{glacierName}.zarr'
             df_glacier = retrieve_clear_sky_rad(df_glacier, path_to_file)
             df_concat = pd.concat([df_concat, df_glacier], axis=0)
 
