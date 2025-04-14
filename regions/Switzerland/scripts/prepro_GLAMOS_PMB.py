@@ -163,6 +163,10 @@ def main():
     # Paths and variables of interest
     path_masked_grids = os.path.join(path_SGI_topo, 'xr_masked_grids/')
 
+    # First create the masked topographical arrays per glacier:
+    glacier_list = sorted(df_pmb_topo.GLACIER.unique())
+    create_sgi_topo_masks(glacier_list)
+    
     # Merge PMB with SGI data
     df_pmb_sgi = merge_pmb_with_sgi_data(
         df_pmb_topo,  # cleaned PMB DataFrame

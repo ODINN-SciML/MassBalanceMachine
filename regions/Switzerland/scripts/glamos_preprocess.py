@@ -18,6 +18,7 @@ import massbalancemachine as mbm
 from scripts.wgs84_ch1903 import *
 from scripts.config_CH import *
 from scripts.helpers import *
+from scripts.geodata import *
 
 # Setup logging
 logging.basicConfig(level=logging.INFO,
@@ -648,6 +649,7 @@ def get_geodetic_MB():
 
     return geodetic_mb
 
+
 def processDatFileGLWMB(fileName, path_dat, path_csv):
     with open(path_dat + fileName + '.dat', 'r',
               encoding='latin-1') as dat_file:
@@ -1037,9 +1039,8 @@ def initialize_oggm_glacier_directories(
 
 
 def export_oggm_grids(gdirs,
-                      subset_rgis = None,
+                      subset_rgis=None,
                       output_path='../../../data/OGGM/xr_grids/'):
-    
 
     # Save OGGM xr for all needed glaciers:
     emptyfolder(output_path)
@@ -1176,7 +1177,7 @@ def rename_stakes_by_elevation(df_pmb_topo):
 
 
 def merge_pmb_with_sgi_data(
-        df_pmb_50s_clean,  # cleaned PMB DataFrame
+        df_pmb,  # cleaned PMB DataFrame
         path_masked_grids,  # path to SGI grids
         voi=["masked_aspect", "masked_slope", "masked_elev"]):
 
@@ -1186,8 +1187,7 @@ def merge_pmb_with_sgi_data(
         if f.endswith('.zarr'))
 
     # Filter DataFrame for glaciers with SGI grid only
-    df_pmb_sgi = df_pmb_50s_clean[df_pmb_50s_clean.GLACIER.isin(
-        sgi_glaciers)].copy()
+    df_pmb_sgi = df_pmb[df_pmb.GLACIER.isin(sgi_glaciers)].copy()
 
     # Initialize empty columns for variables of interest
     for var in voi:
@@ -1232,6 +1232,7 @@ def merge_pmb_with_sgi_data(
 
     return df_pmb_sgi
 
+
 def process_SMB_GLAMOS():
     # OBS:
     # Get all files with pmb (for winter and annual mb):
@@ -1239,7 +1240,7 @@ def process_SMB_GLAMOS():
     for file in os.listdir(path_SMB_GLAMOS_raw):
         # check if current path is a file
         if os.path.isfile(os.path.join(path_SMB_GLAMOS_raw,
-                                    file)) and 'obs' in file:
+                                       file)) and 'obs' in file:
             glamosfiles_smb.append(file)
     # print('Examples of index stake raw files:\n', glamosfiles_smb[:5])
 
@@ -1249,14 +1250,14 @@ def process_SMB_GLAMOS():
         fileName = re.split('.dat', file)[0]
         processDatFileGLWMB(fileName, path_SMB_GLAMOS_raw,
                             path_SMB_GLAMOS_csv + 'obs/')
-          
+
     # FIX:
     # Get all files with pmb (for winter and annual mb):
     glamosfiles_smb = []
     for file in os.listdir(path_SMB_GLAMOS_raw):
         # check if current path is a file
         if os.path.isfile(os.path.join(path_SMB_GLAMOS_raw,
-                                    file)) and 'fix' in file:
+                                       file)) and 'fix' in file:
             glamosfiles_smb.append(file)
     # print('Examples of index stake raw files:\n', glamosfiles_smb[:5])
     # Transform all files to csv
@@ -1265,12 +1266,12 @@ def process_SMB_GLAMOS():
         fileName = re.split('.dat', file)[0]
         processDatFileGLWMB(fileName, path_SMB_GLAMOS_raw,
                             path_SMB_GLAMOS_csv + 'fix/')
-        
+
 
 def process_pcsr():
-    glDirect = np.sort(os.listdir(path_pcsr + 'raw/'))  # Glaciers with data    
+    glDirect = np.sort(os.listdir(path_pcsr + 'raw/'))  # Glaciers with data
     path_pcsr_save = path_pcsr + 'zarr/'
-    
+
     # check folder exists otherwise create it
     if not os.path.exists(path_pcsr_save):
         os.makedirs(path_pcsr_save)
@@ -1280,7 +1281,8 @@ def process_pcsr():
     for glacierName in tqdm(glDirect, desc='glaciers', position=0):
         grid = os.listdir(path_pcsr + 'raw/' + glacierName)
         grid_year = int(re.findall(r'\d+', grid[0])[0])
-        daily_grids = os.listdir(path_pcsr + 'raw/' + glacierName + '/' + grid[0])
+        daily_grids = os.listdir(path_pcsr + 'raw/' + glacierName + '/' +
+                                 grid[0])
         # Sort by day number from 001 to 365
         daily_grids.sort()
         grids = []
@@ -1300,8 +1302,8 @@ def process_pcsr():
             num_days_month = monthrange(grid_year, i + 1)[1]
             monthly_grids.append(
                 np.mean(np.stack(grids[i * num_days_month:(i + 1) *
-                                    num_days_month],
-                                axis=0),
+                                       num_days_month],
+                                 axis=0),
                         axis=0))
 
         monthly_grids = np.array(monthly_grids)
@@ -1316,10 +1318,66 @@ def process_pcsr():
         # Save xarray
         if glacierName == 'findelen':
             data_array_transf.to_zarr(path_pcsr_save +
-                                        f'xr_direct_{glacierName}.zarr')
+                                      f'xr_direct_{glacierName}.zarr')
             data_array_transf.to_zarr(path_pcsr_save + f'xr_direct_adler.zarr')
         elif glacierName == 'stanna':
-            data_array_transf.to_zarr(path_pcsr_save + f'xr_direct_sanktanna.zarr')
+            data_array_transf.to_zarr(path_pcsr_save +
+                                      f'xr_direct_sanktanna.zarr')
         else:
             data_array_transf.to_zarr(path_pcsr_save +
-                                        f'xr_direct_{glacierName}.zarr')
+                                      f'xr_direct_{glacierName}.zarr')
+
+
+def create_sgi_topo_masks(glacier_list, ):
+    """
+    Create and save SGI topographic masks for a list of glaciers.
+
+    Parameters:
+    -----------
+    glacier_list : list
+        List of glacier names to process.
+    """
+
+    path_save = os.path.join(path_SGI_topo, 'xr_masked_grids/')
+    glacier_outline_sgi = gpd.read_file(
+        os.path.join(path_SGI_topo, 'SGI_2016_glaciers_copy.shp'))
+
+    emptyfolder(path_save)
+
+    for glacier_name in tqdm(glacier_list, desc="Processing glaciers"):
+        sgi_id, rgi_id, rgi_shp = get_rgi_sgi_ids(glacier_name)
+
+        if not sgi_id or not rgi_shp:
+            print(
+                f"Warning: Missing SGI ID or shapefile for {glacier_name}. Skipping..."
+            )
+            continue
+
+        try:
+            ds = xr_SGI_masked_topo(rgi_shp, glacier_outline_sgi, sgi_id)
+            if ds is None:
+                print(
+                    f"Warning: Failed to load dataset for {glacier_name}. Skipping..."
+                )
+                continue
+        except Exception as e:
+            print(f"Error loading dataset for {glacier_name}: {e}")
+            continue
+
+        try:
+            ds_resampled = coarsenDS(ds)
+            if ds_resampled is None:
+                print(
+                    f"Warning: Resampling failed for {glacier_name}. Skipping..."
+                )
+                continue
+        except Exception as e:
+            print(f"Error during resampling for {glacier_name}: {e}")
+            continue
+
+        try:
+            save_path = os.path.join(path_save, f"{glacier_name}.zarr")
+            ds_resampled.to_zarr(save_path)
+            print(f"Saved {glacier_name} dataset to {save_path}")
+        except Exception as e:
+            print(f"Error saving dataset for {glacier_name}: {e}")
