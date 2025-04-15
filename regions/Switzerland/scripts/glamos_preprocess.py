@@ -4,11 +4,29 @@ from datetime import datetime
 from scipy.spatial.distance import cdist
 import pyproj
 import xarray as xr
+import re
+import geopandas as gpd
+from shapely.geometry import Point
+from tqdm.notebook import tqdm
+import logging
+from oggm import utils, workflow, tasks
+from oggm import cfg as oggmCfg
+from calendar import monthrange
+
+import massbalancemachine as mbm
 
 from scripts.wgs84_ch1903 import *
 from scripts.config_CH import *
+from scripts.helpers import *
+from scripts.geodata import *
 
-def processDatFile(fileName, path_dat, path_csv):
+# Setup logging
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(message)s')
+log = logging.getLogger(__name__)
+
+
+def dat_to_csv(fileName, path_dat, path_csv):
     """
     Converts a `.dat` file into a `.csv` file.
 
@@ -89,34 +107,66 @@ def datetime_obj(value):
     return pd.to_datetime(month + '-' + day + '-' + year)
 
 
+# def transformDates(df_or):
+#     """Some dates are missing in the original glamos data and need to be corrected.
+#     Args:
+#         df_or (pd.DataFrame): raw glamos dataframe
+#     Returns:
+#         pd.DataFrame: dataframe with corrected dates
+#     """
+#     df = df_or.copy()
+#     # Correct dates that have years:
+#     df.date0 = df.date0.apply(lambda x: datetime_obj(x))
+#     df.date1 = df.date1.apply(lambda x: datetime_obj(x))
+
+#     df['date_fix0'] = [np.nan for i in range(len(df))]
+#     df['date_fix1'] = [np.nan for i in range(len(df))]
+
+#     # transform rest of date columns who have missing years:
+#     for i in range(len(df)):
+#         year = df.date0.iloc[i].year
+#         df.date_fix0.iloc[i] = '10' + '-' + '01' + '-' + str(year)
+#         df.date_fix1.iloc[i] = '09' + '-' + '30' + '-' + str(year + 1)
+
+#     # hydrological dates
+#     df.date_fix0 = pd.to_datetime(df.date_fix0)
+#     df.date_fix1 = pd.to_datetime(df.date_fix1)
+
+#     # dates in wgms format:
+#     df['date0'] = df.date0.apply(lambda x: x.strftime('%Y%m%d'))
+#     df['date1'] = df.date1.apply(lambda x: x.strftime('%Y%m%d'))
+#     return df
+
+
 def transformDates(df_or):
-    """Some dates are missing in the original glamos data and need to be corrected.
+    """Some dates are missing in the original GLAMOS data and need to be corrected.
+
     Args:
-        df_or (pd.DataFrame): raw glamos dataframe
+        df_or (pd.DataFrame): Raw GLAMOS DataFrame
+
     Returns:
-        pd.DataFrame: dataframe with corrected dates
+        pd.DataFrame: DataFrame with corrected dates
     """
     df = df_or.copy()
-    # Correct dates that have years:
-    df.date0 = df.date0.apply(lambda x: datetime_obj(x))
-    df.date1 = df.date1.apply(lambda x: datetime_obj(x))
 
-    df['date_fix0'] = [np.nan for i in range(len(df))]
-    df['date_fix1'] = [np.nan for i in range(len(df))]
+    # Ensure 'date0' and 'date1' are datetime objects
+    df['date0'] = df['date0'].apply(lambda x: datetime_obj(x))
+    df['date1'] = df['date1'].apply(lambda x: datetime_obj(x))
 
-    # transform rest of date columns who have missing years:
+    # Initialize new columns with NaT (not np.nan, since we'll use datetime later)
+    df['date_fix0'] = pd.NaT
+    df['date_fix1'] = pd.NaT
+
+    # Assign fixed dates using .loc to avoid chained assignment warning
     for i in range(len(df)):
-        year = df.date0.iloc[i].year
-        df.date_fix0.iloc[i] = '10' + '-' + '01' + '-' + str(year)
-        df.date_fix1.iloc[i] = '09' + '-' + '30' + '-' + str(year + 1)
+        year = df.loc[i, 'date0'].year
+        df.loc[i, 'date_fix0'] = pd.Timestamp(f"{year}-10-01")
+        df.loc[i, 'date_fix1'] = pd.Timestamp(f"{year + 1}-09-30")
 
-    # hydrological dates
-    df.date_fix0 = pd.to_datetime(df.date_fix0)
-    df.date_fix1 = pd.to_datetime(df.date_fix1)
+    # Format original dates for WGMS
+    df['date0'] = df['date0'].apply(lambda x: x.strftime('%Y%m%d'))
+    df['date1'] = df['date1'].apply(lambda x: x.strftime('%Y%m%d'))
 
-    # dates in wgms format:
-    df['date0'] = df.date0.apply(lambda x: x.strftime('%Y%m%d'))
-    df['date1'] = df.date1.apply(lambda x: x.strftime('%Y%m%d'))
     return df
 
 
@@ -166,10 +216,9 @@ def check_multiple_rgi_ids(df):
     rgi_per_glacier = df.groupby('GLACIER')['RGIId'].nunique()
     glaciers_with_multiple_rgi = rgi_per_glacier[rgi_per_glacier > 1]
     if not glaciers_with_multiple_rgi.empty:
-        print("Alert: The following glaciers have more than one RGIId:")
-        print(glaciers_with_multiple_rgi)
+        return True
     else:
-        print("All glaciers are correctly associated with a single RGIId.")
+        return False
 
 
 def clean_rgi_ids(df):
@@ -326,7 +375,7 @@ def remove_close_points(df_gl):
     # Final output
     df_gl_cleaned.reset_index(drop=True, inplace=True)
     points_dropped = len(df_gl) - len(df_gl_cleaned)
-    print(f'Number of points dropped: {points_dropped}')
+    log.info(f'--- Number of points dropped: {points_dropped}')
     return df_gl_cleaned if points_dropped > 0 else df_gl
 
 
@@ -370,7 +419,7 @@ def check_point_ids_contain_glacier(dataframe):
         return False, invalid_rows
 
 
-def processDatFileGLWMB(fileName, path_dat, path_csv):
+def process_dat_fileGLWMB(fileName, path_dat, path_csv):
     with open(path_dat + fileName + '.dat', 'r',
               encoding='latin-1') as dat_file:
         with open(path_csv + fileName + '.csv',
@@ -403,45 +452,6 @@ def processDatFileGLWMB(fileName, path_dat, path_csv):
                     # remove empty spaces
                     row = [i for i in row if i]
                     csv_file.write(','.join(row) + '\n')
-
-
-def load_grid_file(filepath):
-    with open(filepath, 'r') as file:
-        # Read metadata
-        metadata = {}
-        for _ in range(6):  # First 6 lines are metadata
-            line = file.readline().strip().split()
-            metadata[line[0].lower()] = float(line[1])
-
-        # Get ncols from metadata to control the number of columns
-        ncols = int(metadata['ncols'])
-        nrows = int(metadata['nrows'])
-
-        # Initialize an empty list to store rows of the grid
-        data = []
-
-        # Read the grid data line by line
-        row_ = []
-        for line in file:
-            row = line.strip().split()
-            if len(row_) < ncols:
-                row_ += row
-            if len(row_) == ncols:
-                data.append([
-                    np.nan
-                    if float(x) == metadata['nodata_value'] else float(x)
-                    for x in row_
-                ])
-                # reset row_
-                row_ = []
-
-        # Convert list to numpy array
-        grid_data = np.array(data)
-
-        # Check that shape of grid data is correct
-        assert grid_data.shape == (nrows, ncols)
-
-    return metadata, grid_data
 
 
 def convert_to_xarray(grid_data, metadata, num_months):
@@ -532,6 +542,7 @@ def transform_xarray_coords_lv03_to_wgs84(data_array):
 
     return data_array
 
+
 def get_geodetic_MB():
     """
     Reads and processes the geodetic mass balance dataset for Swiss glaciers.
@@ -542,18 +553,20 @@ def get_geodetic_MB():
     Returns:
         pd.DataFrame: Processed geodetic mass balance data.
     """
-    
+
     # Load necessary data
     glacier_ids = get_glacier_ids()
     data_glamos = pd.read_csv(path_PMB_GLAMOS_csv + 'CH_wgms_dataset_all.csv')
-    
+
     # Read geodetic MB dataset
-    geodetic_mb = pd.read_csv(path_geodetic_MB_glamos + 'dV_DOI2024_allcomb.csv')
+    geodetic_mb = pd.read_csv(path_geodetic_MB_glamos +
+                              'dV_DOI2024_allcomb.csv')
 
     # Get RGI IDs for the glaciers
     rgi_gl = data_glamos.RGIId.unique()
     sgi_gl = [
-        glacier_ids[glacier_ids['rgi_id.v6'] == rgi]['sgi-id'].values[0] for rgi in rgi_gl
+        glacier_ids[glacier_ids['rgi_id.v6'] == rgi]['sgi-id'].values[0]
+        for rgi in rgi_gl
     ]
     geodetic_mb = geodetic_mb[geodetic_mb['SGI-ID'].isin(sgi_gl)]
 
@@ -565,7 +578,8 @@ def get_geodetic_MB():
     geodetic_mb['glacier_name'] = glacier_names
 
     # Replace 'claridenL' with 'clariden'
-    geodetic_mb['glacier_name'] = geodetic_mb['glacier_name'].replace('claridenL', 'clariden')
+    geodetic_mb['glacier_name'] = geodetic_mb['glacier_name'].replace(
+        'claridenL', 'clariden')
 
     # Rename A_end to Aend
     geodetic_mb.rename(columns={'A_end': 'Aend'}, inplace=True)
@@ -578,13 +592,18 @@ def get_geodetic_MB():
         return date_str
 
     # Apply the function to both columns
-    geodetic_mb['date_start'] = geodetic_mb['date_start'].apply(fix_invalid_dates)
+    geodetic_mb['date_start'] = geodetic_mb['date_start'].apply(
+        fix_invalid_dates)
     geodetic_mb['date_end'] = geodetic_mb['date_end'].apply(fix_invalid_dates)
-    
+
     # Convert to datetime format
-    geodetic_mb['date_start'] = pd.to_datetime(geodetic_mb['date_start'], format='%Y%m%d', errors='coerce')
-    geodetic_mb['date_end'] = pd.to_datetime(geodetic_mb['date_end'], format='%Y%m%d', errors='coerce')
-    
+    geodetic_mb['date_start'] = pd.to_datetime(geodetic_mb['date_start'],
+                                               format='%Y%m%d',
+                                               errors='coerce')
+    geodetic_mb['date_end'] = pd.to_datetime(geodetic_mb['date_end'],
+                                             format='%Y%m%d',
+                                             errors='coerce')
+
     # Manually set Astart and Aend based on date_start and date_end
     geodetic_mb['Astart'] = geodetic_mb['date_start'].dt.year
     geodetic_mb['Aend'] = geodetic_mb['date_end'].dt.year
@@ -592,10 +611,741 @@ def get_geodetic_MB():
     return geodetic_mb
 
 
+def processDatFileGLWMB(fileName, path_dat, path_csv):
+    with open(path_dat + fileName + '.dat', 'r',
+              encoding='latin-1') as dat_file:
+        with open(path_csv + fileName + '.csv',
+                  'w',
+                  newline='',
+                  encoding='latin-1') as csv_file:
+            el_bands_ = []
+            for num_rows, row in enumerate(dat_file):
+                if num_rows == 0:
+                    row = [value.strip() for value in row.split(';')]
+                    num_el_bands = row[4]
+                if num_rows == 1:
+                    row = [value.strip() for value in row.split(';')]
+                    # Add columns for each el band
+                    # b_w_eb_i  :  n columns with area-mean winter balance of each elevation band  [mm w.e.]
+                    # b_a_eb_i  :  n columns with area-mean annual balance of each elevation band  [mm w.e.]
+                    # A_eb_i    :  n columns with area of each elevation band  [km2]
+                    row += [
+                        'b_w_eb_' + str(i) for i in range(int(num_el_bands))
+                    ]
+                    row += [
+                        'b_a_eb' + str(i) for i in range(int(num_el_bands))
+                    ]
+                    row += ['A_eb_' + str(i) for i in range(int(num_el_bands))]
+                    csv_file.write(','.join(row[:-1]) + '\n')
+                if num_rows > 3:
+                    row = [value.strip() for value in row.split(' ')]
+                    # replace commas if there are any otherwise will create bug:
+                    row = [value.replace(',', '-') for value in row]
+                    # remove empty spaces
+                    row = [i for i in row if i]
+                    csv_file.write(','.join(row) + '\n')
+
+
 def get_glacier_ids():
     glacier_ids = pd.read_csv(path_glacier_ids, sep=',')
     glacier_ids.rename(columns=lambda x: x.strip(), inplace=True)
     glacier_ids.sort_values(by='short_name', inplace=True)
     glacier_ids.set_index('short_name', inplace=True)
-    
+
     return glacier_ids
+
+
+# --- Main processing functions --- #
+
+
+def process_pmb_dat_files():
+    """
+    Processes annual and winter .dat PMB files into CSV format,
+    handles Clariden glacier split, and removes combined files.
+    """
+
+    # Clean CSV output folders
+    emptyfolder(path_PMB_GLAMOS_csv_a)
+    emptyfolder(path_PMB_GLAMOS_csv_w)
+
+    # List .dat files
+    glamosfiles_mb_a = [
+        file for file in os.listdir(path_PMB_GLAMOS_a_raw)
+        if os.path.isfile(os.path.join(path_PMB_GLAMOS_a_raw, file))
+    ]
+    glamosfiles_mb_w = [
+        file for file in os.listdir(path_PMB_GLAMOS_w_raw)
+        if os.path.isfile(os.path.join(path_PMB_GLAMOS_w_raw, file))
+    ]
+
+    # Convert .dat files to .csv
+    for file in glamosfiles_mb_a:
+        fileName = re.split(r'\.dat', file)[0]
+        dat_to_csv(fileName, path_PMB_GLAMOS_a_raw, path_PMB_GLAMOS_csv_a)
+
+    for file in glamosfiles_mb_w:
+        fileName = re.split(r'\.dat', file)[0]
+        dat_to_csv(fileName, path_PMB_GLAMOS_w_raw, path_PMB_GLAMOS_csv_w)
+
+    # Handle Clariden split (annual)
+    fileName = 'clariden_annual.csv'
+    clariden_csv_a = pd.read_csv(path_PMB_GLAMOS_csv_a + fileName,
+                                 sep=',',
+                                 header=0,
+                                 encoding='latin-1')
+    clariden_csv_a[clariden_csv_a['# name'] == 'L'].to_csv(
+        path_PMB_GLAMOS_csv_a + 'claridenL_annual.csv', index=False)
+    clariden_csv_a[clariden_csv_a['# name'] == 'U'].to_csv(
+        path_PMB_GLAMOS_csv_a + 'claridenU_annual.csv', index=False)
+
+    # Handle Clariden split (winter)
+    fileName = 'clariden_winter.csv'
+    clariden_csv_w = pd.read_csv(path_PMB_GLAMOS_csv_w + fileName,
+                                 sep=',',
+                                 header=0,
+                                 encoding='latin-1')
+    clariden_csv_w[clariden_csv_w['# name'] == 'L'].to_csv(
+        path_PMB_GLAMOS_csv_w + 'claridenL_winter.csv', index=False)
+    clariden_csv_w[clariden_csv_w['# name'] == 'U'].to_csv(
+        path_PMB_GLAMOS_csv_w + 'claridenU_winter.csv', index=False)
+
+    # Remove original Clariden files
+    os.remove(path_PMB_GLAMOS_csv_a + 'clariden_annual.csv')
+    os.remove(path_PMB_GLAMOS_csv_w + 'clariden_winter.csv')
+
+
+def process_annual_stake_data(path_csv_folder):
+    """
+    Processes annual glacier stake .csv files from GLAMOS into a cleaned WGMS-format DataFrame.
+    
+    Args:
+        path_csv_folder (str): Path to folder containing processed annual PMB CSVs.
+    
+    Returns:
+        pd.DataFrame: Cleaned and formatted annual mass balance data.
+    """
+    df_list = []
+
+    for file in os.listdir(path_csv_folder):
+        fileName = re.split(r'\.csv', file)[0]
+        glacierName = re.split(r'_', fileName)[0]
+
+        df = pd.read_csv(os.path.join(path_csv_folder, file),
+                         sep=',',
+                         header=0,
+                         encoding='latin-1')
+        df['glacier'] = glacierName
+        df['period'] = 'annual'
+
+        df = transformDates(df)
+        df = df.drop_duplicates()
+        df = LV03toWGS84(df)
+        df_list.append(df)
+
+    # Concatenate and process
+    df_annual_raw = pd.concat(df_list, ignore_index=True)
+    df_annual_raw['YEAR'] = pd.to_datetime(df_annual_raw['date1']).dt.year
+    df_annual_raw = df_annual_raw[df_annual_raw['YEAR'] >= 1950]
+
+    # Rename and reorder columns
+    columns_mapping = {
+        '# name': 'POINT_ID',
+        'lat': 'POINT_LAT',
+        'lon': 'POINT_LON',
+        'height': 'POINT_ELEVATION',
+        'date0': 'FROM_DATE',
+        'date1': 'TO_DATE',
+        'mb_we': 'POINT_BALANCE',
+        'glacier': 'GLACIER',
+        'period': 'PERIOD'
+    }
+    df_annual_raw.rename(columns=columns_mapping, inplace=True)
+
+    columns_order = [
+        'YEAR', 'POINT_ID', 'GLACIER', 'FROM_DATE', 'TO_DATE', 'POINT_LAT',
+        'POINT_LON', 'POINT_ELEVATION', 'POINT_BALANCE', 'PERIOD', 'date_fix0',
+        'date_fix1', 'time0', 'time1', 'date_quality', 'position_quality',
+        'mb_raw', 'density', 'density_quality', 'measurement_quality',
+        'measurement_type', 'mb_error', 'reading_error', 'density_error',
+        'error_evaluation_method', 'source'
+    ]
+    df_annual_raw = df_annual_raw[columns_order]
+
+    # Keep only 1-year measurement periods
+    valid_date_mask = (
+        pd.to_datetime(df_annual_raw['TO_DATE'], format='%Y%m%d').dt.year -
+        pd.to_datetime(df_annual_raw['FROM_DATE'],
+                       format='%Y%m%d').dt.year) == 1
+    df_annual_raw = df_annual_raw[valid_date_mask]
+
+    # Filter by measurement type and quality
+    df_annual_raw = df_annual_raw[(df_annual_raw['measurement_type'] <= 2) &
+                                  (df_annual_raw['measurement_quality'] == 1)]
+
+    df_annual_raw = df_annual_raw.drop_duplicates()
+
+    return df_annual_raw
+
+
+def process_winter_stake_data(df_annual_raw, path_input, path_output):
+    """
+    Processes winter glacier stake .csv files into cleaned WGMS-format CSV files.
+
+    Args:
+        df_annual_raw (pd.DataFrame): Processed annual DataFrame (used to get valid glaciers).
+        path_input (str): Path to input winter CSVs.
+        path_output (str): Path to save cleaned winter CSVs.
+    """
+
+    # Clear output folder
+    emptyfolder(path_output)
+
+    # Identify glaciers with available winter data
+    winter_glaciers = {
+        re.split(r'_winter\.csv', f)[0]
+        for f in os.listdir(path_input) if f.endswith('_winter.csv')
+    }
+
+    # Only keep glaciers that are also present in annual data
+    annual_glaciers = set(df_annual_raw['GLACIER'].unique())
+    glaciers_to_process = annual_glaciers.intersection(winter_glaciers)
+
+    # Process each glacier
+    for glacier in glaciers_to_process:
+        file_path = os.path.join(path_input, f"{glacier}_winter.csv")
+        df_winter = pd.read_csv(file_path,
+                                sep=',',
+                                header=0,
+                                encoding='latin-1')
+
+        df_winter['period'] = 'winter'
+        df_winter['glacier'] = glacier
+
+        # Date and coordinate transformation
+        df_winter = transformDates(df_winter).drop_duplicates()
+        df_winter = LV03toWGS84(df_winter)
+
+        # Add YEAR and filter
+        df_winter['YEAR'] = pd.to_datetime(df_winter['date1']).dt.year
+        df_winter = df_winter[df_winter['YEAR'] >= 1950]
+
+        # Rename and reorder columns
+        columns_mapping = {
+            '# name': 'POINT_ID',
+            'lat': 'POINT_LAT',
+            'lon': 'POINT_LON',
+            'height': 'POINT_ELEVATION',
+            'date0': 'FROM_DATE',
+            'date1': 'TO_DATE',
+            'mb_we': 'POINT_BALANCE',
+            'glacier': 'GLACIER',
+            'period': 'PERIOD'
+        }
+        df_winter.rename(columns=columns_mapping, inplace=True)
+
+        columns_order = [
+            'YEAR', 'POINT_ID', 'GLACIER', 'FROM_DATE', 'TO_DATE', 'POINT_LAT',
+            'POINT_LON', 'POINT_ELEVATION', 'POINT_BALANCE', 'PERIOD',
+            'date_fix0', 'date_fix1', 'time0', 'time1', 'date_quality',
+            'position_quality', 'mb_raw', 'density', 'density_quality',
+            'measurement_quality', 'measurement_type', 'mb_error',
+            'reading_error', 'density_error', 'error_evaluation_method',
+            'source'
+        ]
+        df_winter = df_winter[columns_order]
+
+        # Filter valid measurements
+        df_winter = df_winter[(df_winter['measurement_type'] <= 2)
+                              & (df_winter['measurement_quality'] == 1)]
+
+        # Save cleaned DataFrame
+        output_file = os.path.join(path_output, f"{glacier}_winter_all.csv")
+        df_winter.to_csv(output_file, index=False)
+
+
+def assemble_all_stake_data(df_annual_raw, path_winter_clean, path_output):
+    """
+    Combines processed annual and winter stake data into a single DataFrame,
+    cleans winter date inconsistencies, removes duplicates, and saves to disk.
+
+    Args:
+        df_annual_raw (pd.DataFrame): Preprocessed annual stake data.
+        path_winter_clean (str): Path to cleaned winter stake CSVs.
+        path_output (str): Output path to save the final combined dataset.
+
+    Returns:
+        pd.DataFrame: Combined annual and winter dataset.
+    """
+
+    # Collect all cleaned winter stake files
+    files_stakes = [
+        f for f in os.listdir(path_winter_clean) if '_winter_all' in f
+    ]
+
+    winter_dataframes = []
+    for file in files_stakes:
+        df_winter = pd.read_csv(os.path.join(path_winter_clean, file),
+                                sep=',',
+                                header=0,
+                                encoding='latin-1').drop(columns='Unnamed: 0',
+                                                         errors='ignore')
+        # Filter out empty or all-NA DataFrames
+        if not df_winter.empty and not df_winter.isna().all(axis=None):
+            winter_dataframes.append(df_winter)
+
+    # Combine with annual data
+    df_all_raw = pd.concat([df_annual_raw] + winter_dataframes,
+                           ignore_index=True)
+    df_all_raw.reset_index(drop=True, inplace=True)
+
+    # Clean winter date inconsistencies
+    df_all_raw = CleanWinterDates(df_all_raw)
+
+    # Remove Pers glacier (part of Morteratsch ensemble)
+    df_all_raw = df_all_raw[df_all_raw['GLACIER'] != 'pers']
+
+    return df_all_raw
+
+
+def add_rgi_ids_to_df(df_all_raw, glacier_outline_fname):
+    # Select relevant columns
+    df_pmb = df_all_raw[[
+        'YEAR',
+        'POINT_ID',
+        'GLACIER',
+        'FROM_DATE',
+        'TO_DATE',
+        'POINT_LAT',
+        'POINT_LON',
+        'POINT_ELEVATION',
+        'POINT_BALANCE',
+        'PERIOD',
+    ]].copy()
+
+    # Load the glacier outlines
+    glacier_outline = gpd.read_file(glacier_outline_fname)
+
+    # Add RGI IDs through intersection
+    df_pmb = mbm.data_processing.utils.get_rgi(
+        data=df_pmb, glacier_outlines=glacier_outline)
+
+    # Handle unmatched points
+    no_match_df = df_pmb[df_pmb['RGIId'].isna()]
+    geometry = [
+        Point(lon, lat)
+        for lon, lat in zip(no_match_df["POINT_LON"], no_match_df["POINT_LAT"])
+    ]
+    points_gdf = gpd.GeoDataFrame(no_match_df,
+                                  geometry=geometry,
+                                  crs=glacier_outline.crs)
+
+    for index in tqdm(no_match_df.index, desc='Finding closest RGIId'):
+        point = points_gdf.loc[index]['geometry']
+        polygon_index = glacier_outline.distance(point).sort_values().index[0]
+        closest_rgi = glacier_outline.loc[polygon_index].RGIId
+        df_pmb.at[index, 'RGIId'] = closest_rgi
+
+    return df_pmb
+
+
+def initialize_oggm_glacier_directories(
+    working_dir='../../../data/OGGM/',
+    rgi_region="11",
+    rgi_version="6",
+    base_url="https://cluster.klima.uni-bremen.de/~oggm/gdirs/oggm_v1.6/L3-L5_files/2023.1/elev_bands/W5E5_w_data/",
+    log_level='WARNING',
+    task_list=None,
+):
+    # Initialize OGGM config
+    oggmCfg.initialize(logging_level=log_level)
+    oggmCfg.PARAMS['border'] = 10
+    oggmCfg.PARAMS['use_multiprocessing'] = True
+    oggmCfg.PARAMS['continue_on_error'] = True
+
+    # Module logger
+    log = logging.getLogger('.'.join(__name__.split('.')[:-1]))
+    log.setLevel(log_level)
+
+    # Set working directory
+    oggmCfg.PATHS['working_dir'] = working_dir
+
+    # Get RGI file
+    rgi_dir = utils.get_rgi_dir(version=rgi_version)
+    path = utils.get_rgi_region_file(region=rgi_region, version=rgi_version)
+    rgidf = gpd.read_file(path)
+
+    # Initialize glacier directories from preprocessed data
+    gdirs = workflow.init_glacier_directories(
+        rgidf,
+        from_prepro_level=3,
+        prepro_base_url=base_url,
+        prepro_border=10,
+        reset=True,
+        force=True,
+    )
+
+    # Default task list if none provided
+    if task_list is None:
+        task_list = [
+            tasks.gridded_attributes,
+            # tasks.gridded_mb_attributes,
+            # get_gridded_features,
+        ]
+
+    # Run tasks
+    for task in task_list:
+        workflow.execute_entity_task(task, gdirs, print_log=False)
+
+    return gdirs, rgidf
+
+
+def export_oggm_grids(gdirs,
+                      subset_rgis=None,
+                      output_path='../../../data/OGGM/xr_grids/'):
+
+    # Save OGGM xr for all needed glaciers:
+    emptyfolder(output_path)
+    for gdir in gdirs:
+        RGIId = gdir.rgi_id
+        # only save a subset if it's not empty
+        if subset_rgis is not None:
+            # check if the glacier is in the subset
+            # if not, skip it
+            if RGIId not in subset_rgis:
+                continue
+        with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
+            ds = ds.load()
+        # save ds
+        ds.to_zarr(os.path.join(output_path, f'{RGIId}.zarr'))
+
+
+def merge_pmb_with_oggm_data(df_pmb,
+                             gdirs,
+                             rgi_region="11",
+                             rgi_version="6",
+                             variables_of_interest=None,
+                             verbose=True):
+    if variables_of_interest is None:
+        variables_of_interest = [
+            "aspect",
+            "slope",
+            "topo",
+            "hugonnet_dhdt",
+            "consensus_ice_thickness",
+            "millan_v",
+        ]
+        # other options: "millan_ice_thickness", "millan_vx", "millan_vy", "dis_from_border"
+
+    # Load RGI shapefile
+    path = utils.get_rgi_region_file(region=rgi_region, version=rgi_version)
+    rgidf = gpd.read_file(path)
+
+    # Initialize empty columns
+    for var in variables_of_interest:
+        df_pmb[var] = np.nan
+    df_pmb['within_glacier_shape'] = False
+
+    grouped = df_pmb.groupby("RGIId")
+
+    for rgi_id, group in grouped:
+        # Find corresponding glacier directory
+        gdir = next((gd for gd in gdirs if gd.rgi_id == rgi_id), None)
+        if gdir is None:
+            if verbose:
+                log.error(
+                    f"Warning: No glacier directory for RGIId {rgi_id}, skipping..."
+                )
+            continue
+
+        with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
+            ds = ds.load()
+
+        # Match RGI shape
+        glacier_shape = rgidf[rgidf["RGIId"] == rgi_id]
+        if glacier_shape.empty:
+            if verbose:
+                log.error(
+                    f"Warning: No shape found for RGIId {rgi_id}, skipping...")
+            continue
+
+        # Coordinate transformation from WGS84 to the projection of OGGM data
+        transf = pyproj.Transformer.from_proj(
+            pyproj.CRS.from_user_input("EPSG:4326"),
+            pyproj.CRS.from_user_input(ds.pyproj_srs),
+            always_xy=True)
+        lon, lat = group["POINT_LON"].values, group["POINT_LAT"].values
+        x_stake, y_stake = transf.transform(lon, lat)
+
+        # Create GeoDataFrame of points
+        geometry = [Point(xy) for xy in zip(lon, lat)]
+        points_rgi = gpd.GeoDataFrame(group,
+                                      geometry=geometry,
+                                      crs="EPSG:4326")
+
+        # Intersect with glacier shape
+        glacier_shape = glacier_shape.to_crs(points_rgi.crs)
+        points_in_glacier = gpd.sjoin(points_rgi.loc[group.index],
+                                      glacier_shape,
+                                      predicate="within",
+                                      how="inner")
+
+        # Get nearest OGGM grid data for points
+        stake = ds.sel(x=xr.DataArray(x_stake, dims="points"),
+                       y=xr.DataArray(y_stake, dims="points"),
+                       method="nearest")
+        stake_var_df = stake[variables_of_interest].to_dataframe()
+
+        # Assign to original DataFrame
+        for var in variables_of_interest:
+            df_pmb.loc[group.index, var] = stake_var_df[var].values
+
+        df_pmb.loc[points_in_glacier.index, 'within_glacier_shape'] = True
+
+    # Convert radians to degrees
+    df_pmb['aspect'] = df_pmb['aspect'].apply(lambda x: math.degrees(x)
+                                              if not pd.isna(x) else x)
+    df_pmb['slope'] = df_pmb['slope'].apply(lambda x: math.degrees(x)
+                                            if not pd.isna(x) else x)
+
+    if verbose:
+        log.info('-- Number of winter and annual samples:', len(df_pmb))
+        log.info('-- Number of annual samples:',
+                 len(df_pmb[df_pmb.PERIOD == 'annual']))
+        log.info('-- Number of winter samples:',
+                 len(df_pmb[df_pmb.PERIOD == 'winter']))
+
+    return df_pmb
+
+
+def rename_stakes_by_elevation(df_pmb_topo):
+    for glacierName in df_pmb_topo.GLACIER.unique():
+        gl_data = df_pmb_topo[df_pmb_topo.GLACIER == glacierName]
+        stakeIDS = gl_data.groupby('POINT_ID')[[
+            'POINT_LAT', 'POINT_LON', 'POINT_ELEVATION'
+        ]].mean()
+        stakeIDS.reset_index(inplace=True)
+        # Change the ID according to elevation
+        new_ids = stakeIDS[['POINT_ID', 'POINT_ELEVATION'
+                            ]].sort_values(by='POINT_ELEVATION')
+        new_ids['POINT_ID_new'] = [
+            f'{glacierName}_{i}' for i in range(len(new_ids))
+        ]
+        for i, row in new_ids.iterrows():
+            df_pmb_topo.loc[(df_pmb_topo.GLACIER == glacierName) &
+                            (df_pmb_topo.POINT_ID == row.POINT_ID),
+                            'POINT_ID'] = row.POINT_ID_new
+    return df_pmb_topo
+
+
+def merge_pmb_with_sgi_data(
+        df_pmb,  # cleaned PMB DataFrame
+        path_masked_grids,  # path to SGI grids
+        voi=["masked_aspect", "masked_slope", "masked_elev"]):
+
+    # Get fully processed SGI glacier names
+    sgi_glaciers = set(
+        re.split(r'.zarr', f)[0] for f in os.listdir(path_masked_grids)
+        if f.endswith('.zarr'))
+
+    # Filter DataFrame for glaciers with SGI grid only
+    df_pmb_sgi = df_pmb[df_pmb.GLACIER.isin(sgi_glaciers)].copy()
+
+    # Initialize empty columns for variables of interest
+    for var in voi:
+        df_pmb_sgi[var] = np.nan
+
+    # Group rows by glacier name to process each glacier in bulk
+    grouped = df_pmb_sgi.groupby("GLACIER")
+
+    # Process each glacier
+    for glacier_name, group in grouped:
+        try:
+            # Open the dataset for the current glacier
+            file_path = os.path.join(path_masked_grids, f"{glacier_name}.zarr")
+            ds_sgi = xr.open_dataset(file_path)
+
+            # Transform coordinates for the group
+            lon = group["POINT_LON"].values
+            lat = group["POINT_LAT"].values
+
+            # Select nearest values for all points in the group
+            stake = ds_sgi.sel(lon=xr.DataArray(lon, dims="points"),
+                               lat=xr.DataArray(lat, dims="points"),
+                               method="nearest")
+
+            # Extract variables of interest and convert to a DataFrame
+            stake_var = stake[voi].to_dataframe().reset_index()
+
+            # Map extracted values back to the original DataFrame
+            for var in voi:
+                df_pmb_sgi.loc[group.index, var] = stake_var[var].values
+        except FileNotFoundError:
+            log.error(f"File not found for glacier: {glacier_name}")
+            continue
+
+    # Rename columns
+    df_pmb_sgi.rename(columns={
+        "masked_aspect": "aspect_sgi",
+        "masked_slope": "slope_sgi",
+        "masked_elev": "topo_sgi"
+    },
+                      inplace=True)
+
+    return df_pmb_sgi
+
+
+def process_SMB_GLAMOS():
+    # OBS:
+    # Get all files with pmb (for winter and annual mb):
+    glamosfiles_smb = []
+    for file in os.listdir(path_SMB_GLAMOS_raw):
+        # check if current path is a file
+        if os.path.isfile(os.path.join(path_SMB_GLAMOS_raw,
+                                       file)) and 'obs' in file:
+            glamosfiles_smb.append(file)
+    # print('Examples of index stake raw files:\n', glamosfiles_smb[:5])
+
+    # Transform all files to csv
+    emptyfolder(path_SMB_GLAMOS_csv + 'obs/')
+    for file in glamosfiles_smb:
+        fileName = re.split('.dat', file)[0]
+        processDatFileGLWMB(fileName, path_SMB_GLAMOS_raw,
+                            path_SMB_GLAMOS_csv + 'obs/')
+
+    # FIX:
+    # Get all files with pmb (for winter and annual mb):
+    glamosfiles_smb = []
+    for file in os.listdir(path_SMB_GLAMOS_raw):
+        # check if current path is a file
+        if os.path.isfile(os.path.join(path_SMB_GLAMOS_raw,
+                                       file)) and 'fix' in file:
+            glamosfiles_smb.append(file)
+    # print('Examples of index stake raw files:\n', glamosfiles_smb[:5])
+    # Transform all files to csv
+    emptyfolder(path_SMB_GLAMOS_csv + 'fix/')
+    for file in glamosfiles_smb:
+        fileName = re.split('.dat', file)[0]
+        processDatFileGLWMB(fileName, path_SMB_GLAMOS_raw,
+                            path_SMB_GLAMOS_csv + 'fix/')
+
+
+def process_pcsr():
+    glDirect = np.sort(os.listdir(path_pcsr + 'raw/'))  # Glaciers with data
+    path_pcsr_save = path_pcsr + 'zarr/'
+
+    # check folder exists otherwise create it
+    if not os.path.exists(path_pcsr_save):
+        os.makedirs(path_pcsr_save)
+    # Clean output folder
+    emptyfolder(path_pcsr_save)
+
+    for glacierName in tqdm(glDirect, desc='glaciers', position=0):
+        grid = os.listdir(path_pcsr + 'raw/' + glacierName)
+        grid_year = int(re.findall(r'\d+', grid[0])[0])
+        daily_grids = os.listdir(path_pcsr + 'raw/' + glacierName + '/' +
+                                 grid[0])
+        # Sort by day number from 001 to 365
+        daily_grids.sort()
+        grids = []
+        for fileName in daily_grids:
+            if 'grid' not in fileName:
+                continue
+
+            # Load daily grid file
+            file_path = path_pcsr + 'raw/' + glacierName + '/' + grid[
+                0] + '/' + fileName
+            metadata, grid_data = load_grid_file(file_path)
+            grids.append(grid_data)
+
+        # Take monthly means:
+        monthly_grids = []
+        for i in range(12):
+            num_days_month = monthrange(grid_year, i + 1)[1]
+            monthly_grids.append(
+                np.mean(np.stack(grids[i * num_days_month:(i + 1) *
+                                       num_days_month],
+                                 axis=0),
+                        axis=0))
+
+        monthly_grids = np.array(monthly_grids)
+        num_months = monthly_grids.shape[0]
+
+        # Convert to xarray (CH coordinates)
+        data_array = convert_to_xarray(monthly_grids, metadata, num_months)
+
+        # Convert to WGS84 (lat/lon) coordinates
+        data_array_transf = transform_xarray_coords_lv03_to_wgs84(data_array)
+
+        # Save xarray
+        if glacierName == 'findelen':
+            data_array_transf.to_zarr(path_pcsr_save +
+                                      f'xr_direct_{glacierName}.zarr')
+            data_array_transf.to_zarr(path_pcsr_save + f'xr_direct_adler.zarr')
+        elif glacierName == 'stanna':
+            data_array_transf.to_zarr(path_pcsr_save +
+                                      f'xr_direct_sanktanna.zarr')
+        else:
+            data_array_transf.to_zarr(path_pcsr_save +
+                                      f'xr_direct_{glacierName}.zarr')
+
+
+def create_sgi_topo_masks(iterator,
+                          type='glacier_name',
+                          path_save=os.path.join(path_SGI_topo,
+                                                 'xr_masked_grids/')):
+    """
+    Create and save SGI topographic masks for a list of glaciers.
+
+    Parameters:
+    -----------
+    glacier_list : list
+        List of glacier names to process.
+    sgi_list : list, optional (if instead of processing by name we process by sgi id)
+    """
+    # check if path_save exists and create otherwise, otherwise empty
+    if not os.path.exists(path_save):
+        os.makedirs(path_save)
+    else:
+        emptyfolder(path_save)
+
+    glacier_outline_sgi = gpd.read_file(
+        os.path.join(path_SGI_topo,
+                     'inventory_sgi2016_r2020/SGI_2016_glaciers.shp'))
+
+    for item in tqdm(iterator, desc="Processing glaciers"):
+
+        if type == 'glacier_name':
+            sgi_id, rgi_id, rgi_shp = get_rgi_sgi_ids(item)
+            if not sgi_id:
+                print(
+                    f"Warning: Missing SGI ID or shapefile for {item}. Skipping..."
+                )
+                continue
+        elif type == 'sgi_id':
+            sgi_id = item
+
+        try:
+            ds = xr_SGI_masked_topo(glacier_outline_sgi, sgi_id)
+            if ds is None:
+                print(
+                    f"Warning: Failed to load dataset for {item}. Skipping...")
+                continue
+        except Exception as e:
+            print(f"Error loading dataset for {item}: {e}")
+            continue
+
+        try:
+            ds_resampled = coarsenDS(ds)
+            if ds_resampled is None:
+                print(f"Warning: Resampling failed for {item}. Skipping...")
+                continue
+        except Exception as e:
+            print(f"Error during resampling for {item}: {e}")
+            continue
+
+        try:
+            save_path = os.path.join(path_save, f"{item}.zarr")
+            ds_resampled.to_zarr(save_path)
+            print(f"Saved {item} dataset to {save_path}")
+        except Exception as e:
+            print(f"Error saving dataset for {item}: {e}")

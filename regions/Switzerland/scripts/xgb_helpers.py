@@ -185,44 +185,6 @@ def getDfAggregatePred(test_set, y_pred_agg, all_columns):
     return grouped_ids
 
 
-def get_gl_area():
-    # Load glacier metadata
-    rgi_df = pd.read_csv(path_glacier_ids, sep=',')
-    rgi_df.rename(columns=lambda x: x.strip(), inplace=True)
-    rgi_df.sort_values(by='short_name', inplace=True)
-    rgi_df.set_index('short_name', inplace=True)
-
-    # Load the shapefile
-    shapefile_path = "../../../data/GLAMOS/topo/SGI2020/SGI_2016_glaciers_copy.shp"
-    gdf_shapefiles = gpd.read_file(shapefile_path)
-
-    gl_area = {}
-
-    for glacierName in rgi_df.index:
-        if glacierName == 'clariden':
-            rgi_shp = rgi_df.loc[
-                'claridenL',
-                'rgi_id_v6_2016_shp'] if 'claridenL' in rgi_df.index else None
-        else:
-            rgi_shp = rgi_df.loc[glacierName, 'rgi_id_v6_2016_shp']
-
-        # Skip if rgi_shp is not found
-        if pd.isna(rgi_shp) or rgi_shp is None:
-            continue
-
-        # Ensure matching data types
-        rgi_shp = str(rgi_shp)
-        gdf_mask_gl = gdf_shapefiles[gdf_shapefiles.RGIId.astype(str) ==
-                                     rgi_shp]
-
-        # If a glacier is found, get its area
-        if not gdf_mask_gl.empty:
-            gl_area[glacierName] = gdf_mask_gl.Area.iloc[
-                0]  # Use .iloc[0] safely
-
-    return gl_area
-
-
 def correct_for_biggest_grid(df, group_columns, value_column="value"):
     """
     Assign the most frequent value in the specified column to all rows in each group
