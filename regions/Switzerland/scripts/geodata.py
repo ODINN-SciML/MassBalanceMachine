@@ -267,7 +267,7 @@ def IceSnowCover(gdf_class, gdf_class_raster):
     return snow_cover_glacier
 
 
-def xr_SGI_masked_topo(rgi_shp, gdf_shapefiles, sgi_id):
+def xr_SGI_masked_topo(gdf_shapefiles, sgi_id):
     path_aspect = os.path.join(path_SGI_topo, 'aspect')
     path_slope = os.path.join(path_SGI_topo, 'slope')
     path_DEM = os.path.join(path_SGI_topo, 'dem_HR')
@@ -294,7 +294,7 @@ def xr_SGI_masked_topo(rgi_shp, gdf_shapefiles, sgi_id):
     dem_wgs84 = transform_xarray_coords_lv95_to_wgs84(dem)
 
     # 2016 shapefile of glacier
-    gdf_mask_gl = gdf_shapefiles[gdf_shapefiles.RGIId == rgi_shp]
+    gdf_mask_gl = gdf_shapefiles[gdf_shapefiles['sgi-id'] == sgi_id]
 
     # Mask over glacier outline
     mask, masked_aspect = extract_topo_over_outline(aspect_wgs84, gdf_mask_gl)
@@ -376,14 +376,16 @@ def coarsenDS(ds, target_res_m=50):
 
     if dx_m < target_res_m or dy_m < target_res_m:
         # Coarsen non-binary variables with mean
-        ds_non_binary = ds[['masked_slope', 'masked_aspect', 'masked_elev']].coarsen(
-            lon=resampling_fac_lon, lat=resampling_fac_lat, boundary="trim"
-        ).mean()
+        ds_non_binary = ds[['masked_slope', 'masked_aspect',
+                            'masked_elev']].coarsen(lon=resampling_fac_lon,
+                                                    lat=resampling_fac_lat,
+                                                    boundary="trim").mean()
 
         # Coarsen glacier mask with max
-        ds_glacier_mask = ds[['glacier_mask']].coarsen(
-            lon=resampling_fac_lon, lat=resampling_fac_lat, boundary="trim"
-        ).reduce(np.max)
+        ds_glacier_mask = ds[['glacier_mask'
+                              ]].coarsen(lon=resampling_fac_lon,
+                                         lat=resampling_fac_lat,
+                                         boundary="trim").reduce(np.max)
 
         # Merge back into a single dataset
         ds_res = xr.merge([ds_non_binary, ds_glacier_mask])
@@ -482,7 +484,7 @@ def add_OGGM_features(df_y_gl, voi, path_OGGM):
 
     # Process each group
     for rgi_id, group in grouped:
-        file_path = f"{path_to_data}{rgi_id}.nc"
+        file_path = f"{path_to_data}{rgi_id}.zarr"
 
         try:
             # Load the xarray dataset for the current RGIId
@@ -548,8 +550,10 @@ def xr_GLAMOS_masked_topo(sgi_id, ds_gl):
     # print(f"aspect resolution: {dx_m} x {dy_m} meters")
 
     # Step 1: Downsample aspect & slope to glacier mask resolution
-    aspect_resampled = aspect_wgs84.interp_like(ds_gl["glacier_mask"], method="nearest")
-    slope_resampled = slope_wgs84.interp_like(ds_gl["glacier_mask"], method="nearest")
+    aspect_resampled = aspect_wgs84.interp_like(ds_gl["glacier_mask"],
+                                                method="nearest")
+    slope_resampled = slope_wgs84.interp_like(ds_gl["glacier_mask"],
+                                              method="nearest")
 
     # Compute new resolution (after downsampling)
     dx_m, dy_m = get_res_from_degrees(ds_gl["glacier_mask"])
@@ -560,7 +564,8 @@ def xr_GLAMOS_masked_topo(sgi_id, ds_gl):
     masked_slope = slope_resampled.where(ds_gl["glacier_mask"] == 1, np.nan)
 
     # Resample DEM to the same resolution
-    dem_resampled = ds_gl["dem"].interp_like(ds_gl["glacier_mask"], method="nearest")
+    dem_resampled = ds_gl["dem"].interp_like(ds_gl["glacier_mask"],
+                                             method="nearest")
 
     # Create a new dataset
     ds = xr.Dataset({
@@ -592,3 +597,80 @@ def get_res_from_degrees(ds):
         abs(ds.lat[1] - ds.lat[0]).values * meters_per_degree_lat, 3)
 
     return dx_m, dy_m
+
+
+def get_gl_area():
+    # Load glacier metadata
+    rgi_df = pd.read_csv(path_glacier_ids, sep=',')
+    rgi_df.rename(columns=lambda x: x.strip(), inplace=True)
+    rgi_df.sort_values(by='short_name', inplace=True)
+    rgi_df.set_index('short_name', inplace=True)
+
+    # Load the shapefile
+    shapefile_path = os.path.join(path_SGI_topo, 'inventory_sgi2016_r2020',
+                                  'SGI_2016_glaciers_copy.shp')
+    gdf_shapefiles = gpd.read_file(shapefile_path)
+
+    gl_area = {}
+
+    for glacierName in rgi_df.index:
+        if glacierName == 'clariden':
+            rgi_shp = rgi_df.loc[
+                'claridenL',
+                'rgi_id_v6_2016_shp'] if 'claridenL' in rgi_df.index else None
+        else:
+            rgi_shp = rgi_df.loc[glacierName, 'rgi_id_v6_2016_shp']
+
+        # Skip if rgi_shp is not found
+        if pd.isna(rgi_shp) or rgi_shp is None:
+            continue
+
+        # Ensure matching data types
+        rgi_shp = str(rgi_shp)
+        gdf_mask_gl = gdf_shapefiles[gdf_shapefiles.RGIId.astype(str) ==
+                                     rgi_shp]
+
+        # If a glacier is found, get its area
+        if not gdf_mask_gl.empty:
+            gl_area[glacierName] = gdf_mask_gl.Area.iloc[
+                0]  # Use .iloc[0] safely
+
+    return gl_area
+
+def load_grid_file(filepath):
+    with open(filepath, 'r') as file:
+        # Read metadata
+        metadata = {}
+        for _ in range(6):  # First 6 lines are metadata
+            line = file.readline().strip().split()
+            metadata[line[0].lower()] = float(line[1])
+
+        # Get ncols from metadata to control the number of columns
+        ncols = int(metadata['ncols'])
+        nrows = int(metadata['nrows'])
+
+        # Initialize an empty list to store rows of the grid
+        data = []
+
+        # Read the grid data line by line
+        row_ = []
+        for line in file:
+            row = line.strip().split()
+            if len(row_) < ncols:
+                row_ += row
+            if len(row_) == ncols:
+                data.append([
+                    np.nan
+                    if float(x) == metadata['nodata_value'] else float(x)
+                    for x in row_
+                ])
+                # reset row_
+                row_ = []
+
+        # Convert list to numpy array
+        grid_data = np.array(data)
+
+        # Check that shape of grid data is correct
+        assert grid_data.shape == (nrows, ncols)
+
+    return metadata, grid_data
