@@ -454,45 +454,6 @@ def process_dat_fileGLWMB(fileName, path_dat, path_csv):
                     csv_file.write(','.join(row) + '\n')
 
 
-def load_grid_file(filepath):
-    with open(filepath, 'r') as file:
-        # Read metadata
-        metadata = {}
-        for _ in range(6):  # First 6 lines are metadata
-            line = file.readline().strip().split()
-            metadata[line[0].lower()] = float(line[1])
-
-        # Get ncols from metadata to control the number of columns
-        ncols = int(metadata['ncols'])
-        nrows = int(metadata['nrows'])
-
-        # Initialize an empty list to store rows of the grid
-        data = []
-
-        # Read the grid data line by line
-        row_ = []
-        for line in file:
-            row = line.strip().split()
-            if len(row_) < ncols:
-                row_ += row
-            if len(row_) == ncols:
-                data.append([
-                    np.nan
-                    if float(x) == metadata['nodata_value'] else float(x)
-                    for x in row_
-                ])
-                # reset row_
-                row_ = []
-
-        # Convert list to numpy array
-        grid_data = np.array(data)
-
-        # Check that shape of grid data is correct
-        assert grid_data.shape == (nrows, ncols)
-
-    return metadata, grid_data
-
-
 def convert_to_xarray(grid_data, metadata, num_months):
     # Extract metadata values
     ncols = int(metadata['ncols'])
@@ -1328,7 +1289,10 @@ def process_pcsr():
                                       f'xr_direct_{glacierName}.zarr')
 
 
-def create_sgi_topo_masks(glacier_list, ):
+def create_sgi_topo_masks(iterator,
+                          type='glacier_name',
+                          path_save=os.path.join(path_SGI_topo,
+                                                 'xr_masked_grids/')):
     """
     Create and save SGI topographic masks for a list of glaciers.
 
@@ -1336,48 +1300,52 @@ def create_sgi_topo_masks(glacier_list, ):
     -----------
     glacier_list : list
         List of glacier names to process.
+    sgi_list : list, optional (if instead of processing by name we process by sgi id)
     """
+    # check if path_save exists and create otherwise, otherwise empty
+    if not os.path.exists(path_save):
+        os.makedirs(path_save)
+    else:
+        emptyfolder(path_save)
 
-    path_save = os.path.join(path_SGI_topo, 'xr_masked_grids/')
     glacier_outline_sgi = gpd.read_file(
-        os.path.join(path_SGI_topo, 'SGI_2016_glaciers_copy.shp'))
+        os.path.join(path_SGI_topo,
+                     'inventory_sgi2016_r2020/SGI_2016_glaciers.shp'))
 
-    emptyfolder(path_save)
+    for item in tqdm(iterator, desc="Processing glaciers"):
 
-    for glacier_name in tqdm(glacier_list, desc="Processing glaciers"):
-        sgi_id, rgi_id, rgi_shp = get_rgi_sgi_ids(glacier_name)
-
-        if not sgi_id or not rgi_shp:
-            print(
-                f"Warning: Missing SGI ID or shapefile for {glacier_name}. Skipping..."
-            )
-            continue
-
-        try:
-            ds = xr_SGI_masked_topo(rgi_shp, glacier_outline_sgi, sgi_id)
-            if ds is None:
+        if type == 'glacier_name':
+            sgi_id, rgi_id, rgi_shp = get_rgi_sgi_ids(item)
+            if not sgi_id:
                 print(
-                    f"Warning: Failed to load dataset for {glacier_name}. Skipping..."
+                    f"Warning: Missing SGI ID or shapefile for {item}. Skipping..."
                 )
                 continue
+        elif type == 'sgi_id':
+            sgi_id = item
+
+        try:
+            ds = xr_SGI_masked_topo(glacier_outline_sgi, sgi_id)
+            if ds is None:
+                print(
+                    f"Warning: Failed to load dataset for {item}. Skipping...")
+                continue
         except Exception as e:
-            print(f"Error loading dataset for {glacier_name}: {e}")
+            print(f"Error loading dataset for {item}: {e}")
             continue
 
         try:
             ds_resampled = coarsenDS(ds)
             if ds_resampled is None:
-                print(
-                    f"Warning: Resampling failed for {glacier_name}. Skipping..."
-                )
+                print(f"Warning: Resampling failed for {item}. Skipping...")
                 continue
         except Exception as e:
-            print(f"Error during resampling for {glacier_name}: {e}")
+            print(f"Error during resampling for {item}: {e}")
             continue
 
         try:
-            save_path = os.path.join(path_save, f"{glacier_name}.zarr")
+            save_path = os.path.join(path_save, f"{item}.zarr")
             ds_resampled.to_zarr(save_path)
-            print(f"Saved {glacier_name} dataset to {save_path}")
+            print(f"Saved {item} dataset to {save_path}")
         except Exception as e:
-            print(f"Error saving dataset for {glacier_name}: {e}")
+            print(f"Error saving dataset for {item}: {e}")
