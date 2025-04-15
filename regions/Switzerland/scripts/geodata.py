@@ -9,7 +9,6 @@ import rasterio
 from os.path import isfile, join
 
 from scripts.config_CH import *
-from scripts.glamos_preprocess import *
 
 
 def get_GLAMOS_glwmb(glacier_name):
