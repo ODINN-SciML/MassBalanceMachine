@@ -16,12 +16,10 @@ color_tim = '#c51b7d'
 color_winter = '#a6cee3'
 color_annual = '#1f78b4'
 
-def plotHeatmap(test_glaciers, data_glamos, glacierCap, period='annual'):
+def plotHeatmap(test_glaciers, data_glamos, period='annual'):
     # Heatmap of mean mass balance per glacier:
     # Get the mean mass balance per glacier
     data_with_pot = data_glamos[data_glamos.PERIOD == period]
-    data_with_pot['GLACIER'] = data_glamos['GLACIER'].apply(
-        lambda x: glacierCap[x])
 
     mean_mb_per_glacier = data_with_pot.groupby(
         ['GLACIER', 'YEAR', 'PERIOD'])['POINT_BALANCE'].mean().reset_index()
@@ -49,7 +47,6 @@ def plotHeatmap(test_glaciers, data_glamos, glacierCap, period='annual'):
                 ax=ax)
 
     # add patches for test glaciers
-    test_glaciers = [glacierCap[gl] for gl in test_glaciers]
     for test_gl in test_glaciers:
         if test_gl not in matrix.index:
             continue
@@ -116,7 +113,7 @@ def visualiseInputs(train_set, test_set, vois_climate):
                                         density=False)
     ax[0, 2].set_title('YEARS')
 
-    for i, voi_clim in enumerate(vois_climate + ['pcsr']):
+    for i, voi_clim in enumerate(vois_climate):
         ax[0, 3 + i].set_title(voi_clim)
         train_set['df_X'][voi_clim].plot.hist(ax=ax[0, 3 + i],
                                               color=color_xgb,
@@ -137,7 +134,7 @@ def visualiseInputs(train_set, test_set, vois_climate):
                                        alpha=0.6,
                                        density=False)
 
-    for i, voi_clim in enumerate(vois_climate + ['pcsr']):
+    for i, voi_clim in enumerate(vois_climate):
         test_set['df_X'][voi_clim].plot.hist(ax=ax[1, 3 + i],
                                              color=color_tim,
                                              alpha=0.6,
