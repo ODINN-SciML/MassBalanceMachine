@@ -1,6 +1,5 @@
 import pandas as pd
 import numpy as np
-from datetime import datetime
 from scipy.spatial.distance import cdist
 import pyproj
 import xarray as xr
