@@ -2,6 +2,7 @@ import os
 import logging
 import massbalancemachine as mbm
 from tqdm import tqdm
+from argparse import ArgumentParser
 
 # Scripts
 from scripts.helpers import *
@@ -13,15 +14,7 @@ logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 log = logging.getLogger(__name__)
 
-
-def main():
-    # ------------------------------------------------------------------------------
-    # Config and Setup
-    # ------------------------------------------------------------------------------
-
-    cfg = mbm.SwitzerlandConfig()
-    seed_all(cfg.seed)
-    free_up_cuda()
+def generate_pmb_df(cfg):
 
     # ------------------------------------------------------------------------------
     # 1. Transform seasonal and winter PMB .dat files to .csv for simplicity
@@ -118,6 +111,9 @@ def main():
     ]].to_csv(os.path.join(path_PMB_GLAMOS_csv, 'coordinate_50s.csv'),
               index=False)
 
+
+def generate_topo_data(cfg):
+
     # ------------------------------------------------------------------------------
     # 6. Add OGGM topographical variables
     # ------------------------------------------------------------------------------
@@ -136,7 +132,7 @@ def main():
         task_list=None,
     )
 
-    export_oggm_grids(df_pmb_50s_clean, gdirs, output_path=path_OGGM_xrgrids)
+    export_oggm_grids(gdirs, output_path=path_OGGM_xrgrids)
 
     log.info('-- Adding OGGM topographical variables:')
     df_pmb_topo = merge_pmb_with_oggm_data(df_pmb=df_pmb_50s_clean,
@@ -201,6 +197,29 @@ def main():
     log.info(
         f'-- Number of winter samples: {len(df_pmb_sgi[df_pmb_sgi.PERIOD == "winter"])}'
     )
-    
+
+
+def main(process_pmb=True, process_topo=True):
+    # ------------------------------------------------------------------------------
+    # Config and Setup
+    # ------------------------------------------------------------------------------
+
+    cfg = mbm.SwitzerlandConfig()
+    seed_all(cfg.seed)
+    free_up_cuda()
+
+    if process_pmb:
+        generate_pmb_df(cfg)
+
+    if process_topo:
+        generate_topo_data(cfg)
+
+
 if __name__ == "__main__":
-    main()
+
+    parser = ArgumentParser()
+    parser.add_argument('--noPMB', type=bool, default=False, help='Process the point mass balance data')
+    parser.add_argument('--noTopo', type=bool, default=False, help='Process the topographical data')
+    args = parser.parse_args()
+
+    main(process_pmb=not args.noPMB, process_topo=not args.noTopo)
