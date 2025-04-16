@@ -274,7 +274,7 @@ def FIPlot(best_estimator, feature_columns, vois_climate):
     ax.set_ylabel('Feature')
 
 def PlotPredictions(grouped_ids, y_pred, metadata_test, test_set, model):
-    fig = plt.figure(figsize=(15, 10))
+    fig = plt.figure(figsize=(20, 15))
     colors_glacier = [
         '#a6cee3', '#1f78b4', '#b2df8a', '#33a02c', '#fb9a99', '#e31a1c',
         '#fdbf6f', '#ff7f00', '#cab2d6', '#6a3d9a', '#ffff99', '#b15928'
@@ -282,7 +282,7 @@ def PlotPredictions(grouped_ids, y_pred, metadata_test, test_set, model):
     color_palette_glaciers = dict(
         zip(grouped_ids.GLACIER.unique(), colors_glacier))
     print(color_palette_glaciers)
-    ax1 = plt.subplot(2, 2, 1)
+    ax1 = plt.subplot(3, 2, 1)
     grouped_ids_annual = grouped_ids[grouped_ids.PERIOD == 'annual']
     mse_annual, rmse_annual, mae_annual, pearson_corr_annual = model.evalMetrics(
         metadata_test, y_pred, test_set['y'], period='annual')
@@ -300,32 +300,39 @@ def PlotPredictions(grouped_ids, y_pred, metadata_test, test_set, model):
     ax1.set_title('Annual PMB', fontsize=24)
 
     grouped_ids_annual.sort_values(by='YEAR', inplace=True)
-    ax2 = plt.subplot(2, 2, 2)
+    ax2 = plt.subplot(3, 2, 2)
     ax2.set_title('Mean annual PMB', fontsize=24)
     plotMeanPred(grouped_ids_annual, ax2)
+    
+    season_positions = {'winter': (3, 4), 'summer': (5, 6)}
+    
+    for season in ['winter', 'summer']:
+        if season in grouped_ids.PERIOD.unique():
+            pos1, pos2 = season_positions[season]
 
-    if 'winter' in grouped_ids.PERIOD.unique():
-        grouped_ids_winter = grouped_ids[grouped_ids.PERIOD == 'winter']
-        ax3 = plt.subplot(2, 2, 3)
-        mse_winter, rmse_winter, mae_winter, pearson_corr_winter = model.evalMetrics(
-            metadata_test, y_pred, test_set['y'], period='winter')
-        scores_winter = {
-            'mse': mse_winter,
-            'rmse': rmse_winter,
-            'mae': mae_winter,
-            'pearson_corr': pearson_corr_winter
-        }
-        predVSTruth(ax3,
-                    grouped_ids_winter,
-                    scores_winter,
-                    hue='GLACIER',
-                    palette=color_palette_glaciers)
-        ax3.set_title('Winter PMB', fontsize=24)
+            grouped_ids_season = grouped_ids[grouped_ids.PERIOD == season]
 
-        ax4 = plt.subplot(2, 2, 4)
-        ax4.set_title('Mean winter PMB', fontsize=24)
-        grouped_ids_winter.sort_values(by='YEAR', inplace=True)
-        plotMeanPred(grouped_ids_winter, ax4)
+            ax_scatter = plt.subplot(3, 2, pos1)
+            mse_season, rmse_season, mae_season, pearson_corr_season = model.evalMetrics(
+                metadata_test, y_pred, test_set['y'], period=season)
+            scores_season = {
+                'mse': mse_season,
+                'rmse': rmse_season,
+                'mae': mae_season,
+                'pearson_corr': pearson_corr_season
+            }
+            predVSTruth(ax_scatter,
+                      grouped_ids_season,
+                      scores_season,
+                      hue='GLACIER',
+                      palette=color_palette_glaciers)
+            ax_scatter.set_title(f'{season.capitalize()} PMB', fontsize=24)
+
+            ax_mean = plt.subplot(3, 2, pos2)
+            ax_mean.set_title(f'Mean {season.capitalize()} PMB', fontsize=24)
+            grouped_ids_season.sort_values(by='YEAR', inplace=True)
+            plotMeanPred(grouped_ids_season, ax_mean)
+    plt.tight_layout()
         
 def predVSTruth(ax, grouped_ids, scores, hue='GLACIER', palette=None):
 
