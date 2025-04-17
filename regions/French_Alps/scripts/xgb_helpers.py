@@ -162,6 +162,7 @@ def get_CV_splits(dataloader_gl,
     return cv_splits, test_set, train_set
 
 
+
 def getDfAggregatePred(test_set, y_pred_agg, all_columns):
     # Aggregate predictions to annual or winter:
     df_pred = test_set['df_X'][all_columns].copy()
@@ -169,13 +170,12 @@ def getDfAggregatePred(test_set, y_pred_agg, all_columns):
     grouped_ids = df_pred.groupby('ID').agg({
         'target': 'mean',
         'YEAR': 'first',
-        'POINT_ID': 'first'
+        'POINT_ID': 'first',
+        'GLACIER': 'first' # Preserve the glacier name directly instead of reassigning it later
     })
     grouped_ids['pred'] = y_pred_agg
     grouped_ids['PERIOD'] = test_set['df_X'][all_columns].groupby(
         'ID')['PERIOD'].first()
-    grouped_ids['GLACIER'] = grouped_ids['POINT_ID'].apply(
-        lambda x: x.split('_')[0])
 
     return grouped_ids
 
