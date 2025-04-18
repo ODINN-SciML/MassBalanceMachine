@@ -1,27 +1,36 @@
 name: Run Unit Test via Pytest
 
 on: [push]
+permissions:
+  # needed to allow actions to create and delete old caches
+  actions: write
+  contents: read
+  # pull-requests: write # not needed for the moment but may be useful to create bots that comment the PR
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        python-version: ["3.10"]
+        python-version: ["3.11"]
+        os:
+          - ubuntu-latest
+          - macos-latest
 
     steps:
       - uses: actions/checkout@v4
       - uses: ResearchSoftwareActions/EnsureCleanNotebooksAction@1.1
+        if: matrix.os == 'ubuntu-latest'
+      - name: Install OpenMP in MacOS
+        if: matrix.os == 'macos-latest'
+        run:
+          brew install libomp
+        shell: bash
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install Poetry
-        uses: snok/install-poetry@v1
-        with:
-          virtualenvs-create: true
-          virtualenvs-in-project: true
       #----------------------------------------------
       #       load cached venv if cache exists
       #----------------------------------------------
@@ -31,6 +40,12 @@ jobs:
         with:
           path: .venv
           key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('**/poetry.lock') }}
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          virtualenvs-create: true
+          virtualenvs-in-project: true
       #----------------------------------------------
       # install dependencies if cache does not exist
       #----------------------------------------------
