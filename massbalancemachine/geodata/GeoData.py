@@ -297,12 +297,12 @@ class GeoData:
 
         # Save seasonal predictions
         # Load glacier DEM data
-        dem_path = os.path.join(path_glacier_dem,
-                                f"{glacier_name}_{year}.zarr")
-        if not os.path.exists(dem_path):
-            print(f"DEM file not found for {dem_path}, skipping...")
+        # path_glacier_dem = os.path.join(path_glacier_dem,
+        #                         f"{glacier_name}_{year}.zarr")
+        if not os.path.exists(path_glacier_dem):
+            print(f"DEM file not found for {path_glacier_dem}, skipping...")
             return
-        ds = xr.open_dataset(dem_path)
+        ds = xr.open_dataset(path_glacier_dem)
 
         # Save both annual and winter predictions using the helper function
         self._save_prediction(ds, pred_y_annual, glacier_name, year,
