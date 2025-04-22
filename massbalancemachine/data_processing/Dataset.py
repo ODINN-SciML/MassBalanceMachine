@@ -357,6 +357,7 @@ class Normalizer:
     """
 
     def __init__(self, bnds: "dict[str, tuple[float, float]]") -> None:
+        assert not np.isnan(list(bnds.values())).any(), "Bounds contain NaNs"
         self.bnds = bnds
 
     def _norm(self, data, lower_bnd, upper_bnd):
