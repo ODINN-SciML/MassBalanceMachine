@@ -19,7 +19,7 @@ import logging
 import pandas as pd
 import torch
 
-from get_climate_data import get_climate_features, retrieve_clear_sky_rad
+from get_climate_data import get_climate_features, retrieve_clear_sky_rad, smooth_era5land_by_mode
 from get_topo_data import get_topographical_features, get_glacier_mask
 from transform_to_monthly import transform_to_monthly
 from create_glacier_grid import create_glacier_grid_RGI
@@ -81,6 +81,7 @@ class Dataset:
         output_fname = self._get_output_filename("climate_features")
         self.data = get_climate_features(self.data, output_fname, climate_data,
                                          geopotential_data, change_units)
+        
 
     def get_potential_rad(self, path_to_direct):
         """Fetches monthly clear sky radiation data for each glacier in the dataset.
@@ -100,6 +101,17 @@ class Dataset:
         # reset index
         df_concat.reset_index(drop=True, inplace=True)
         self.data = df_concat
+        
+    def remove_climate_artifacts(self,
+                             vois_climate: str,) -> None:
+        """For big glaciers covered by more than one ERA5-Land grid cell, the
+        climate data is the one with the most data points. This function smooths the
+        climate data by taking the mode of the data for each grid cell. 
+
+        Args:
+            vois_climate (str): A string containing the climate variables of interest
+        """
+        self.data = smooth_era5land_by_mode(self.data, vois_climate)
 
     def convert_to_monthly(self,
                            *,
