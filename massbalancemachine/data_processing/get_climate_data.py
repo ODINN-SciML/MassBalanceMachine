@@ -142,6 +142,25 @@ def retrieve_clear_sky_rad(df, path_to_file):
     return df
 
 
+def smooth_era5land_by_mode(df, vois_climate):
+    """For big glaciers covered by more than one ERA5-Land grid cell, the
+        climate data is the one with the most data points. This function smooths the
+        climate data by taking the mode of the data for each grid cell. 
+
+        Args:
+            vois_climate (str): A string containing the climate variables of interest
+            df (pd.DataFrame): DataFrame containing the stakes data.
+        """
+    # Filter out the climate variable columns based on vois_climate
+    climate_cols = [col for col in df.columns if any(col.startswith(vo + '_') for vo in vois_climate)]
+
+    # Replace each climate column with its mode value
+    for col in climate_cols:
+        mode_val = df[col].mode().iloc[0]  # Most frequent value
+        df[col] = mode_val
+        
+    return df
+
 def _load_datasets(climate_data: str, geopotential_data: str) -> tuple:
     """Load climate and geopotential datasets."""
     with xr.open_dataset(climate_data) as dataset_climate, xr.open_dataset(
