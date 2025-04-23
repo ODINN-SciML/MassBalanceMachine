@@ -28,6 +28,7 @@ logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
+
 class Dataset:
     """
     A dataset class that retrieves both the climate and topography data, adds them to the dataset and
@@ -69,7 +70,8 @@ class Dataset:
                              *,
                              climate_data: str,
                              geopotential_data: str,
-                             change_units: bool = False) -> None:
+                             change_units: bool = False,
+                             smoothing_vois: dict = None) -> None:
         """
         Fetches all the climate data, for a list of variables of interest, for the specified RGI IDs.
 
@@ -79,9 +81,14 @@ class Dataset:
             change_units (bool, optional): A boolean indicating whether to change the units of the climate data. Default to False.
         """
         output_fname = self._get_output_filename("climate_features")
+
+        smoothing_vois = smoothing_vois or {}  # Safely default to empty dict
+        vois_climate = smoothing_vois.get('vois_climate')
+        vois_other = smoothing_vois.get('vois_other')
+
         self.data = get_climate_features(self.data, output_fname, climate_data,
-                                         geopotential_data, change_units)
-        
+                                         geopotential_data, change_units,
+                                         vois_climate, vois_other)
 
     def get_potential_rad(self, path_to_direct):
         """Fetches monthly clear sky radiation data for each glacier in the dataset.
@@ -101,9 +108,9 @@ class Dataset:
         # reset index
         df_concat.reset_index(drop=True, inplace=True)
         self.data = df_concat
-        
-    def remove_climate_artifacts(self,
-                             vois_climate: str,) -> None:
+
+    def remove_climate_artifacts(self, vois_climate: str,
+                                 vois_other: str) -> None:
         """For big glaciers covered by more than one ERA5-Land grid cell, the
         climate data is the one with the most data points. This function smooths the
         climate data by taking the mode of the data for each grid cell. 
@@ -111,7 +118,8 @@ class Dataset:
         Args:
             vois_climate (str): A string containing the climate variables of interest
         """
-        self.data = smooth_era5land_by_mode(self.data, vois_climate)
+        self.data = smooth_era5land_by_mode(self.data, vois_climate,
+                                            vois_other)
 
     def convert_to_monthly(self,
                            *,
@@ -154,7 +162,7 @@ class Dataset:
         return ds, glacier_indices, gdir
 
     def create_glacier_grid_RGI(self,
-                            custom_working_dir: str = '') -> pd.DataFrame:
+                                custom_working_dir: str = '') -> pd.DataFrame:
         """Creates a dataframe with the glacier grid data from RGI v.6,
             which contains the glacier data from OGGM mapped over the glacier outline in yearly format.
 
@@ -169,13 +177,13 @@ class Dataset:
                                                      custom_working_dir,
                                                      self.cfg)
         # years_stake = self.data['YEAR'].unique()
-        
+
         # Fixed time range because we want the grid from the beginning
         # of climate data to end (not just when there are stake measurements)
         years = range(1951, 2024)
         rgi_gl = self.data['RGIId'].unique()[0]
         df_grid = create_glacier_grid_RGI(ds, years, glacier_indices, gdir,
-                                       rgi_gl)
+                                          rgi_gl)
         return df_grid
 
     def _get_output_filename(self, feature_type: str) -> str:
