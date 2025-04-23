@@ -79,6 +79,7 @@ class Dataset:
             climate_data (str): A netCDF-3 file location containing the climate data for the region of interest
             geopotential_data (str): A netCDF-3 file location containing the geopotential data
             change_units (bool, optional): A boolean indicating whether to change the units of the climate data. Default to False.
+            smoothing_vois (dict, optional): A dictionary containing the variables of interest for smoothing climate artifacts. Default to None.
         """
         output_fname = self._get_output_filename("climate_features")
 

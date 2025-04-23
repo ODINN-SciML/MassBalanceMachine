@@ -36,6 +36,8 @@ def get_climate_features(
         climate_data (str): Path to the ERA5-Land climate data file.
         geopotential_data (str): Path to the geopotential data file.
         change_units (bool): If True, change temperature to Celsius and precipitation to m.w.e.
+        vois_climate (list): List of climate variables of interest to smooth out their climate artificats .
+        vois_other (list): List of other variables of interest to smooth out their climate artificats (typically ALTITUDE_CLIMATE).
 
     Returns:
         pd.DataFrame: The updated DataFrame with climate and altitude features.
