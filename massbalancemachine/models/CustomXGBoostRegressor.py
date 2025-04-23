@@ -162,7 +162,6 @@ class CustomXGBoostRegressor(XGBRegressor):
 
         # Call the fit function from the XGBoost library with the custom
         # objective function
-        print(features.shape, y.shape)
         super().fit(features, y, **fit_params)
 
         return self

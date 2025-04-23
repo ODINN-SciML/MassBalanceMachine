@@ -23,6 +23,8 @@ def get_climate_features(
     climate_data: str,
     geopotential_data: str,
     change_units: bool,
+    vois_climate: list = None,
+    vois_other: list = None,
 ) -> pd.DataFrame:
     """
     Takes as input ERA5-Land monthly averaged climate data (pre-downloaded), and matches this with the locations
@@ -34,6 +36,8 @@ def get_climate_features(
         climate_data (str): Path to the ERA5-Land climate data file.
         geopotential_data (str): Path to the geopotential data file.
         change_units (bool): If True, change temperature to Celsius and precipitation to m.w.e.
+        vois_climate (list): List of climate variables of interest to smooth out their climate artificats .
+        vois_other (list): List of other variables of interest to smooth out their climate artificats (typically ALTITUDE_CLIMATE).
 
     Returns:
         pd.DataFrame: The updated DataFrame with climate and altitude features.
@@ -76,13 +80,17 @@ def get_climate_features(
     # Get the climate data for the latitudes and longitudes and date ranges as
     # specified
     climate_df = _process_climate_data(ds_climate, df)
-    
+
     # Get the geopotential height for the latitudes and longitudes as specified,
     # for the locations of the stake measurements.
     altitude_df = _process_altitude_data(ds_geopotential_metric, df)
 
     # Combine the climate data with the altitude climate data
     df = _combine_dataframes(df, climate_df, altitude_df)
+
+    # Remove climate artifacts
+    df = smooth_era5land_by_mode(df, vois_climate, vois_other)
+
     # Add a new feature to the dataframe that is the height difference between the elevation
     # of the stake and the recorded height of the climate.
     df = _calculate_elevation_difference(df)
@@ -119,15 +127,16 @@ def retrieve_clear_sky_rad(df, path_to_file):
     )
 
     climate_df = (xr_data_points.to_dataframe().drop(
-    columns=["lat", "lon", "x", "y"]).reset_index())
+        columns=["lat", "lon", "x", "y"]).reset_index())
     climate_df = climate_df.drop(columns=["points"])
-    
+
     reshaped_ = []
     for month in range(0, 12):
-        month_ = climate_df[climate_df.time == month].drop(columns = ['time'])
+        month_ = climate_df[climate_df.time == month].drop(columns=['time'])
         reshaped_.append(month_.values.squeeze())
-    
-    result_df = pd.DataFrame(np.array(reshaped_).transpose(), columns=[f'Month_{i+1}' for i in range(12)])
+
+    result_df = pd.DataFrame(np.array(reshaped_).transpose(),
+                             columns=[f'Month_{i+1}' for i in range(12)])
 
     # Set the new column names for the dataframe (normal year not hydrological)
     climate_var = 'pcsr'
@@ -142,7 +151,7 @@ def retrieve_clear_sky_rad(df, path_to_file):
     return df
 
 
-def smooth_era5land_by_mode(df, vois_climate):
+def smooth_era5land_by_mode(df, vois_climate=None, vois_other=None):
     """For big glaciers covered by more than one ERA5-Land grid cell, the
         climate data is the one with the most data points. This function smooths the
         climate data by taking the mode of the data for each grid cell. 
@@ -151,15 +160,25 @@ def smooth_era5land_by_mode(df, vois_climate):
             vois_climate (str): A string containing the climate variables of interest
             df (pd.DataFrame): DataFrame containing the stakes data.
         """
-    # Filter out the climate variable columns based on vois_climate
-    climate_cols = [col for col in df.columns if any(col.startswith(vo + '_') for vo in vois_climate)]
+    if vois_climate is not None:
+        # Filter out the climate variable columns based on vois_climate
+        climate_cols = [
+            col for col in df.columns if any(
+                col.startswith(vo + '_') for vo in vois_climate)
+        ]
 
-    # Replace each climate column with its mode value
-    for col in climate_cols:
-        mode_val = df[col].mode().iloc[0]  # Most frequent value
-        df[col] = mode_val
-        
+        # Replace each climate column with its mode value
+        for col in climate_cols:
+            mode_val = df[col].mode().iloc[0]  # Most frequent value
+            df[col] = mode_val
+    if vois_other is not None:
+        # also smooth the other variables
+        for col in vois_other:
+            mode_val = df[col].mode().iloc[0]
+            df[col] = mode_val
+
     return df
+
 
 def _load_datasets(climate_data: str, geopotential_data: str) -> tuple:
     """Load climate and geopotential datasets."""
