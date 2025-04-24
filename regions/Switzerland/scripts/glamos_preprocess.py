@@ -79,6 +79,10 @@ def dat_to_csv(fileName, path_dat, path_csv):
         - Ensure the provided paths end with a directory separator (`/` or `\\`) based on the operating system.
 
     """
+    # create path_csv if does not exist
+    if not os.path.exists(path_csv):
+        os.makedirs(path_csv)
+    
     with open(path_dat + fileName + '.dat', 'r',
               encoding='latin-1') as dat_file:
         with open(path_csv + fileName + '.csv',
@@ -98,7 +102,7 @@ def dat_to_csv(fileName, path_dat, path_csv):
                     csv_file.write(','.join(row) + '\n')
 
 
-def CleanWinterDates(df_raw):
+def clean_winter_dates(df_raw):
     # For some winter measurements the FROM_DATE is the same year as the TO_DATE (even same date)
     # Correct it by setting it to beginning of hydrological year:
     for index, row in df_raw.iterrows():
@@ -331,13 +335,16 @@ def check_point_ids_contain_glacier(dataframe):
 
 
 def process_dat_fileGLWMB(fileName, path_dat, path_csv):
+    # crate path_csv if does not exist
+    if not os.path.exists(path_csv):
+        os.makedirs(path_csv)
+    
     with open(path_dat + fileName + '.dat', 'r',
               encoding='latin-1') as dat_file:
         with open(path_csv + fileName + '.csv',
                   'w',
                   newline='',
                   encoding='latin-1') as csv_file:
-            el_bands_ = []
             for num_rows, row in enumerate(dat_file):
                 if num_rows == 0:
                     row = [value.strip() for value in row.split(';')]
@@ -522,41 +529,6 @@ def get_geodetic_MB():
     return geodetic_mb
 
 
-def processDatFileGLWMB(fileName, path_dat, path_csv):
-    with open(path_dat + fileName + '.dat', 'r',
-              encoding='latin-1') as dat_file:
-        with open(path_csv + fileName + '.csv',
-                  'w',
-                  newline='',
-                  encoding='latin-1') as csv_file:
-            el_bands_ = []
-            for num_rows, row in enumerate(dat_file):
-                if num_rows == 0:
-                    row = [value.strip() for value in row.split(';')]
-                    num_el_bands = row[4]
-                if num_rows == 1:
-                    row = [value.strip() for value in row.split(';')]
-                    # Add columns for each el band
-                    # b_w_eb_i  :  n columns with area-mean winter balance of each elevation band  [mm w.e.]
-                    # b_a_eb_i  :  n columns with area-mean annual balance of each elevation band  [mm w.e.]
-                    # A_eb_i    :  n columns with area of each elevation band  [km2]
-                    row += [
-                        'b_w_eb_' + str(i) for i in range(int(num_el_bands))
-                    ]
-                    row += [
-                        'b_a_eb' + str(i) for i in range(int(num_el_bands))
-                    ]
-                    row += ['A_eb_' + str(i) for i in range(int(num_el_bands))]
-                    csv_file.write(','.join(row[:-1]) + '\n')
-                if num_rows > 3:
-                    row = [value.strip() for value in row.split(' ')]
-                    # replace commas if there are any otherwise will create bug:
-                    row = [value.replace(',', '-') for value in row]
-                    # remove empty spaces
-                    row = [i for i in row if i]
-                    csv_file.write(','.join(row) + '\n')
-
-
 def get_glacier_ids():
     glacier_ids = pd.read_csv(path_glacier_ids, sep=',')
     glacier_ids.rename(columns=lambda x: x.strip(), inplace=True)
@@ -568,16 +540,18 @@ def get_glacier_ids():
 
 # --- Main processing functions --- #
 
-
 def process_pmb_dat_files():
     """
     Processes annual and winter .dat PMB files into CSV format,
     handles Clariden glacier split, and removes combined files.
     """
 
-    # Clean CSV output folders
-    emptyfolder(path_PMB_GLAMOS_csv_a)
-    emptyfolder(path_PMB_GLAMOS_csv_w)
+    # Clean CSV output folders if they exist
+    # otherwise create them:
+    if not os.path.exists(path_PMB_GLAMOS_csv_a):
+        os.makedirs(path_PMB_GLAMOS_csv_a)
+    if not os.path.exists(path_PMB_GLAMOS_csv_w):
+        os.makedirs(path_PMB_GLAMOS_csv_w)
 
     # List .dat files
     glamosfiles_mb_a = [
@@ -636,6 +610,10 @@ def process_annual_stake_data(path_csv_folder):
         pd.DataFrame: Cleaned and formatted annual mass balance data.
     """
     df_list = []
+    
+    # check path_csv_folder is not empty
+    if not os.path.exists(path_csv_folder):
+        raise FileNotFoundError(f"Path {path_csv_folder} does not exist.")
 
     for file in os.listdir(path_csv_folder):
         fileName = re.split(r'\.csv', file)[0]
@@ -708,8 +686,11 @@ def process_winter_stake_data(df_annual_raw, path_input, path_output):
         path_output (str): Path to save cleaned winter CSVs.
     """
 
-    # Clear output folder
-    emptyfolder(path_output)
+    # Clear output folder if exists, otherwise create it
+    if not os.path.exists(path_output):
+        os.makedirs(path_output)
+    else:
+        emptyfolder(path_output)
 
     # Identify glaciers with available winter data
     winter_glaciers = {
@@ -810,7 +791,7 @@ def assemble_all_stake_data(df_annual_raw, path_winter_clean, path_output):
     df_all_raw.reset_index(drop=True, inplace=True)
 
     # Clean winter date inconsistencies
-    df_all_raw = CleanWinterDates(df_all_raw)
+    df_all_raw = clean_winter_dates(df_all_raw)
 
     # Remove Pers glacier (part of Morteratsch ensemble)
     df_all_raw = df_all_raw[df_all_raw['GLACIER'] != 'pers']
@@ -1120,7 +1101,7 @@ def process_SMB_GLAMOS():
     emptyfolder(path_SMB_GLAMOS_csv + 'obs/')
     for file in glamosfiles_smb:
         fileName = re.split('.dat', file)[0]
-        processDatFileGLWMB(fileName, path_SMB_GLAMOS_raw,
+        process_dat_fileGLWMB(fileName, path_SMB_GLAMOS_raw,
                             path_SMB_GLAMOS_csv + 'obs/')
 
     # FIX:
@@ -1136,7 +1117,7 @@ def process_SMB_GLAMOS():
     emptyfolder(path_SMB_GLAMOS_csv + 'fix/')
     for file in glamosfiles_smb:
         fileName = re.split('.dat', file)[0]
-        processDatFileGLWMB(fileName, path_SMB_GLAMOS_raw,
+        process_dat_fileGLWMB(fileName, path_SMB_GLAMOS_raw,
                             path_SMB_GLAMOS_csv + 'fix/')
 
 

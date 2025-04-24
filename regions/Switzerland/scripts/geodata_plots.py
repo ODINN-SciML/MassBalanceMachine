@@ -88,7 +88,7 @@ def scatter_geodetic_MB(df_all, hue='GLACIER', size=False):
     corr_glamos = np.corrcoef(df_all["Geodetic MB"], df_all["GLAMOS MB"])[0, 1]
 
     # Define figure and axes
-    fig, axs = plt.subplots(1, 2, figsize=(15, 5), sharex=True)
+    fig, axs = plt.subplots(2, 1, figsize=(10, 10), sharex=True)
 
     def plot_scatter(ax, y_col, title, rmse, corr):
         """ Helper function to plot a scatter plot with annotations """
