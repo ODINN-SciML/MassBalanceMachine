@@ -14,10 +14,10 @@ from calendar import monthrange
 
 import massbalancemachine as mbm
 
-from scripts.wgs84_ch1903 import *
-from scripts.config_CH import *
-from scripts.helpers import *
-from scripts.geodata import LV03toWGS84, xr_SGI_masked_topo, coarsenDS, get_rgi_sgi_ids, transformDates, load_grid_file
+from regions.Switzerland.scripts.wgs84_ch1903 import *
+from regions.Switzerland.scripts.config_CH import *
+from regions.Switzerland.scripts.helpers import *
+from regions.Switzerland.scripts.geodata import LV03toWGS84, xr_SGI_masked_topo, coarsenDS, get_rgi_sgi_ids, transformDates, load_grid_file
 
 # Setup logging
 logging.basicConfig(level=logging.INFO,
@@ -841,7 +841,7 @@ def add_rgi_ids_to_df(df_all_raw, glacier_outline_fname):
 
 
 def initialize_oggm_glacier_directories(
-    working_dir='../../../data/OGGM/',
+    working_dir=path_OGGM,
     rgi_region="11",
     rgi_version="6",
     base_url="https://cluster.klima.uni-bremen.de/~oggm/gdirs/oggm_v1.6/L3-L5_files/2023.1/elev_bands/W5E5_w_data/",
@@ -893,7 +893,7 @@ def initialize_oggm_glacier_directories(
 
 def export_oggm_grids(gdirs,
                       subset_rgis=None,
-                      output_path='../../../data/OGGM/xr_grids/'):
+                      output_path=path_OGGM_xrgrids):
 
     # Save OGGM xr for all needed glaciers:
     emptyfolder(output_path)

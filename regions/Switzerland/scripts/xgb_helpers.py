@@ -9,8 +9,8 @@ import numpy as np
 import hashlib
 from tqdm.notebook import tqdm
 
-from scripts.config_CH import *
-from scripts.helpers import Diff
+from regions.Switzerland.scripts.config_CH import *
+from regions.Switzerland.scripts.helpers import Diff
 
 
 def process_or_load_data(run_flag,

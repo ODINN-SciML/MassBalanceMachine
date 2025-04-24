@@ -5,9 +5,9 @@ from tqdm import tqdm
 from argparse import ArgumentParser
 
 # Scripts
-from scripts.helpers import *
-from scripts.glamos_preprocess import *
-from scripts.config_CH import *
+from regions.Switzerland.scripts.helpers import *
+from regions.Switzerland.scripts.glamos_preprocess import *
+from regions.Switzerland.scripts.config_CH import *
 
 # Setup logging
 logging.basicConfig(level=logging.INFO,
@@ -44,8 +44,7 @@ def generate_pmb_df(cfg):
     # ------------------------------------------------------------------------------
 
     log.info('Adding RGI Ids')
-    glacier_outline_fname = '../../../data/GLAMOS/RGI/nsidc0770_11.rgi60.CentralEurope/11_rgi60_CentralEurope.shp'
-    df_pmb = add_rgi_ids_to_df(df_all_raw, glacier_outline_fname)
+    df_pmb = add_rgi_ids_to_df(df_all_raw, path_rgi_outlines)
 
     rgiids6 = df_pmb[['GLACIER', 'RGIId']].drop_duplicates()
     log.info("-- RGIs before pre-processing")
@@ -123,7 +122,7 @@ def generate_topo_data(cfg):
     log.info('Merge with OGGM topography:')
     log.info('-- Initializing OGGM glacier directories:')
     gdirs, rgidf = initialize_oggm_glacier_directories(
-        working_dir='../../../data/OGGM/',
+        working_dir=path_OGGM,
         rgi_region="11",
         rgi_version="6",
         base_url=

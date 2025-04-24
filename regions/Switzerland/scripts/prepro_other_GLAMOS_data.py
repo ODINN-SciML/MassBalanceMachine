@@ -1,7 +1,7 @@
 import os
 import logging
 
-from scripts.glamos_preprocess import *
+from regions.Switzerland.scripts.glamos_preprocess import *
 
 # Setup logging
 logging.basicConfig(level=logging.INFO,

@@ -11,8 +11,8 @@ import geopandas as gpd
 import xarray as xr
 from datetime import datetime
 
-from scripts.config_CH import *
-from scripts.wgs84_ch1903 import *
+from regions.Switzerland.scripts.config_CH import *
+from regions.Switzerland.scripts.wgs84_ch1903 import *
 
 
 def get_GLAMOS_glwmb(glacier_name):
