@@ -748,3 +748,83 @@ def transformDates(df_or):
     df['date1'] = df['date1'].apply(lambda x: x.strftime('%Y%m%d'))
 
     return df
+
+def prepareGeoTargets(geodetic_mb, periods_per_glacier, glacier_name=None):
+    """
+    Prepare the vector of geodetic targets for a given glacier by looping over the
+    periods defined for this glacier.
+
+    Parameters:
+    -----------
+    geodetic_mb: pd.Dataframe
+        Dataframe that contains the geodetic mass balance.
+    periods_per_glacier: Dictionary of list of tuples.
+        Each key is the name of a glacier and the list associated to each entry
+        contains tuples of integers that define the time window over which data
+        are defined.
+    glacier_name: str or None
+        The name of the glacier to process. If not specified, the geodetic targets
+        are generated for all the keys of `periods_per_glacier`.
+
+    Returns:
+    --------
+        Dictionary of numpy arrays or numpy array depending if `glacier_name` is
+        specified or not.
+    """
+    if glacier_name is not None:
+        geodetic_MB_target = []
+        for geodetic_period in periods_per_glacier[glacier_name]:
+            mask = ((geodetic_mb.glacier_name == glacier_name) &
+                    (geodetic_mb.Astart == geodetic_period[0]) &
+                    (geodetic_mb.Aend == geodetic_period[1]))
+            geodetic_MB_target.append(geodetic_mb[mask].Bgeod.values[0])
+
+        return np.array(geodetic_MB_target)
+    else:
+        return {glacier_name: prepareGeoTargets(
+            geodetic_mb,
+            periods_per_glacier,
+            glacier_name=glacier_name
+        ) for glacier_name in periods_per_glacier}
+
+def buildPeriodsPerGlacier(geodetic_mb):
+    """
+    Builds the dictionary that contains the geodetic periods for each glacier.
+
+    Parameters:
+    -----------
+    geodetic_mb: pd.Dataframe
+        Dataframe that contains the geodetic mass balance.
+
+    Returns:
+    --------
+    periods_per_glacier: Dictionary of list of tuples.
+        Each key is the name of a glacier and the list associated to each entry
+        contains tuples of integers that define the time window over which data
+        are defined.
+    geoMB_per_glacier: Dictionary of list of floats.
+        Each key is the name of a glacier and the list associated to each entry
+        contains the geodetic mass balance.
+    """
+
+    periods_per_glacier = defaultdict(list)
+    geoMB_per_glacier = defaultdict(list)
+
+    # Iterate through the DataFrame rows
+    for _, row in geodetic_mb.iterrows():
+        glacier_name = row['glacier_name']
+        start_year = row['Astart']
+        end_year = row['Aend']
+        geoMB = row['Bgeod']
+
+        # Append the (start, end) tuple to the glacier's list
+        # Only if period is longer than 5 years
+        if end_year - start_year >= 5:
+            periods_per_glacier[glacier_name].append((start_year, end_year))
+            geoMB_per_glacier[glacier_name].append(geoMB)
+
+    # sort by glacier_list
+    periods_per_glacier = dict(sorted(periods_per_glacier.items()))
+    geoMB_per_glacier = dict(sorted(geoMB_per_glacier.items()))
+
+    return periods_per_glacier, geoMB_per_glacier
