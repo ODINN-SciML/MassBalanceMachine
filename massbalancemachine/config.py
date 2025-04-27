@@ -79,3 +79,13 @@ class FranceConfig(Config):
             **kwargs,
         ):
         super().__init__(*args, **kwargs, metaData=metaData, notMetaDataNotFeatures=notMetaDataNotFeatures)
+
+class ItalyAustriaConfig(Config):
+    def __init__(
+            self,
+            *args,
+            metaData: List[str] = ["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD", "GLACIER"],
+            notMetaDataNotFeatures: List[str] = ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"],
+            **kwargs,
+        ):
+        super().__init__(*args, **kwargs, metaData=metaData, notMetaDataNotFeatures=notMetaDataNotFeatures)
