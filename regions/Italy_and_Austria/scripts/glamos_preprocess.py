@@ -943,9 +943,10 @@ def merge_pmb_with_oggm_data(df_pmb,
             "topo",
             "hugonnet_dhdt",
             "consensus_ice_thickness",
-            "millan_v",
+            #"millan_v",
         ]
         # other options: "millan_ice_thickness", "millan_vx", "millan_vy", "dis_from_border"
+        # millam_v doesnt exist in the OGGM data for some IT and AT glaciers
 
     # Load RGI shapefile
     path = utils.get_rgi_region_file(region=rgi_region, version=rgi_version)

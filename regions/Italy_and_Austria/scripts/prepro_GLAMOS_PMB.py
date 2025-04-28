@@ -118,7 +118,7 @@ def generate_topo_data(cfg):
     # 6. Add OGGM topographical variables
     # ------------------------------------------------------------------------------
 
-    df_pmb_50s_clean = pd.read_csv(path_PMB_GLAMOS_csv + 'df_pmb_50s.csv')
+    df_pmb_50s_clean = pd.read_csv(path_PMB_WGMS_csv + 'IT_AT_wgms_dataset_all.csv')
     
     log.info('Merge with OGGM topography:')
     log.info('-- Initializing OGGM glacier directories:')
