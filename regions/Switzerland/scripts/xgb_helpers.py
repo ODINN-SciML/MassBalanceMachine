@@ -6,7 +6,6 @@ from sklearn.model_selection import GroupKFold, KFold, train_test_split, GroupSh
 import geopandas as gpd
 import xarray as xr
 import numpy as np
-import hashlib
 from tqdm.notebook import tqdm
 
 from regions.Switzerland.scripts.config_CH import *
@@ -35,7 +34,7 @@ def process_or_load_data(run_flag,
 
         # Add a glacier-wide ID (used for geodetic MB)
         data_glamos['GLWD_ID'] = data_glamos.apply(
-            lambda x: get_hash(f"{x.GLACIER}_{x.YEAR}"), axis=1)
+            lambda x: mbm.data_processing.utils.get_hash(f"{x.GLACIER}_{x.YEAR}"), axis=1)
         data_glamos['GLWD_ID'] = data_glamos['GLWD_ID'].astype(str)
 
         # Create dataset
@@ -254,13 +253,6 @@ def correct_vars_grid(df_grid_monthly,
     return df_grid_monthly
 
 
-# Generate a unique glacier-wide ID
-def get_hash(unique_string):
-    unique_id = hashlib.md5(
-        unique_string.encode()).hexdigest()[:10]  # Shortened hash
-    return unique_id
-
-
 def create_geodetic_input(cfg, glacier_name,
                           periods_per_glacier,
                           to_seasonal=False):
@@ -304,13 +296,13 @@ def create_geodetic_input(cfg, glacier_name,
             df_grid = df_grid_monthly
 
         # Add GLWD_ID (unique glacier-wide ID corresponding to the year)
-        df_grid['GLWD_ID'] = get_hash(f"{glacier_name}_{year}")
+        df_grid['GLWD_ID'] = mbm.data_processing.utils.get_hash(f"{glacier_name}_{year}")
 
         # ID is not unique anymore (because of the way the monthly grids were pre-processed),
         # so recompute them:
         if 'ID' in df_grid.columns:
             df_grid['ID'] = df_grid.apply(
-                lambda x: get_hash(f"{x.ID}_{x.YEAR}"), axis=1)
+                lambda x: mbm.data_processing.utils.get_hash(f"{x.ID}_{x.YEAR}"), axis=1)
         else:
             print(
                 f"Warning: 'ID' column missing in {file_name}, skipping ID modification."
