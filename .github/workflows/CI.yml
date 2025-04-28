@@ -6,6 +6,8 @@ permissions:
   actions: write
   contents: read
   # pull-requests: write # not needed for the moment but may be useful to create bots that comment the PR
+env:
+  data_encrypt: ${{ secrets.data_encrypt }}
 
 jobs:
   build:
@@ -60,6 +62,13 @@ jobs:
       #----------------------------------------------
       #    add matrix specifics and run test suite
       #----------------------------------------------
+      - name: Download preprocessed data
+        run: |
+          rm -rf dataDownload
+          mkdir -p dataDownload/
+          wget "https://docs.google.com/uc?export=download&id=1SUMYw1jfQClnfv_gP0izBD8MsHNc8V5P" -O dataDownload/data.tar.gz.gpg
+          gpg -d --pinentry-mode=loopback --passphrase "$data_encrypt" dataDownload/data.tar.gz.gpg > dataDownload/data.tar.gz
+          tar -xzf dataDownload/data.tar.gz -C dataDownload/
       - name: Run tests
         run: |
           source .venv/bin/activate
