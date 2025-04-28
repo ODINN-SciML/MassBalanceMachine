@@ -4,7 +4,7 @@ path_PMB_WGMS_raw = '/home/mburlet/scratch/data/DATA_MB/WGMS/DOI-WGMS-FoG-2025-0
 #path_PMB_GLAMOS_w_raw = path_PMB_GLAMOS_raw + 'winter/'
 #path_PMB_GLAMOS_a_raw = path_PMB_GLAMOS_raw + 'annual/'
 
-path_PMB_GLAMOS_csv = '/home/mburlet/scratch/data/DATA_MB/WGMS/DOI-WGMS-FoG-2025-02b/csv/'
+path_PMB_WGMS_csv = '/home/mburlet/scratch/data/DATA_MB/WGMS/DOI-WGMS-FoG-2025-02b/csv/'
 #path_PMB_GLAMOS_csv_w = path_PMB_GLAMOS_csv + 'winter/'
 #path_PMB_GLAMOS_csv_w_clean = path_PMB_GLAMOS_csv + 'winter_clean/'
 #path_PMB_GLAMOS_csv_a = path_PMB_GLAMOS_csv + 'annual/'
@@ -19,7 +19,7 @@ path_PMB_GLAMOS_csv = '/home/mburlet/scratch/data/DATA_MB/WGMS/DOI-WGMS-FoG-2025
 #path_glacier_grid_glamos = '/home/mburlet/scratch/data/DATA_MB/DEV/GLAMOS/topo/gridded_topo_inputs/GLAMOS_grid/'
 
 # Topo data
-#path_SGI_topo = '/home/mburlet/scratch/data/DATA_MB/DEV/GLAMOS/topo/SGI2020/'  # DEMs & topo from SGI
+path_SGI_topo = '/home/mburlet/scratch/data/DATA_MB/WGMS/GLAMOS/topo/SGI2020/'  # DEMs & topo from SGI
 #path_GLAMOS_topo = '/home/mburlet/scratch/data/DATA_MB/DEV/GLAMOS/topo/GLAMOS_DEM/'  # yearly DEMs from GLAMOS
 #path_pcsr = '/home/mburlet/scratch/data/DATA_MB/DEV/GLAMOS/topo/pcsr/'  # Potential incoming clear sky solar radiation from GLAMOS
 
@@ -31,7 +31,7 @@ path_PMB_GLAMOS_csv = '/home/mburlet/scratch/data/DATA_MB/WGMS/DOI-WGMS-FoG-2025
 path_ERA5_raw = '/home/mburlet/scratch/data/DATA_MB/ERA5Land/raw/'  # ERA5-Land
 #path_S2 = '/home/mburlet/scratch/data/DATA_MB/DEV/Sentinel/'  # Sentinel-2
 #path_OGGM = '/home/mburlet/scratch/data/DATA_MB/DEV/OGGM/'
-#path_OGGM_xrgrids = '/home/mburlet/scratch/data/DATA_MB/DEV/OGGM/xr_grids/'
+path_OGGM_xrgrids = '/home/mburlet/scratch/data/DATA_MB/WGMS/OGGM/xr_grids/'
 #path_glogem = '/home/mburlet/scratch/data/DATA_MB/DEV/GloGEM'  # glogem c_prec and t_off factors
 #path_rgi_outlines = '/home/mburlet/scratch/data/DATA_MB/DEV/GLAMOS/RGI/nsidc0770_11.rgi60.CentralEurope/11_rgi60_CentralEurope.shp'
 
