@@ -24,6 +24,7 @@ def test_process_or_load_data():
     cfg = mbm.SwitzerlandConfig(dataPath=dataPath)
 
     data_glamos = getStakesData(cfg)
+    assert data_glamos.shape == (4587, 20)
 
     vois_climate = [
         't2m', 'tp', 'slhf', 'sshf', 'ssrd', 'fal', 'str', 'u10', 'v10'
