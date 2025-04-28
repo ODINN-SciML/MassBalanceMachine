@@ -461,7 +461,7 @@ def transform_xarray_coords_lv03_to_wgs84(data_array):
     return data_array
 
 
-def get_geodetic_MB():
+def get_geodetic_MB(cfg):
     """
     Reads and processes the geodetic mass balance dataset for Swiss glaciers.
     - Filters out invalid date entries.
@@ -473,11 +473,11 @@ def get_geodetic_MB():
     """
 
     # Load necessary data
-    glacier_ids = get_glacier_ids()
-    data_glamos = pd.read_csv(path_PMB_GLAMOS_csv + 'CH_wgms_dataset_all.csv')
+    glacier_ids = get_glacier_ids(cfg)
+    data_glamos = pd.read_csv(cfg.dataPath + path_PMB_GLAMOS_csv + 'CH_wgms_dataset_all.csv')
 
     # Read geodetic MB dataset
-    geodetic_mb = pd.read_csv(path_geodetic_MB_glamos +
+    geodetic_mb = pd.read_csv(cfg.dataPath + path_geodetic_MB_glamos +
                               'dV_DOI2024_allcomb.csv')
 
     # Get RGI IDs for the glaciers
@@ -529,8 +529,8 @@ def get_geodetic_MB():
     return geodetic_mb
 
 
-def get_glacier_ids():
-    glacier_ids = pd.read_csv(path_glacier_ids, sep=',')
+def get_glacier_ids(cfg):
+    glacier_ids = pd.read_csv(cfg.dataPath+path_glacier_ids, sep=',')
     glacier_ids.rename(columns=lambda x: x.strip(), inplace=True)
     glacier_ids.sort_values(by='short_name', inplace=True)
     glacier_ids.set_index('short_name', inplace=True)
@@ -540,7 +540,7 @@ def get_glacier_ids():
 
 # --- Main processing functions --- #
 
-def process_pmb_dat_files():
+def process_pmb_dat_files(cfg):
     """
     Processes annual and winter .dat PMB files into CSV format,
     handles Clariden glacier split, and removes combined files.
@@ -548,55 +548,55 @@ def process_pmb_dat_files():
 
     # Clean CSV output folders if they exist
     # otherwise create them:
-    if not os.path.exists(path_PMB_GLAMOS_csv_a):
-        os.makedirs(path_PMB_GLAMOS_csv_a)
-    if not os.path.exists(path_PMB_GLAMOS_csv_w):
-        os.makedirs(path_PMB_GLAMOS_csv_w)
+    if not os.path.exists(cfg.dataPath+path_PMB_GLAMOS_csv_a):
+        os.makedirs(cfg.dataPath+path_PMB_GLAMOS_csv_a)
+    if not os.path.exists(cfg.dataPath+path_PMB_GLAMOS_csv_w):
+        os.makedirs(cfg.dataPath+path_PMB_GLAMOS_csv_w)
 
     # List .dat files
     glamosfiles_mb_a = [
-        file for file in os.listdir(path_PMB_GLAMOS_a_raw)
-        if os.path.isfile(os.path.join(path_PMB_GLAMOS_a_raw, file))
+        file for file in os.listdir(cfg.dataPath+path_PMB_GLAMOS_a_raw)
+        if os.path.isfile(os.path.join(cfg.dataPath+path_PMB_GLAMOS_a_raw, file))
     ]
     glamosfiles_mb_w = [
-        file for file in os.listdir(path_PMB_GLAMOS_w_raw)
-        if os.path.isfile(os.path.join(path_PMB_GLAMOS_w_raw, file))
+        file for file in os.listdir(cfg.dataPath+path_PMB_GLAMOS_w_raw)
+        if os.path.isfile(os.path.join(cfg.dataPath+path_PMB_GLAMOS_w_raw, file))
     ]
 
     # Convert .dat files to .csv
     for file in glamosfiles_mb_a:
         fileName = re.split(r'\.dat', file)[0]
-        dat_to_csv(fileName, path_PMB_GLAMOS_a_raw, path_PMB_GLAMOS_csv_a)
+        dat_to_csv(fileName, cfg.dataPath+path_PMB_GLAMOS_a_raw, cfg.dataPath+path_PMB_GLAMOS_csv_a)
 
     for file in glamosfiles_mb_w:
         fileName = re.split(r'\.dat', file)[0]
-        dat_to_csv(fileName, path_PMB_GLAMOS_w_raw, path_PMB_GLAMOS_csv_w)
+        dat_to_csv(fileName, cfg.dataPath+path_PMB_GLAMOS_w_raw, cfg.dataPath+path_PMB_GLAMOS_csv_w)
 
     # Handle Clariden split (annual)
     fileName = 'clariden_annual.csv'
-    clariden_csv_a = pd.read_csv(path_PMB_GLAMOS_csv_a + fileName,
+    clariden_csv_a = pd.read_csv(cfg.dataPath + path_PMB_GLAMOS_csv_a + fileName,
                                  sep=',',
                                  header=0,
                                  encoding='latin-1')
     clariden_csv_a[clariden_csv_a['# name'] == 'L'].to_csv(
-        path_PMB_GLAMOS_csv_a + 'claridenL_annual.csv', index=False)
+        cfg.dataPath + path_PMB_GLAMOS_csv_a + 'claridenL_annual.csv', index=False)
     clariden_csv_a[clariden_csv_a['# name'] == 'U'].to_csv(
-        path_PMB_GLAMOS_csv_a + 'claridenU_annual.csv', index=False)
+        cfg.dataPath + path_PMB_GLAMOS_csv_a + 'claridenU_annual.csv', index=False)
 
     # Handle Clariden split (winter)
     fileName = 'clariden_winter.csv'
-    clariden_csv_w = pd.read_csv(path_PMB_GLAMOS_csv_w + fileName,
+    clariden_csv_w = pd.read_csv(cfg.dataPath + path_PMB_GLAMOS_csv_w + fileName,
                                  sep=',',
                                  header=0,
                                  encoding='latin-1')
     clariden_csv_w[clariden_csv_w['# name'] == 'L'].to_csv(
-        path_PMB_GLAMOS_csv_w + 'claridenL_winter.csv', index=False)
+        cfg.dataPath + path_PMB_GLAMOS_csv_w + 'claridenL_winter.csv', index=False)
     clariden_csv_w[clariden_csv_w['# name'] == 'U'].to_csv(
-        path_PMB_GLAMOS_csv_w + 'claridenU_winter.csv', index=False)
+        cfg.dataPath + path_PMB_GLAMOS_csv_w + 'claridenU_winter.csv', index=False)
 
     # Remove original Clariden files
-    os.remove(path_PMB_GLAMOS_csv_a + 'clariden_annual.csv')
-    os.remove(path_PMB_GLAMOS_csv_w + 'clariden_winter.csv')
+    os.remove(cfg.dataPath + path_PMB_GLAMOS_csv_a + 'clariden_annual.csv')
+    os.remove(cfg.dataPath + path_PMB_GLAMOS_csv_w + 'clariden_winter.csv')
 
 
 def process_annual_stake_data(path_csv_folder):
@@ -841,7 +841,8 @@ def add_rgi_ids_to_df(df_all_raw, glacier_outline_fname):
 
 
 def initialize_oggm_glacier_directories(
-    working_dir=path_OGGM,
+    cfg,
+    working_dir=None,
     rgi_region="11",
     rgi_version="6",
     base_url="https://cluster.klima.uni-bremen.de/~oggm/gdirs/oggm_v1.6/L3-L5_files/2023.1/elev_bands/W5E5_w_data/",
@@ -859,6 +860,8 @@ def initialize_oggm_glacier_directories(
     log.setLevel(log_level)
 
     # Set working directory
+    if working_dir is None:
+        working_dir = cfg.dataPath+path_OGGM
     oggmCfg.PATHS['working_dir'] = working_dir
 
     # Get RGI file
@@ -891,11 +894,14 @@ def initialize_oggm_glacier_directories(
     return gdirs, rgidf
 
 
-def export_oggm_grids(gdirs,
+def export_oggm_grids(cfg,
+                      gdirs,
                       subset_rgis=None,
-                      output_path=path_OGGM_xrgrids):
+                      output_path=None):
 
     # Save OGGM xr for all needed glaciers:
+    if output_path is None:
+        output_path = cfg.dataPath + path_OGGM_xrgrids
     emptyfolder(output_path)
     for gdir in gdirs:
         RGIId = gdir.rgi_id
@@ -1086,44 +1092,44 @@ def merge_pmb_with_sgi_data(
     return df_pmb_sgi
 
 
-def process_SMB_GLAMOS():
+def process_SMB_GLAMOS(cfg):
     # OBS:
     # Get all files with pmb (for winter and annual mb):
     glamosfiles_smb = []
-    for file in os.listdir(path_SMB_GLAMOS_raw):
+    for file in os.listdir(cfg.dataPath + path_SMB_GLAMOS_raw):
         # check if current path is a file
-        if os.path.isfile(os.path.join(path_SMB_GLAMOS_raw,
+        if os.path.isfile(os.path.join(cfg.dataPath, path_SMB_GLAMOS_raw,
                                        file)) and 'obs' in file:
             glamosfiles_smb.append(file)
     # print('Examples of index stake raw files:\n', glamosfiles_smb[:5])
 
     # Transform all files to csv
-    emptyfolder(path_SMB_GLAMOS_csv + 'obs/')
+    emptyfolder(cfg.dataPath + path_SMB_GLAMOS_csv + 'obs/')
     for file in glamosfiles_smb:
         fileName = re.split('.dat', file)[0]
-        process_dat_fileGLWMB(fileName, path_SMB_GLAMOS_raw,
-                            path_SMB_GLAMOS_csv + 'obs/')
+        process_dat_fileGLWMB(fileName, cfg.dataPath + path_SMB_GLAMOS_raw,
+                            cfg.dataPath + path_SMB_GLAMOS_csv + 'obs/')
 
     # FIX:
     # Get all files with pmb (for winter and annual mb):
     glamosfiles_smb = []
-    for file in os.listdir(path_SMB_GLAMOS_raw):
+    for file in os.listdir(cfg.dataPath+path_SMB_GLAMOS_raw):
         # check if current path is a file
-        if os.path.isfile(os.path.join(path_SMB_GLAMOS_raw,
+        if os.path.isfile(os.path.join(cfg.dataPath, path_SMB_GLAMOS_raw,
                                        file)) and 'fix' in file:
             glamosfiles_smb.append(file)
     # print('Examples of index stake raw files:\n', glamosfiles_smb[:5])
     # Transform all files to csv
-    emptyfolder(path_SMB_GLAMOS_csv + 'fix/')
+    emptyfolder(cfg.dataPath + path_SMB_GLAMOS_csv + 'fix/')
     for file in glamosfiles_smb:
         fileName = re.split('.dat', file)[0]
-        process_dat_fileGLWMB(fileName, path_SMB_GLAMOS_raw,
-                            path_SMB_GLAMOS_csv + 'fix/')
+        process_dat_fileGLWMB(fileName, cfg.dataPath + path_SMB_GLAMOS_raw,
+                            cfg.dataPath + path_SMB_GLAMOS_csv + 'fix/')
 
 
-def process_pcsr():
-    glDirect = np.sort(os.listdir(path_pcsr + 'raw/'))  # Glaciers with data
-    path_pcsr_save = path_pcsr + 'zarr/'
+def process_pcsr(cfg):
+    glDirect = np.sort(os.listdir(cfg.dataPath + path_pcsr + 'raw/'))  # Glaciers with data
+    path_pcsr_save = cfg.dataPath + path_pcsr + 'zarr/'
 
     # check folder exists otherwise create it
     if not os.path.exists(path_pcsr_save):
@@ -1132,9 +1138,9 @@ def process_pcsr():
     emptyfolder(path_pcsr_save)
 
     for glacierName in tqdm(glDirect, desc='glaciers', position=0):
-        grid = os.listdir(path_pcsr + 'raw/' + glacierName)
+        grid = os.listdir(cfg.dataPath + path_pcsr + 'raw/' + glacierName)
         grid_year = int(re.findall(r'\d+', grid[0])[0])
-        daily_grids = os.listdir(path_pcsr + 'raw/' + glacierName + '/' +
+        daily_grids = os.listdir(cfg.dataPath + path_pcsr + 'raw/' + glacierName + '/' +
                                  grid[0])
         # Sort by day number from 001 to 365
         daily_grids.sort()
@@ -1144,7 +1150,7 @@ def process_pcsr():
                 continue
 
             # Load daily grid file
-            file_path = path_pcsr + 'raw/' + glacierName + '/' + grid[
+            file_path = cfg.dataPath + path_pcsr + 'raw/' + glacierName + '/' + grid[
                 0] + '/' + fileName
             metadata, grid_data = load_grid_file(file_path)
             grids.append(grid_data)
@@ -1181,10 +1187,9 @@ def process_pcsr():
                                       f'xr_direct_{glacierName}.zarr')
 
 
-def create_sgi_topo_masks(iterator,
+def create_sgi_topo_masks(cfg, iterator,
                           type='glacier_name',
-                          path_save=os.path.join(path_SGI_topo,
-                                                 'xr_masked_grids/')):
+                          path_save=None):
     """
     Create and save SGI topographic masks for a list of glaciers.
 
@@ -1194,6 +1199,9 @@ def create_sgi_topo_masks(iterator,
         List of glacier names to process.
     sgi_list : list, optional (if instead of processing by name we process by sgi id)
     """
+    if path_save is None:
+        path_save = os.path.join(
+            cfg.dataPath, path_SGI_topo,'xr_masked_grids/')
     # check if path_save exists and create otherwise, otherwise empty
     if not os.path.exists(path_save):
         os.makedirs(path_save)
@@ -1201,13 +1209,13 @@ def create_sgi_topo_masks(iterator,
         emptyfolder(path_save)
 
     glacier_outline_sgi = gpd.read_file(
-        os.path.join(path_SGI_topo,
+        os.path.join(cfg.dataPath, path_SGI_topo,
                      'inventory_sgi2016_r2020/SGI_2016_glaciers.shp'))
 
     for item in tqdm(iterator, desc="Processing glaciers"):
 
         if type == 'glacier_name':
-            sgi_id, rgi_id, rgi_shp = get_rgi_sgi_ids(item)
+            sgi_id, rgi_id, rgi_shp = get_rgi_sgi_ids(cfg, item)
             if not sgi_id:
                 print(
                     f"Warning: Missing SGI ID or shapefile for {item}. Skipping..."

@@ -261,13 +261,14 @@ def get_hash(unique_string):
     return unique_id
 
 
-def create_geodetic_input(glacier_name,
+def create_geodetic_input(cfg, glacier_name,
                           periods_per_glacier,
                           to_seasonal=False):
     """
     Creates a geodetic input array for MBM for a given glacier.
 
     Parameters:
+    - cfg (mbm.Config): Configuration instance used to retrieve the path where to store data on disk.
     - glacier_name (str): Name of the glacier.
     - periods_per_glacier (dict): Dictionary mapping glacier names to geodetic year ranges.
 
@@ -284,7 +285,7 @@ def create_geodetic_input(glacier_name,
     for year in range(min_geod_y, max_geod_y + 1):
         # Read the glacier grid file (monthly)
         file_name = f"{glacier_name}_grid_{year}.parquet"
-        file_path = os.path.join(path_glacier_grid_glamos, glacier_name,
+        file_path = os.path.join(cfg.dataPath, path_glacier_grid_glamos, glacier_name,
                                  file_name)
 
         if not os.path.exists(file_path):

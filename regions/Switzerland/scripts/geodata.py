@@ -32,7 +32,7 @@ def get_GLAMOS_glwmb(glacier_name):
     """
 
     # Construct file path safely
-    file_path = os.path.join(path_SMB_GLAMOS_csv, "fix",
+    file_path = os.path.join(cfg.dataPath, path_SMB_GLAMOS_csv, "fix",
                              f"{glacier_name}_fix.csv")
 
     # Check if file exists
@@ -271,9 +271,9 @@ def IceSnowCover(gdf_class, gdf_class_raster):
 
 
 def xr_SGI_masked_topo(gdf_shapefiles, sgi_id):
-    path_aspect = os.path.join(path_SGI_topo, 'aspect')
-    path_slope = os.path.join(path_SGI_topo, 'slope')
-    path_DEM = os.path.join(path_SGI_topo, 'dem_HR')
+    path_aspect = os.path.join(cfg.dataPath, path_SGI_topo, 'aspect')
+    path_slope = os.path.join(cfg.dataPath, path_SGI_topo, 'slope')
+    path_DEM = os.path.join(cfg.dataPath, path_SGI_topo, 'dem_HR')
 
     # Get SGI topo files
     aspect_gl = [f for f in os.listdir(path_aspect) if sgi_id in f][0]
@@ -397,8 +397,8 @@ def coarsenDS(ds, target_res_m=50):
     return ds
 
 
-def get_rgi_sgi_ids(glacier_name):
-    rgi_df = pd.read_csv(path_glacier_ids, sep=',')
+def get_rgi_sgi_ids(cfg, glacier_name):
+    rgi_df = pd.read_csv(cfg.dataPath+path_glacier_ids, sep=',')
     rgi_df.rename(columns=lambda x: x.strip(), inplace=True)
     rgi_df.sort_values(by='short_name', inplace=True)
     rgi_df.set_index('short_name', inplace=True)
@@ -527,9 +527,9 @@ def add_OGGM_features(df_y_gl, voi, path_OGGM):
     return df_pmb
 
 
-def xr_GLAMOS_masked_topo(sgi_id, ds_gl):
-    path_aspect = os.path.join(path_SGI_topo, "aspect")
-    path_slope = os.path.join(path_SGI_topo, "slope")
+def xr_GLAMOS_masked_topo(cfg, sgi_id, ds_gl):
+    path_aspect = os.path.join(cfg.dataPath, path_SGI_topo, "aspect")
+    path_slope = os.path.join(cfg.dataPath, path_SGI_topo, "slope")
 
     # Load SGI topo files
     aspect_gl = [f for f in os.listdir(path_aspect) if sgi_id in f][0]
@@ -602,15 +602,15 @@ def get_res_from_degrees(ds):
     return dx_m, dy_m
 
 
-def get_gl_area():
+def get_gl_area(cfg):
     # Load glacier metadata
-    rgi_df = pd.read_csv(path_glacier_ids, sep=',')
+    rgi_df = pd.read_csv(cfg.dataPath+path_glacier_ids, sep=',')
     rgi_df.rename(columns=lambda x: x.strip(), inplace=True)
     rgi_df.sort_values(by='short_name', inplace=True)
     rgi_df.set_index('short_name', inplace=True)
 
     # Load the shapefile
-    shapefile_path = os.path.join(path_SGI_topo, 'inventory_sgi2016_r2020',
+    shapefile_path = os.path.join(cfg.dataPath, path_SGI_topo, 'inventory_sgi2016_r2020',
                                   'SGI_2016_glaciers_copy.shp')
     gdf_shapefiles = gpd.read_file(shapefile_path)
 

@@ -66,6 +66,14 @@ class SwitzerlandConfig(Config):
             *args,
             metaData: List[str] = ["RGIId", "POINT_ID", "ID", "GLWD_ID", "N_MONTHS", "MONTHS", "PERIOD", "GLACIER",],
             notMetaDataNotFeatures: List[str] = ["POINT_BALANCE",  "YEAR", "POINT_LAT", "POINT_LON"],
+            dataPath: str = None,
             **kwargs,
         ):
+        if dataPath is None:
+            mbmDir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../'))+'/'
+            self.dataPath = mbmDir+'../data/'
+        else:
+            if dataPath!='' and not dataPath.endswith('/'):
+                dataPath = dataPath+'/'
+            self.dataPath = dataPath
         super().__init__(*args, **kwargs, metaData=metaData, notMetaDataNotFeatures=notMetaDataNotFeatures)

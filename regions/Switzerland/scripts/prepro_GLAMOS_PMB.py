@@ -21,30 +21,30 @@ def generate_pmb_df(cfg):
     # ------------------------------------------------------------------------------
 
     log.info('Processing PMB .dat files to .csv')
-    process_pmb_dat_files()
+    process_pmb_dat_files(cfg)
 
     # ------------------------------------------------------------------------------
     # 2. Assemble measurement periods
     # ------------------------------------------------------------------------------
 
     log.info('-- Processing annual measurements')
-    df_annual_raw = process_annual_stake_data(path_PMB_GLAMOS_csv_a)
+    df_annual_raw = process_annual_stake_data(cfg.dataPath + path_PMB_GLAMOS_csv_a)
 
     log.info('-- Processing winter measurements')
-    process_winter_stake_data(df_annual_raw, path_PMB_GLAMOS_csv_w,
-                              path_PMB_GLAMOS_csv_w_clean)
+    process_winter_stake_data(df_annual_raw, cfg.dataPath+path_PMB_GLAMOS_csv_w,
+                              cfg.dataPath+path_PMB_GLAMOS_csv_w_clean)
 
     log.info('-- Assembling all measurements (winter & annual)')
     df_all_raw = assemble_all_stake_data(df_annual_raw,
-                                         path_PMB_GLAMOS_csv_w_clean,
-                                         path_PMB_GLAMOS_csv)
+                                         cfg.dataPath+path_PMB_GLAMOS_csv_w_clean,
+                                         cfg.dataPath+path_PMB_GLAMOS_csv)
 
     # ------------------------------------------------------------------------------
     # 3. Add RGI Ids
     # ------------------------------------------------------------------------------
 
     log.info('Adding RGI Ids')
-    df_pmb = add_rgi_ids_to_df(df_all_raw, path_rgi_outlines)
+    df_pmb = add_rgi_ids_to_df(df_all_raw, cfg.dataPath+path_rgi_outlines)
 
     rgiids6 = df_pmb[['GLACIER', 'RGIId']].drop_duplicates()
     log.info("-- RGIs before pre-processing")
@@ -101,13 +101,13 @@ def generate_pmb_df(cfg):
     # ------------------------------------------------------------------------------
     log.info(
         'Saving intermediate output df_pmb_50s.csv to {path_PMB_GLAMOS_csv}')
-    df_pmb_50s_clean.to_csv(os.path.join(path_PMB_GLAMOS_csv,
+    df_pmb_50s_clean.to_csv(os.path.join(cfg.dataPath, path_PMB_GLAMOS_csv,
                                                       'df_pmb_50s.csv'),
                                          index=False)
 
     df_pmb_50s_clean[[
         'GLACIER', 'POINT_ID', 'POINT_LAT', 'POINT_LON', 'PERIOD'
-    ]].to_csv(os.path.join(path_PMB_GLAMOS_csv, 'coordinate_50s.csv'),
+    ]].to_csv(os.path.join(cfg.dataPath, path_PMB_GLAMOS_csv, 'coordinate_50s.csv'),
               index=False)
 
 
@@ -117,12 +117,12 @@ def generate_topo_data(cfg):
     # 6. Add OGGM topographical variables
     # ------------------------------------------------------------------------------
 
-    df_pmb_50s_clean = pd.read_csv(path_PMB_GLAMOS_csv + 'df_pmb_50s.csv')
+    df_pmb_50s_clean = pd.read_csv(cfg.dataPath + path_PMB_GLAMOS_csv + 'df_pmb_50s.csv')
     
     log.info('Merge with OGGM topography:')
     log.info('-- Initializing OGGM glacier directories:')
     gdirs, rgidf = initialize_oggm_glacier_directories(
-        working_dir=path_OGGM,
+        cfg,
         rgi_region="11",
         rgi_version="6",
         base_url=
@@ -131,7 +131,7 @@ def generate_topo_data(cfg):
         task_list=None,
     )
 
-    export_oggm_grids(gdirs, output_path=path_OGGM_xrgrids)
+    export_oggm_grids(cfg, gdirs)
 
     log.info('-- Adding OGGM topographical variables:')
     df_pmb_topo = merge_pmb_with_oggm_data(df_pmb=df_pmb_50s_clean,
@@ -156,11 +156,11 @@ def generate_topo_data(cfg):
 
     log.info('Merge with SGI topography:')
     # Paths and variables of interest
-    path_masked_grids = os.path.join(path_SGI_topo, 'xr_masked_grids/')
+    path_masked_grids = os.path.join(cfg.dataPath, path_SGI_topo, 'xr_masked_grids/')
 
     # First create the masked topographical arrays per glacier:
     glacier_list = sorted(df_pmb_topo.GLACIER.unique())
-    create_sgi_topo_masks(glacier_list)
+    create_sgi_topo_masks(cfg, glacier_list)
     
     # Merge PMB with SGI data
     df_pmb_sgi = merge_pmb_with_sgi_data(
@@ -181,7 +181,7 @@ def generate_topo_data(cfg):
     
     # Save to CSV
     fname = 'CH_wgms_dataset_all.csv'
-    df_pmb_sgi.to_csv(os.path.join(path_PMB_GLAMOS_csv, fname),
+    df_pmb_sgi.to_csv(os.path.join(cfg.dataPath, path_PMB_GLAMOS_csv, fname),
                   index=False)
     log.info(f"-- Saved final dataset {fname} to: {path_PMB_GLAMOS_csv}")
 
