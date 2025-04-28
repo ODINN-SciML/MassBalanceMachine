@@ -33,10 +33,10 @@ def plot_geodetic_MB(df, glacier_name, color_xgb='blue', color_tim='red'):
         # Scatter plot
         sns.scatterplot(df, x = 'geodetic_mb',
                    y = 'mbm_mb_mean',
-                   #color=color_xgb,
-                   hue = 'end_year',
-                  # alpha=0.7,
-                #    label="MBM MB",
+                   color=color_xgb,
+                #    hue = 'end_year',
+                  alpha=0.7,
+                   label="MBM MB",
                    marker="o")
         sns.scatterplot(df, x = 'geodetic_mb',
                    y = 'glamos_mb_mean',
