@@ -7,7 +7,7 @@ from cmcrameri import cm
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 
 from scripts.helpers import *
-from scripts.config_CH import *
+from scripts.config_IT_AT import *
 
 colors = get_cmap_hex(cm.batlow, 2)
 color_xgb = colors[0]

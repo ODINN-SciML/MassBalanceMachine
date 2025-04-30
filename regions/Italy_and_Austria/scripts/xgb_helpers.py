@@ -9,45 +9,45 @@ import numpy as np
 import hashlib
 from tqdm.notebook import tqdm
 
-from scripts.config_CH import *
+from scripts.config_IT_AT import *
 from scripts.helpers import Diff
 
 
 def process_or_load_data(run_flag,
-                         data_glamos,
+                         df,
                          paths,
                          cfg,
                          vois_climate,
                          vois_topographical,
-                         output_file='CH_wgms_dataset_monthly_full.csv'):
+                         output_file='IT_AT_wgms_dataset_monthly_full.csv'):
     """
     Process or load the data based on the RUN flag.
     """
     if run_flag:
         logging.info("Number of annual and seasonal samples: %d",
-                     len(data_glamos))
+                     len(df))
 
         # Filter data
         logging.info("Running on %d glaciers:\n%s",
-                     len(data_glamos.GLACIER.unique()),
-                     data_glamos.GLACIER.unique())
+                     len(df.GLACIER.unique()),
+                     df.GLACIER.unique())
 
         # Add a glacier-wide ID (used for geodetic MB)
-        data_glamos['GLWD_ID'] = data_glamos.apply(
+        df['GLWD_ID'] = df.apply(
             lambda x: get_hash(f"{x.GLACIER}_{x.YEAR}"), axis=1)
-        data_glamos['GLWD_ID'] = data_glamos['GLWD_ID'].astype(str)
+        df['GLWD_ID'] = df['GLWD_ID'].astype(str)
 
         # Create dataset
         dataset_gl = mbm.Dataset(cfg=cfg,
-                                 data=data_glamos,
+                                 data=df,
                                  region_name='CH',
                                  data_path=paths['csv_path'])
         logging.info("Number of winter and annual samples: %d",
-                     len(data_glamos))
+                     len(df))
         logging.info("Number of annual samples: %d",
-                     len(data_glamos[data_glamos.PERIOD == 'annual']))
+                     len(df[df.PERIOD == 'annual']))
         logging.info("Number of winter samples: %d",
-                     len(data_glamos[data_glamos.PERIOD == 'winter']))
+                     len(df[df.PERIOD == 'winter']))
 
         # Add climate data
         logging.info("Adding climate features...")
@@ -60,6 +60,7 @@ def process_or_load_data(run_flag,
             logging.error("Failed to add climate features: %s", e)
             return None
 
+        """
         # Add radiation data
         logging.info("Adding potential clear sky radiation...")
         logging.info("Shape before adding radiation: %s",
@@ -72,7 +73,7 @@ def process_or_load_data(run_flag,
         dataset_gl.convert_to_monthly(meta_data_columns=cfg.metaData,
                                       vois_climate=vois_climate + ['pcsr'],
                                       vois_topographical=vois_topographical)
-
+        """
 
         # Create DataLoader
         dataloader_gl = mbm.DataLoader(cfg,
@@ -333,7 +334,7 @@ def transform_df_to_seasonal(data_monthly):
         'slope_sgi',
         'hugonnet_dhdt',
         'consensus_ice_thickness',
-        'millan_v',
+        #'millan_v', millan_v is missing in some oggm glacier data so its not part of the dataset
         't2m',
         'tp',
         'slhf',
