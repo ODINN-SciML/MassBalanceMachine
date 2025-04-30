@@ -84,7 +84,7 @@ class ItalyAustriaConfig(Config):
     def __init__(
             self,
             *args,
-            metaData: List[str] = ["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD", "GLACIER"],
+            metaData: List[str] = ["COUNTRY", "RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD", "GLACIER"],
             notMetaDataNotFeatures: List[str] = ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"],
             **kwargs,
         ):
