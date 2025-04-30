@@ -67,13 +67,14 @@ def process_or_load_data(run_flag,
                      dataset_gl.data.shape)
         dataset_gl.get_potential_rad(paths['radiation_save_path'])
         logging.info("Shape after adding radiation: %s", dataset_gl.data.shape)
+        """
 
         # Convert to monthly resolution
         logging.info("Converting to monthly resolution...")
         dataset_gl.convert_to_monthly(meta_data_columns=cfg.metaData,
-                                      vois_climate=vois_climate + ['pcsr'],
+                                      vois_climate=vois_climate, #+ ['pcsr']
                                       vois_topographical=vois_topographical)
-        """
+        
 
         # Create DataLoader
         dataloader_gl = mbm.DataLoader(cfg,
@@ -344,7 +345,6 @@ def transform_df_to_seasonal(data_monthly):
         'str',
         'u10',
         'v10',
-        'pcsr',
     ]
 
     # All other non-numerical, non-grouping columns are assumed categorical
