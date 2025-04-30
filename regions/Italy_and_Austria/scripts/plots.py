@@ -16,12 +16,10 @@ color_tim = '#c51b7d'
 color_winter = '#a6cee3'
 color_annual = '#1f78b4'
 
-def plotHeatmap(test_glaciers, data_glamos, glacierCap, period='annual'):
+def plotHeatmap(test_glaciers, data_glamos, period='annual'):
     # Heatmap of mean mass balance per glacier:
     # Get the mean mass balance per glacier
     data_with_pot = data_glamos[data_glamos.PERIOD == period]
-    data_with_pot['GLACIER'] = data_glamos['GLACIER'].apply(
-        lambda x: glacierCap[x])
 
     mean_mb_per_glacier = data_with_pot.groupby(
         ['GLACIER', 'YEAR', 'PERIOD'])['POINT_BALANCE'].mean().reset_index()
@@ -49,7 +47,6 @@ def plotHeatmap(test_glaciers, data_glamos, glacierCap, period='annual'):
                 ax=ax)
 
     # add patches for test glaciers
-    test_glaciers = [glacierCap[gl] for gl in test_glaciers]
     for test_gl in test_glaciers:
         if test_gl not in matrix.index:
             continue
@@ -116,7 +113,7 @@ def visualiseInputs(train_set, test_set, vois_climate):
                                         density=False)
     ax[0, 2].set_title('YEARS')
 
-    for i, voi_clim in enumerate(vois_climate + ['pcsr']):
+    for i, voi_clim in enumerate(vois_climate):
         ax[0, 3 + i].set_title(voi_clim)
         train_set['df_X'][voi_clim].plot.hist(ax=ax[0, 3 + i],
                                               color=color_xgb,
@@ -137,7 +134,7 @@ def visualiseInputs(train_set, test_set, vois_climate):
                                        alpha=0.6,
                                        density=False)
 
-    for i, voi_clim in enumerate(vois_climate + ['pcsr']):
+    for i, voi_clim in enumerate(vois_climate):
         test_set['df_X'][voi_clim].plot.hist(ax=ax[1, 3 + i],
                                              color=color_tim,
                                              alpha=0.6,
@@ -277,7 +274,7 @@ def FIPlot(best_estimator, feature_columns, vois_climate):
     ax.set_ylabel('Feature')
 
 def PlotPredictions(grouped_ids, y_pred, metadata_test, test_set, model):
-    fig = plt.figure(figsize=(15, 10))
+    fig = plt.figure(figsize=(20, 15))
     colors_glacier = [
         '#a6cee3', '#1f78b4', '#b2df8a', '#33a02c', '#fb9a99', '#e31a1c',
         '#fdbf6f', '#ff7f00', '#cab2d6', '#6a3d9a', '#ffff99', '#b15928'
@@ -430,7 +427,11 @@ def plotMeanPred(grouped_ids, ax):
     
     
 def PlotIndividualGlacierPredVsTruth(grouped_ids, figsize=(15, 22)):
-    fig, axs = plt.subplots(3, 3, figsize=figsize)
+    # Calculate number of rows needed based on number of glaciers
+    n_glaciers = len(grouped_ids['GLACIER'].unique())
+    n_rows = (n_glaciers + 2) // 3  # Ceiling division to get enough rows for 3 columns
+    
+    fig, axs = plt.subplots(n_rows, 3, figsize=figsize)
 
     colors_glacier = [
         '#a6cee3', '#1f78b4', '#b2df8a', '#33a02c', '#fb9a99', '#e31a1c',
@@ -440,7 +441,7 @@ def PlotIndividualGlacierPredVsTruth(grouped_ids, figsize=(15, 22)):
         zip(grouped_ids.GLACIER.unique(), colors_glacier))
     color_palette_period = dict(
         zip(grouped_ids.PERIOD.unique(),
-            colors_glacier[:len(grouped_ids.GLACIER.unique()):]))
+            colors_glacier[:len(grouped_ids.PERIOD.unique())]))  # Fixed this line
 
     for i, test_gl in enumerate(grouped_ids['GLACIER'].unique()):
         df_gl = grouped_ids[grouped_ids.GLACIER == test_gl]
@@ -463,6 +464,11 @@ def PlotIndividualGlacierPredVsTruth(grouped_ids, figsize=(15, 22)):
                     hue='PERIOD',
                     palette=color_palette_period)
         ax1.set_title(f'{test_gl.capitalize()}', fontsize=28)
+    
+    # Hide empty subplots
+    for j in range(i+1, n_rows*3):
+        if j < len(axs.flatten()):
+            axs.flatten()[j].set_visible(False)
 
     plt.tight_layout()
     
