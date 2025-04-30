@@ -277,7 +277,13 @@ def PlotPredictions(grouped_ids, y_pred, metadata_test, test_set, model):
     fig = plt.figure(figsize=(20, 15))
     colors_glacier = [
         '#a6cee3', '#1f78b4', '#b2df8a', '#33a02c', '#fb9a99', '#e31a1c',
-        '#fdbf6f', '#ff7f00', '#cab2d6', '#6a3d9a', '#ffff99', '#b15928'
+        '#fdbf6f', '#ff7f00', '#cab2d6', '#6a3d9a', '#ffff99', '#b15928',
+        '#8dd3c7', '#ffffb3', '#bebada', '#fb8072', '#80b1d3', '#fdb462', 
+        '#b3de69', '#fccde5', '#d9d9d9', '#bc80bd', '#ccebc5', '#ffed6f',
+        '#66c2a5', '#fc8d62', '#8da0cb', '#e78ac3', '#a6d854', '#ffd92f', 
+        '#e5c494', '#b3b3b3', '#7fc97f', '#beaed4', '#fdc086', '#ffff99',
+        '#386cb0', '#f0027f', '#bf5b17', '#666666', '#1b9e77', '#d95f02',
+        '#7570b3', '#e7298a'
     ]
     color_palette_glaciers = dict(
         zip(grouped_ids.GLACIER.unique(), colors_glacier))
@@ -357,7 +363,11 @@ def predVSTruth(ax, grouped_ids, scores, hue='GLACIER', palette=None):
             fontsize=20,
             bbox=props)
     if hue is not None:
-        ax.legend(fontsize=14, loc='lower right')
+        # Move legend outside the plot to the right
+        ax.legend(fontsize=12, 
+                  loc='center left', 
+                  bbox_to_anchor=(1.05, 0.5),
+                  ncol=1)  # You can adjust ncol if needed
     else:
         ax.legend([], [], frameon=False)
     # diagonal line
@@ -435,13 +445,19 @@ def PlotIndividualGlacierPredVsTruth(grouped_ids, figsize=(15, 22)):
 
     colors_glacier = [
         '#a6cee3', '#1f78b4', '#b2df8a', '#33a02c', '#fb9a99', '#e31a1c',
-        '#fdbf6f', '#ff7f00', '#cab2d6', '#6a3d9a', '#ffff99', '#b15928'
+        '#fdbf6f', '#ff7f00', '#cab2d6', '#6a3d9a', '#ffff99', '#b15928',
+        '#8dd3c7', '#ffffb3', '#bebada', '#fb8072', '#80b1d3', '#fdb462', 
+        '#b3de69', '#fccde5', '#d9d9d9', '#bc80bd', '#ccebc5', '#ffed6f',
+        '#66c2a5', '#fc8d62', '#8da0cb', '#e78ac3', '#a6d854', '#ffd92f', 
+        '#e5c494', '#b3b3b3', '#7fc97f', '#beaed4', '#fdc086', '#ffff99',
+        '#386cb0', '#f0027f', '#bf5b17', '#666666', '#1b9e77', '#d95f02',
+        '#7570b3', '#e7298a'
     ]
     color_palette_glaciers = dict(
         zip(grouped_ids.GLACIER.unique(), colors_glacier))
     color_palette_period = dict(
         zip(grouped_ids.PERIOD.unique(),
-            colors_glacier[:len(grouped_ids.PERIOD.unique())]))  # Fixed this line
+            colors_glacier[:len(grouped_ids.PERIOD.unique())]))
 
     for i, test_gl in enumerate(grouped_ids['GLACIER'].unique()):
         df_gl = grouped_ids[grouped_ids.GLACIER == test_gl]
