@@ -47,6 +47,10 @@ def plotHeatmap(test_glaciers, data_glamos, glacierCap, period='annual'):
                 cmap=cm.vik_r,
                 cbar_kws={'label': '[m w.e. $a^{-1}$]'},
                 ax=ax)
+    ax.set_xlabel('')
+    # Update colorbar label fontsize
+    cbar = ax.collections[0].colorbar
+    cbar.ax.yaxis.label.set_size(24)  # Adjust 14 to your desired fontsize
 
     # add patches for test glaciers
     test_glaciers = [glacierCap[gl] for gl in test_glaciers]
@@ -95,7 +99,7 @@ def visualiseInputs(train_set, test_set, vois_climate):
     color_xgb = colors[0]
     color_tim = colors[2]
     f, ax = plt.subplots(2,
-                         len(vois_climate) + 4,
+                         len(vois_climate) + 3,
                          figsize=(16, 6),
                          sharey='row',
                          sharex='col')
@@ -116,7 +120,7 @@ def visualiseInputs(train_set, test_set, vois_climate):
                                         density=False)
     ax[0, 2].set_title('YEARS')
 
-    for i, voi_clim in enumerate(vois_climate + ['pcsr']):
+    for i, voi_clim in enumerate(vois_climate):
         ax[0, 3 + i].set_title(voi_clim)
         train_set['df_X'][voi_clim].plot.hist(ax=ax[0, 3 + i],
                                               color=color_xgb,
@@ -137,7 +141,7 @@ def visualiseInputs(train_set, test_set, vois_climate):
                                        alpha=0.6,
                                        density=False)
 
-    for i, voi_clim in enumerate(vois_climate + ['pcsr']):
+    for i, voi_clim in enumerate(vois_climate):
         test_set['df_X'][voi_clim].plot.hist(ax=ax[1, 3 + i],
                                              color=color_tim,
                                              alpha=0.6,
@@ -254,7 +258,7 @@ def FIPlot(best_estimator, feature_columns, vois_climate):
     FI = best_estimator.feature_importances_
     cmap = cm.devon
     color_palette_glaciers = get_cmap_hex(cmap, len(FI) + 5)
-    fig = plt.figure(figsize=(15, 10))
+    fig = plt.figure(figsize=(10, 15))
     ax = plt.subplot(1, 1, 1)
     feature_importdf = pd.DataFrame(data={
         "variables": feature_columns,
@@ -360,7 +364,7 @@ def predVSTruth(ax, grouped_ids, scores, hue='GLACIER', palette=None):
             fontsize=20,
             bbox=props)
     if hue is not None:
-        ax.legend(fontsize=14, loc='lower right')
+        ax.legend(fontsize=14, loc='lower right', ncol=2)
     else:
         ax.legend([], [], frameon=False)
     # diagonal line
