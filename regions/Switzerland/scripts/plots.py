@@ -6,8 +6,8 @@ from matplotlib.patches import Rectangle
 from cmcrameri import cm
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 
-from scripts.helpers import *
-from scripts.config_CH import *
+from regions.Switzerland.scripts.helpers import *
+from regions.Switzerland.scripts.config_CH import *
 
 colors = get_cmap_hex(cm.batlow, 2)
 color_xgb = colors[0]
