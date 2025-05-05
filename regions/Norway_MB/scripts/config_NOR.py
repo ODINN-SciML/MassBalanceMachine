@@ -28,7 +28,7 @@ path_SGI_topo = '/home/mburlet/scratch/data/DATA_MB/WGMS/GLAMOS/topo/SGI2020/'  
 #path_glacier_ids = '/home/mburlet/scratch/data/DATA_MB/DEV/GLAMOS/CH_glacier_ids_long.csv'  # glacier ids for CH glaciers
 
 # <------------------ OTHER PATHS: ------------------>
-path_ERA5_raw = '/home/mburlet/scratch/data/DATA_MB/ERA5Land/raw/'  # ERA5-Land
+path_ERA5_raw = '/home/mburlet/scratch/data/DATA_MB/WGMS/Norway/ERA5Land/raw/'  # ERA5-Land
 #path_S2 = '/home/mburlet/scratch/data/DATA_MB/DEV/Sentinel/'  # Sentinel-2
 #path_OGGM = '/home/mburlet/scratch/data/DATA_MB/DEV/OGGM/'
 path_OGGM_xrgrids = '/home/mburlet/scratch/data/DATA_MB/WGMS/Norway/OGGM/xr_grids/'
