@@ -932,7 +932,7 @@ def export_oggm_grids(gdirs,
 
 def merge_pmb_with_oggm_data(df_pmb,
                              gdirs,
-                             rgi_region="11",
+                             rgi_region="08",
                              rgi_version="6",
                              variables_of_interest=None,
                              verbose=True):
@@ -946,7 +946,7 @@ def merge_pmb_with_oggm_data(df_pmb,
             #"millan_v",
         ]
         # other options: "millan_ice_thickness", "millan_vx", "millan_vy", "dis_from_border"
-        # millam_v doesnt exist in the OGGM data for some IT and AT glaciers
+        # millan_v missing for RGI60-08.01258
 
     # Load RGI shapefile
     path = utils.get_rgi_region_file(region=rgi_region, version=rgi_version)
