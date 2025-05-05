@@ -19,6 +19,7 @@ def process_or_load_data(run_flag,
                          cfg,
                          vois_climate,
                          vois_topographical,
+                         add_pcsr=True,
                          output_file='CH_wgms_dataset_monthly_full.csv'):
     """
     Process or load the data based on the RUN flag.
@@ -60,19 +61,27 @@ def process_or_load_data(run_flag,
             logging.error("Failed to add climate features: %s", e)
             return None
 
-        # Add radiation data
-        logging.info("Adding potential clear sky radiation...")
-        logging.info("Shape before adding radiation: %s",
-                     dataset_gl.data.shape)
-        dataset_gl.get_potential_rad(paths['radiation_save_path'])
-        logging.info("Shape after adding radiation: %s", dataset_gl.data.shape)
+        if add_pcsr:
+            # Add radiation data
+            logging.info("Adding potential clear sky radiation...")
+            logging.info("Shape before adding radiation: %s",
+                         dataset_gl.data.shape)
+            dataset_gl.get_potential_rad(paths['radiation_save_path'])
+            logging.info("Shape after adding radiation: %s",
+                         dataset_gl.data.shape)
 
         # Convert to monthly resolution
         logging.info("Converting to monthly resolution...")
-        dataset_gl.convert_to_monthly(meta_data_columns=cfg.metaData,
-                                      vois_climate=vois_climate + ['pcsr'],
-                                      vois_topographical=vois_topographical)
-
+        if add_pcsr:
+            dataset_gl.convert_to_monthly(
+                meta_data_columns=cfg.metaData,
+                vois_climate=vois_climate + ['pcsr'],
+                vois_topographical=vois_topographical)
+        else:
+            dataset_gl.convert_to_monthly(
+                meta_data_columns=cfg.metaData,
+                vois_climate=vois_climate,
+                vois_topographical=vois_topographical)
 
         # Create DataLoader
         dataloader_gl = mbm.DataLoader(cfg,

@@ -8,39 +8,38 @@ import matplotlib.patches as mpatches
 
 from scripts.geodata import *
 
-def plot_geodetic_MB(geodetic_mb,
-                   mbm_mb_mean,
-                   glamos_mb_mean,
-                   glacier_name,
-                   color_xgb='blue',
-                   color_tim='red'):
-    # Convert lists to NumPy arrays for filtering NaNs
-    geodetic_mb = np.array(geodetic_mb)
-    mbm_mb_mean = np.array(mbm_mb_mean)
-    glamos_mb_mean = np.array(glamos_mb_mean)
 
-    # Remove NaN values to avoid plotting errors
-    valid_idx = ~np.isnan(geodetic_mb) & ~np.isnan(mbm_mb_mean) & ~np.isnan(
-        glamos_mb_mean)
-    geodetic_mb, mbm_mb_mean, glamos_mb_mean = geodetic_mb[
-        valid_idx], mbm_mb_mean[valid_idx], glamos_mb_mean[valid_idx]
+def plot_geodetic_MB(df, glacier_name, color_xgb='blue', color_tim='red'):
+    # # Convert lists to NumPy arrays for filtering NaNs
+    # geodetic_mb = np.array(geodetic_mb)
+    # mbm_mb_mean = np.array(mbm_mb_mean)
+    # glamos_mb_mean = np.array(glamos_mb_mean)
 
+    # # Remove NaN values to avoid plotting errors
+    # valid_idx = ~np.isnan(geodetic_mb) & ~np.isnan(mbm_mb_mean) & ~np.isnan(
+    #     glamos_mb_mean)
+    # geodetic_mb, mbm_mb_mean, glamos_mb_mean = geodetic_mb[
+    #     valid_idx], mbm_mb_mean[valid_idx], glamos_mb_mean[valid_idx]
+
+    df = df.dropna(subset=['geodetic_mb', 'mbm_mb_mean', 'glamos_mb_mean'])
+    
     # Ensure data exists before plotting
-    if len(geodetic_mb) == 0:
+    if len(df) == 0:
         print("No valid data points to plot.")
     else:
         # Create figure and axis
         fig, ax = plt.subplots(figsize=(10, 5))
 
         # Scatter plot
-        ax.scatter(geodetic_mb,
-                   mbm_mb_mean,
+        sns.scatterplot(df, x = 'geodetic_mb',
+                   y = 'mbm_mb_mean',
                    color=color_xgb,
-                   alpha=0.7,
+                #    hue = 'end_year',
+                  alpha=0.7,
                    label="MBM MB",
                    marker="o")
-        ax.scatter(geodetic_mb,
-                   glamos_mb_mean,
+        sns.scatterplot(df, x = 'geodetic_mb',
+                   y = 'glamos_mb_mean',
                    color=color_tim,
                    alpha=0.7,
                    label="GLAMOS MB",
@@ -61,8 +60,8 @@ def plot_geodetic_MB(geodetic_mb,
 
         # return figure
         return fig
-    
-    
+
+
 def scatter_geodetic_MB(df_all, hue='GLACIER', size=False):
     """
     Creates scatter plots comparing Geodetic MB to MBM MB and GLAMOS MB, with RMSE and correlation annotations.
@@ -88,7 +87,7 @@ def scatter_geodetic_MB(df_all, hue='GLACIER', size=False):
     corr_glamos = np.corrcoef(df_all["Geodetic MB"], df_all["GLAMOS MB"])[0, 1]
 
     # Define figure and axes
-    fig, axs = plt.subplots(1, 2, figsize=(15, 5), sharex=True)
+    fig, axs = plt.subplots(2, 1, figsize=(10, 10), sharex=True)
 
     def plot_scatter(ax, y_col, title, rmse, corr):
         """ Helper function to plot a scatter plot with annotations """
@@ -148,6 +147,7 @@ def scatter_geodetic_MB(df_all, hue='GLACIER', size=False):
 
     plt.tight_layout()
     plt.show()
+
 
 def plot_mass_balance(glacier_name, year, df_stakes,
                       path_distributed_MB_glamos, PATH_PREDICTIONS):
@@ -324,21 +324,20 @@ def plot_mass_balance(glacier_name, year, df_stakes,
                     ax=axes[0, 0],
                     s=25,
                     legend=False)
-    
-    
+
     # add rmse if available
     if not stakes_data_ann.empty:
         rmse = mean_squared_error(stakes_data_ann.POINT_BALANCE,
                                   stakes_data_ann.GLAMOS_MB,
                                   squared=False)
         axes[0, 0].text(0.05,
-                       0.1,
-                       f"RMSE: {rmse:.2f}",
-                       transform=axes[0, 0].transAxes,
-                       ha='left',
-                       va='top',
-                       fontsize=18)
-    
+                        0.1,
+                        f"RMSE: {rmse:.2f}",
+                        transform=axes[0, 0].transAxes,
+                        ha='left',
+                        va='top',
+                        fontsize=18)
+
     # Annual MBM Predictions Plot
     ds_mbm_ann.pred_masked.plot.imshow(
         ax=axes[0, 1],
@@ -357,19 +356,19 @@ def plot_mass_balance(glacier_name, year, df_stakes,
                     ax=axes[0, 1],
                     s=25,
                     legend=False)
-    
+
     # add rmse
     if not stakes_data_ann.empty:
         rmse = mean_squared_error(stakes_data_ann.POINT_BALANCE,
-                              stakes_data_ann.Predicted_MB,
-                              squared=False)
+                                  stakes_data_ann.Predicted_MB,
+                                  squared=False)
         axes[0, 1].text(0.05,
-                   0.1,
-                   f"RMSE: {rmse:.2f}",
-                   transform=axes[0, 1].transAxes,
-                   ha='left',
-                   va='top',
-                   fontsize=18)
+                        0.1,
+                        f"RMSE: {rmse:.2f}",
+                        transform=axes[0, 1].transAxes,
+                        ha='left',
+                        va='top',
+                        fontsize=18)
 
     # Winter GLAMOS & MBM Plots
     ds_glamos_wgs84_win.plot.imshow(
@@ -387,19 +386,19 @@ def plot_mass_balance(glacier_name, year, df_stakes,
                     ax=axes[1, 0],
                     s=25,
                     legend=False)
-    
+
     # add rmse
     if not stakes_data_win.empty:
         rmse = mean_squared_error(stakes_data_win.POINT_BALANCE,
-                              stakes_data_win.GLAMOS_MB,
-                              squared=False)
+                                  stakes_data_win.GLAMOS_MB,
+                                  squared=False)
         axes[1, 0].text(0.05,
-                   0.1,
-                   f"RMSE: {rmse:.2f}",
-                   transform=axes[1, 0].transAxes,
-                   ha='left',
-                   va='top',
-                   fontsize=18)
+                        0.1,
+                        f"RMSE: {rmse:.2f}",
+                        transform=axes[1, 0].transAxes,
+                        ha='left',
+                        va='top',
+                        fontsize=18)
 
     # Winter MBM Predictions Plot
     ds_mbm_win.pred_masked.plot.imshow(
@@ -417,28 +416,28 @@ def plot_mass_balance(glacier_name, year, df_stakes,
                     ax=axes[1, 1],
                     s=25,
                     legend=False)
-    
+
     # add rmse
     if not stakes_data_win.empty:
         rmse = mean_squared_error(stakes_data_win.POINT_BALANCE,
-                              stakes_data_win.Predicted_MB,
-                              squared=False)
+                                  stakes_data_win.Predicted_MB,
+                                  squared=False)
         axes[1, 1].text(0.05,
-                   0.1,
-                   f"RMSE: {rmse:.2f}",
-                   transform=axes[1, 1].transAxes,
-                   ha='left',
-                   va='top',
-                   fontsize=18)
+                        0.1,
+                        f"RMSE: {rmse:.2f}",
+                        transform=axes[1, 1].transAxes,
+                        ha='left',
+                        va='top',
+                        fontsize=18)
 
     plt.suptitle(f"{glacier_name.capitalize()}: Mass Balance {year}")
-    
+
     plt.tight_layout()
 
     return fig
 
 
-def plot_snow_cover_scatter(df, add_corr = True):
+def plot_snow_cover_scatter(df, add_corr=True):
     """
     Generate scatter plots of snow cover and corrected snow cover 
     for each month in the dataset, including R^2 values in each plot.
@@ -459,7 +458,7 @@ def plot_snow_cover_scatter(df, add_corr = True):
         fig, axs = plt.subplots(2, N_months, figsize=(15, 8), squeeze=False)
     else:
         fig, axs = plt.subplots(1, N_months, figsize=(15, 4), squeeze=False)
-    
+
     # Get sorted unique months
     months = np.sort(df['monthNb'].unique())
 
@@ -478,18 +477,24 @@ def plot_snow_cover_scatter(df, add_corr = True):
                         ax=ax)
         x = np.linspace(0, 1, 100)
         ax.plot(x, x, 'k--')  # Identity line
-        
+
         # Calculate and add R^2 value
-        r2 = np.corrcoef(df_month['snow_cover_S2'], df_month['snow_cover_glacier'])[0, 1]**2
-        mse = mean_squared_error(df_month['snow_cover_glacier'], df_month['snow_cover_S2'])
-        ax.text(0.05, 0.85, f"R² = {r2:.2f}\nMSE = {mse:.2f}", transform=ax.transAxes, fontsize=10, color="black")
-        
+        r2 = np.corrcoef(df_month['snow_cover_S2'],
+                         df_month['snow_cover_glacier'])[0, 1]**2
+        mse = mean_squared_error(df_month['snow_cover_glacier'],
+                                 df_month['snow_cover_S2'])
+        ax.text(0.05,
+                0.85,
+                f"R² = {r2:.2f}\nMSE = {mse:.2f}",
+                transform=ax.transAxes,
+                fontsize=10,
+                color="black")
+
         ax.set_xlabel('Sentinel-2')
         ax.set_ylabel('Mass Balance Machine')
         ax.set_title(f'Snow Cover (Normal), {df_month["month"].values[0]}')
         ax.get_legend().remove()  # Remove legend
 
-        
         if add_corr:
             # Right column: scatter plot of corrected snow cover
             ax = axs[1, i]
@@ -500,30 +505,38 @@ def plot_snow_cover_scatter(df, add_corr = True):
                             hue='glacier_name',
                             ax=ax)
             ax.plot(x, x, 'k--')  # Identity line
-            
+
             # Calculate and add R^2 value
-            r2_corr = np.corrcoef(df_month['snow_cover_S2'], df_month['snow_cover_glacier_corr'])[0, 1]**2
-            mse_corr = mean_squared_error(df_month['snow_cover_glacier_corr'], df_month['snow_cover_S2'])
-            ax.text(0.05, 0.85, f"R² = {r2_corr:.2f}\nMSE = {mse_corr:.2f}", transform=ax.transAxes, fontsize=10, color="black")
+            r2_corr = np.corrcoef(df_month['snow_cover_S2'],
+                                  df_month['snow_cover_glacier_corr'])[0, 1]**2
+            mse_corr = mean_squared_error(df_month['snow_cover_glacier_corr'],
+                                          df_month['snow_cover_S2'])
+            ax.text(0.05,
+                    0.85,
+                    f"R² = {r2_corr:.2f}\nMSE = {mse_corr:.2f}",
+                    transform=ax.transAxes,
+                    fontsize=10,
+                    color="black")
 
             ax.set_xlabel('Sentinel-2')
             ax.set_ylabel('Mass Balance Machine')
-            ax.set_title(f'Snow Cover (Corrected), {df_month["month"].values[0]}')
+            ax.set_title(
+                f'Snow Cover (Corrected), {df_month["month"].values[0]}')
             ax.get_legend().remove()  # Remove legend
 
     # Add a single legend underneath the last row of axes
     if add_corr:
         handles, labels = axs[0, 0].get_legend_handles_labels()
         fig.legend(handles,
-               labels,
-               loc='lower center',
-               ncol=5,
-               bbox_to_anchor=(0.5, -0.05),
-               title="Glacier Name")
+                   labels,
+                   loc='lower center',
+                   ncol=5,
+                   bbox_to_anchor=(0.5, -0.05),
+                   title="Glacier Name")
 
         # Adjust layout for better spacing
         plt.tight_layout(rect=[0, 0.08, 1,
-                           1])  # Leave space at the bottom for the legend
+                               1])  # Leave space at the bottom for the legend
 
     return fig, axs
 
@@ -563,8 +576,13 @@ def plot_snow_cover_scatter_combined(df):
     ax.get_legend().remove()  # Remove legend for now
 
     r2 = np.corrcoef(df['snow_cover_S2'], df['snow_cover_glacier'])[0, 1]**2
-    ax.text(0.05, 0.9, f"R² = {r2:.2f}", transform=ax.transAxes, fontsize=16, color="black")
- 
+    ax.text(0.05,
+            0.9,
+            f"R² = {r2:.2f}",
+            transform=ax.transAxes,
+            fontsize=16,
+            color="black")
+
     # # Second subplot: Corrected snow cover
     # ax = axs[1]
     # sns.scatterplot(data=df,
@@ -600,6 +618,7 @@ def plot_snow_cover_scatter_combined(df):
     plt.tight_layout(rect=[0, 0, 0.9,
                            1])  # Leave space on the right for the legend
     return fig, axs
+
 
 def plot_snow_cover_geoplots(raster_res,
                              path_S2,
@@ -722,7 +741,7 @@ def plotClasses(gdf_glacier,
     )
     # make colorbar small
     # cbar = axs[0].get_figure().get_axes()[1]
-    # cbar.set_ylabel("Mass balance [m w.e.]", fontsize=12)   
+    # cbar.set_ylabel("Mass balance [m w.e.]", fontsize=12)
     #cx.add_basemap(axs[0], crs=gdf_glacier.crs, source=provider)
     axs[0].set_title(f"Mass balance: {gl_date}")
 
@@ -751,7 +770,11 @@ def plotClasses(gdf_glacier,
         # Overlay the selected band (where 'selected_band' is True)
         selected_band = gdf_clean[gdf_clean['selected_band'] == True]
         # Plot the selected elevation band with a distinct style (e.g., red border)
-        selected_band.plot(ax=axs[1], color='red', linewidth=1, markersize=5, alpha = 0.5)
+        selected_band.plot(ax=axs[1],
+                           color='red',
+                           linewidth=1,
+                           markersize=5,
+                           alpha=0.5)
 
     # Plot the fourth figure (Resampled Sentinel classes)
     gdf_clean = gdf_S2_res.dropna(subset=["classes"])
@@ -771,7 +794,7 @@ def plotClasses(gdf_glacier,
     AddSnowCover(snow_cover_glacier, axs[2])
     #cx.add_basemap(axs[2], crs=gdf_glacier.crs, source=provider)
     axs[2].set_title(f"Sentinel: {file_date.strftime('%Y-%m-%d')}")
-    
+
     # Manually add custom legend for the third plot
     handles = [
         mpatches.Patch(color=color, label=classes[i])
@@ -781,10 +804,11 @@ def plotClasses(gdf_glacier,
                   title="Classes",
                   bbox_to_anchor=(1.05, 1),
                   loc='upper left')
-    
+
     # Show the plot with consistent colors
     # plt.tight_layout()
     plt.show()
+
 
 def AddSnowCover(snow_cover_glacier, ax):
     # Custom legend for snow and ice cover
