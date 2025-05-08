@@ -19,7 +19,7 @@ def process_or_load_data(run_flag,
                          cfg,
                          vois_climate,
                          vois_topographical,
-                         output_file='IT_AT_wgms_dataset_monthly_full.csv'):
+                         output_file='NOR_dataset_monthly_full.csv'):
     """
     Process or load the data based on the RUN flag.
     """
