@@ -46,18 +46,19 @@ def process_or_load_data(run_flag, data_glamos, paths, cfg, vois_climate,
         except Exception as e:
             logging.error("Failed to add climate features: %s", e)
             return None
-
+        """
         # Add radiation data
         logging.info("Adding potential clear sky radiation...")
         logging.info("Shape before adding radiation: %s",
                      dataset_gl.data.shape)
         dataset_gl.get_potential_rad(paths['radiation_save_path'])
         logging.info("Shape after adding radiation: %s", dataset_gl.data.shape)
+        """
 
         # Convert to monthly resolution
         logging.info("Converting to monthly resolution...")
         dataset_gl.convert_to_monthly(meta_data_columns=cfg.metaData,
-                                      vois_climate=vois_climate + ['pcsr'],
+                                      vois_climate=vois_climate, #+ ['pcsr'],
                                       vois_topographical=vois_topographical)
 
         # Create DataLoader
