@@ -67,12 +67,17 @@ def get_climate_features(
     # Crop the geopotential height to the region of interest
     ds_geopotential_cropped = _crop_geopotential(ds_180, lat, lon)
 
+    # Remove duplicates
+    ds_geopotential_cropped = ds_geopotential_cropped.drop_duplicates(dim="latitude")
+    ds_geopotential_cropped = ds_geopotential_cropped.drop_duplicates(dim="longitude")
+
     # Calculate the geopotential height in meters
     ds_geopotential_metric = _calculate_geopotential_height(
         ds_geopotential_cropped)
 
-    # Reduce expver dimension
-    ds_climate = ds_climate.reduce(np.nansum, "expver")
+    if 'expver' in ds_climate.dims:
+        # Reduce expver dimension
+        ds_climate = ds_climate.reduce(np.nansum, "expver")
 
     # Create a date range for one hydrological year
     df = _add_date_range(df)
@@ -254,9 +259,16 @@ def _process_climate_data(ds_climate: xr.Dataset,
         method="nearest",
     )
 
+    # Handle new netcdf format where number and expver are coordinates
+    dropColumns = ["latitude", "longitude"]
+    if "number" in climate_data_points.coords:
+        dropColumns.append("number")
+    if "expver" in climate_data_points.coords:
+        dropColumns.append("expver")
+
     # Create a dataframe from the DataArray
     climate_df = (climate_data_points.to_dataframe().drop(
-        columns=["latitude", "longitude"]).reset_index())
+        columns=dropColumns).reset_index())
 
     # Drop columns
     climate_df = climate_df.drop(columns=["points", "time"])
@@ -286,7 +298,13 @@ def _process_altitude_data(ds_geopotential: xr.Dataset,
     lat_da = xr.DataArray(df["POINT_LAT"].values, dims="points")
     lon_da = xr.DataArray(df["POINT_LON"].values, dims="points")
 
-    altitude_data_points = ds_geopotential.sel(
+    if 'valid_time' in ds_geopotential.dims:
+        # Handle new netcdf format
+        ds_renamed = ds_geopotential.rename({"valid_time": "time"})
+    else:
+        ds_renamed = ds_geopotential
+
+    altitude_data_points = ds_renamed.sel(
         latitude=lat_da,
         longitude=lon_da,
         method="nearest",
