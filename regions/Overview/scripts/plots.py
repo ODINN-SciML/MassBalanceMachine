@@ -45,6 +45,9 @@ def plotHeatmap(test_glaciers, data_glamos, period='annual', figsize=(20, 15)):
                 cmap=cm.vik_r,
                 cbar_kws={'label': '[m w.e. $a^{-1}$]'},
                 ax=ax)
+    
+    # Add title
+    plt.title(f'{period.capitalize()} point mass balance', fontsize=14)
 
     # add patches for test glaciers
     for test_gl in test_glaciers:
