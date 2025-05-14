@@ -436,10 +436,12 @@ def plotMeanPred(grouped_ids, ax):
     ax.legend(fontsize=20, loc='lower right')
     
     
-def PlotIndividualGlacierPredVsTruth(grouped_ids, figsize=(15, 22)):
+def PlotIndividualGlacierPredVsTruth(grouped_ids, base_figsize=(20, 15), height_per_row=5):
     # Calculate number of rows needed based on number of glaciers
     n_glaciers = len(grouped_ids['GLACIER'].unique())
     n_rows = (n_glaciers + 2) // 3  # Ceiling division to get enough rows for 3 columns
+
+    figsize = (base_figsize[0], n_rows * height_per_row)
     
     fig, axs = plt.subplots(n_rows, 3, figsize=figsize)
 
@@ -486,7 +488,7 @@ def PlotIndividualGlacierPredVsTruth(grouped_ids, figsize=(15, 22)):
         if j < len(axs.flatten()):
             axs.flatten()[j].set_visible(False)
 
-    plt.tight_layout()
+    plt.tight_layout(pad=3.0)
     
     
 def plotGlAttr(ds, cmap=cm.batlow):
