@@ -332,6 +332,58 @@ def PlotPredictions(grouped_ids, y_pred, metadata_test, test_set, model):
         ax4.set_title('Mean winter PMB', fontsize=24)
         grouped_ids_winter.sort_values(by='YEAR', inplace=True)
         plotMeanPred(grouped_ids_winter, ax4)
+
+def PlotPredictionsCombined(grouped_ids, y_pred, metadata_test, test_set, model, region_name=""):
+    fig = plt.figure(figsize=(12, 10))
+    
+    # Define colors for period (annual/winter)
+    period_colors = {'annual': '#1f78b4', 'winter': '#e31a1c'}
+    
+    # Calculate metrics for combined, annual and winter periods
+    mse_all, rmse_all, mae_all, pearson_corr_all = model.evalMetrics(
+        metadata_test, y_pred, test_set['y'])
+    
+    mse_annual, rmse_annual, mae_annual, pearson_corr_annual = model.evalMetrics(
+        metadata_test, y_pred, test_set['y'], period='annual')
+    
+    mse_winter, rmse_winter, mae_winter, pearson_corr_winter = model.evalMetrics(
+        metadata_test, y_pred, test_set['y'], period='winter')
+    
+    # Create a single plot for all data points
+    ax = plt.subplot(1, 1, 1)
+    
+    # Plot points colored by period
+    for period in grouped_ids.PERIOD.unique():
+        subset = grouped_ids[grouped_ids.PERIOD == period]
+        if len(subset) > 0:
+            ax.scatter(subset.target, subset.pred, 
+                     color=period_colors[period],
+                     alpha=0.7,
+                     s=80,
+                     label=f"{period}")
+    
+    # Add identity line
+    min_val = min(grouped_ids.target.min(), grouped_ids.pred.min())
+    max_val = max(grouped_ids.target.max(), grouped_ids.pred.max())
+    ax.plot([min_val, max_val], [min_val, max_val], 'k--', alpha=0.5, linewidth=2)
+    
+    # Add metrics text with separate statistics for each period
+    metrics_text = (f"Combined: RMSE: {rmse_all:.2f} m w.e., ρ: {pearson_corr_all:.2f}\n"
+                   f"Annual: RMSE: {rmse_annual:.2f} m w.e., ρ: {pearson_corr_annual:.2f}\n"
+                   f"Winter: RMSE: {rmse_winter:.2f} m w.e., ρ: {pearson_corr_winter:.2f}")
+    
+    ax.text(0.05, 0.95, metrics_text, transform=ax.transAxes, 
+           verticalalignment='top', horizontalalignment='left',
+           bbox=dict(boxstyle='round', facecolor='white', alpha=0.8),
+           fontsize=20)
+    
+    ax.legend(fontsize=24, loc='lower right')
+    
+    ax.set_xlabel('Observed PMB [m w.e.]', fontsize=27)
+    ax.set_ylabel('Predicted PMB [m w.e.]', fontsize=27)
+    ax.set_title(f'PMB - Pred vs. Obs ({region_name})', fontsize=30)
+    
+    ax.tick_params(axis='both', which='major', labelsize=21)
         
 def predVSTruth(ax, grouped_ids, scores, hue='GLACIER', palette=None):
 
@@ -436,10 +488,12 @@ def plotMeanPred(grouped_ids, ax):
     ax.legend(fontsize=20, loc='lower right')
     
     
-def PlotIndividualGlacierPredVsTruth(grouped_ids, figsize=(15, 22)):
+def PlotIndividualGlacierPredVsTruth(grouped_ids, base_figsize=(20, 15), height_per_row=5):
     # Calculate number of rows needed based on number of glaciers
     n_glaciers = len(grouped_ids['GLACIER'].unique())
     n_rows = (n_glaciers + 2) // 3  # Ceiling division to get enough rows for 3 columns
+
+    figsize = (base_figsize[0], n_rows * height_per_row)
     
     fig, axs = plt.subplots(n_rows, 3, figsize=figsize)
 
@@ -486,7 +540,7 @@ def PlotIndividualGlacierPredVsTruth(grouped_ids, figsize=(15, 22)):
         if j < len(axs.flatten()):
             axs.flatten()[j].set_visible(False)
 
-    plt.tight_layout()
+    plt.tight_layout(pad=3.0)
     
     
 def plotGlAttr(ds, cmap=cm.batlow):

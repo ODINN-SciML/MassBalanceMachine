@@ -491,7 +491,7 @@ def plotGlAttr(ds, cmap=cm.batlow):
     ax[1, 2].set_title('Millan v')
     plt.tight_layout()
 
-def plot_glacier_elevations(elevation_data, figsize=(10, 3)):
+def plot_glacier_elevations(elevation_data, figsize=(10, 5)):
     """
     Plot glacier elevations as a line plot with markers.
     

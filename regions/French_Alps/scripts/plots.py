@@ -333,6 +333,71 @@ def PlotPredictions(grouped_ids, y_pred, metadata_test, test_set, model):
             grouped_ids_season.sort_values(by='YEAR', inplace=True)
             plotMeanPred(grouped_ids_season, ax_mean)
     plt.tight_layout()
+
+def PlotPredictionsCombined(grouped_ids, y_pred, metadata_test, test_set, model, region_name="", include_summer=False):
+    fig = plt.figure(figsize=(12, 10))
+    
+    # Define colors for period (annual/winter/summer)
+    period_colors = {'annual': '#1f78b4', 'winter': '#e31a1c', 'summer': '#33a02c'}
+    
+    # Calculate metrics for combined, annual and winter periods
+    mse_all, rmse_all, mae_all, pearson_corr_all = model.evalMetrics(
+        metadata_test, y_pred, test_set['y'])
+    
+    mse_annual, rmse_annual, mae_annual, pearson_corr_annual = model.evalMetrics(
+        metadata_test, y_pred, test_set['y'], period='annual')
+    
+    mse_winter, rmse_winter, mae_winter, pearson_corr_winter = model.evalMetrics(
+        metadata_test, y_pred, test_set['y'], period='winter')
+    
+    # Calculate metrics for summer if requested
+    if include_summer and 'summer' in grouped_ids.PERIOD.unique():
+        mse_summer, rmse_summer, mae_summer, pearson_corr_summer = model.evalMetrics(
+            metadata_test, y_pred, test_set['y'], period='summer')
+    
+    # Create a single plot for all data points
+    ax = plt.subplot(1, 1, 1)
+    
+    # Plot points colored by period
+    for period in grouped_ids.PERIOD.unique():
+        # Skip summer if not requested
+        if period == 'summer' and not include_summer:
+            continue
+            
+        subset = grouped_ids[grouped_ids.PERIOD == period]
+        if len(subset) > 0:
+            ax.scatter(subset.target, subset.pred, 
+                     color=period_colors[period],
+                     alpha=0.7,
+                     s=80,
+                     label=f"{period}")
+    
+    # Add identity line
+    min_val = min(grouped_ids.target.min(), grouped_ids.pred.min())
+    max_val = max(grouped_ids.target.max(), grouped_ids.pred.max())
+    ax.plot([min_val, max_val], [min_val, max_val], 'k--', alpha=0.5, linewidth=2)
+    
+    # Add metrics text with separate statistics for each period
+    metrics_text = f"Combined: RMSE: {rmse_all:.2f} m w.e., ρ: {pearson_corr_all:.2f}\n" \
+                   f"Annual: RMSE: {rmse_annual:.2f} m w.e., ρ: {pearson_corr_annual:.2f}\n" \
+                   f"Winter: RMSE: {rmse_winter:.2f} m w.e., ρ: {pearson_corr_winter:.2f}"
+    
+    # Add summer metrics if requested
+    if include_summer and 'summer' in grouped_ids.PERIOD.unique():
+        metrics_text += f"\nSummer: RMSE: {rmse_summer:.2f} m w.e., ρ: {pearson_corr_summer:.2f}"
+    
+    ax.text(0.05, 0.95, metrics_text, transform=ax.transAxes, 
+           verticalalignment='top', horizontalalignment='left',
+           bbox=dict(boxstyle='round', facecolor='white', alpha=0.8),
+           fontsize=20)
+    
+    ax.legend(fontsize=24, loc='lower right')
+    
+    ax.set_xlabel('Observed PMB [m w.e.]', fontsize=27)
+    ax.set_ylabel('Predicted PMB [m w.e.]', fontsize=27)
+    ax.set_title(f'PMB - Pred vs. Obs ({region_name})', fontsize=30)
+    
+    ax.tick_params(axis='both', which='major', labelsize=21)
         
 def predVSTruth(ax, grouped_ids, scores, hue='GLACIER', palette=None):
 

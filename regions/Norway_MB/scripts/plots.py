@@ -352,14 +352,13 @@ def PlotPredictionsCombined(grouped_ids, y_pred, metadata_test, test_set, model,
     # Create a single plot for all data points
     ax = plt.subplot(1, 1, 1)
     
-    # Plot points colored by period - increased point size to 80
     for period in grouped_ids.PERIOD.unique():
         subset = grouped_ids[grouped_ids.PERIOD == period]
         if len(subset) > 0:
             ax.scatter(subset.target, subset.pred, 
                      color=period_colors[period],
                      alpha=0.7,
-                     s=80,  # Larger point size
+                     s=80,
                      label=f"{period}")
     
     # Add identity line
@@ -367,26 +366,22 @@ def PlotPredictionsCombined(grouped_ids, y_pred, metadata_test, test_set, model,
     max_val = max(grouped_ids.target.max(), grouped_ids.pred.max())
     ax.plot([min_val, max_val], [min_val, max_val], 'k--', alpha=0.5, linewidth=2)
     
-    # Add metrics text with separate statistics for each period - increased font size (1.5x)
-    # Now positioned at the upper right
+    # Add metrics text with separate statistics for each period
     metrics_text = (f"Combined: RMSE: {rmse_all:.2f} m w.e., ρ: {pearson_corr_all:.2f}\n"
                    f"Annual: RMSE: {rmse_annual:.2f} m w.e., ρ: {pearson_corr_annual:.2f}\n"
                    f"Winter: RMSE: {rmse_winter:.2f} m w.e., ρ: {pearson_corr_winter:.2f}")
     
-    ax.text(0.95, 0.05, metrics_text, transform=ax.transAxes, 
-           verticalalignment='bottom', horizontalalignment='right',
+    ax.text(0.05, 0.95, metrics_text, transform=ax.transAxes, 
+           verticalalignment='top', horizontalalignment='left',
            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8),
-           fontsize=24)  # Positioned at top right
+           fontsize=20)
     
-    # Add legend with larger font (1.5x) - now positioned at the upper left
-    ax.legend(fontsize=24, loc='upper left')
+    ax.legend(fontsize=24, loc='lower right')
     
-    # Labels and title with larger font sizes (1.5x)
     ax.set_xlabel('Observed PMB [m w.e.]', fontsize=27)
     ax.set_ylabel('Predicted PMB [m w.e.]', fontsize=27)
     ax.set_title(f'PMB - Pred vs. Obs ({region_name})', fontsize=30)
     
-    # Increased tick label font sizes (1.5x)
     ax.tick_params(axis='both', which='major', labelsize=21)
 
 
