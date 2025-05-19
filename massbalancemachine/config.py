@@ -3,16 +3,22 @@ import os
 
 
 class Config:
+
     def __init__(
-            self,
-            numJobs: int = -1,
-            testSize: float = 0.3,
-            nSplits: int = 5,
-            seed: int = 30,
-            metaData: List[str] = ["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS"],
-            notMetaDataNotFeatures: List[str] = ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON", "ALTITUDE_CLIMATE"],
-            loss: str = 'MSE',
-        ) -> None:
+        self,
+        numJobs: int = -1,
+        testSize: float = 0.3,
+        nSplits: int = 5,
+        seed: int = 30,
+        metaData: List[str] = [
+            "RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS"
+        ],
+        notMetaDataNotFeatures: List[str] = [
+            "POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON",
+            "ALTITUDE_CLIMATE"
+        ],
+        loss: str = 'MSE',
+    ) -> None:
         """
         Configuration class that defines the variables related to processing resources and the features to use.
 
@@ -30,7 +36,9 @@ class Config:
         """
 
         # Customizable attributes
-        self.numJobs = numJobs or max(1, min(os.cpu_count()-2, 25)) # Use provided value otherwise use number of logical cores minus 2 to keep resources
+        self.numJobs = numJobs or max(
+            1, min(os.cpu_count() - 2, 25)
+        )  # Use provided value otherwise use number of logical cores minus 2 to keep resources
         self.testSize = testSize
         self.nSplits = nSplits
         self.seed = seed
@@ -60,12 +68,24 @@ class Config:
     def fieldsNotFeatures(self):
         return self.metaData + self.notMetaDataNotFeatures
 
+
 class SwitzerlandConfig(Config):
+
     def __init__(
-            self,
-            *args,
-            metaData: List[str] = ["RGIId", "POINT_ID", "ID", "GLWD_ID", "N_MONTHS", "MONTHS", "PERIOD", "GLACIER",],
-            notMetaDataNotFeatures: List[str] = ["POINT_BALANCE",  "YEAR", "POINT_LAT", "POINT_LON"],
-            **kwargs,
-        ):
-        super().__init__(*args, **kwargs, metaData=metaData, notMetaDataNotFeatures=notMetaDataNotFeatures)
+        self,
+        *args,
+        metaData: List[str] = [
+            "RGIId", "POINT_ID", "ID", "GLWD_ID", "N_MONTHS", "MONTHS",
+            "PERIOD", "GLACIER"
+        ],
+        notMetaDataNotFeatures: List[str] = [
+            "POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"
+        ],
+        numJobs: int = 28,
+        **kwargs,
+    ):
+        super().__init__(*args,
+                         metaData=metaData,
+                         notMetaDataNotFeatures=notMetaDataNotFeatures,
+                         numJobs=numJobs,
+                         **kwargs)
