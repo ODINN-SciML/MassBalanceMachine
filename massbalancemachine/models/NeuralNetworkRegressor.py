@@ -291,15 +291,44 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
             cum_pred[i][ind] = np.cumsum(y_pred[i][ind])
         return cum_pred
 
+    # def save_model(self, fname: str) -> None:
+    #     """Save a grid search or randomized search CV instance to a file"""
+    #     with self.model_file(fname, "wb") as f:
+    #         pickle.dump(self.param_search, f)
+    
     def save_model(self, fname: str) -> None:
-        """Save a grid search or randomized search CV instance to a file"""
+        """Save the current model instance to a file."""
         with self.model_file(fname, "wb") as f:
-            pickle.dump(self.param_search, f)
+            pickle.dump(self, f)
 
-    def load_model(self, fname: str) -> GridSearchCV | RandomizedSearchCV:
-        """Load a grid search or randomized search CV instance from a file"""
-        with self.model_file(fname, "rb") as f:
-            self.param_search = pickle.load(f)
+    # def load_model(self, fname: str) -> GridSearchCV | RandomizedSearchCV:
+    #     """Load a grid search or randomized search CV instance from a file"""
+    #     with self.model_file(fname, "rb") as f:
+    #         self.param_search = pickle.load(f)
+    
+    def to(self, device):
+        """Move model and necessary attributes to the specified device."""
+        self.device = device
+
+        # Only move if model is already initialized
+        if hasattr(self, 'module_') and self.module_ is not None:
+            self.module_.to(device)
+
+        # Optional: move other tensor attributes
+        if hasattr(self, 'some_tensor_attribute'):
+            self.some_tensor_attribute = self.some_tensor_attribute.to(device)
+
+        return self
+    
+    @staticmethod
+    def load_model(fname: str) -> "CustomNeuralNetRegressor":
+        """Load a CustomNeuralNetRegressor model from a file."""
+        models_dir = Path("./models")
+        file_path = models_dir / fname
+        with open(file_path, "rb") as f:
+            model = pickle.load(f)
+        return model
+
 
     @classmethod
     @contextmanager
