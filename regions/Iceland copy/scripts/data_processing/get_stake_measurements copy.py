@@ -11,7 +11,7 @@ import csv
 import time
 
 # Directory to save all stake measurements
-OUTPUT_DIR = '/home/mburlet/scratch/data/DATA_MB/WGMS/Iceland/all-stake-measurements'
+OUTPUT_DIR = '/home/mburlet/scratch/data/DATA_MB/WGMS/Iceland/data/all-stake-measurements'
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Parameters for stake measurements
