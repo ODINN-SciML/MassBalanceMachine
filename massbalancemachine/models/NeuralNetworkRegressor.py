@@ -291,20 +291,10 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
             cum_pred[i][ind] = np.cumsum(y_pred[i][ind])
         return cum_pred
 
-    # def save_model(self, fname: str) -> None:
-    #     """Save a grid search or randomized search CV instance to a file"""
-    #     with self.model_file(fname, "wb") as f:
-    #         pickle.dump(self.param_search, f)
-    
     def save_model(self, fname: str) -> None:
         """Save the current model instance to a file."""
         with self.model_file(fname, "wb") as f:
             pickle.dump(self, f)
-
-    # def load_model(self, fname: str) -> GridSearchCV | RandomizedSearchCV:
-    #     """Load a grid search or randomized search CV instance from a file"""
-    #     with self.model_file(fname, "rb") as f:
-    #         self.param_search = pickle.load(f)
     
     def to(self, device):
         """Move model and necessary attributes to the specified device."""
