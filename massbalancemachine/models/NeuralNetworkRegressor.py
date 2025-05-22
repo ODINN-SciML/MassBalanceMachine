@@ -27,7 +27,7 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
     As the dataset has a monthly resolution, multiple records belong to one time
     period and should therefore take be into account when evaluating the score/loss.
     """
-
+    
     def __init__(self, cfg: config.Config, *args, nbFeatures:int=None, metadataColumns=None, **kwargs):
         """
         Initialize the CustomNeuralNetRegressor.
@@ -47,7 +47,7 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         self.metadataColumns = metadataColumns or self.cfg.metaData
         self.nbFeatures = nbFeatures
         self.modelDtype = list(self.module.parameters())[0].dtype if len(list(self.module.parameters()))>0 else None
-
+        
     def gridsearch(
         self,
         parameters: Dict[str, Union[list, np.ndarray]],
