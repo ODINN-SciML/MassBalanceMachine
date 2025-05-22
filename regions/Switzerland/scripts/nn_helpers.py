@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import os 
+import seaborn as sns
 
 def plot_training_history(custom_nn, skip_first_n=0):
     history = custom_nn.history
