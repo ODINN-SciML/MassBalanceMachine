@@ -290,6 +290,7 @@ class AggregatedDataset(torch.utils.data.Dataset):
         self.maxConcatNb = max(
             [len(np.argwhere(self.ID == id)[:, 0]) for id in self.uniqueID])
         self.nbFeatures = self.features.shape[1]
+        self.norm = Normalizer({k: cfg.bnds[k] for k in cfg.featureColumns})
 
     def mapSplitsToDataset(
         self, splits: "list[tuple[np.ndarray, np.ndarray]]"
@@ -334,6 +335,7 @@ class AggregatedDataset(torch.utils.data.Dataset):
     def __getitem__(self, index: int) -> tuple:
         ind = self._getInd(index)
         f = self.features[ind][:, :]
+        f = self.norm.normalize(f)
         fpad = np.empty((self.maxConcatNb, self.nbFeatures))
         fpad.fill(np.nan)
         fpad[:f.shape[0], :] = f
@@ -383,7 +385,7 @@ class Normalizer:
                 z[k] = fct(x[k], self.bnds[k][0], self.bnds[k][1])
             return z
         elif isinstance(x, (torch.Tensor, np.ndarray)):
-            assert x.shape[-1] == len(self.bnds)
+            assert x.shape[-1] == len(self.bnds), f"Size of the input to normalize is {x.shape} and it doesn't match the number of bounds defined in the the Normalizer object which is {len(self.bnds)}"
             z = torch.zeros_like(x) if isinstance(
                 x, torch.Tensor) else np.zeros_like(x)
             for i, k in enumerate(self.bnds):
