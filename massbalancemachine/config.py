@@ -44,6 +44,7 @@ class Config:
         self.seed = seed
         self.metaData = metaData
         self.notMetaDataNotFeatures = notMetaDataNotFeatures
+        self.featureColumns = []
         self.loss = loss
 
         # Constant attributes
@@ -64,9 +65,35 @@ class Config:
             #'sep_': 13,
         }
 
+        # Upper and lower bounds of each variable to normalize them (useful for the neural network)
+        # These bounds don't clip the data and if a variable exceeds the bounds, its normalized counterpart will simply be outside of [0, 1]
+        self.bnds = {
+            'ALTITUDE_CLIMATE': (1500, 3000),
+            'ELEVATION_DIFFERENCE': (0, 1000),
+            'POINT_ELEVATION': (2000, 3500),
+            'aspect': (0, 360),
+            'consensus_ice_thickness': (0, 300),
+            'fal': (0, 1),
+            'hugonnet_dhdt': (-5, 5, ),
+            'millan_v': (0, 300),
+            'pcsr': (0, 500),
+            'slhf': (-10e6, 10e6),
+            'slope': (0, 90),
+            'sshf': (-10e6, 10e6),
+            'ssrd': (-10e6, 10e6),
+            'str': (-10e6, 10e6),
+            't2m': (-20, 15),
+            'tp': (0, 0.1),
+            'u10': (-10, 10),
+            'v10': (-10, 10),
+        }
+
     @property
     def fieldsNotFeatures(self):
         return self.metaData + self.notMetaDataNotFeatures
+
+    def setFeatures(self, featureColumns):
+        self.featureColumns = featureColumns
 
 
 class SwitzerlandConfig(Config):
@@ -79,7 +106,7 @@ class SwitzerlandConfig(Config):
             "PERIOD", "GLACIER"
         ],
         notMetaDataNotFeatures: List[str] = [
-            "POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"
+            "POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON", "ALTITUDE_CLIMATE", "POINT_ELEVATION"
         ],
         numJobs: int = 28,
         **kwargs,
@@ -89,3 +116,5 @@ class SwitzerlandConfig(Config):
                          notMetaDataNotFeatures=notMetaDataNotFeatures,
                          numJobs=numJobs,
                          **kwargs)
+        self.bnds['slope_sgi'] = self.bnds['slope']
+        self.bnds['aspect_sgi'] = self.bnds['aspect']

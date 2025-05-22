@@ -27,7 +27,7 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
     As the dataset has a monthly resolution, multiple records belong to one time
     period and should therefore take be into account when evaluating the score/loss.
     """
-    
+
     def __init__(self, cfg: config.Config, *args, nbFeatures:int=None, metadataColumns=None, **kwargs):
         """
         Initialize the CustomNeuralNetRegressor.
@@ -47,7 +47,7 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         self.metadataColumns = metadataColumns or self.cfg.metaData
         self.nbFeatures = nbFeatures
         self.modelDtype = list(self.module.parameters())[0].dtype if len(list(self.module.parameters()))>0 else None
-        
+
     def gridsearch(
         self,
         parameters: Dict[str, Union[list, np.ndarray]],
@@ -268,7 +268,7 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         check_is_fitted(self)
 
         # Predictions in monthly format
-        y_pred = super().predict(features)
+        y_pred = self.predict(features)
         y_pred_agg = self.aggrPred(y_pred)
 
         return y_pred_agg
@@ -283,7 +283,7 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
             np.ndarray: The cumulative predicted values.
         """
 
-        y_pred = super().predict(features)
+        y_pred = self.predict(features)
         cum_pred = np.zeros_like(y_pred)
         cum_pred.fill(np.nan)
         for i in range(len(y_pred)):
@@ -295,7 +295,7 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         """Save the current model instance to a file."""
         with self.model_file(fname, "wb") as f:
             pickle.dump(self, f)
-    
+
     def to(self, device):
         """Move model and necessary attributes to the specified device."""
         self.device = device
@@ -309,7 +309,7 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
             self.some_tensor_attribute = self.some_tensor_attribute.to(device)
 
         return self
-    
+
     @staticmethod
     def load_model(fname: str) -> "CustomNeuralNetRegressor":
         """Load a CustomNeuralNetRegressor model from a file."""
