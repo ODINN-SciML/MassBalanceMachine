@@ -1,4 +1,6 @@
-import os
+import os, sys
+sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)), '../../../')) # Add root of repo to import MBM
+
 import logging
 import pandas as pd
 import massbalancemachine as mbm
