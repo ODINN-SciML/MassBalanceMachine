@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Dict, Tuple
 import os
 
 
@@ -18,6 +18,7 @@ class Config:
             "ALTITUDE_CLIMATE"
         ],
         loss: str = 'MSE',
+        bnds: Dict[str, Tuple[float, float]] = {},
     ) -> None:
         """
         Configuration class that defines the variables related to processing resources and the features to use.
@@ -33,6 +34,10 @@ class Config:
             - notMetaDataNotFeatures (list of str): Fields that are neither metadata nor
                 features.
             - loss (str): Type of loss to use
+            - bnds (dict of float tuple): Upper and lower bounds of each variable to
+                scale them (useful for the neural network). These bounds don't clip
+                the data and if a variable exceeds the bounds, its normalized
+                counterpart will simply be outside of [0, 1].
         """
 
         # Customizable attributes
@@ -65,28 +70,30 @@ class Config:
             #'sep_': 13,
         }
 
-        # Upper and lower bounds of each variable to normalize them (useful for the neural network)
-        # These bounds don't clip the data and if a variable exceeds the bounds, its normalized counterpart will simply be outside of [0, 1]
-        self.bnds = {
-            'ALTITUDE_CLIMATE': (1500, 3000),
-            'ELEVATION_DIFFERENCE': (0, 1000),
-            'POINT_ELEVATION': (2000, 3500),
-            'aspect': (0, 360),
-            'consensus_ice_thickness': (0, 300),
-            'fal': (0, 1),
-            'hugonnet_dhdt': (-5, 5, ),
-            'millan_v': (0, 300),
-            'pcsr': (0, 500),
-            'slhf': (-10e6, 10e6),
-            'slope': (0, 90),
-            'sshf': (-10e6, 10e6),
-            'ssrd': (-10e6, 10e6),
-            'str': (-10e6, 10e6),
-            't2m': (-20, 15),
-            'tp': (0, 0.1),
-            'u10': (-10, 10),
-            'v10': (-10, 10),
-        }
+        # Scaling bounds
+        if len(bnds) == 0:
+            self.bnds = {
+                'ALTITUDE_CLIMATE': (1500, 3000),
+                'ELEVATION_DIFFERENCE': (0, 1000),
+                'POINT_ELEVATION': (2000, 3500),
+                'aspect': (0, 360),
+                'consensus_ice_thickness': (0, 300),
+                'fal': (0, 1),
+                'hugonnet_dhdt': (-5, 5, ),
+                'millan_v': (0, 300),
+                'pcsr': (0, 500),
+                'slhf': (-10e6, 10e6),
+                'slope': (0, 90),
+                'sshf': (-10e6, 10e6),
+                'ssrd': (-10e6, 10e6),
+                'str': (-10e6, 10e6),
+                't2m': (-20, 15),
+                'tp': (0, 0.1),
+                'u10': (-10, 10),
+                'v10': (-10, 10),
+            }
+        else:
+            self.bnds = bnds
 
     @property
     def fieldsNotFeatures(self):
