@@ -14,9 +14,9 @@ def plot_training_history(custom_nn, skip_first_n=0):
     valid_loss = [entry.get('valid_loss') for entry in history if 'valid_loss' in entry]
 
     plt.figure(figsize=(8, 5))
-    
+
     plt.plot(epochs, train_loss, label='Training Loss', marker='o')
-    
+
     if valid_loss:
         # Align epochs with valid_loss length
         valid_epochs = epochs[:len(valid_loss)]
@@ -29,7 +29,7 @@ def plot_training_history(custom_nn, skip_first_n=0):
     plt.grid(True)
     plt.tight_layout()
     plt.show()
-    
+
     # save the plot
     # Create a folder to save figures (optional)
     save_dir = "figures"
