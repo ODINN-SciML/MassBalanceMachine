@@ -1,6 +1,9 @@
 import matplotlib.pyplot as plt
 import os 
 import seaborn as sns
+from sklearn.metrics import mean_squared_error, mean_absolute_error, root_mean_squared_error
+
+from scripts.plots import *
 
 def plot_training_history(custom_nn, skip_first_n=0):
     history = custom_nn.history
@@ -41,7 +44,7 @@ def plot_training_history(custom_nn, skip_first_n=0):
     plt.close()  # closes the plot to avoid display in notebooks/scripts
 
 
-def predVSTruth_(grouped_ids, mae, rmse, title):
+def predVSTruth_all(grouped_ids, mae, rmse, title):
     fig, ax = plt.subplots(1, 1, figsize=(10, 5))
     legend_nn = "\n".join(
         (r"$\mathrm{MAE_{nn}}=%.3f, \mathrm{RMSE_{nn}}=%.3f$ " % (
@@ -74,4 +77,62 @@ def predVSTruth_(grouped_ids, mae, rmse, title):
     ax.axhline(0, color="grey", linestyle="-", linewidth=0.2)
     ax.grid()
     ax.set_title(title, fontsize=20)
+    plt.tight_layout()
+    
+    
+def PlotPredictions_NN(grouped_ids):
+    fig = plt.figure(figsize=(15, 10))
+    colors_glacier = [
+        '#a6cee3', '#1f78b4', '#b2df8a', '#33a02c', '#fb9a99', '#e31a1c',
+        '#fdbf6f', '#ff7f00', '#cab2d6', '#6a3d9a', '#ffff99', '#b15928'
+    ]
+    color_palette_glaciers = dict(
+        zip(grouped_ids.GLACIER.unique(), colors_glacier))
+    ax1 = plt.subplot(2, 2, 1)
+    grouped_ids_annual = grouped_ids[grouped_ids.PERIOD == 'annual']
+
+    y_true_mean = grouped_ids_annual['target']
+    y_pred_agg  = grouped_ids_annual['pred']
+
+    scores_annual = {
+        'mse': mean_squared_error(y_true_mean, y_pred_agg),
+        'rmse': root_mean_squared_error(y_true_mean, y_pred_agg),
+        'mae': mean_absolute_error(y_true_mean, y_pred_agg),
+        'pearson_corr': np.corrcoef(y_true_mean, y_pred_agg)[0, 1]
+    }
+    predVSTruth(ax1,
+                grouped_ids_annual,
+                scores_annual,
+                hue='GLACIER',
+                palette=color_palette_glaciers)
+    ax1.set_title('Annual PMB', fontsize=24)
+
+    grouped_ids_annual.sort_values(by='YEAR', inplace=True)
+    ax2 = plt.subplot(2, 2, 2)
+    ax2.set_title('Mean annual PMB', fontsize=24)
+    plotMeanPred(grouped_ids_annual, ax2)
+
+    grouped_ids_winter = grouped_ids[grouped_ids.PERIOD == 'winter']
+    y_true_mean = grouped_ids_winter['target']
+    y_pred_agg  = grouped_ids_winter['pred']
+
+    ax3 = plt.subplot(2, 2, 3)
+    scores_winter = {
+        'mse': mean_squared_error(y_true_mean, y_pred_agg),
+        'rmse': root_mean_squared_error(y_true_mean, y_pred_agg),
+        'mae': mean_absolute_error(y_true_mean, y_pred_agg),
+        'pearson_corr': np.corrcoef(y_true_mean, y_pred_agg)[0, 1]
+    }
+    predVSTruth(ax3,
+                grouped_ids_winter,
+                scores_winter,
+                hue='GLACIER',
+                palette=color_palette_glaciers)
+    ax3.set_title('Winter PMB', fontsize=24)
+
+    ax4 = plt.subplot(2, 2, 4)
+    ax4.set_title('Mean winter PMB', fontsize=24)
+    grouped_ids_winter.sort_values(by='YEAR', inplace=True)
+    plotMeanPred(grouped_ids_winter, ax4)
+
     plt.tight_layout()
