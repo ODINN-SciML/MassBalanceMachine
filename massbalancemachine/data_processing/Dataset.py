@@ -18,6 +18,7 @@ import config
 import logging
 import pandas as pd
 import torch
+from skorch.helper import SliceDataset
 
 from get_climate_data import get_climate_features, retrieve_clear_sky_rad, smooth_era5land_by_mode
 from get_topo_data import get_topographical_features, get_glacier_mask
@@ -385,7 +386,7 @@ class Normalizer:
                 z[k] = fct(x[k], self.bnds[k][0], self.bnds[k][1])
             return z
         elif isinstance(x, (torch.Tensor, np.ndarray)):
-            assert x.shape[-1] == len(self.bnds), f"Size of the input to normalize is {x.shape} and it doesn't match the number of bounds defined in the the Normalizer object which is {len(self.bnds)}"
+            assert x.shape[-1] == len(self.bnds), f"Size of the input to normalize is {x.shape} and it doesn't match the number of bounds defined in the Normalizer object which is {len(self.bnds)}"
             z = torch.zeros_like(x) if isinstance(
                 x, torch.Tensor) else np.zeros_like(x)
             for i, k in enumerate(self.bnds):
@@ -405,3 +406,26 @@ class Normalizer:
     ) -> Union[dict, torch.Tensor, np.ndarray]:
         """Unnormalize data, the opposite operation of normalize"""
         return self._map(x, self._unorm)
+
+
+class SliceDatasetBinding(Dataset):
+    def __init__(self, X:SliceDataset, y:SliceDataset=None) -> None:
+        """
+        Binding to a SliceDataset that allows providing training and validation
+        datasets through the train_split argument of CustomNeuralNetRegressor.
+
+        Arguments:
+            X (SliceDataset): Features defined through a SliceDataset.
+            y (SliceDataset): Targets defined through a SliceDataset.
+        """
+        assert isinstance(X, SliceDataset), "X must be a SliceDataset instance"
+        assert y is None or isinstance(y, SliceDataset), "y must be a SliceDataset instance"
+        self.X = X
+        self.y = y
+    def __len__(self):
+        return len(self.X)
+    def __getitem__(self, idx):
+        # If y is None, just return X
+        if self.y is None:
+            return self.X[idx]
+        return self.X[idx], self.y[idx]
