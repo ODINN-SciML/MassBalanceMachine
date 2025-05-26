@@ -6,7 +6,7 @@ from regions.Switzerland.scripts.xgb_helpers import create_geodetic_input
 
 import pandas as pd
 
-from massbalancemachine.data_processing.Dataset import Normalizer
+from data_processing.Dataset import Normalizer
 
 
 class GeoDataLoader:
