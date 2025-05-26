@@ -39,7 +39,7 @@ def process_or_load_data(run_flag,
         data_glamos['GLWD_ID'] = data_glamos['GLWD_ID'].astype(str)
 
         # Create dataset
-        dataset_gl = mbm.data_processing.Dataset.Dataset(cfg=cfg,
+        dataset_gl = mbm.data_processing.Dataset(cfg=cfg,
                                  data=data_glamos,
                                  region_name='CH',
                                  data_path=paths['csv_path'])
@@ -84,7 +84,7 @@ def process_or_load_data(run_flag,
                 vois_topographical=vois_topographical)
 
         # Create DataLoader
-        dataloader_gl = mbm.DataLoader(cfg,
+        dataloader_gl = mbm.dataloader.DataLoader(cfg,
                                        data=dataset_gl.data,
                                        random_seed=cfg.seed,
                                        meta_data_columns=cfg.metaData)
@@ -102,7 +102,7 @@ def process_or_load_data(run_flag,
         try:
             input_file = os.path.join(paths['csv_path'], output_file)
             data_monthly = pd.read_csv(input_file)
-            dataloader_gl = mbm.DataLoader(cfg,
+            dataloader_gl = mbm.dataloader.DataLoader(cfg,
                                            data=data_monthly,
                                            random_seed=cfg.seed,
                                            meta_data_columns=cfg.metaData)

@@ -99,7 +99,7 @@ def test_geodataloader():
         lambda x: mbm.data_processing.utils.get_hash(f"{x.GLACIER}_{x.YEAR}"), axis=1)
     data_monthly['GLWD_ID'] = data_monthly['GLWD_ID'].astype(str)
 
-    dataloader_gl = mbm.DataLoader(cfg,
+    dataloader_gl = mbm.dataloader.DataLoader(cfg,
                                 data=data_monthly,
                                 random_seed=cfg.seed,
                                 meta_data_columns=cfg.metaData)
@@ -113,7 +113,7 @@ def test_geodataloader():
     feature_columns = list(data_monthly.columns.difference(cfg.metaData).drop(cfg.notMetaDataNotFeatures))
     cfg.setFeatures(feature_columns)
 
-    gdl = mbm.GeoDataLoader(cfg, ['silvretta'], train_set['df_X'])
+    gdl = mbm.dataloader.GeoDataLoader(cfg, ['silvretta'], train_set['df_X'])
     for g in gdl.glaciers():
         print(f"Glacier {g}")
     g = 'silvretta'
