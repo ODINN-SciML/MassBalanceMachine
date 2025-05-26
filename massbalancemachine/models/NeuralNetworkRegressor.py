@@ -3,6 +3,7 @@ from pathlib import Path
 from contextlib import contextmanager
 from collections.abc import Mapping
 
+import os
 import pickle
 import config
 import torch
@@ -17,6 +18,8 @@ from skorch import NeuralNetRegressor
 from skorch.utils import to_tensor
 from skorch.helper import SliceDataset
 
+
+_models_dir = Path("./models")
 
 class CustomNeuralNetRegressor(NeuralNetRegressor):
     """
@@ -268,7 +271,7 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         check_is_fitted(self)
 
         # Predictions in monthly format
-        y_pred = super().predict(features)
+        y_pred = self.predict(features)
         y_pred_agg = self.aggrPred(y_pred)
 
         return y_pred_agg
@@ -283,7 +286,7 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
             np.ndarray: The cumulative predicted values.
         """
 
-        y_pred = super().predict(features)
+        y_pred = self.predict(features)
         cum_pred = np.zeros_like(y_pred)
         cum_pred.fill(np.nan)
         for i in range(len(y_pred)):
@@ -291,21 +294,16 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
             cum_pred[i][ind] = np.cumsum(y_pred[i][ind])
         return cum_pred
 
-    # def save_model(self, fname: str) -> None:
-    #     """Save a grid search or randomized search CV instance to a file"""
-    #     with self.model_file(fname, "wb") as f:
-    #         pickle.dump(self.param_search, f)
-    
     def save_model(self, fname: str) -> None:
         """Save the current model instance to a file."""
-        with self.model_file(fname, "wb") as f:
+        file_path = _models_dir / fname
+        _models_dir.mkdir(exist_ok=True)
+        if os.path.isfile(file_path):
+            # Handle the case where the file already exists but the object structure has changed
+            os.remove(file_path)
+        with open(file_path, "wb") as f:
             pickle.dump(self, f)
 
-    # def load_model(self, fname: str) -> GridSearchCV | RandomizedSearchCV:
-    #     """Load a grid search or randomized search CV instance from a file"""
-    #     with self.model_file(fname, "rb") as f:
-    #         self.param_search = pickle.load(f)
-    
     def to(self, device):
         """Move model and necessary attributes to the specified device."""
         self.device = device
@@ -319,31 +317,13 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
             self.some_tensor_attribute = self.some_tensor_attribute.to(device)
 
         return self
-    
-    @staticmethod
+
     def load_model(fname: str) -> "CustomNeuralNetRegressor":
         """Load a CustomNeuralNetRegressor model from a file."""
-        models_dir = Path("./models")
-        file_path = models_dir / fname
+        file_path = _models_dir / fname
         with open(file_path, "rb") as f:
             model = pickle.load(f)
         return model
-
-
-    @classmethod
-    @contextmanager
-    def model_file(cls, fname: str, mode: str):
-        """Context manager to handle model file and directory operations"""
-        models_dir = Path("./models")
-        # Check if the directory already exists
-        models_dir.mkdir(exist_ok=True)
-        file_path = models_dir / fname
-        try:
-            with open(file_path, mode) as f:
-                yield f
-        except IOError:
-            print(f"Error accessing file: {file_path}")
-            raise
 
     def _create_features_metadata(self,
             X: pd.DataFrame,
