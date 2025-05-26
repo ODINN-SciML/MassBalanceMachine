@@ -368,14 +368,10 @@ class CustomXGBoostRegressor(XGBRegressor):
         y_pred_grid_agg = self.aggrPredict(metadata_grid, features_grid)
 
         grouped_ids = df_grid.groupby('ID').agg({
-            'YEAR':
-            lambda x: x.unique().item(),
-            'POINT_LAT':
-            lambda x: x.unique().item(),
-            'POINT_LON':
-            lambda x: x.unique().item(),
-            'GLWD_ID':
-            lambda x: x.unique().item(),
+            'YEAR': 'first',
+            'POINT_LAT': 'first',
+            'POINT_LON': 'first',
+            'GLWD_ID': 'first',
         })
         grouped_ids['pred'] = y_pred_grid_agg
         grouped_ids.reset_index(inplace=True)
@@ -555,14 +551,10 @@ class CustomXGBoostRegressor(XGBRegressor):
         y_pred_agg = grouped_ids["y_pred"].sum().values
 
         grouped_ids = df_metadata.groupby('ID').agg({
-            'YEAR':
-            lambda x: x.unique().item(),
-            'POINT_LAT':
-            lambda x: x.unique().item(),
-            'POINT_LON':
-            lambda x: x.unique().item(),
-            'GLWD_ID':
-            lambda x: x.unique().item(),
+            'YEAR': 'first',
+            'POINT_LAT': 'first',
+            'POINT_LON': 'first',
+            'GLWD_ID': 'first',
         })
 
         grouped_ids['pred'] = y_pred_agg
