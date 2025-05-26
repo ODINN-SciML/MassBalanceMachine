@@ -40,7 +40,7 @@ def process_or_load_data(run_flag,
         # Create dataset
         dataset_gl = mbm.Dataset(cfg=cfg,
                                  data=df,
-                                 region_name='CH',
+                                 region_name='ICE',
                                  data_path=paths['csv_path'])
         logging.info("Number of winter and annual samples: %d",
                      len(df))
