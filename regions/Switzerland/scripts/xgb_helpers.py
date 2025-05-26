@@ -11,7 +11,6 @@ import numpy as np
 from tqdm.notebook import tqdm
 
 from regions.Switzerland.scripts.config_CH import *
-from regions.Switzerland.scripts.helpers import Diff
 
 
 def process_or_load_data(run_flag,
@@ -40,7 +39,7 @@ def process_or_load_data(run_flag,
         data_glamos['GLWD_ID'] = data_glamos['GLWD_ID'].astype(str)
 
         # Create dataset
-        dataset_gl = mbm.Dataset(cfg=cfg,
+        dataset_gl = mbm.data_processing.Dataset.Dataset(cfg=cfg,
                                  data=data_glamos,
                                  region_name='CH',
                                  data_path=paths['csv_path'])

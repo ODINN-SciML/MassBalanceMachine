@@ -30,7 +30,7 @@ class GeoDataLoader:
         else:
             self.df_X_geod = None
 
-        self.normalizer = Normalizer(bnds) # TODO: use cfg.bnds instead
+        self.normalizer = Normalizer({k: cfg.bnds[k] for k in cfg.featureColumns})
 
     def prepareGeoData(self):
 

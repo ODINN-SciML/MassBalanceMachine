@@ -110,14 +110,22 @@ def test_geodataloader():
                                                 random_state=cfg.seed,
                                                 test_size=0.1)
 
-    gdl = mbm.GeoDataLoader(cfg, ['silvretta'], train_set['df_X'])
+    feature_columns = list(data_monthly.columns.difference(cfg.metaData).drop(cfg.notMetaDataNotFeatures))
+    cfg.setFeatures(feature_columns)
+
+    gdl = mbm.GeoDataLoader(cfg, ['silvretta'], train_set['df_X'], cfg.bnds)
     for g in gdl.glaciers():
         print(f"Glacier {g}")
     g = 'silvretta'
-    s = gdl.stakes(g)
-    assert s.shape == (39113, 30)
-    x, y = gdl.geo(g)
-    assert x.shape == (204300, 31)
+    s, m, gt = gdl.stakes(g)
+    nRows = 38640
+    assert s.shape == (nRows, 16)
+    assert m.shape == (nRows, 8)
+    assert gt.shape == (nRows, )
+    x, m, y = gdl.geo(g)
+    nRows = 204300
+    assert x.shape == (nRows, 16)
+    assert m.shape == (nRows, 8)
     assert y.shape == (50,)
 
 
