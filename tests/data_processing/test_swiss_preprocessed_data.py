@@ -113,7 +113,7 @@ def test_geodataloader():
     feature_columns = list(data_monthly.columns.difference(cfg.metaData).drop(cfg.notMetaDataNotFeatures))
     cfg.setFeatures(feature_columns)
 
-    gdl = mbm.GeoDataLoader(cfg, ['silvretta'], train_set['df_X'], cfg.bnds)
+    gdl = mbm.GeoDataLoader(cfg, ['silvretta'], train_set['df_X'])
     for g in gdl.glaciers():
         print(f"Glacier {g}")
     g = 'silvretta'

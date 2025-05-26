@@ -3,23 +3,38 @@ import torch.nn as nn
 import numpy as np
 
 class CustomTorchNeuralNetRegressor(nn.Module):
+    """
+    Custom Torch neural network regressor that supports geodetic data aggregation.
+
+    Args:
+        module (torch.Module): Neural nework architecture with its associated weights.
+    """
     def __init__(self, module, *args, **kwargs):
-        # TODO: should we move module into args?
         super().__init__(*args, **kwargs)
         self.module = module
     def forward(self, x):
-        # Should support torch.Tensor and optionally df
-        # Takes input features not concatenated together
-        # Returns prediction not aggregated
-        # The loss is reponsible of aggregating the terms with respect to glacier and time indices
-        # Dataloader returns tensors of features + relevant metadata
+        """
+        Forward evaluation of the model.
+        """
         return self.module(x)
     def predict(self):
+        # TODO: implement
         pass
     def evalMetrics(self):
+        # TODO: implement
         pass
 
     def aggrPredict(self, pred, idAggr, reduce='sum'):
+        """
+        Performs temporal aggregation of the data.
+
+        Args:
+            pred (torch.Tensor): Predicted values
+            idAggr (np.ndarray): Integer ID of the data used to aggregate them.
+            reduce ('sum' or 'mean'): Reduction mode, default is 'sum'.
+
+        Returns a torch.Tensor whose size is the number of unique IDs in idAggr.
+        """
         assert isinstance(idAggr, np.ndarray), "Argument idAggr must be a numpy.ndarray."
         assert isinstance(pred, torch.Tensor), "Argument predAggr must be a torch.Tensor."
         idAggrTorch = torch.tensor(idAggr)
@@ -27,21 +42,38 @@ class CustomTorchNeuralNetRegressor(nn.Module):
         predSumAnnual = out.scatter_reduce(0, idAggrTorch, pred, reduce=reduce)
         return predSumAnnual
 
-    def aggrPredictGlwd(self, predAggr, idAggr):
+    def aggrPredictGlwd(self, pred, idAggr):
+        """
+        Performs spatial aggregation of the data glacier wide.
+
+        Args:
+            pred (torch.Tensor): Predicted values
+            idAggr (np.ndarray): Integer ID of the data used to aggregate them.
+
+        Returns a torch.Tensor whose size is the number of unique IDs in idAggr.
+        """
         assert isinstance(idAggr, np.ndarray), "Argument idAggr must be a numpy.ndarray."
-        assert isinstance(predAggr, torch.Tensor), "Argument predAggr must be a torch.Tensor."
+        assert isinstance(pred, torch.Tensor), "Argument pred must be a torch.Tensor."
         idAggrTorch = torch.tensor(idAggr)
-        out = torch.zeros((len(np.unique(idAggr)), ), device=predAggr.device, dtype=predAggr.dtype)
-        predSumAnnualGlwd = out.scatter_reduce(0, idAggrTorch, predAggr, reduce='mean')
+        out = torch.zeros((len(np.unique(idAggr)), ), device=pred.device, dtype=pred.dtype)
+        predSumAnnualGlwd = out.scatter_reduce(0, idAggrTorch, pred, reduce='mean') # Aggregations of glacier wide values are always averaged
         return predSumAnnualGlwd
 
     def cumulative_pred(self):
-        pass
-
-    def _create_features_metadata(self):
+        # TODO: implement
         pass
 
     def aggrMetadataId(self, metadata, groupByCol):
+        """
+        Aggregates metadata temporally by taking the first value encountered in each
+        aggregated group. These values are supposed to be unique per group.
+
+        Args:
+            metadata (pd.DataFrame): Input metadata to aggregate.
+            groupByCol (str): The column to use for aggregation.
+
+        Returns an aggregated pd.DataFrame.
+        """
         metadataAggrId = metadata.groupby(groupByCol).agg({
             'YEAR': 'first',
             'POINT_LAT': 'first',
@@ -51,6 +83,17 @@ class CustomTorchNeuralNetRegressor(nn.Module):
         return metadataAggrId
 
     def aggrMetadataGlwdId(self, metadata, groupByCol):
+        """
+        Performs the glacier wide aggregation of the metadata by taking the first
+        value encountered in each aggregated group. These values are supposed to be
+        unique per group.
+
+        Args:
+            metadata (pd.DataFrame): Input metadata to aggregate.
+            groupByCol (str): The column to use for aggregation.
+
+        Returns an aggregated pd.DataFrame.
+        """
         metadataAggrYear = metadata.groupby(groupByCol).agg(
             YEAR=('YEAR', 'first') # Assumes YEAR is unique per GEOD_ID
         )#.set_index('YEAR')
