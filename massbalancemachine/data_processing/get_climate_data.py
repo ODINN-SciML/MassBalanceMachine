@@ -67,12 +67,19 @@ def get_climate_features(
     # Crop the geopotential height to the region of interest
     ds_geopotential_cropped = _crop_geopotential(ds_180, lat, lon)
 
+    # Remove duplicates
+    ds_geopotential_cropped = ds_geopotential_cropped.drop_duplicates(
+        dim="latitude")
+    ds_geopotential_cropped = ds_geopotential_cropped.drop_duplicates(
+        dim="longitude")
+
     # Calculate the geopotential height in meters
     ds_geopotential_metric = _calculate_geopotential_height(
         ds_geopotential_cropped)
 
-    # Reduce expver dimension
-    ds_climate = ds_climate.reduce(np.nansum, "expver")
+    if 'expver' in ds_climate.dims:
+        # Reduce expver dimension
+        ds_climate = ds_climate.reduce(np.nansum, "expver")
 
     # Create a date range for one hydrological year
     df = _add_date_range(df)
@@ -125,18 +132,41 @@ def retrieve_clear_sky_rad(df, path_to_file):
         lon=lon_da,
         method="nearest",
     )
-
     climate_df = (xr_data_points.to_dataframe().drop(
         columns=["lat", "lon", "x", "y"]).reset_index())
     climate_df = climate_df.drop(columns=["points"])
 
-    reshaped_ = []
-    for month in range(0, 12):
-        month_ = climate_df[climate_df.time == month].drop(columns=['time'])
-        reshaped_.append(month_.values.squeeze())
+    # The normal way does not work if there is only one point per glacier
+    if len(xr_data_points.points) == 1:
+        # Initialize reshaped_ as a list
+        reshaped_ = []
 
-    result_df = pd.DataFrame(np.array(reshaped_).transpose(),
-                             columns=[f'Month_{i+1}' for i in range(12)])
+        for month in range(0, 12):
+            month_ = climate_df[climate_df.time == month].drop(
+                columns=['time'])
+
+            values = month_.values
+            # values.shape is (n_points, n_vars) or (1, n_vars) if one point
+
+            reshaped_.append(values)
+
+        # Now stack along axis=0 to get shape (12, n_points) if multiple points,
+        # or (12, 1) if only one point, and then transpose to get (n_points, 12)
+        reshaped_array = np.vstack(reshaped_).T
+
+        result_df = pd.DataFrame(reshaped_array,
+                                 columns=[f'Month_{i+1}' for i in range(12)])
+    elif len(xr_data_points.points) > 1:
+        reshaped_ = []
+        for month in range(0, 12):
+            month_ = climate_df[climate_df.time == month].drop(
+                columns=['time'])
+            reshaped_.append(month_.values.squeeze())
+
+        result_df = pd.DataFrame(np.array(reshaped_).transpose(),
+                                 columns=[f'Month_{i+1}' for i in range(12)])
+    else:   
+        raise ValueError("No points found in the radiation dataset.")
 
     # Set the new column names for the dataframe (normal year not hydrological)
     climate_var = 'pcsr'
@@ -254,9 +284,16 @@ def _process_climate_data(ds_climate: xr.Dataset,
         method="nearest",
     )
 
+    # Handle new netcdf format where number and expver are coordinates
+    dropColumns = ["latitude", "longitude"]
+    if "number" in climate_data_points.coords:
+        dropColumns.append("number")
+    if "expver" in climate_data_points.coords:
+        dropColumns.append("expver")
+
     # Create a dataframe from the DataArray
     climate_df = (climate_data_points.to_dataframe().drop(
-        columns=["latitude", "longitude"]).reset_index())
+        columns=dropColumns).reset_index())
 
     # Drop columns
     climate_df = climate_df.drop(columns=["points", "time"])
@@ -286,7 +323,13 @@ def _process_altitude_data(ds_geopotential: xr.Dataset,
     lat_da = xr.DataArray(df["POINT_LAT"].values, dims="points")
     lon_da = xr.DataArray(df["POINT_LON"].values, dims="points")
 
-    altitude_data_points = ds_geopotential.sel(
+    if 'valid_time' in ds_geopotential.dims:
+        # Handle new netcdf format
+        ds_renamed = ds_geopotential.rename({"valid_time": "time"})
+    else:
+        ds_renamed = ds_geopotential
+
+    altitude_data_points = ds_renamed.sel(
         latitude=lat_da,
         longitude=lon_da,
         method="nearest",
