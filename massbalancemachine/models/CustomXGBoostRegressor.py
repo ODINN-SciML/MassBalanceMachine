@@ -352,7 +352,7 @@ class CustomXGBoostRegressor(XGBRegressor):
         
         Args:
             df_grid (pd.DataFrame): The input features of whole glacier grid including metadata columns.
-            
+            type_pred (str): The type of seasonal prediction to perform.
         Returns:
             pd.DataFrame: The aggregated predictions for each measurement point ID.
         """
