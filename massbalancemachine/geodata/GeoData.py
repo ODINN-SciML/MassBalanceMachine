@@ -249,7 +249,8 @@ class GeoData:
                         path_glacier_dem,
                         path_save_glw,
                         cfg,
-                        save_monthly_pred=True):
+                        save_monthly_pred=True, 
+                        type_model = 'XGBoost'):
         """
         Computes and saves gridded mass balance (MB) predictions for a given glacier and year.
 
@@ -282,14 +283,16 @@ class GeoData:
             FileNotFoundError: If the DEM file for the glacier and year is not found.
         """
 
-        # Compute cumulative SMB predictions
-        df_grid_monthly = custom_model.cumulative_pred(self.data)
+        if type_model == 'XGBoost':
+            # Compute cumulative SMB predictions
+            df_grid_monthly = custom_model.cumulative_pred(self.data)
+            self.data = df_grid_monthly
 
         # Generate annual and winter predictions
         pred_annual = custom_model.glacier_wide_pred(
-            df_grid_monthly[all_columns], type_pred='annual')
+            self.data[all_columns], type_pred='annual')
         pred_winter = custom_model.glacier_wide_pred(
-            df_grid_monthly[all_columns], type_pred='winter')
+            self.data[all_columns], type_pred='winter')
 
         # Filter results for the current year
         pred_y_annual = pred_annual.drop(columns=['YEAR'], errors='ignore')
@@ -312,7 +315,7 @@ class GeoData:
 
         # Save monthly grids
         if save_monthly_pred:
-            self._save_monthly_predictions(cfg, df_grid_monthly, ds,
+            self._save_monthly_predictions(cfg, self.data, ds,
                                            glacier_name, year, path_save_glw)
 
     def get_mean_SMB(self, custom_model, all_columns):
