@@ -352,7 +352,7 @@ class CustomXGBoostRegressor(XGBRegressor):
         
         Args:
             df_grid (pd.DataFrame): The input features of whole glacier grid including metadata columns.
-            
+            type_pred (str): The type of seasonal prediction to perform.
         Returns:
             pd.DataFrame: The aggregated predictions for each measurement point ID.
         """
@@ -367,16 +367,8 @@ class CustomXGBoostRegressor(XGBRegressor):
         # Make predictions aggregated to measurement ID:
         y_pred_grid_agg = self.aggrPredict(metadata_grid, features_grid)
 
-        grouped_ids = df_grid.groupby('ID').agg({
-            'YEAR':
-            lambda x: x.unique().item(),
-            'POINT_LAT':
-            lambda x: x.unique().item(),
-            'POINT_LON':
-            lambda x: x.unique().item(),
-            'GLWD_ID':
-            lambda x: x.unique().item(),
-        })
+        grouped_ids = df_grid.groupby('ID')[['YEAR', 'POINT_LAT', 'POINT_LON', 'GLWD_ID']].first()
+
         grouped_ids['pred'] = y_pred_grid_agg
         grouped_ids.reset_index(inplace=True)
         grouped_ids.sort_values(by='YEAR', inplace=True)

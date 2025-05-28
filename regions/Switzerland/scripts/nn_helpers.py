@@ -37,6 +37,7 @@ def plot_training_history(custom_nn, skip_first_n=0):
     # Create a folder to save figures (optional)
     save_dir = "figures"
     os.makedirs(save_dir, exist_ok=True)
+    
     # Save the figure
     plt.savefig(os.path.join(save_dir, "training_history.png"),
                 dpi=300,
