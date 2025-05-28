@@ -17,7 +17,7 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, root_mean_s
 from skorch import NeuralNetRegressor
 from skorch.utils import to_tensor
 from skorch.helper import SliceDataset
-import massbalancemachine as mbm
+import data_processing
 
 _models_dir = Path("./models")
 
@@ -351,7 +351,7 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
             targets_grid = targets_grid.cpu()
 
         # Create the dataset
-        dataset_grid = mbm.data_processing.AggregatedDataset(
+        dataset_grid = data_processing.AggregatedDataset(
             self.cfg,
             features=features_grid,
             metadata=metadata_grid,
