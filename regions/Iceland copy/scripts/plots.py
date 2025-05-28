@@ -275,19 +275,15 @@ def FIPlot(best_estimator, feature_columns, vois_climate):
 
 def PlotPredictions(grouped_ids, y_pred, metadata_test, test_set, model):
     fig = plt.figure(figsize=(20, 15))
-    colors_glacier = [
-        '#a6cee3', '#1f78b4', '#b2df8a', '#33a02c', '#fb9a99', '#e31a1c',
-        '#fdbf6f', '#ff7f00', '#cab2d6', '#6a3d9a', '#ffff99', '#b15928',
-        '#8dd3c7', '#ffffb3', '#bebada', '#fb8072', '#80b1d3', '#fdb462', 
-        '#b3de69', '#fccde5', '#d9d9d9', '#bc80bd', '#ccebc5', '#ffed6f',
-        '#66c2a5', '#fc8d62', '#8da0cb', '#e78ac3', '#a6d854', '#ffd92f', 
-        '#e5c494', '#b3b3b3', '#7fc97f', '#beaed4', '#fdc086', '#ffff99',
-        '#386cb0', '#f0027f', '#bf5b17', '#666666', '#1b9e77', '#d95f02',
-        '#7570b3', '#e7298a'
-    ]
-    color_palette_glaciers = dict(
-        zip(grouped_ids.GLACIER.unique(), colors_glacier))
-    print(color_palette_glaciers)
+
+    unique_glaciers = grouped_ids.GLACIER.unique()
+    
+    n_colors = len(unique_glaciers)
+    cmap = plt.cm.get_cmap('tab20') if n_colors <= 20 else plt.cm.get_cmap('viridis')
+    colors_glacier = [cmap(i/n_colors) for i in range(n_colors)]
+    
+    color_palette_glaciers = dict(zip(unique_glaciers, colors_glacier))
+    
     ax1 = plt.subplot(2, 2, 1)
     grouped_ids_annual = grouped_ids[grouped_ids.PERIOD == 'annual']
     mse_annual, rmse_annual, mae_annual, pearson_corr_annual = model.evalMetrics(
