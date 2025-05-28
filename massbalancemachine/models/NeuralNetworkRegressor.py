@@ -378,33 +378,20 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         data = pd.DataFrame(data)
         data.set_index('ID', inplace=True)
 
-        grouped_ids = df_grid_monthly.groupby('ID').agg({
-            'YEAR':
-            lambda x: x.unique().item(),
-            'POINT_LAT':
-            lambda x: x.unique().item(),
-            'POINT_LON':
-            lambda x: x.unique().item(),
-            'GLWD_ID':
-            lambda x: x.unique().item(),
-        })
+        grouped_ids = df_grid_monthly.groupby('ID')[['YEAR', 'POINT_LAT', 'POINT_LON', 'GLWD_ID']].first()
 
         grouped_ids = grouped_ids.merge(data, on='ID', how='left')
         grouped_ids.reset_index(inplace=True)
         grouped_ids.sort_values(by='ID', inplace=True)
         return grouped_ids
 
-    # def save_model(self, fname: str) -> None:
-    #     """Save the current model instance to a file."""
-    #     file_path = _models_dir / fname
-    #     _models_dir.mkdir(exist_ok=True)
-    #     if os.path.isfile(file_path):
-    #         # Handle the case where the file already exists but the object structure has changed
-    #         os.remove(file_path)
-    #     with open(file_path, "wb") as f:
-    #         pickle.dump(self, f)
     
     def save_model(self, fname: str) -> None:
+        """save the model parameters to a file.
+
+        Args:
+            fname (str): filename to save the model parameters to (without .pt extension).
+        """
         file_path = _models_dir / fname
         _models_dir.mkdir(exist_ok=True)
         self.save_params(f_params=file_path.with_suffix(".pt"))
@@ -423,13 +410,6 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
             self.some_tensor_attribute = self.some_tensor_attribute.to(device)
 
         return self
-
-    # def load_model(fname: str) -> "CustomNeuralNetRegressor":
-    #     """Load a CustomNeuralNetRegressor model from a file."""
-    #     file_path = _models_dir / fname
-    #     with open(file_path, "rb") as f:
-    #         model = pickle.load(f)
-    #     return model
     
     def _create_features_metadata(
             self,
@@ -467,6 +447,16 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
 
     @staticmethod
     def load_model(cfg: config.Config, fname: str, *args, **kwargs) -> "CustomNeuralNetRegressor":
+        """Loads a pre-trained model from a file.
+
+        Args:
+            cfg (config.Config): config file.
+            fname (str): model filename (with .pt extension).
+            *args & **kwargs: Additional arguments for model initialisation.
+            
+        Returns:
+            CustomNeuralNetRegressor: loaded (and trained) model instance.
+        """
         model = CustomNeuralNetRegressor(cfg, *args, **kwargs)
         model.initialize()
         model.load_params(f_params=_models_dir / fname)
