@@ -17,9 +17,10 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, root_mean_s
 from skorch import NeuralNetRegressor
 from skorch.utils import to_tensor
 from skorch.helper import SliceDataset
-
+import massbalancemachine as mbm
 
 _models_dir = Path("./models")
+
 
 class CustomNeuralNetRegressor(NeuralNetRegressor):
     """
@@ -31,7 +32,12 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
     period and should therefore take be into account when evaluating the score/loss.
     """
 
-    def __init__(self, cfg: config.Config, *args, nbFeatures:int=None, metadataColumns=None, **kwargs):
+    def __init__(self,
+                 cfg: config.Config,
+                 *args,
+                 nbFeatures: int = None,
+                 metadataColumns=None,
+                 **kwargs):
         """
         Initialize the CustomNeuralNetRegressor.
 
@@ -49,7 +55,8 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         self.param_search = None
         self.metadataColumns = metadataColumns or self.cfg.metaData
         self.nbFeatures = nbFeatures
-        self.modelDtype = list(self.module.parameters())[0].dtype if len(list(self.module.parameters()))>0 else None
+        self.modelDtype = list(self.module.parameters())[0].dtype if len(
+            list(self.module.parameters())) > 0 else None
 
     def gridsearch(
         self,
@@ -126,17 +133,23 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
 
     def _unpack_inp(self, x):
         indNonNan = [~xi.isnan() for xi in x]
-        v = [x[i][indNonNan[i]].reshape(-1, self.nbFeatures) for i in range(x.shape[0])]
+        v = [
+            x[i][indNonNan[i]].reshape(-1, self.nbFeatures)
+            for i in range(x.shape[0])
+        ]
         x = torch.concatenate(v, dim=0)
         return x, indNonNan
 
     def _pack_out(self, y, indNonNan):
-        out = torch.empty((len(indNonNan), indNonNan[0].shape[0]//self.nbFeatures), dtype=y.dtype, device=y.device)
+        out = torch.empty(
+            (len(indNonNan), indNonNan[0].shape[0] // self.nbFeatures),
+            dtype=y.dtype,
+            device=y.device)
         out.fill_(torch.nan)
         cnt = 0
         for i in range(len(indNonNan)):
             incr = indNonNan[i][::self.nbFeatures].sum().item()
-            out[i][indNonNan[i][::self.nbFeatures]] = y[cnt:cnt+incr,0]
+            out[i][indNonNan[i][::self.nbFeatures]] = y[cnt:cnt + incr, 0]
             cnt += incr
         return out
 
@@ -153,21 +166,24 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
             the module and to the ``self.train_split`` call.
         """
         x = to_tensor(x, device=self.device)
-        if len(x.shape)==1:
+        if len(x.shape) == 1:
             x = x[None]
         x, indNonNan = self._unpack_inp(x)
         if self.modelDtype is not None:
             x = x.type(self.modelDtype)
         if isinstance(x, Mapping):
-            raise NotImplementedError("The case when x is a Mapping has not been implemented yet. If you need it, copy the implementation of the infer method in the NeuralNet class and add the _pack_out and _unpack_inp methods.")
+            raise NotImplementedError(
+                "The case when x is a Mapping has not been implemented yet. If you need it, copy the implementation of the infer method in the NeuralNet class and add the _pack_out and _unpack_inp methods."
+            )
         res = self.module_(x, **fit_params)
         return self._pack_out(res, indNonNan)
 
     def get_loss(self, y_pred, y_true, X=None, training=False):
         loss = 0.
         for yi_pred, yi_true in zip(y_pred, y_true):
-            loss += (yi_pred[~yi_pred.isnan()].sum() - yi_true[~yi_true.isnan()].mean())**2
-        return loss/len(y_true)
+            loss += (yi_pred[~yi_pred.isnan()].sum() -
+                     yi_true[~yi_true.isnan()].mean())**2
+        return loss / len(y_true)
 
     def score(self, X: SliceDataset, y: SliceDataset) -> float:
         """
@@ -213,8 +229,7 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
 
         return super().predict(features)
 
-    def evalMetrics(self,
-                    y_pred: np.array,
+    def evalMetrics(self, y_pred: np.array,
                     y_target: np.array) -> Tuple[float, float, float]:
         """
         Compute three evaluation metrics of the model on the given test data and labels.
@@ -242,21 +257,31 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
 
     def aggrPred(self, y_pred):
         if isinstance(y_pred, torch.Tensor):
-            y_pred_agg = [yi_pred[~yi_pred.isnan()].sum() for yi_pred in y_pred]
+            y_pred_agg = [
+                yi_pred[~yi_pred.isnan()].sum() for yi_pred in y_pred
+            ]
             return torch.tensor(y_pred_agg)
         elif isinstance(y_pred, np.ndarray):
-            y_pred_agg = [yi_pred[~np.isnan(yi_pred)].sum() for yi_pred in y_pred]
+            y_pred_agg = [
+                yi_pred[~np.isnan(yi_pred)].sum() for yi_pred in y_pred
+            ]
             return np.array(y_pred_agg)
-        else: raise TypeError
+        else:
+            raise TypeError
 
     def meanTrue(self, y_true):
         if isinstance(y_true, torch.Tensor):
-            y_true_agg = [yi_true[~np.isnan(yi_true)].mean() for yi_true in y_true]
+            y_true_agg = [
+                yi_true[~np.isnan(yi_true)].mean() for yi_true in y_true
+            ]
             return torch.tensor(y_true_agg)
         elif isinstance(y_true, np.ndarray):
-            y_true_agg = [yi_true[~np.isnan(yi_true)].mean() for yi_true in y_true]
+            y_true_agg = [
+                yi_true[~np.isnan(yi_true)].mean() for yi_true in y_true
+            ]
             return np.array(y_true_agg)
-        else: raise TypeError
+        else:
+            raise TypeError
 
     def aggrPredict(self, features: SliceDataset) -> np.ndarray:
         """
@@ -294,15 +319,83 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
             cum_pred[i][ind] = np.cumsum(y_pred[i][ind])
         return cum_pred
 
+    def glacier_wide_pred(self, df_grid_monthly, type_pred='annual'):
+        """    
+        Generate predictions for an entire glacier grid 
+        and return them aggregated by measurement point ID.
+        
+        Args:
+            df_grid_monthly (pd.DataFrame): The input features of whole glacier grid including metadata columns.
+            type_pred (str): The type of seasonal prediction to perform.
+        Returns:
+            pd.DataFrame: The aggregated predictions for each measurement point ID.
+        """
+        
+        if type_pred == 'winter':
+            # winter months from October to April
+            winter_months = ['oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr']
+            df_grid_monthly = df_grid_monthly[df_grid_monthly.MONTHS.isin(
+                winter_months)]
+
+        # Create features and metadata
+        features_grid, metadata_grid = self._create_features_metadata(
+            df_grid_monthly)
+
+        # Ensure all tensors are on CPU if they are torch tensors
+        if hasattr(features_grid, 'cpu'):
+            features_grid = features_grid.cpu()
+
+        # Ensure targets are also on CPU
+        targets_grid = np.empty(len(features_grid))  # No targets in grid data
+        if hasattr(targets_grid, 'cpu'):
+            targets_grid = targets_grid.cpu()
+
+        # Create the dataset
+        dataset_grid = mbm.data_processing.AggregatedDataset(
+            self.cfg,
+            features=features_grid,
+            metadata=metadata_grid,
+            targets=targets_grid)
+
+        dataset_grid = [
+            SliceDataset(dataset_grid, idx=0),
+            SliceDataset(dataset_grid, idx=1)
+        ]
+
+        # Make predictions aggr to meas ID
+        y_pred = self.predict(dataset_grid[0])
+        y_pred_agg = self.aggrPredict(dataset_grid[0])
+
+        batchIndex = np.arange(len(y_pred_agg))
+        y_true = np.array([e for e in dataset_grid[1][batchIndex]])
+
+        # Aggregate predictions
+        id = dataset_grid[0].dataset.indexToId(batchIndex)
+        data = {
+            'ID': id,
+            'pred': y_pred_agg
+        }
+        data = pd.DataFrame(data)
+        data.set_index('ID', inplace=True)
+
+        grouped_ids = df_grid_monthly.groupby('ID')[['YEAR', 'POINT_LAT', 'POINT_LON', 'GLWD_ID']].first()
+
+        grouped_ids = grouped_ids.merge(data, on='ID', how='left')
+        grouped_ids.reset_index(inplace=True)
+        grouped_ids.sort_values(by='ID', inplace=True)
+        return grouped_ids
+
+    
     def save_model(self, fname: str) -> None:
-        """Save the current model instance to a file."""
+        """save the model parameters to a file.
+
+        Args:
+            fname (str): filename to save the model parameters to (without .pt extension).
+        """
         file_path = _models_dir / fname
         _models_dir.mkdir(exist_ok=True)
-        if os.path.isfile(file_path):
-            # Handle the case where the file already exists but the object structure has changed
-            os.remove(file_path)
-        with open(file_path, "wb") as f:
-            pickle.dump(self, f)
+        self.save_params(f_params=file_path.with_suffix(".pt"))
+
 
     def to(self, device):
         """Move model and necessary attributes to the specified device."""
@@ -317,15 +410,9 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
             self.some_tensor_attribute = self.some_tensor_attribute.to(device)
 
         return self
-
-    def load_model(fname: str) -> "CustomNeuralNetRegressor":
-        """Load a CustomNeuralNetRegressor model from a file."""
-        file_path = _models_dir / fname
-        with open(file_path, "rb") as f:
-            model = pickle.load(f)
-        return model
-
-    def _create_features_metadata(self,
+    
+    def _create_features_metadata(
+            self,
             X: pd.DataFrame,
             meta_data_columns: list = None) -> Tuple[np.array, np.ndarray]:
         """
@@ -357,3 +444,20 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         features = X[feature_columns].values
 
         return features, metadata
+
+    @staticmethod
+    def load_model(cfg: config.Config, fname: str, *args, **kwargs) -> "CustomNeuralNetRegressor":
+        """Loads a pre-trained model from a file.
+
+        Args:
+            cfg (config.Config): config file.
+            fname (str): model filename (with .pt extension).
+            *args & **kwargs: Additional arguments for model initialisation.
+            
+        Returns:
+            CustomNeuralNetRegressor: loaded (and trained) model instance.
+        """
+        model = CustomNeuralNetRegressor(cfg, *args, **kwargs)
+        model.initialize()
+        model.load_params(f_params=_models_dir / fname)
+        return model

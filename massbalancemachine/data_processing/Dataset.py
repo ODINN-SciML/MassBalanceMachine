@@ -283,6 +283,8 @@ class AggregatedDataset(torch.utils.data.Dataset):
         self.metadata = metadata
         self.metadataColumns = metadataColumns or self.cfg.metaData
         self.targets = targets
+    
+        
         self.ID = np.array([
             self.metadata[i][self.metadataColumns.index('ID')]
             for i in range(len(self.metadata))
