@@ -667,7 +667,7 @@ def plot_snow_cover_geoplots(raster_res,
     filename_nc = f"{glacierName}_{hydro_year}_{monthNb}.nc"
 
     # Calculate snow and ice cover
-    geoData_gl = mbm.GeoData(pd.DataFrame)
+    geoData_gl = mbm.geodata.GeoData(pd.DataFrame)
     geoData_gl.set_ds_latlon(filename_nc, path_nc_wgs84)
     geoData_gl.classify_snow_cover(tol=0.1)
     gdf_glacier = geoData_gl.gdf

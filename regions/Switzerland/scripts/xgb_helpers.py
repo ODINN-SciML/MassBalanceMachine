@@ -8,11 +8,9 @@ from sklearn.model_selection import GroupKFold, KFold, train_test_split, GroupSh
 import geopandas as gpd
 import xarray as xr
 import numpy as np
-import hashlib
 from tqdm.notebook import tqdm
 
-from scripts.config_CH import *
-from scripts.helpers import Diff
+from regions.Switzerland.scripts.config_CH import *
 
 
 def process_or_load_data(run_flag,
@@ -37,11 +35,11 @@ def process_or_load_data(run_flag,
 
         # Add a glacier-wide ID (used for geodetic MB)
         data_glamos['GLWD_ID'] = data_glamos.apply(
-            lambda x: get_hash(f"{x.GLACIER}_{x.YEAR}"), axis=1)
+            lambda x: mbm.data_processing.utils.get_hash(f"{x.GLACIER}_{x.YEAR}"), axis=1)
         data_glamos['GLWD_ID'] = data_glamos['GLWD_ID'].astype(str)
 
         # Create dataset
-        dataset_gl = mbm.Dataset(cfg=cfg,
+        dataset_gl = mbm.data_processing.Dataset(cfg=cfg,
                                  data=data_glamos,
                                  region_name='CH',
                                  data_path=paths['csv_path'])
@@ -86,7 +84,7 @@ def process_or_load_data(run_flag,
                 vois_topographical=vois_topographical)
 
         # Create DataLoader
-        dataloader_gl = mbm.DataLoader(cfg,
+        dataloader_gl = mbm.dataloader.DataLoader(cfg,
                                        data=dataset_gl.data,
                                        random_seed=cfg.seed,
                                        meta_data_columns=cfg.metaData)
@@ -104,7 +102,7 @@ def process_or_load_data(run_flag,
         try:
             input_file = os.path.join(paths['csv_path'], output_file)
             data_monthly = pd.read_csv(input_file)
-            dataloader_gl = mbm.DataLoader(cfg,
+            dataloader_gl = mbm.dataloader.DataLoader(cfg,
                                            data=data_monthly,
                                            random_seed=cfg.seed,
                                            meta_data_columns=cfg.metaData)
@@ -256,20 +254,14 @@ def correct_vars_grid(df_grid_monthly,
     return df_grid_monthly
 
 
-# Generate a unique glacier-wide ID
-def get_hash(unique_string):
-    unique_id = hashlib.md5(
-        unique_string.encode()).hexdigest()[:10]  # Shortened hash
-    return unique_id
-
-
-def create_geodetic_input(glacier_name,
+def create_geodetic_input(cfg, glacier_name,
                           periods_per_glacier,
                           to_seasonal=False):
     """
     Creates a geodetic input array for MBM for a given glacier.
 
     Parameters:
+    - cfg (mbm.Config): Configuration instance used to retrieve the path where to store data on disk.
     - glacier_name (str): Name of the glacier.
     - periods_per_glacier (dict): Dictionary mapping glacier names to geodetic year ranges.
 
@@ -286,7 +278,7 @@ def create_geodetic_input(glacier_name,
     for year in range(min_geod_y, max_geod_y + 1):
         # Read the glacier grid file (monthly)
         file_name = f"{glacier_name}_grid_{year}.parquet"
-        file_path = os.path.join(path_glacier_grid_glamos, glacier_name,
+        file_path = os.path.join(cfg.dataPath, path_glacier_grid_glamos, glacier_name,
                                  file_name)
 
         if not os.path.exists(file_path):
@@ -305,13 +297,13 @@ def create_geodetic_input(glacier_name,
             df_grid = df_grid_monthly
 
         # Add GLWD_ID (unique glacier-wide ID corresponding to the year)
-        df_grid['GLWD_ID'] = get_hash(f"{glacier_name}_{year}")
+        df_grid['GLWD_ID'] = mbm.data_processing.utils.get_hash(f"{glacier_name}_{year}")
 
         # ID is not unique anymore (because of the way the monthly grids were pre-processed),
         # so recompute them:
         if 'ID' in df_grid.columns:
             df_grid['ID'] = df_grid.apply(
-                lambda x: get_hash(f"{x.ID}_{x.YEAR}"), axis=1)
+                lambda x: mbm.data_processing.utils.get_hash(f"{x.ID}_{x.YEAR}"), axis=1)
         else:
             print(
                 f"Warning: 'ID' column missing in {file_name}, skipping ID modification."

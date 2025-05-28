@@ -19,7 +19,7 @@ import pandas as pd
 from numpy import ndarray
 from sklearn.model_selection import GroupKFold, KFold, GroupShuffleSplit
 
-from correct_for_elevation import correct_T_P
+from dataloader.utils.correct_for_elevation import correct_T_P
 
 
 class DataLoader:
