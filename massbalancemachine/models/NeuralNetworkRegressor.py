@@ -394,15 +394,21 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         grouped_ids.sort_values(by='ID', inplace=True)
         return grouped_ids
 
+    # def save_model(self, fname: str) -> None:
+    #     """Save the current model instance to a file."""
+    #     file_path = _models_dir / fname
+    #     _models_dir.mkdir(exist_ok=True)
+    #     if os.path.isfile(file_path):
+    #         # Handle the case where the file already exists but the object structure has changed
+    #         os.remove(file_path)
+    #     with open(file_path, "wb") as f:
+    #         pickle.dump(self, f)
+    
     def save_model(self, fname: str) -> None:
-        """Save the current model instance to a file."""
         file_path = _models_dir / fname
         _models_dir.mkdir(exist_ok=True)
-        if os.path.isfile(file_path):
-            # Handle the case where the file already exists but the object structure has changed
-            os.remove(file_path)
-        with open(file_path, "wb") as f:
-            pickle.dump(self, f)
+        self.save_params(f_params=file_path.with_suffix(".pt"))
+
 
     def to(self, device):
         """Move model and necessary attributes to the specified device."""
@@ -418,13 +424,13 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
 
         return self
 
-    def load_model(fname: str) -> "CustomNeuralNetRegressor":
-        """Load a CustomNeuralNetRegressor model from a file."""
-        file_path = _models_dir / fname
-        with open(file_path, "rb") as f:
-            model = pickle.load(f)
-        return model
-
+    # def load_model(fname: str) -> "CustomNeuralNetRegressor":
+    #     """Load a CustomNeuralNetRegressor model from a file."""
+    #     file_path = _models_dir / fname
+    #     with open(file_path, "rb") as f:
+    #         model = pickle.load(f)
+    #     return model
+    
     def _create_features_metadata(
             self,
             X: pd.DataFrame,
@@ -458,3 +464,10 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         features = X[feature_columns].values
 
         return features, metadata
+
+    @staticmethod
+    def load_model(cfg: config.Config, fname: str, *args, **kwargs) -> "CustomNeuralNetRegressor":
+        model = CustomNeuralNetRegressor(cfg, *args, **kwargs)
+        model.initialize()
+        model.load_params(f_params=_models_dir / fname)
+        return model
