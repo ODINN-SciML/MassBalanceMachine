@@ -6,4 +6,5 @@ import dataloader
 import models
 import data_processing
 import geodata
+import training
 from .config import * # Load config at the top level of the package
