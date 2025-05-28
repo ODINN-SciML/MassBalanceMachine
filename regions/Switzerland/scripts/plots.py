@@ -288,7 +288,6 @@ def PlotPredictions(grouped_ids, y_pred, metadata_test, test_set, model):
     ]
     color_palette_glaciers = dict(
         zip(grouped_ids.GLACIER.unique(), colors_glacier))
-    print(color_palette_glaciers)
     ax1 = plt.subplot(2, 2, 1)
     grouped_ids_annual = grouped_ids[grouped_ids.PERIOD == 'annual']
     mse_annual, rmse_annual, mae_annual, pearson_corr_annual = model.evalMetrics(
