@@ -147,7 +147,7 @@ class GeoDataLoader:
         # That's because the GLAMOS and SGI grids don't match exactly on the borders
         df_X_geod = df_X_geod.dropna()
 
-        assert len(df_X_geod) > 0; f"Geodetic dataframe of glacier {glacierName} is empty."
+        assert len(df_X_geod) > 0, f"Geodetic dataframe of glacier {glacierName} is empty."
 
         meta_data_columns = self.cfg.metaData
 

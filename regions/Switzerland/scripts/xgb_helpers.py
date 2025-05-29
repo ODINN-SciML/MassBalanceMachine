@@ -282,7 +282,7 @@ def create_geodetic_input(cfg, glacier_name,
                                  file_name)
 
         if not os.path.exists(file_path):
-            print(f"Warning: File {file_name} not found, skipping...")
+            print(f"Warning: File {file_path} not found, skipping...")
             continue
 
         # Load parquet input glacier grid file in monthly format (pre-processed)

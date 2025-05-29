@@ -1225,7 +1225,7 @@ def create_sgi_topo_masks(cfg, iterator,
             sgi_id = item
 
         try:
-            ds = xr_SGI_masked_topo(glacier_outline_sgi, sgi_id)
+            ds = xr_SGI_masked_topo(glacier_outline_sgi, sgi_id, cfg)
             if ds is None:
                 print(
                     f"Warning: Failed to load dataset for {item}. Skipping...")
