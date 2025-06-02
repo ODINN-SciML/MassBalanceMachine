@@ -1,9 +1,22 @@
+import os
+import platform
+
+def get_base_path():
+    """Determine if running on local or SSH and return appropriate base path"""
+    if os.name == 'nt' or platform.system() == 'Windows':  # Windows/local
+        return r'D:\MBM_data\WGMS\Norway'  # Adjust if needed
+    elif os.name == 'posix' or platform.system() == 'Linux':  # Linux/SSH
+        return '/home/mburlet/scratch/data/DATA_MB/WGMS/Norway'
+
+# Set base path based on environment
+BASE_PATH = get_base_path()
+
 # <------------------ PATHS ------------------>
-path_PMB_WGMS_raw = '/home/mburlet/scratch/data/DATA_MB/WGMS/Norway/data/' # Raw Stake measurement ".csv"s
-path_PMB_WGMS_csv = '/home/mburlet/scratch/data/DATA_MB/WGMS/Norway/csv/' # Processed stake measurements
-path_ERA5_raw = '/home/mburlet/scratch/data/DATA_MB/WGMS/Norway/ERA5Land/raw/'  # ERA5-Land
-path_OGGM = '/home/mburlet/scratch/data/DATA_MB/WGMS/Norway/OGGM/' # OGGM Data
-path_OGGM_xrgrids = '/home/mburlet/scratch/data/DATA_MB/WGMS/Norway/OGGM/xr_grids/' # OGGM Data Grids
+path_PMB_WGMS_raw = os.path.join(BASE_PATH, 'data')  # Raw Stake measurement ".csv"s
+path_PMB_WGMS_csv = os.path.join(BASE_PATH, 'csv')  # Processed stake measurements
+path_ERA5_raw = os.path.join(BASE_PATH, 'ERA5Land', 'raw')  # ERA5-Land
+path_OGGM = os.path.join(BASE_PATH, 'OGGM')  # OGGM Data
+path_OGGM_xrgrids = os.path.join(BASE_PATH, 'OGGM', 'xr_grids')  # OGGM Data Grids
 
 
 # <------------------OTHER USEFUL FUNCTIONS & ATTRIBUTES: ------------------>
