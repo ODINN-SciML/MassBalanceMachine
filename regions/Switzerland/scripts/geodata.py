@@ -10,61 +10,104 @@ from os.path import isfile, join
 import geopandas as gpd
 import xarray as xr
 from datetime import datetime
+import re
 
 from scripts.config_CH import *
 from scripts.wgs84_ch1903 import *
 
 
+# def get_GLAMOS_glwmb(glacier_name):
+#     """
+#     Loads and processes GLAMOS glacier-wide mass balance data.
+
+#     Parameters:
+#     -----------
+#     glacier_name : str
+#         The name of the glacier.
+
+#     Returns:
+#     --------
+#     pd.DataFrame or None
+#         A DataFrame with columns ['YEAR', 'GLAMOS Balance'] indexed by 'YEAR',
+#         or None if the file is missing.
+#     """
+
+#     # Construct file path safely
+#     file_path = os.path.join(path_SMB_GLAMOS_csv, "fix",
+#                              f"{glacier_name}_fix.csv")
+
+#     # Check if file exists
+#     if not os.path.exists(file_path):
+#         print(
+#             f"Warning: GLAMOS data file not found for {glacier_name}. Skipping..."
+#         )
+#         return None
+
+#     # Load CSV and transform dates
+#     df = pd.read_csv(file_path)
+#     df = transformDates(df)
+
+#     # Remove duplicates based on the date column
+#     df = df.drop_duplicates(subset=["date1"])
+
+#     # Ensure required columns exist
+#     required_columns = {"date1", "Annual Balance"}
+#     if not required_columns.issubset(df.columns):
+#         print(
+#             f"Warning: Missing required columns in {glacier_name} GLAMOS data. Skipping..."
+#         )
+#         return None
+
+#     # Extract year from date and normalize balance
+#     df["YEAR"] = pd.to_datetime(df["date1"]).dt.year.astype("int64")
+#     df["GLAMOS Balance"] = df[
+#         "Annual Balance"] / 1000  # Convert to meters water equivalent
+
+#     # Select relevant columns and set index
+#     return df[["YEAR", "GLAMOS Balance"]].set_index("YEAR")
+
+def get_glwd_glamos_years(glacier_name):
+    folder = os.path.join(path_distributed_MB_glamos, 'GLAMOS', glacier_name)
+
+    if not os.path.exists(folder):
+        print(f"Warning: Folder {folder} does not exist.")
+        return []
+    pattern = re.compile(r'^(\d{4})_ann_fix\.grid$')
+    years = []
+    for filename in os.listdir(folder):
+        match = pattern.match(filename)
+        if match:
+            years.append(int(match.group(1)))  # Extract the year as an integer
+    years.sort()
+    
+    return years
+
 def get_GLAMOS_glwmb(glacier_name):
-    """
-    Loads and processes GLAMOS glacier-wide mass balance data.
-
-    Parameters:
-    -----------
-    glacier_name : str
-        The name of the glacier.
-
-    Returns:
-    --------
-    pd.DataFrame or None
-        A DataFrame with columns ['YEAR', 'GLAMOS Balance'] indexed by 'YEAR',
-        or None if the file is missing.
-    """
-
-    # Construct file path safely
-    file_path = os.path.join(path_SMB_GLAMOS_csv, "fix",
-                             f"{glacier_name}_fix.csv")
-
-    # Check if file exists
-    if not os.path.exists(file_path):
-        print(
-            f"Warning: GLAMOS data file not found for {glacier_name}. Skipping..."
-        )
+    years = get_glwd_glamos_years(glacier_name)
+    if years == []:
+        print(f"Warning: No GLAMOS data found for {glacier_name}.")
         return None
+    
+    glamos_glwd_mb = []
+    for year in years:
+        file_ann = f"{year}_ann_fix_lv95.grid"
+        grid_path_ann = os.path.join(path_distributed_MB_glamos, 'GLAMOS',
+                                    glacier_name, file_ann)
 
-    # Load CSV and transform dates
-    df = pd.read_csv(file_path)
-    df = transformDates(df)
+        metadata_ann, grid_data_ann = load_grid_file(grid_path_ann)
+        ds_glamos_ann = convert_to_xarray_geodata(grid_data_ann, metadata_ann)
+        ds_glamos_wgs84_ann = transform_xarray_coords_lv95_to_wgs84(ds_glamos_ann)
+        glamos_glwd_mb.append(float(ds_glamos_wgs84_ann.mean().values))
 
-    # Remove duplicates based on the date column
-    df = df.drop_duplicates(subset=["date1"])
-
-    # Ensure required columns exist
-    required_columns = {"date1", "Annual Balance"}
-    if not required_columns.issubset(df.columns):
-        print(
-            f"Warning: Missing required columns in {glacier_name} GLAMOS data. Skipping..."
-        )
-        return None
-
-    # Extract year from date and normalize balance
-    df["YEAR"] = pd.to_datetime(df["date1"]).dt.year.astype("int64")
-    df["GLAMOS Balance"] = df[
-        "Annual Balance"] / 1000  # Convert to meters water equivalent
-
-    # Select relevant columns and set index
-    return df[["YEAR", "GLAMOS Balance"]].set_index("YEAR")
-
+    df = pd.DataFrame({
+        'GLAMOS Balance': glamos_glwd_mb,
+        'YEAR': years
+    })
+    
+    # set index years
+    df.set_index('YEAR', inplace = True)
+    return df
+    
 
 def apply_gaussian_filter(ds, variable_name='pred_masked', sigma: float = 1):
     # Get the DataArray for the specified variable

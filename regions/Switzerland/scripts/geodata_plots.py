@@ -193,7 +193,8 @@ def plot_mass_balance(glacier_name, year, df_stakes,
     metadata_ann, grid_data_ann = load_grid_file(grid_path_ann)
     ds_glamos_ann = convert_to_xarray_geodata(grid_data_ann, metadata_ann)
     ds_glamos_wgs84_ann = transform_xarray_coords_lv95_to_wgs84(ds_glamos_ann)
-
+    print(ds_glamos_wgs84_ann.mean().values)
+    
     # Load GLAMOS data (Winter)
     try:
         metadata_win, grid_data_win = load_grid_file(grid_path_win)
@@ -210,6 +211,7 @@ def plot_mass_balance(glacier_name, year, df_stakes,
                                 f"{glacier_name}_{year}_annual.zarr")
     ds_mbm_ann = xr.open_dataset(mbm_file_ann)
     ds_mbm_ann = apply_gaussian_filter(ds_mbm_ann)
+    print(ds_mbm_ann.pred_masked.mean().item())
 
     # Load MBM predictions (Winter)
     mbm_file_win = os.path.join(PATH_PREDICTIONS, glacier_name,
