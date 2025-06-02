@@ -324,7 +324,7 @@ def merge_close_stakes(df, close_stakes_df, distance_threshold=10):
 
 
 def initialize_oggm_glacier_directories(
-    working_dir='/home/mburlet/scratch/data/DATA_MB/WGMS/Norway/OGGM/',
+    working_dir= path_OGGM,
     rgi_region="08",
     rgi_version="6",
     base_url="https://cluster.klima.uni-bremen.de/~oggm/gdirs/oggm_v1.6/L3-L5_files/2023.1/elev_bands/W5E5_w_data/",
@@ -376,7 +376,7 @@ def initialize_oggm_glacier_directories(
 
 def export_oggm_grids(gdirs,
                       subset_rgis=None,
-                      output_path='/home/mburlet/scratch/data/DATA_MB/WGMS/Norway/OGGM/xr_grids/'):
+                      output_path= path_OGGM_xrgrids):
 
     # Save OGGM xr for all needed glaciers:
     emptyfolder(output_path)
