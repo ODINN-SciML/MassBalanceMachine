@@ -16,6 +16,7 @@ color_tim = '#c51b7d'
 color_winter = '#a6cee3'
 color_annual = '#1f78b4'
 
+
 def plotHeatmap(test_glaciers, data_glamos, glacierCap, period='annual'):
     # Heatmap of mean mass balance per glacier:
     # Get the mean mass balance per glacier
@@ -69,8 +70,8 @@ def plotHeatmap(test_glaciers, data_glamos, glacierCap, period='annual'):
                           fill=False,
                           edgecolor='black',
                           lw=3))
-            
-            
+
+
 def visualiseSplits(y_test, y_train, splits, colors=[color_xgb, color_tim]):
     # Visualise the cross validation splits
     fig, ax = plt.subplots(1, 6, figsize=(20, 5))
@@ -93,7 +94,8 @@ def visualiseSplits(y_test, y_train, splits, colors=[color_xgb, color_tim]):
         ax[i + 1].set_title('CV train Fold ' + str(i + 1))
         ax[i + 1].set_xlabel('[m w.e.]')
     plt.tight_layout()
-    
+
+
 def visualiseInputs(train_set, test_set, vois_climate):
     colors = get_cmap_hex(cm.vik, 10)
     color_xgb = colors[0]
@@ -152,7 +154,8 @@ def visualiseInputs(train_set, test_set, vois_climate):
         ax.set_xlabel('')
 
     plt.tight_layout()
-    
+
+
 def plotGridSearchScore(cv_results_, lossType: str):
     dfCVResults = pd.DataFrame(cv_results_)
     mask_raisonable = dfCVResults['mean_train_score'] >= -10
@@ -187,8 +190,9 @@ def plotGridSearchScore(cv_results_, lossType: str):
     plt.ylabel(f'{lossType}')
     plt.title('Grid search score over iterations')
     plt.legend()
-    
-def plotGridSearchParams(cv_results_, param_grid, lossType:str, N=None):
+
+
+def plotGridSearchParams(cv_results_, param_grid, lossType: str, N=None):
     dfCVResults = pd.DataFrame(cv_results_)
     best_params = dfCVResults.sort_values('mean_test_score',
                                           ascending=False).iloc[0].params
@@ -253,7 +257,8 @@ def plotGridSearchParams(cv_results_, param_grid, lossType:str, N=None):
 
     plt.suptitle('Grid search results')
     plt.tight_layout()
-    
+
+
 def FIPlot(best_estimator, feature_columns, vois_climate):
     FI = best_estimator.feature_importances_
     cmap = cm.devon
@@ -279,6 +284,7 @@ def FIPlot(best_estimator, feature_columns, vois_climate):
 
     ax.set_xlabel('Feature Importance')
     ax.set_ylabel('Feature')
+
 
 def PlotPredictions(grouped_ids, y_pred, metadata_test, test_set, model):
     fig = plt.figure(figsize=(15, 10))
@@ -332,38 +338,43 @@ def PlotPredictions(grouped_ids, y_pred, metadata_test, test_set, model):
         ax4.set_title('Mean winter PMB', fontsize=24)
         grouped_ids_winter.sort_values(by='YEAR', inplace=True)
         plotMeanPred(grouped_ids_winter, ax4)
-        
-def predVSTruth(ax, grouped_ids, scores, hue='GLACIER', palette=None):
+
+
+def predVSTruth(ax,
+                grouped_ids,
+                scores,
+                hue='GLACIER',
+                palette=None,
+                color=color_xgb,
+                add_legend=True):
 
     legend_xgb = "\n".join(
         ((r"$\mathrm{RMSE}=%.3f$," % (scores["rmse"], )),
          (r"$\mathrm{\rho}=%.3f$" % (scores["pearson_corr"], ))))
 
     marker_xgb = 'o'
-    sns.scatterplot(
-        grouped_ids,
-        x="target",
-        y="pred",
-        palette=palette,
-        hue=hue,
-        ax=ax,
-        # alpha=0.8,
-        color=color_xgb,
-        marker=marker_xgb)
+    sns.scatterplot(grouped_ids,
+                    x="target",
+                    y="pred",
+                    palette=palette,
+                    hue=hue,
+                    ax=ax,
+                    color=color,
+                    marker=marker_xgb)
 
     ax.set_ylabel('Predicted PMB [m w.e.]', fontsize=20)
     ax.set_xlabel('Observed PMB [m w.e.]', fontsize=20)
 
-    props = dict(boxstyle='round', facecolor='white', alpha=0.5)
-    ax.text(0.03,
-            0.98,
-            legend_xgb,
-            transform=ax.transAxes,
-            verticalalignment="top",
-            fontsize=20,
-            bbox=props)
+    if add_legend:
+        ax.text(0.03,
+                0.98,
+                legend_xgb,
+                transform=ax.transAxes,
+                verticalalignment="top",
+                fontsize=20,
+                bbox=dict(boxstyle='round', facecolor='white', alpha=0.5))
     if hue is not None:
-        ax.legend(fontsize=14, loc='lower right', ncol=2)
+        ax.legend(fontsize=16, loc='lower right', ncol=2)
     else:
         ax.legend([], [], frameon=False)
     # diagonal line
@@ -374,11 +385,16 @@ def predVSTruth(ax, grouped_ids, scores, hue='GLACIER', palette=None):
     ax.grid()
 
     # Set ylimits to be the same as xlimits
-    ax.set_xlim(-15, 6)
-    ax.set_ylim(-15, 6)
+    ax.set_xlim(-8, 6)
+    ax.set_ylim(-8, 6)
     plt.tight_layout()
-    
-def plotMeanPred(grouped_ids, ax):
+
+
+def plotMeanPred(
+    grouped_ids,
+    ax,
+    color_pred=color_xgb,
+):
     mean = grouped_ids.groupby('YEAR')['target'].mean().values
     std = grouped_ids.groupby('YEAR')['target'].std().values
     years = grouped_ids.YEAR.unique()
@@ -393,12 +409,12 @@ def plotMeanPred(grouped_ids, ax):
     ax.scatter(years, mean, color="orange", marker='x')
     ax.plot(years,
             grouped_ids.groupby('YEAR')['pred'].mean().values,
-            color=color_xgb,
+            color=color_pred,
             label="mean pred",
             linestyle='--')
     ax.scatter(years,
                grouped_ids.groupby('YEAR')['pred'].mean().values,
-               color=color_xgb,
+               color=color_pred,
                marker='x')
     ax.fill_between(
         years,
@@ -406,7 +422,7 @@ def plotMeanPred(grouped_ids, ax):
         grouped_ids.groupby('YEAR')['pred'].std().values,
         grouped_ids.groupby('YEAR')['pred'].mean().values +
         grouped_ids.groupby('YEAR')['pred'].std().values,
-        color=color_xgb,
+        color=color_pred,
         alpha=0.3,
     )
     # rotate x-axis labels
@@ -430,8 +446,8 @@ def plotMeanPred(grouped_ids, ax):
             verticalalignment="top",
             fontsize=20)
     ax.legend(fontsize=20, loc='lower right')
-    
-    
+
+
 def PlotIndividualGlacierPredVsTruth(grouped_ids, figsize=(15, 22)):
     fig, axs = plt.subplots(3, 3, figsize=figsize)
 
@@ -468,8 +484,8 @@ def PlotIndividualGlacierPredVsTruth(grouped_ids, figsize=(15, 22)):
         ax1.set_title(f'{test_gl.capitalize()}', fontsize=28)
 
     plt.tight_layout()
-    
-    
+
+
 def plotGlAttr(ds, cmap=cm.batlow):
     # Plot glacier attributes
     fig, ax = plt.subplots(2, 3, figsize=(18, 10))
