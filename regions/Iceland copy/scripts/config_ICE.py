@@ -1,22 +1,9 @@
-import os
-import platform
-
-def get_base_path():
-    """Determine if running on local or SSH and return appropriate base path"""
-    if os.name == 'nt' or platform.system() == 'Windows':  # Windows/local
-        return r'D:\MBM_data\WGMS\Iceland'
-    elif os.name == 'posix' or platform.system() == 'Linux':  # Linux/SSH
-        return '/home/mburlet/scratch/data/DATA_MB/WGMS/Iceland'
-
-# Set base path based on environment
-BASE_PATH = get_base_path()
-
 # <------------------ PATHS ------------------>
-path_PMB_WGMS_raw = os.path.join(BASE_PATH, 'data', 'all-stake-measurements')
-path_PMB_WGMS_csv = os.path.join(BASE_PATH, 'csv')
-path_ERA5_raw = os.path.join(BASE_PATH, 'ERA5Land', 'raw')
-path_OGGM = os.path.join(BASE_PATH, 'OGGM')
-path_OGGM_xrgrids = os.path.join(BASE_PATH, 'OGGM', 'xr_grids')
+path_PMB_WGMS_raw = '/home/mburlet/scratch/data/DATA_MB/WGMS/Iceland/data/all-stake-measurements/' # Raw Stake measurement ".csv"s
+path_PMB_WGMS_csv = '/home/mburlet/scratch/data/DATA_MB/WGMS/Iceland/csv/' # Processed stake measurements
+path_ERA5_raw = '/home/mburlet/scratch/data/DATA_MB/WGMS/Iceland/ERA5Land/raw/'  # ERA5-Land
+path_OGGM = '/home/mburlet/scratch/data/DATA_MB/WGMS/Iceland/OGGM/' # OGGM Data
+path_OGGM_xrgrids = '/home/mburlet/scratch/data/DATA_MB/WGMS/Iceland/OGGM/xr_grids/' # OGGM Data Grids
 
 # <------------------OTHER USEFUL FUNCTIONS & ATTRIBUTES: ------------------>
 vois_climate_long_name = {
