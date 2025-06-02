@@ -479,6 +479,8 @@ def get_geodetic_MB():
     # Read geodetic MB dataset
     geodetic_mb = pd.read_csv(path_geodetic_MB_glamos +
                               'dV_DOI2024_allcomb.csv')
+    # geodetic_mb = pd.read_csv(path_geodetic_MB_glamos +
+    #                           'volumechange.csv', sep = ',')
 
     # Get RGI IDs for the glaciers
     rgi_gl = data_glamos.RGIId.unique()
@@ -501,6 +503,8 @@ def get_geodetic_MB():
 
     # Rename A_end to Aend
     geodetic_mb.rename(columns={'A_end': 'Aend'}, inplace=True)
+    # geodetic_mb.rename(columns={'A_end': 'Aend'}, inplace=True)
+    # geodetic_mb.rename(columns={'A_start': 'Astart'}, inplace=True)
 
     # Function to replace 9999 with September 30
     def fix_invalid_dates(date):
