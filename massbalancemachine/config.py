@@ -115,9 +115,17 @@ class SwitzerlandConfig(Config):
         notMetaDataNotFeatures: List[str] = [
             "POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON", "ALTITUDE_CLIMATE", "POINT_ELEVATION"
         ],
+        dataPath: str = None,
         numJobs: int = 28,
         **kwargs,
     ):
+        if dataPath is None:
+            mbmDir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../'))+'/'
+            self.dataPath = mbmDir+'../data/'
+        else:
+            if dataPath!='' and not dataPath.endswith('/'):
+                dataPath = dataPath+'/'
+            self.dataPath = dataPath
         super().__init__(*args,
                          metaData=metaData,
                          notMetaDataNotFeatures=notMetaDataNotFeatures,

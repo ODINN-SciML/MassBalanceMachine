@@ -13,8 +13,8 @@ from datetime import datetime
 import re
 from tqdm.notebook import tqdm
 
-from scripts.config_CH import *
-from scripts.wgs84_ch1903 import *
+from regions.Switzerland.scripts.config_CH import *
+from regions.Switzerland.scripts.wgs84_ch1903 import *
 
 
 # def get_GLAMOS_glwmb(glacier_name):
@@ -84,11 +84,34 @@ def get_glwd_glamos_years(glacier_name):
     return years
 
 def get_GLAMOS_glwmb(glacier_name):
+    """
+    Loads and processes GLAMOS glacier-wide mass balance data.
+
+    Parameters:
+    -----------
+    glacier_name : str
+        The name of the glacier.
+
+    Returns:
+    --------
+    pd.DataFrame or None
+        A DataFrame with columns ['YEAR', 'GLAMOS Balance'] indexed by 'YEAR',
+        or None if the file is missing.
+    """
+
+    # Construct file path safely
+    file_path = os.path.join(cfg.dataPath, path_SMB_GLAMOS_csv, "fix",
+                             f"{glacier_name}_fix.csv")
+
+    # Check if file exists
+    if not os.path.exists(file_path):
+        print(
+            f"Warning: GLAMOS data file not found for {glacier_name}. Skipping..."
+        )
+        return None
     years = get_glwd_glamos_years(glacier_name)
     if years == []:
         print(f"Warning: No GLAMOS data found for {glacier_name}.")
-        return None
-    
     glamos_glwd_mb = []
     for year in years:
         file_ann = f"{year}_ann_fix_lv95.grid"
@@ -398,9 +421,9 @@ def IceSnowCover(gdf_class, gdf_class_raster):
 
 
 def xr_SGI_masked_topo(gdf_shapefiles, sgi_id):
-    path_aspect = os.path.join(path_SGI_topo, 'aspect')
-    path_slope = os.path.join(path_SGI_topo, 'slope')
-    path_DEM = os.path.join(path_SGI_topo, 'dem_HR')
+    path_aspect = os.path.join(cfg.dataPath, path_SGI_topo, 'aspect')
+    path_slope = os.path.join(cfg.dataPath, path_SGI_topo, 'slope')
+    path_DEM = os.path.join(cfg.dataPath, path_SGI_topo, 'dem_HR')
 
     # Get SGI topo files
     aspect_gl = [f for f in os.listdir(path_aspect) if sgi_id in f][0]
@@ -524,8 +547,8 @@ def coarsenDS(ds, target_res_m=50):
     return ds
 
 
-def get_rgi_sgi_ids(glacier_name):
-    rgi_df = pd.read_csv(path_glacier_ids, sep=',')
+def get_rgi_sgi_ids(cfg, glacier_name):
+    rgi_df = pd.read_csv(cfg.dataPath+path_glacier_ids, sep=',')
     rgi_df.rename(columns=lambda x: x.strip(), inplace=True)
     rgi_df.sort_values(by='short_name', inplace=True)
     rgi_df.set_index('short_name', inplace=True)
@@ -654,9 +677,9 @@ def add_OGGM_features(df_y_gl, voi, path_OGGM):
     return df_pmb
 
 
-def xr_GLAMOS_masked_topo(sgi_id, ds_gl):
-    path_aspect = os.path.join(path_SGI_topo, "aspect")
-    path_slope = os.path.join(path_SGI_topo, "slope")
+def xr_GLAMOS_masked_topo(cfg, sgi_id, ds_gl):
+    path_aspect = os.path.join(cfg.dataPath, path_SGI_topo, "aspect")
+    path_slope = os.path.join(cfg.dataPath, path_SGI_topo, "slope")
 
     # Load SGI topo files
     aspect_gl = [f for f in os.listdir(path_aspect) if sgi_id in f][0]
@@ -729,15 +752,15 @@ def get_res_from_degrees(ds):
     return dx_m, dy_m
 
 
-def get_gl_area():
+def get_gl_area(cfg):
     # Load glacier metadata
-    rgi_df = pd.read_csv(path_glacier_ids, sep=',')
+    rgi_df = pd.read_csv(cfg.dataPath+path_glacier_ids, sep=',')
     rgi_df.rename(columns=lambda x: x.strip(), inplace=True)
     rgi_df.sort_values(by='short_name', inplace=True)
     rgi_df.set_index('short_name', inplace=True)
 
     # Load the shapefile
-    shapefile_path = os.path.join(path_SGI_topo, 'inventory_sgi2016_r2020',
+    shapefile_path = os.path.join(cfg.dataPath, path_SGI_topo, 'inventory_sgi2016_r2020',
                                   'SGI_2016_glaciers_copy.shp')
     gdf_shapefiles = gpd.read_file(shapefile_path)
 
@@ -982,3 +1005,82 @@ def process_geodetic_mass_balance_comparison(
 
     df_all.sort_values(by="Area", inplace=True, ascending=True)
     return df_all
+def prepareGeoTargets(geodetic_mb, periods_per_glacier, glacier_name=None):
+    """
+    Prepare the vector of geodetic targets for a given glacier by looping over the
+    periods defined for this glacier.
+
+    Parameters:
+    -----------
+    geodetic_mb: pd.Dataframe
+        Dataframe that contains the geodetic mass balance.
+    periods_per_glacier: Dictionary of list of tuples.
+        Each key is the name of a glacier and the list associated to each entry
+        contains tuples of integers that define the time window over which data
+        are defined.
+    glacier_name: str or None
+        The name of the glacier to process. If not specified, the geodetic targets
+        are generated for all the keys of `periods_per_glacier`.
+
+    Returns:
+    --------
+        Dictionary of numpy arrays or numpy array depending if `glacier_name` is
+        specified or not.
+    """
+    if glacier_name is not None:
+        geodetic_MB_target = []
+        for geodetic_period in periods_per_glacier[glacier_name]:
+            mask = ((geodetic_mb.glacier_name == glacier_name) &
+                    (geodetic_mb.Astart == geodetic_period[0]) &
+                    (geodetic_mb.Aend == geodetic_period[1]))
+            geodetic_MB_target.append(geodetic_mb[mask].Bgeod.values[0])
+
+        return np.array(geodetic_MB_target)
+    else:
+        return {glacier_name: prepareGeoTargets(
+            geodetic_mb,
+            periods_per_glacier,
+            glacier_name=glacier_name
+        ) for glacier_name in periods_per_glacier}
+
+def buildPeriodsPerGlacier(geodetic_mb):
+    """
+    Builds the dictionary that contains the geodetic periods for each glacier.
+
+    Parameters:
+    -----------
+    geodetic_mb: pd.Dataframe
+        Dataframe that contains the geodetic mass balance.
+
+    Returns:
+    --------
+    periods_per_glacier: Dictionary of list of tuples.
+        Each key is the name of a glacier and the list associated to each entry
+        contains tuples of integers that define the time window over which data
+        are defined.
+    geoMB_per_glacier: Dictionary of list of floats.
+        Each key is the name of a glacier and the list associated to each entry
+        contains the geodetic mass balance.
+    """
+
+    periods_per_glacier = defaultdict(list)
+    geoMB_per_glacier = defaultdict(list)
+
+    # Iterate through the DataFrame rows
+    for _, row in geodetic_mb.iterrows():
+        glacier_name = row['glacier_name']
+        start_year = row['Astart']
+        end_year = row['Aend']
+        geoMB = row['Bgeod']
+
+        # Append the (start, end) tuple to the glacier's list
+        # Only if period is longer than 5 years
+        if end_year - start_year >= 5:
+            periods_per_glacier[glacier_name].append((start_year, end_year))
+            geoMB_per_glacier[glacier_name].append(geoMB)
+
+    # sort by glacier_list
+    periods_per_glacier = dict(sorted(periods_per_glacier.items()))
+    geoMB_per_glacier = dict(sorted(geoMB_per_glacier.items()))
+
+    return periods_per_glacier, geoMB_per_glacier
