@@ -421,7 +421,7 @@ def IceSnowCover(gdf_class, gdf_class_raster):
     return snow_cover_glacier
 
 
-def xr_SGI_masked_topo(gdf_shapefiles, sgi_id):
+def xr_SGI_masked_topo(gdf_shapefiles, sgi_id, cfg):
     path_aspect = os.path.join(cfg.dataPath, path_SGI_topo, 'aspect')
     path_slope = os.path.join(cfg.dataPath, path_SGI_topo, 'slope')
     path_DEM = os.path.join(cfg.dataPath, path_SGI_topo, 'dem_HR')
