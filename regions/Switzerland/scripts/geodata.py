@@ -13,6 +13,7 @@ from datetime import datetime
 import re
 from tqdm.notebook import tqdm
 
+
 from regions.Switzerland.scripts.config_CH import *
 from regions.Switzerland.scripts.wgs84_ch1903 import *
 
@@ -67,8 +68,8 @@ from regions.Switzerland.scripts.wgs84_ch1903 import *
 #     # Select relevant columns and set index
 #     return df[["YEAR", "GLAMOS Balance"]].set_index("YEAR")
 
-def get_glwd_glamos_years(glacier_name):
-    folder = os.path.join(path_distributed_MB_glamos, 'GLAMOS', glacier_name)
+def get_glwd_glamos_years(cfg, glacier_name):
+    folder = os.path.join(cfg.dataPath, path_distributed_MB_glamos, 'GLAMOS', glacier_name)
 
     if not os.path.exists(folder):
         print(f"Warning: Folder {folder} does not exist.")
@@ -83,7 +84,7 @@ def get_glwd_glamos_years(glacier_name):
     
     return years
 
-def get_GLAMOS_glwmb(glacier_name):
+def get_GLAMOS_glwmb(glacier_name, cfg):
     """
     Loads and processes GLAMOS glacier-wide mass balance data.
 
@@ -109,13 +110,13 @@ def get_GLAMOS_glwmb(glacier_name):
             f"Warning: GLAMOS data file not found for {glacier_name}. Skipping..."
         )
         return None
-    years = get_glwd_glamos_years(glacier_name)
+    years = get_glwd_glamos_years(cfg, glacier_name)
     if years == []:
         print(f"Warning: No GLAMOS data found for {glacier_name}.")
     glamos_glwd_mb = []
     for year in years:
         file_ann = f"{year}_ann_fix_lv95.grid"
-        grid_path_ann = os.path.join(path_distributed_MB_glamos, 'GLAMOS',
+        grid_path_ann = os.path.join(cfg.dataPath, path_distributed_MB_glamos, 'GLAMOS',
                                     glacier_name, file_ann)
 
         metadata_ann, grid_data_ann = load_grid_file(grid_path_ann)
@@ -926,7 +927,8 @@ def process_geodetic_mass_balance_comparison(
     geoMB_per_glacier,
     gl_area,
     test_glaciers,
-    path_predictions
+    path_predictions,
+    cfg
 ):
     # Storage lists for results
     mbm_mb_mean, glamos_mb_mean, geodetic_mb = [], [], []
@@ -938,10 +940,11 @@ def process_geodetic_mass_balance_comparison(
         # Check if GLAMOS file exists
         glamos_file = os.path.join(path_SMB_GLAMOS_csv, "fix", f"{glacier_name}_fix.csv")
         if not os.path.exists(glamos_file):
+            print(f"Skipping {glacier_name}: GLAMOS file not found.")
             continue
 
         # Load GLAMOS data
-        GLAMOS_glwmb = get_GLAMOS_glwmb(glacier_name)
+        GLAMOS_glwmb = get_GLAMOS_glwmb(glacier_name, cfg)
         if GLAMOS_glwmb is None:
             print(f"Skipping {glacier_name}: Failed to load GLAMOS data.")
             continue
@@ -1043,7 +1046,7 @@ def prepareGeoTargets(geodetic_mb, periods_per_glacier, glacier_name=None):
             glacier_name=glacier_name
         ) for glacier_name in periods_per_glacier}
 
-def buildPeriodsPerGlacier(geodetic_mb):
+def build_periods_per_glacier(geodetic_mb):
     """
     Builds the dictionary that contains the geodetic periods for each glacier.
 
