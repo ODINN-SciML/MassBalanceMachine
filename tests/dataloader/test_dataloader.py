@@ -8,7 +8,7 @@ def test_dataloader():
     cfg = mbm.Config()
 
     # Create a new DataLoader object with the monthly stake data measurements
-    dataloader = mbm.DataLoader(cfg, data=data, random_seed=0)
+    dataloader = mbm.dataloader.DataLoader(cfg, data=data, random_seed=0)
 
     # Test both kfold types
     train_itr, test_itr = dataloader.set_train_test_split(test_size=0.3, type_fold='group-rgi')
