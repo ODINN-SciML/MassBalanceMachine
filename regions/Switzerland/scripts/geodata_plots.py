@@ -89,50 +89,12 @@ def scatter_geodetic_MB(df_all, hue='GLACIER', size=False):
     # Define figure and axes
     fig, axs = plt.subplots(2, 1, figsize=(10, 10), sharex=True)
 
-    def plot_scatter(ax, y_col, title, rmse, corr):
-        """ Helper function to plot a scatter plot with annotations """
-        sns.scatterplot(data=df_all,
-                        x="Geodetic MB",
-                        y=y_col,
-                        hue=hue,
-                        size="Area" if size else None,
-                        sizes=(10, 1000),
-                        alpha=0.7,
-                        ax=ax)
-
-        # Identity line (diagonal y=x)
-        # min_val, max_val = df_all["Geodetic MB"].min(), df_all["Geodetic MB"].max()
-        # ax.plot([min_val, max_val], [min_val, max_val], color="grey", linestyle="--", linewidth=0.8)
-        # diagonal line
-        pt = (0, 0)
-        ax.axline(pt, slope=1, color="grey", linestyle="--", linewidth=1)
-
-        # Grid and axis labels
-        ax.axvline(0, color="grey", linestyle="--", linewidth=1)
-        ax.axhline(0, color="grey", linestyle="--", linewidth=1)
-        ax.grid(True, linestyle="--", linewidth=0.5)
-        ax.set_xlabel("Geodetic MB [m w.e.]")
-        ax.set_ylabel(f"{y_col} [m w.e.]")
-        ax.set_title(title)
-
-        # RMSE and correlation annotation
-        legend_text = "\n".join(
-            (r"$\mathrm{RMSE}=%.3f$" % rmse, r"$\mathrm{\rho}=%.3f$" % corr))
-        props = dict(boxstyle="round", facecolor="white", alpha=0.5)
-        ax.text(0.03,
-                0.98,
-                legend_text,
-                transform=ax.transAxes,
-                verticalalignment="top",
-                fontsize=14,
-                bbox=props)
-        ax.legend([], [], frameon=False)
 
     # Plot MBM MB vs Geodetic MB
-    plot_scatter(axs[0], "MBM MB", "Geodetic vs MBM MB", rmse_mbm, corr_mbm)
+    plot_scatter(df_all, hue, size, axs[0], "MBM MB", "Geodetic vs MBM MB", rmse_mbm, corr_mbm)
 
     # Plot GLAMOS MB vs Geodetic MB
-    plot_scatter(axs[1], "GLAMOS MB", "Geodetic vs GLAMOS MB", rmse_glamos,
+    plot_scatter(df_all, hue, size, axs[1], "GLAMOS MB", "Geodetic vs GLAMOS MB", rmse_glamos,
                  corr_glamos)
 
     # Adjust legend outside of plot
@@ -147,6 +109,42 @@ def scatter_geodetic_MB(df_all, hue='GLACIER', size=False):
 
     plt.tight_layout()
     plt.show()
+    
+def plot_scatter(df_all, hue, size, ax, y_col, rmse, corr):
+    """ Helper function to plot a scatter plot with annotations """
+    sns.scatterplot(data=df_all,
+                    x="Geodetic MB",
+                    y=y_col,
+                    hue=hue,
+                    size="Area" if size else None,
+                    sizes=(10, 1000),
+                    alpha=0.7,
+                    ax=ax)
+
+    # Identity line (diagonal y=x)
+    # diagonal line
+    pt = (0, 0)
+    ax.axline(pt, slope=1, color="grey", linestyle="--", linewidth=1)
+
+    # Grid and axis labels
+    ax.axvline(0, color="grey", linestyle="--", linewidth=1)
+    ax.axhline(0, color="grey", linestyle="--", linewidth=1)
+    ax.grid(True, linestyle="--", linewidth=0.5)
+    ax.set_xlabel("Geodetic MB [m w.e.]")
+    ax.set_ylabel(f"{y_col} [m w.e.]")
+
+    # RMSE and correlation annotation
+    legend_text = "\n".join(
+        (r"$\mathrm{RMSE}=%.3f$" % rmse, r"$\mathrm{\rho}=%.3f$" % corr))
+    props = dict(boxstyle="round", facecolor="white", alpha=0.5)
+    ax.text(0.03,
+            0.94,
+            legend_text,
+            transform=ax.transAxes,
+            verticalalignment="top",
+            fontsize=18,
+            bbox=props)
+    ax.legend([], [], frameon=False)
 
 
 def plot_mass_balance(glacier_name, year, df_stakes,
@@ -585,23 +583,6 @@ def plot_snow_cover_scatter_combined(df):
             fontsize=16,
             color="black")
 
-    # # Second subplot: Corrected snow cover
-    # ax = axs[1]
-    # sns.scatterplot(data=df,
-    #                 x='snow_cover_S2',
-    #                 y='snow_cover_glacier_corr',
-    #                 marker='o',
-    #                 style='month',
-    #                 ax=ax,
-    #                 s=200)
-    # ax.plot(x, x, 'k--')  # Identity line
-    # ax.set_xlabel('Sentinel-2', fontsize=14)
-    # ax.set_ylabel('Mass Balance Machine', fontsize=14)
-    # ax.set_title('Snow Cover (Corrected)', fontsize=16)
-    # ax.get_legend().remove()  # Remove legend for now
-    # r2 = np.corrcoef(df['snow_cover_S2'], df['snow_cover_glacier_corr'])[0, 1]**2
-    # ax.text(0.05, 0.9, f"R² = {r2:.2f}", transform=ax.transAxes, fontsize=16, color="black")
-
     # Add a single legend to the right of the plots
     handles, labels = axs[0].get_legend_handles_labels()
     fig.legend(
@@ -826,3 +807,69 @@ def AddSnowCover(snow_cover_glacier, ax):
             verticalalignment="top",
             fontsize=12,
             bbox=props)
+
+
+def plot_mass_balance_comparison(
+    glacier_name,
+    geoMB_periods,
+    MBM_glwmb,
+    df,
+    color_mbm="#1f77b4",  # Default matplotlib blue
+    color_model2="#ff7f0e"   # Default matplotlib orange
+):
+    """
+    Plots time series and comparisons of modeled and geodetic mass balances.
+
+    Parameters:
+    - glacier_name (str): Name of the glacier (used in title).
+    - geoMB_periods (list of tuples): Periods for geodetic MB, e.g., [(2000, 2005), (2005, 2010)].
+    - MBM_glwmb (pd.DataFrame): DataFrame with modeled MB time series, indexed by year.
+    - df (pd.DataFrame): DataFrame with columns ['geoMB_periods', 'mbm_geod', 'glamos_geod', 'target_geod'].
+    - color_xgb (str): Color for MBM model.
+    - color_tim (str): Color for GLAMOS model.
+    """
+    min_year, max_year = min(geoMB_periods)[0], max(geoMB_periods)[1]
+
+    fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+
+    # --- Plot 1: Time series ---
+    MBM_glwmb[MBM_glwmb.index >= min_year].plot(
+        ax=axs[0],
+        marker="o",
+        color=[color_mbm, color_model2]
+    )
+    axs[0].set_title(f"{glacier_name.capitalize()} Glacier")
+    axs[0].set_ylabel("Mass Balance [m w.e.]")
+    axs[0].set_xlabel("Year")
+    axs[0].grid(True, linestyle="--", linewidth=0.5)
+
+    # --- Plot 2: Geodetic MB lines ---
+    for _, row in df.iterrows():
+        x_start, x_end = row['geoMB_periods']
+        axs[1].hlines(y=row['mbm_geod'], xmin=x_start, xmax=x_end, color=color_mbm, linewidth=2)
+        axs[1].hlines(y=row['glamos_geod'], xmin=x_start, xmax=x_end, color=color_model2, linewidth=2)
+
+    axs[1].set_xlabel('Year')
+    axs[1].set_ylabel('Geodetic MB [m w.e.]')
+    axs[1].set_title('Geodetic MB')
+    axs[1].grid(True)
+
+    # --- Plot 3: Scatter comparison ---
+    df.plot.scatter(
+        x='target_geod', y='mbm_geod',
+        ax=axs[2], color=color_mbm, alpha=0.7, label="MBM MB", marker="o"
+    )
+    df.plot.scatter(
+        x='target_geod', y='glamos_geod',
+        ax=axs[2], color=color_model2, alpha=0.7, label="GLAMOS MB", marker="s"
+    )
+    axs[2].set_xlabel("Geodetic MB [m w.e.]", fontsize=12)
+    axs[2].set_ylabel("Modeled MB [m w.e.]", fontsize=12)
+    axs[2].axline((0, 0), slope=1, color="grey", linestyle="--", linewidth=1)
+    axs[2].axvline(0, color="grey", linestyle="--", linewidth=1)
+    axs[2].axhline(0, color="grey", linestyle="--", linewidth=1)
+    axs[2].grid(True, linestyle="--", linewidth=0.5)
+    axs[2].set_title('Geodetic MB vs. Modeled MB')
+
+    plt.tight_layout()
+    plt.show()

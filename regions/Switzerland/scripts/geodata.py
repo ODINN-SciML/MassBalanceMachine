@@ -11,6 +11,7 @@ import geopandas as gpd
 import xarray as xr
 from datetime import datetime
 import re
+from tqdm.notebook import tqdm
 
 from scripts.config_CH import *
 from scripts.wgs84_ch1903 import *
@@ -211,9 +212,6 @@ def transform_xarray_coords_lv95_to_wgs84(data_array):
     # First, swap 'x' with 'lon' and 'y' with 'lat'
     data_array = data_array.swap_dims({'x': 'lon', 'y': 'lat'})
 
-    # Reorder the dimensions to be (lon, lat)
-    # data_array = data_array.transpose("lon", "lat")
-
     return data_array
 
 
@@ -255,6 +253,92 @@ def LV95toWGS84(df):
     df.drop(['x_pos', 'y_pos', 'z_pos'], axis=1, inplace=True)
     return df
 
+def LV03toLV95(df):
+    """Convert Swiss LV03 (EPSG:21781) coordinates to LV95 (EPSG:2056)."""
+    transformer = pyproj.Transformer.from_crs("EPSG:21781", "EPSG:2056", always_xy=True)
+    x_lv95, y_lv95 = transformer.transform(df.x_pos, df.y_pos)
+    df['x_lv95'] = x_lv95
+    df['y_lv95'] = y_lv95
+    df.drop(['x_pos', 'y_pos', 'z_pos'], axis=1, inplace=True)
+    return df
+
+def transform_xarray_coords_lv03_to_lv95(data_array):
+    # Extract and flatten x and y coordinates
+    y_coords, x_coords = np.meshgrid(data_array.y.values, data_array.x.values, indexing='ij')
+    flattened_x = x_coords.flatten()
+    flattened_y = y_coords.flatten()
+    flattened_values = data_array.values.flatten()
+
+    # Create DataFrame
+    df = pd.DataFrame({
+        'x_pos': flattened_x,
+        'y_pos': flattened_y,
+        'value': flattened_values
+    })
+    df['z_pos'] = 0  # dummy height
+
+    # Convert from LV03 to LV95
+    df = LV03toLV95(df)
+
+    # Reshape coordinates back to 2D
+    x_lv95 = df.x_lv95.values.reshape(x_coords.shape)
+    y_lv95 = df.y_lv95.values.reshape(y_coords.shape)
+
+    # 1D coordinates to assign back to xarray
+    x_lv95_1d = x_lv95[0, :]  # Eastings
+    y_lv95_1d = y_lv95[:, 0]  # Northings
+
+    # Assign new LV95 coordinates and swap dims
+    data_array = data_array.assign_coords(x_lv95=("x", x_lv95_1d),
+                                          y_lv95=("y", y_lv95_1d))
+    data_array = data_array.swap_dims({"x": "x_lv95", "y": "y_lv95"})
+
+    return data_array
+
+def save_xarray_to_grid(data_array, filepath, nodata_value=-9999):
+    """
+    Save an xarray.DataArray to a .grid (ASCII raster) file.
+
+    Parameters:
+    - data_array: xarray.DataArray with 2D shape (y, x)
+    - filepath: Path to save the .grid file
+    - nodata_value: Value to use for NaNs
+    """
+
+    # Ensure it's 2D
+    if data_array.ndim != 2:
+        raise ValueError("Only 2D DataArrays are supported.")
+
+    # Extract coordinates and data
+    values = data_array.values
+    values = np.where(np.isnan(values), nodata_value, values)
+
+    nrows, ncols = values.shape
+    x = data_array.coords[data_array.dims[1]].values  # x
+    y = data_array.coords[data_array.dims[0]].values  # y
+
+    cellsize_x = np.abs(x[1] - x[0])
+    cellsize_y = np.abs(y[1] - y[0])
+
+    if not np.allclose(cellsize_x, cellsize_y):
+        raise ValueError("Non-square pixels are not supported in .grid format.")
+
+    cellsize = cellsize_x
+
+    xllcorner = x.min() if x[1] > x[0] else x.max() - (ncols - 1) * cellsize
+    yllcorner = y.min() if y[1] > y[0] else y.max() - (nrows - 1) * cellsize
+
+    # Write header + data
+    with open(filepath, 'w') as f:
+        f.write(f"ncols         {ncols}\n")
+        f.write(f"nrows         {nrows}\n")
+        f.write(f"xllcorner     {xllcorner:.6f}\n")
+        f.write(f"yllcorner     {yllcorner:.6f}\n")
+        f.write(f"cellsize      {cellsize:.6f}\n")
+        f.write(f"NODATA_value  {nodata_value}\n")
+        
+        for row in values[::-1]:  # Flip vertically
+            f.write(' '.join(f"{val:.6f}" for val in row) + "\n")
 
 def organize_rasters_by_hydro_year(path_S2, satellite_years):
     rasters = defaultdict(
@@ -791,3 +875,110 @@ def transformDates(df_or):
     df['date1'] = df['date1'].apply(lambda x: x.strftime('%Y%m%d'))
 
     return df
+
+def check_missing_years(folder_path, glacier_name, period):
+    start_year, end_year = period
+    expected_years = set(range(start_year, end_year + 1))
+
+    # Extract years from filenames
+    available_years = set()
+    pattern = re.compile(rf'{glacier_name}_(\d{{4}})_annual\.zarr')
+
+    for filename in os.listdir(folder_path):
+        match = pattern.match(filename)
+        if match:
+            year = int(match.group(1))
+            available_years.add(year)
+
+    missing_years = expected_years - available_years
+    if missing_years:
+        return True
+    else:
+        return False
+
+def process_geodetic_mass_balance_comparison(
+    glacier_list,
+    path_SMB_GLAMOS_csv,
+    periods_per_glacier,
+    geoMB_per_glacier,
+    gl_area,
+    test_glaciers,
+    path_predictions
+):
+    # Storage lists for results
+    mbm_mb_mean, glamos_mb_mean, geodetic_mb = [], [], []
+    gl, period_len, gl_type, area = [], [], [], []
+    start_year, end_year = [], []
+
+    for glacier_name in tqdm(glacier_list, desc="Processing glaciers"):
+
+        # Check if GLAMOS file exists
+        glamos_file = os.path.join(path_SMB_GLAMOS_csv, "fix", f"{glacier_name}_fix.csv")
+        if not os.path.exists(glamos_file):
+            continue
+
+        # Load GLAMOS data
+        GLAMOS_glwmb = get_GLAMOS_glwmb(glacier_name)
+        if GLAMOS_glwmb is None:
+            print(f"Skipping {glacier_name}: Failed to load GLAMOS data.")
+            continue
+
+        # Get periods and geodetic MBs
+        periods = periods_per_glacier.get(glacier_name, [])
+        geoMBs = geoMB_per_glacier.get(glacier_name, [])
+
+        if not periods or not geoMBs:
+            print(f"Skipping {glacier_name}: No geodetic mass balance data available.")
+            continue
+
+        # Path to model predictions
+        folder_path = os.path.join(path_predictions, glacier_name)
+
+        for period in periods:
+            mbm_mb, glamos_mb = [], []
+
+            if period[1] == 2021 and glacier_name == 'silvretta':
+                continue
+
+            # Skip if required years are missing
+            if check_missing_years(folder_path, glacier_name, period):
+                print(f"Skipping {glacier_name} {period}: Missing years")
+                continue
+
+            for year in range(period[0], period[1] + 1):
+                file_path = os.path.join(folder_path, f"{glacier_name}_{year}_annual.zarr")
+
+                if not os.path.exists(file_path):
+                    print(f"Warning: Missing MBM file for {glacier_name} ({year}).")
+                    mbm_mb.append(np.nan)
+                else:
+                    ds = xr.open_dataset(file_path)
+                    mbm_mb.append(ds["pred_masked"].mean().values)
+
+                glamos_mb.append(GLAMOS_glwmb["GLAMOS Balance"].get(year, np.nan))
+
+            mbm_mb_mean.append(np.nanmean(mbm_mb))
+            glamos_mb_mean.append(np.nanmean(glamos_mb))
+            geodetic_mb.append(geoMBs[periods.index(period)])
+            gl.append(glacier_name)
+            gl_type.append(glacier_name in test_glaciers)
+            period_len.append(period[1] - period[0])
+            area.append(gl_area.get(glacier_name, np.nan))
+            start_year.append(period[0])
+            end_year.append(period[1])
+
+    # Create and return DataFrame
+    df_all = pd.DataFrame({
+        "MBM MB": mbm_mb_mean,
+        "GLAMOS MB": glamos_mb_mean,
+        "Geodetic MB": geodetic_mb,
+        "GLACIER": gl,
+        "Period Length": period_len,
+        "Test Glacier": gl_type,
+        "Area": area,
+        "start_year": start_year,
+        "end_year": end_year
+    })
+
+    df_all.sort_values(by="Area", inplace=True, ascending=True)
+    return df_all
