@@ -1,21 +1,16 @@
 import pandas as pd
 import numpy as np
-from scipy.spatial.distance import cdist
 import pyproj
 import xarray as xr
-import re
 import geopandas as gpd
 import math
 from itertools import combinations
 from geopy.distance import geodesic
 from shapely.geometry import Point
-from tqdm.notebook import tqdm
+from tqdm import tqdm
 import logging
 from oggm import utils, workflow, tasks
 from oggm import cfg as oggmCfg
-from calendar import monthrange
-
-import massbalancemachine as mbm
 
 from scripts.config_NOR import *
 from scripts.helpers import *

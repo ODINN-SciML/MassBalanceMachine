@@ -1,32 +1,13 @@
 # <------------------ GLACIOCLIM DATA: ------------------>
 # Point data
 path_PMB_GLACIOCLIM_raw = '/home/mburlet/scratch/data/DATA_MB/GLACIOCLIM/unzipped/'
-path_PMB_GLACIOCLIM_w_raw = path_PMB_GLACIOCLIM_raw + 'winter/'
-path_PMB_GLACIOCLIM_a_raw = path_PMB_GLACIOCLIM_raw + 'annual/'
-path_PMB_GLACIOCLIM_s_raw = path_PMB_GLACIOCLIM_raw + 'summer/'
-
-path_PMB_GLACIOCLIM_csv = '/home/mburlet/scratch/data/DATA_MB/GLACIOCLIM/WGMS_all/'
-path_PMB_GLACIOCLIM_csv_w = path_PMB_GLACIOCLIM_csv + 'winter/'
-path_PMB_GLACIOCLIM_csv_w_clean = path_PMB_GLACIOCLIM_csv + 'winter_clean/'
-path_PMB_GLACIOCLIM_csv_a = path_PMB_GLACIOCLIM_csv + 'annual/'
-
-# Glacier wide data
-path_SMB_GLACIOCLIM_raw = '/home/mburlet/scratch/data/DATA_MB/GLACIOCLIM/glacier-wide/raw/'
-path_SMB_GLACIOCLIM_csv = '/home/mburlet/scratch/data/DATA_MB/GLACIOCLIM/glacier-wide/csv/'
-
-path_glacier_ids = '/home/mburlet/scratch/data/DATA_MB/GLACIOCLIM/FR_glacier_ids_long.csv'
+path_PMB_GLACIOCLIM_csv = '/home/mburlet/scratch/data/DATA_MB/GLACIOCLIM/csv/'
 
 # <------------------ OTHER PATHS: ------------------>
 path_ERA5_raw = '/home/mburlet/scratch/data/DATA_MB/ERA5Land/raw/' # ERA5-Land
-path_OGGM = '/home/mburlet/scratch/data/DATA_MB/OGGM/'
-path_rgi_outlines = '/home/mburlet/scratch/data/DATA_MB/GLACIOCLIM/RGI/nsidc0770_11.rgi60.CentralEurope/11_rgi60_CentralEurope.shp'
-
-# <------------------ OTHER PATHS: ------------------>
-path_ERA5_raw = os.path.join(BASE_PATH, 'ERA5Land', 'raw')
-path_S2 = os.path.join(BASE_PATH, 'Sentinel')
-path_OGGM = os.path.join(BASE_PATH, 'OGGM')
-path_glogem = os.path.join(BASE_PATH, 'GloGEM')
-path_rgi_outlines = os.path.join(BASE_PATH, 'GLACIOCLIM', 'RGI', 'nsidc0770_11.rgi60.CentralEurope', '11_rgi60_CentralEurope.shp')
+path_OGGM = '/home/mburlet/scratch/data/DATA_MB/GLACIOCLIM/OGGM/'
+path_OGGM_xrgrids = '/home/mburlet/scratch/data/DATA_MB/GLACIOCLIM/OGGM/xr_grids/'
+#path_rgi_outlines = '/home/mburlet/scratch/data/DATA_MB/GLACIOCLIM/RGI/nsidc0770_11.rgi60.CentralEurope/11_rgi60_CentralEurope.shp'
 
 
 # <------------------OTHER USEFUL FUNCTIONS & ATTRIBUTES: ------------------>
