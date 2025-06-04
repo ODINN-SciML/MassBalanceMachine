@@ -145,4 +145,10 @@ should i do randomly sample 1000 per region for distribution?
 
 morgen intermed.
 
-nochmal die neuen Plots zeigen
+nochmal die neuen Plots zeigen.
+
+region notebooks auf geodetic laden.
+
+für NN vor allen Paths cfg.data, Sys path am anfang einfügen .ordner.
+
+alller neustes NN mit was obne beschrieben, paths etc, ist im neusten pull request auf dev-geodetic
