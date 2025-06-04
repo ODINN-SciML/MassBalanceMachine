@@ -4,7 +4,7 @@ path_PMB_GLACIOCLIM_raw = '/home/mburlet/scratch/data/DATA_MB/GLACIOCLIM/unzippe
 path_PMB_GLACIOCLIM_csv = '/home/mburlet/scratch/data/DATA_MB/GLACIOCLIM/csv/'
 
 # <------------------ OTHER PATHS: ------------------>
-path_ERA5_raw = '/home/mburlet/scratch/data/DATA_MB/ERA5Land/raw/' # ERA5-Land
+path_ERA5_raw = '/home/mburlet/scratch/data/DATA_MB/GLACIOCLIM/ERA5Land/raw/' # ERA5-Land
 path_OGGM = '/home/mburlet/scratch/data/DATA_MB/GLACIOCLIM/OGGM/'
 path_OGGM_xrgrids = '/home/mburlet/scratch/data/DATA_MB/GLACIOCLIM/OGGM/xr_grids/'
 #path_rgi_outlines = '/home/mburlet/scratch/data/DATA_MB/GLACIOCLIM/RGI/nsidc0770_11.rgi60.CentralEurope/11_rgi60_CentralEurope.shp'

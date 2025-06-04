@@ -101,7 +101,7 @@ dort wos nicht geht wäre möglichkeit mit NN
 IT_AT
 !!DONE DONE!! AT hat ein Stake bei VERNAGT F. display(data_AT[data_AT['POINT_ELEVATION'] < 500]) der 296 anstatt 2960 ist.
 GRAND ETRETS in WGMS set had falsches datum bei stake in mass_balance_point, korriegieren und nochmal laufen lasse (wenn dabei auch gleich alle daten kontrollieren im dataset)
-IT,MALAVALLE (VEDR. DI) / UEBELTALF.,672,2013,17955,P04,2012-10-05,0.0,2013-09-24,0.0,46.9486,11.1883,1812,-0.811,,,,annual, ztiemlich sicher 1000m elevation zu wenig
+!!!!!!!!!!!!!!!!!!IT,MALAVALLE (VEDR. DI) / UEBELTALF.,672,2013,17955,P04,2012-10-05,0.0,2013-09-24,0.0,46.9486,11.1883,1812,-0.811,,,,annual, ztiemlich sicher 1000m elevation zu wenig
 
 FR
 Height value in Sarennes is kept at same height over the years instead of adjusted every year.
@@ -141,3 +141,8 @@ Iceland reworked, norway 1.1 and 1.2 reworked (still remove sgi shit from glamos
 
 ----
 stratigraphic, 
+should i do randomly sample 1000 per region for distribution?
+
+morgen intermed.
+
+nochmal die neuen Plots zeigen
