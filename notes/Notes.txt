@@ -152,3 +152,7 @@ region notebooks auf geodetic laden.
 für NN vor allen Paths cfg.data, Sys path am anfang einfügen .ordner.
 
 alller neustes NN mit was obne beschrieben, paths etc, ist im neusten pull request auf dev-geodetic
+
+------
+
+Iceland ERa5land needs to be redonwloaded on SSH, WSL ok, rerun all transfer learning tomorrow
