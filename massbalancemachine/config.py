@@ -116,7 +116,7 @@ class SwitzerlandConfig(Config):
             "POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON", "ALTITUDE_CLIMATE", "POINT_ELEVATION"
         ],
         dataPath: str = None,
-        numJobs: int = 28,
+        numJobs: int = 15,
         **kwargs,
     ):
         if dataPath is None:
