@@ -72,14 +72,3 @@ def emptyfolder(path):
                 print(f"Error removing {item_path}: {e}")
     else:
         os.makedirs(path, exist_ok=True)  # Ensure directory exists
-
-# difference between two lists
-def Diff(li1, li2):
-    li_dif = list(set(li1) - set(li2))
-    return li_dif
-
-def format_rgi_code(X):
-    # Convert X to a string, and pad with leading zeros if its length is less than 5
-    Y = str(X).zfill(5)
-    # Return the final formatted string
-    return f"RGI60-11.{Y}"

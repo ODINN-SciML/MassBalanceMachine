@@ -44,28 +44,14 @@ def process_or_load_data_glacioclim(run_flag, df, paths, cfg, vois_climate,
                 geopotential_data=paths['geopotential_data'],
                 change_units=True)
             
-            # Print dataset information after adding climate features
-            logging.info("Dataset after adding climate features:")
-            logging.info(f"Shape: {dataset_gl.data.shape}")
-            logging.info(f"Columns: {dataset_gl.data.columns.tolist()}")
-            logging.info(f"Sample data:\n{dataset_gl.data.head().to_string()}")
-            
         except Exception as e:
             logging.error("Failed to add climate features: %s", e)
             return None
-        """
-        # Add radiation data
-        logging.info("Adding potential clear sky radiation...")
-        logging.info("Shape before adding radiation: %s",
-                     dataset_gl.data.shape)
-        dataset_gl.get_potential_rad(paths['radiation_save_path'])
-        logging.info("Shape after adding radiation: %s", dataset_gl.data.shape)
-        """
 
         # Convert to monthly resolution
         logging.info("Converting to monthly resolution...")
         dataset_gl.convert_to_monthly(meta_data_columns=cfg.metaData,
-                                      vois_climate=vois_climate, # + ['pcsr']
+                                      vois_climate=vois_climate,
                                       vois_topographical=vois_topographical)
 
         # Create DataLoader
