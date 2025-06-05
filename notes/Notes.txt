@@ -158,3 +158,9 @@ alller neustes NN mit was obne beschrieben, paths etc, ist im neusten pull reque
 Iceland ERa5land needs to be redonwloaded on SSH, WSL ok, rerun all transfer learning tomorrow
 
 --- drop point with no point_elevation, taking from topo doesnt make sense because topo is from a single year
+
+---get_cv_split( in DataLoader.py the comment says it makes sure that data from the same glacier is not split across different folds. but it actuallky makes sure
+            that data from the same stake (which has been split into monthly values, which all share the same 'ID') is not split accross folds.
+
+do on weekend: rerun ##### A.3.1. Spatial Cross-Validation, the old model file still has 1 outlier in there, otherwise A. is good, go B., then other 3.2 
+                    the current .plots file of france is the one with all the good plots, copy them to the other regions.

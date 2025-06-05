@@ -344,16 +344,17 @@ def FIPlot(best_estimator, feature_columns, vois_climate):
     ax.set_xlabel('Feature Importance')
     ax.set_ylabel('Feature')
 
-def PlotPredictions(grouped_ids, y_pred, metadata_test, test_set, model):
-    fig = plt.figure(figsize=(20, 15))
-    colors_glacier = [
-        '#a6cee3', '#1f78b4', '#b2df8a', '#33a02c', '#fb9a99', '#e31a1c',
-        '#fdbf6f', '#ff7f00', '#cab2d6', '#6a3d9a', '#ffff99', '#b15928'
-    ]
-    color_palette_glaciers = dict(
-        zip(grouped_ids.GLACIER.unique(), colors_glacier))
-    print(color_palette_glaciers)
-    ax1 = plt.subplot(3, 2, 1)
+def PlotPredictions(grouped_ids, y_pred, metadata_test, test_set, model, include_summer=False):
+    # Determine number of rows based on whether summer is included and present in the data
+    rows = 3 if include_summer and 'summer' in grouped_ids.PERIOD.unique() else 2
+    fig = plt.figure(figsize=(20, 7.5 * rows))
+    
+    # Use seaborn's color palette for consistent glacier colors
+    palette = sns.color_palette("husl", n_colors=len(grouped_ids.GLACIER.unique()))
+    color_palette_glaciers = dict(zip(grouped_ids.GLACIER.unique(), palette))
+    
+    # Always plot annual data (first row)
+    ax1 = plt.subplot(rows, 2, 1)
     grouped_ids_annual = grouped_ids[grouped_ids.PERIOD == 'annual']
     mse_annual, rmse_annual, mae_annual, pearson_corr_annual = model.evalMetrics(
         metadata_test, y_pred, test_set['y'], period='annual')
@@ -371,38 +372,57 @@ def PlotPredictions(grouped_ids, y_pred, metadata_test, test_set, model):
     ax1.set_title('Annual PMB', fontsize=24)
 
     grouped_ids_annual.sort_values(by='YEAR', inplace=True)
-    ax2 = plt.subplot(3, 2, 2)
+    ax2 = plt.subplot(rows, 2, 2)
     ax2.set_title('Mean annual PMB', fontsize=24)
     plotMeanPred(grouped_ids_annual, ax2)
+
+    # Always plot winter data (second row)
+    grouped_ids_winter = grouped_ids[grouped_ids.PERIOD == 'winter']
+    ax3 = plt.subplot(rows, 2, 3)
+    mse_winter, rmse_winter, mae_winter, pearson_corr_winter = model.evalMetrics(
+        metadata_test, y_pred, test_set['y'], period='winter')
+    scores_winter = {
+        'mse': mse_winter,
+        'rmse': rmse_winter,
+        'mae': mae_winter,
+        'pearson_corr': pearson_corr_winter
+    }
+    predVSTruth(ax3,
+                grouped_ids_winter,
+                scores_winter,
+                hue='GLACIER',
+                palette=color_palette_glaciers)
+    ax3.set_title('Winter PMB', fontsize=24)
+
+    ax4 = plt.subplot(rows, 2, 4)
+    ax4.set_title('Mean winter PMB', fontsize=24)
+    grouped_ids_winter.sort_values(by='YEAR', inplace=True)
+    plotMeanPred(grouped_ids_winter, ax4)
+
+    # Conditionally plot summer data (third row) if requested and available
+    if include_summer and 'summer' in grouped_ids.PERIOD.unique():
+        grouped_ids_summer = grouped_ids[grouped_ids.PERIOD == 'summer']
+        ax5 = plt.subplot(rows, 2, 5)
+        mse_summer, rmse_summer, mae_summer, pearson_corr_summer = model.evalMetrics(
+            metadata_test, y_pred, test_set['y'], period='summer')
+        scores_summer = {
+            'mse': mse_summer,
+            'rmse': rmse_summer,
+            'mae': mae_summer,
+            'pearson_corr': pearson_corr_summer
+        }
+        predVSTruth(ax5,
+                    grouped_ids_summer,
+                    scores_summer,
+                    hue='GLACIER',
+                    palette=color_palette_glaciers)
+        ax5.set_title('Summer PMB', fontsize=24)
+
+        ax6 = plt.subplot(rows, 2, 6)
+        ax6.set_title('Mean summer PMB', fontsize=24)
+        grouped_ids_summer.sort_values(by='YEAR', inplace=True)
+        plotMeanPred(grouped_ids_summer, ax6)
     
-    season_positions = {'winter': (3, 4), 'summer': (5, 6)}
-    
-    for season in ['winter', 'summer']:
-        if season in grouped_ids.PERIOD.unique():
-            pos1, pos2 = season_positions[season]
-
-            grouped_ids_season = grouped_ids[grouped_ids.PERIOD == season]
-
-            ax_scatter = plt.subplot(3, 2, pos1)
-            mse_season, rmse_season, mae_season, pearson_corr_season = model.evalMetrics(
-                metadata_test, y_pred, test_set['y'], period=season)
-            scores_season = {
-                'mse': mse_season,
-                'rmse': rmse_season,
-                'mae': mae_season,
-                'pearson_corr': pearson_corr_season
-            }
-            predVSTruth(ax_scatter,
-                      grouped_ids_season,
-                      scores_season,
-                      hue='GLACIER',
-                      palette=color_palette_glaciers)
-            ax_scatter.set_title(f'{season.capitalize()} PMB', fontsize=24)
-
-            ax_mean = plt.subplot(3, 2, pos2)
-            ax_mean.set_title(f'Mean {season.capitalize()} PMB', fontsize=24)
-            grouped_ids_season.sort_values(by='YEAR', inplace=True)
-            plotMeanPred(grouped_ids_season, ax_mean)
     plt.tight_layout()
 
 def PlotPredictionsCombined(grouped_ids, y_pred, metadata_test, test_set, model, region_name="", include_summer=False):
@@ -500,7 +520,7 @@ def predVSTruth(ax, grouped_ids, scores, hue='GLACIER', palette=None):
             fontsize=20,
             bbox=props)
     if hue is not None:
-        ax.legend(fontsize=14, loc='lower right')
+        ax.legend(fontsize=14, loc='center left', bbox_to_anchor=(1, 0.5))
     else:
         ax.legend([], [], frameon=False)
     # diagonal line
@@ -513,6 +533,10 @@ def predVSTruth(ax, grouped_ids, scores, hue='GLACIER', palette=None):
     # Set ylimits to be the same as xlimits
     ax.set_xlim(-15, 6)
     ax.set_ylim(-15, 6)
+
+    # Set aspect ratio to equal (square plot)
+    ax.set_aspect('equal')
+
     plt.tight_layout()
     
 def plotMeanPred(grouped_ids, ax):
@@ -580,7 +604,7 @@ def PlotIndividualGlacierPredVsTruth(grouped_ids, figsize=(15, 22)):
         zip(grouped_ids.GLACIER.unique(), colors_glacier))
     color_palette_period = dict(
         zip(grouped_ids.PERIOD.unique(),
-            colors_glacier[:len(grouped_ids.GLACIER.unique()):]))
+            colors_glacier[:len(grouped_ids.GLACIER.unique())]))
 
     for i, test_gl in enumerate(grouped_ids['GLACIER'].unique()):
         df_gl = grouped_ids[grouped_ids.GLACIER == test_gl]
