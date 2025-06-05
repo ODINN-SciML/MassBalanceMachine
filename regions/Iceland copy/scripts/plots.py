@@ -415,7 +415,7 @@ def predVSTruth(ax, grouped_ids, scores, hue='GLACIER', palette=None):
         ax.legend(fontsize=12, 
                   loc='center left', 
                   bbox_to_anchor=(1.05, 0.5),
-                  ncol=1)  # You can adjust ncol if needed
+                  ncol=1)
     else:
         ax.legend([], [], frameon=False)
     # diagonal line
@@ -487,7 +487,7 @@ def plotMeanPred(grouped_ids, ax):
 def PlotIndividualGlacierPredVsTruth(grouped_ids, base_figsize=(20, 15), height_per_row=5):
     # Calculate number of rows needed based on number of glaciers
     n_glaciers = len(grouped_ids['GLACIER'].unique())
-    n_rows = (n_glaciers + 2) // 3  # Ceiling division to get enough rows for 3 columns
+    n_rows = (n_glaciers + 2) // 3
 
     figsize = (base_figsize[0], n_rows * height_per_row)
     

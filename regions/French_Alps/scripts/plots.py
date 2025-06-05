@@ -16,10 +16,10 @@ color_tim = '#c51b7d'
 color_winter = '#a6cee3'
 color_annual = '#1f78b4'
 
-def plotHeatmap(test_glaciers, data_glamos, period='annual'):
+def plotHeatmap(data_wgms, test_glaciers=None, period='annual', plot_elevation=False):
     # Heatmap of mean mass balance per glacier:
     # Get the mean mass balance per glacier
-    data_with_pot = data_glamos[data_glamos.PERIOD == period]
+    data_with_pot = data_wgms[data_wgms.PERIOD == period]
 
     mean_mb_per_glacier = data_with_pot.groupby(
         ['GLACIER', 'YEAR', 'PERIOD'])['POINT_BALANCE'].mean().reset_index()
@@ -47,23 +47,94 @@ def plotHeatmap(test_glaciers, data_glamos, period='annual'):
                 ax=ax)
 
     # add patches for test glaciers
-    for test_gl in test_glaciers:
-        if test_gl not in matrix.index:
-            continue
-        height = matrix.index.get_loc(test_gl)
-        row = np.where(matrix.loc[test_gl].notna())[0]
-        split_indices = np.where(np.diff(row) != 1)[0] + 1
-        continuous_sequences = np.split(row, split_indices)
-        for patch in continuous_sequences:
-            ax.add_patch(
-                Rectangle((patch.min(), height),
-                          patch.max() - patch.min() + 1,
-                          1,
-                          fill=False,
-                          edgecolor='black',
-                          lw=3))
+    if test_glaciers is not None:
+        for test_gl in test_glaciers:
+            if test_gl not in matrix.index:
+                continue
+            height = matrix.index.get_loc(test_gl)
+            row = np.where(matrix.loc[test_gl].notna())[0]
+            split_indices = np.where(np.diff(row) != 1)[0] + 1
+            continuous_sequences = np.split(row, split_indices)
+            for patch in continuous_sequences:
+                ax.add_patch(
+                    Rectangle((patch.min(), height),
+                            patch.max() - patch.min() + 1,
+                            1,
+                            fill=False,
+                            edgecolor='black',
+                            lw=3))
+    
+    if plot_elevation:
+        fig = plt.figure(figsize=(10, 3))
+        ax = plt.subplot(1, 1, 1)
+        sorted_elevations = gl_per_el.sort_values(ascending=True)
+
+        sns.lineplot(sorted_elevations,
+                    ax=ax,
+                    color='gray',
+                    marker='v')
+
+        ax.set_xticks(range(len(sorted_elevations)))
+        ax.set_xticklabels(sorted_elevations.index, rotation=45, ha='right')
+        ax.set_ylabel('Elevation [m]')
+        plt.tight_layout()
             
-            
+
+def plot_feature_correlation(df, exclude_columns=None):
+    """
+    Generate and plot a correlation heatmap of features.
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        DataFrame containing the data to analyze
+    exclude_columns : list, optional
+        List of columns to exclude from the correlation analysis
+    """
+    # Default columns to exclude if not specified
+    if exclude_columns is None:
+        exclude_columns = [
+            'GLACIER', 'PERIOD', 'YEAR', 'POINT_LON', 'POINT_LAT', 'POINT_BALANCE',
+            'ALTITUDE_CLIMATE', 'POINT_ELEVATION', 'RGIId', 'POINT_ID', 'ID',
+            'N_MONTHS', 'MONTHS', 'GLACIER_ZONE'
+        ]
+    
+    df_test = df.copy()
+    
+    # Define the columns to plot
+    columns_to_keep = [col for col in df_test.columns if col not in exclude_columns]
+    df_test = df_test[columns_to_keep]
+    
+    # Rename columns based on long names (if available in the global scope)
+    try:
+        df_test.rename(columns=vois_climate_long_name, inplace=True)
+    except NameError:
+        pass
+    
+    # Compute correlation matrix
+    corr = df_test.corr()
+    
+    # Generate a mask for the upper triangle
+    mask = np.triu(np.ones_like(corr, dtype=bool))
+
+    fig, ax = plt.subplots(figsize=(12, 10))
+    sns.heatmap(
+        corr,
+        mask=mask,
+        cmap='coolwarm',
+        vmax=1,
+        vmin=-1,
+        center=0,
+        annot=True,
+        fmt=".2f",
+        square=True,
+        linewidths=.5,
+        cbar_kws={"shrink": 0.8})
+    
+    plt.title("Feature Intercorrelation Heatmap", fontsize=16)
+    plt.tight_layout()
+    plt.show()
+  
 def visualiseSplits(y_test, y_train, splits, colors=[color_xgb, color_tim]):
     # Visualise the cross validation splits
     fig, ax = plt.subplots(1, 6, figsize=(20, 5))

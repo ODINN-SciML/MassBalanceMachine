@@ -156,3 +156,5 @@ alller neustes NN mit was obne beschrieben, paths etc, ist im neusten pull reque
 ------
 
 Iceland ERa5land needs to be redonwloaded on SSH, WSL ok, rerun all transfer learning tomorrow
+
+--- drop point with no point_elevation, taking from topo doesnt make sense because topo is from a single year

@@ -4,12 +4,14 @@ from datetime import datetime
 import geopandas as gpd
 import pyproj
 import xarray as xr
+import zipfile
+import logging
 from tqdm import tqdm
 from itertools import combinations
 from geopy.distance import geodesic
 from oggm import utils, workflow, tasks
 from oggm import cfg as oggmCfg
-import logging
+from pathlib import Path
 from shapely.geometry import Point
 
 
@@ -23,6 +25,43 @@ logging.basicConfig(level=logging.INFO,
 log = logging.getLogger(__name__)
 
 # --- Preprocess --- #
+
+def extract_glacioclim_files(path_PMB_GLACIOCLIM_raw):
+    """
+    Extract GLACIOCLIM zipfiles into organized directories.
+    """
+    path_PMB_GLACIOCLIM_raw = Path(path_PMB_GLACIOCLIM_raw)
+    glacioclim_dir = path_PMB_GLACIOCLIM_raw.parent
+
+    seasons = ['annual', 'summer', 'winter']
+
+    path_PMB_GLACIOCLIM_raw.mkdir(parents=True, exist_ok=True)
+
+    emptyfolder(path_PMB_GLACIOCLIM_raw)
+
+    for glacier_dir in glacioclim_dir.glob('*Glacier*'):
+        glacier_name = glacier_dir.name
+        print(f"\nProcessing {glacier_name}")
+        
+        for season in seasons:
+            season_dir = glacier_dir / season
+            if not season_dir.exists():
+                print(f"  Skipping {season} - directory not found")
+                continue
+                
+            zip_files = list(season_dir.glob('*.zip'))
+            print(f"  Found {len(zip_files)} zip files in {season}")
+            
+            for zip_path in zip_files:
+                extract_dir = path_PMB_GLACIOCLIM_raw / glacier_name / season / zip_path.stem
+                extract_dir.mkdir(parents=True, exist_ok=True)
+                
+                try:
+                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                        zip_ref.extractall(extract_dir)
+                        print(f"    Extracted {zip_path.name} to {extract_dir}")
+                except Exception as e:
+                    print(f"    Error extracting {zip_path.name}: {str(e)}")
 
 def format_date(date_str):
     """
@@ -290,10 +329,11 @@ def merge_close_stakes(df, close_stakes_df, distance_threshold=10):
         # Calculate average balance
         avg_balance = (row['POINT_BALANCE_1'] + row['POINT_BALANCE_2']) / 2
         
-        # Update the balance of the first point
+        # Update the balance of the first point and set MODIFICATION Flag
         mask_1 = df_test['POINT_ID'] == point_id_1
         if mask_1.any():
             df_test.loc[mask_1, 'POINT_BALANCE'] = avg_balance
+            df_test.loc[mask_1, 'DATA_MODIFICATION'] = 'Merged stake with ID ' + point_id_2 + ' by taking average mb and dropping second stake'
             
             # Drop the second point
             mask_2 = df_test['POINT_ID'] == point_id_2
