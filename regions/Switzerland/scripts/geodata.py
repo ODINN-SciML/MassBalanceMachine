@@ -18,56 +18,6 @@ from regions.Switzerland.scripts.config_CH import *
 from regions.Switzerland.scripts.wgs84_ch1903 import *
 
 
-# def get_GLAMOS_glwmb(glacier_name):
-#     """
-#     Loads and processes GLAMOS glacier-wide mass balance data.
-
-#     Parameters:
-#     -----------
-#     glacier_name : str
-#         The name of the glacier.
-
-#     Returns:
-#     --------
-#     pd.DataFrame or None
-#         A DataFrame with columns ['YEAR', 'GLAMOS Balance'] indexed by 'YEAR',
-#         or None if the file is missing.
-#     """
-
-#     # Construct file path safely
-#     file_path = os.path.join(path_SMB_GLAMOS_csv, "fix",
-#                              f"{glacier_name}_fix.csv")
-
-#     # Check if file exists
-#     if not os.path.exists(file_path):
-#         print(
-#             f"Warning: GLAMOS data file not found for {glacier_name}. Skipping..."
-#         )
-#         return None
-
-#     # Load CSV and transform dates
-#     df = pd.read_csv(file_path)
-#     df = transformDates(df)
-
-#     # Remove duplicates based on the date column
-#     df = df.drop_duplicates(subset=["date1"])
-
-#     # Ensure required columns exist
-#     required_columns = {"date1", "Annual Balance"}
-#     if not required_columns.issubset(df.columns):
-#         print(
-#             f"Warning: Missing required columns in {glacier_name} GLAMOS data. Skipping..."
-#         )
-#         return None
-
-#     # Extract year from date and normalize balance
-#     df["YEAR"] = pd.to_datetime(df["date1"]).dt.year.astype("int64")
-#     df["GLAMOS Balance"] = df[
-#         "Annual Balance"] / 1000  # Convert to meters water equivalent
-
-#     # Select relevant columns and set index
-#     return df[["YEAR", "GLAMOS Balance"]].set_index("YEAR")
-
 def get_glwd_glamos_years(cfg, glacier_name):
     folder = os.path.join(cfg.dataPath, path_distributed_MB_glamos, 'GLAMOS', glacier_name)
 
@@ -837,36 +787,6 @@ def datetime_obj(value):
     day = date[6:8]
     return pd.to_datetime(month + '-' + day + '-' + year)
 
-
-# def transformDates(df_or):
-#     """Some dates are missing in the original glamos data and need to be corrected.
-#     Args:
-#         df_or (pd.DataFrame): raw glamos dataframe
-#     Returns:
-#         pd.DataFrame: dataframe with corrected dates
-#     """
-#     df = df_or.copy()
-#     # Correct dates that have years:
-#     df.date0 = df.date0.apply(lambda x: datetime_obj(x))
-#     df.date1 = df.date1.apply(lambda x: datetime_obj(x))
-
-#     df['date_fix0'] = [np.nan for i in range(len(df))]
-#     df['date_fix1'] = [np.nan for i in range(len(df))]
-
-#     # transform rest of date columns who have missing years:
-#     for i in range(len(df)):
-#         year = df.date0.iloc[i].year
-#         df.date_fix0.iloc[i] = '10' + '-' + '01' + '-' + str(year)
-#         df.date_fix1.iloc[i] = '09' + '-' + '30' + '-' + str(year + 1)
-
-#     # hydrological dates
-#     df.date_fix0 = pd.to_datetime(df.date_fix0)
-#     df.date_fix1 = pd.to_datetime(df.date_fix1)
-
-#     # dates in wgms format:
-#     df['date0'] = df.date0.apply(lambda x: x.strftime('%Y%m%d'))
-#     df['date1'] = df.date1.apply(lambda x: x.strftime('%Y%m%d'))
-#     return df
 
 
 def transformDates(df_or):
