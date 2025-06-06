@@ -1,6 +1,6 @@
 import random
 from typing import List
-from regions.Switzerland.scripts.geodata import prepareGeoTargets, buildPeriodsPerGlacier
+from regions.Switzerland.scripts.geodata import prepareGeoTargets, build_periods_per_glacier
 from regions.Switzerland.scripts.glamos_preprocess import get_geodetic_MB
 from regions.Switzerland.scripts.xgb_helpers import create_geodetic_input, has_geodetic_input
 
@@ -52,7 +52,7 @@ class GeoDataLoader:
 
     def prepareGeoData(self) -> None:
         geodetic_mb = get_geodetic_MB(self.cfg)
-        self.periods_per_glacier, _ = buildPeriodsPerGlacier(geodetic_mb)
+        self.periods_per_glacier, _ = build_periods_per_glacier(geodetic_mb)
         self.y_target_geo = prepareGeoTargets(geodetic_mb, self.periods_per_glacier)
 
         self.glaciersWithGeo = []
