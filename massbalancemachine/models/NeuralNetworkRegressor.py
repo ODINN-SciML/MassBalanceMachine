@@ -2,6 +2,8 @@ from typing import Union, Dict, Tuple
 from pathlib import Path
 from contextlib import contextmanager
 from collections.abc import Mapping
+from datetime import datetime
+import traceback
 
 import os
 import pickle
@@ -55,81 +57,114 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         self.param_search = None
         self.metadataColumns = metadataColumns or self.cfg.metaData
         self.nbFeatures = nbFeatures
-        self.modelDtype = list(self.module.parameters())[0].dtype if len(
-            list(self.module.parameters())) > 0 else None
+        # self.modelDtype = list(self.module.parameters())[0].dtype if len(
+        #     list(self.module.parameters())) > 0 else None
 
-    def gridsearch(
-        self,
-        parameters: Dict[str, Union[list, np.ndarray]],
-        splits: Dict[str, Union[list, np.ndarray]],
-        dataset: list[SliceDataset],
-    ) -> None:
-        """
-        Perform a grid search for hyperparameter tuning.
+    # def gridsearch(
+    #     self,
+    #     parameters: Dict[str, Union[list, np.ndarray]],
+    #     splits: Dict[str, Union[list, np.ndarray]],
+    #     dataset: list[SliceDataset],
+    # ) -> None:
+    #     """
+    #     Perform a grid search for hyperparameter tuning.
 
-        This method uses GridSearchCV to exhaustively search through a specified parameter grid.
+    #     This method uses GridSearchCV to exhaustively search through a specified parameter grid.
 
-        Args:
-            parameters (dict): A dictionary of parameters to search over.
-            splits (tuple[list[tuple[ndarray, ndarray]]]): A dictionary containing cross-validation split information.
-            dataset (list of skorch.helper.SliceDataset): The datasets that provides both input features and targets for training.
+    #     Args:
+    #         parameters (dict): A dictionary of parameters to search over.
+    #         splits (tuple[list[tuple[ndarray, ndarray]]]): A dictionary containing cross-validation split information.
+    #         dataset (list of skorch.helper.SliceDataset): The datasets that provides both input features and targets for training.
 
-        Sets:
-            self.param_search (GridSearchCV): The fitted GridSearchCV object.
-        """
+    #     Sets:
+    #         self.param_search (GridSearchCV): The fitted GridSearchCV object.
+    #     """
 
-        clf = GridSearchCV(
-            estimator=self,
-            param_grid=parameters,
-            cv=splits,
-            verbose=1,
-            n_jobs=self.cfg.numJobs,
-            scoring=None,
-            refit=True,
-            error_score="raise",
-            return_train_score=True,
-        )
+    #     clf = GridSearchCV(
+    #         estimator=self,
+    #         param_grid=parameters,
+    #         cv=splits,
+    #         verbose=1,
+    #         n_jobs=self.cfg.numJobs,
+    #         scoring=None,
+    #         refit=True,
+    #         error_score="raise",
+    #         return_train_score=True,
+    #     )
 
-        clf.fit(dataset[0], y=dataset[1])
-        self.param_search = clf
+    #     clf.fit(dataset[0], y=dataset[1])
+    #     self.param_search = clf
 
-    def randomsearch(
-        self,
-        parameters: Dict[str, Union[list, np.ndarray]],
-        n_iter: int,
-        splits: Dict[str, Union[list, np.ndarray]],
-        dataset: list[SliceDataset],
-    ) -> None:
-        """
-        Perform a randomized search for hyperparameter tuning.
+    # def randomsearch(
+    #     self,
+    #     parameters: Dict[str, Union[list, np.ndarray]],
+    #     n_iter: int,
+    #     dataset: list[SliceDataset],
+    #     njobs=None,
+    #     cv = None
+    #     ) -> None:
+    #     """
+    #     Perform a randomized search for hyperparameter tuning.
 
-        This method uses RandomizedSearchCV to search a subset of the specified parameter space.
+    #     This method uses RandomizedSearchCV to search a subset of the specified parameter space.
 
-        Args:
-            parameters (dict): A dictionary of parameters and their distributions to sample from.
-            n_iter (int): Number of parameter settings that are sampled.
-            splits (tuple[list[tuple[ndarray, ndarray]]]): A dictionary containing cross-validation split information.
-            dataset (list of skorch.helper.SliceDataset): The datasets that provides both input features and targets for training.
+    #     Args:
+    #         parameters (dict): A dictionary of parameters and their distributions to sample from.
+    #         n_iter (int): Number of parameter settings that are sampled.
+    #         splits (tuple[list[tuple[ndarray, ndarray]]]): A dictionary containing cross-validation split information.
+    #         dataset (list of skorch.helper.SliceDataset): The datasets that provides both input features and targets for training.
 
-        Sets:
-            self.param_search (RandomizedSearchCV): The fitted RandomizedSearchCV object.
-        """
-        clf = RandomizedSearchCV(
-            estimator=self,
-            param_distributions=parameters,
-            n_iter=n_iter,
-            cv=splits,
-            verbose=1,
-            n_jobs=self.cfg.numJobs,
-            scoring=None,
-            refit=True,
-            error_score="raise",
-            return_train_score=True,
-            random_state=self.cfg.seed,
-        )
+    #     Sets:
+    #         self.param_search (RandomizedSearchCV): The fitted RandomizedSearchCV object.
+    #     """
+    #     njobs = njobs or self.cfg.numJobs
+    #     try:
+    #         clf = RandomizedSearchCV(
+    #             estimator=self,
+    #             param_distributions=parameters,
+    #             n_iter=n_iter,
+    #             verbose=1,
+    #             n_jobs=njobs,
+    #             scoring=None,
+    #             refit=True,
+    #             error_score="raise",
+    #             return_train_score=True,
+    #             random_state=self.cfg.seed,
+    #             cv = cv
+    #         )
 
-        clf.fit(dataset[0], y=dataset[1])
-        self.param_search = clf
+    #         clf.fit(dataset.X, dataset.y)
+    #         self.param_search = clf
+
+    #         # Save cv_results_
+    #         os.makedirs('logs', exist_ok=True)
+    #         log_path = f'logs/cv_results_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.csv'
+    #         pd.DataFrame(clf.cv_results_).to_csv(log_path, index=False)
+
+    #         # Save best estimator
+    #         os.makedirs('models', exist_ok=True)
+    #         best_model_path = f'models/best_model_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.pt'
+    #         clf.best_estimator_.save_model(best_model_path)
+
+    #     except Exception as e:
+    #         os.makedirs('logs', exist_ok=True)
+    #         err_file = f'logs/randomsearch_error_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.log'
+    #         with open(err_file, 'w') as f:
+    #             f.write("RandomizedSearchCV crashed!\n\n")
+    #             traceback.print_exc(file=f)
+
+    #         print(f"RandomizedSearchCV crashed. See log: {err_file}")
+    #         raise  # optional: re-raise to let the calling process handle it
+    
+
+    def initialize_module(self):
+        super().initialize_module()
+        # Now the module instance is available as self.module_
+        if hasattr(self.module_, "parameters"):
+            self.modelDtype = list(self.module_.parameters())[0].dtype
+        else:
+            self.modelDtype = None
+        return self
 
     def _unpack_inp(self, x):
         indNonNan = [~xi.isnan() for xi in x]
@@ -330,7 +365,7 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         Returns:
             pd.DataFrame: The aggregated predictions for each measurement point ID.
         """
-        
+
         if type_pred == 'winter':
             # winter months from October to April
             winter_months = ['oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr']
@@ -371,21 +406,19 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
 
         # Aggregate predictions
         id = dataset_grid[0].dataset.indexToId(batchIndex)
-        data = {
-            'ID': id,
-            'pred': y_pred_agg
-        }
+        data = {'ID': id, 'pred': y_pred_agg}
         data = pd.DataFrame(data)
         data.set_index('ID', inplace=True)
 
-        grouped_ids = df_grid_monthly.groupby('ID')[['YEAR', 'POINT_LAT', 'POINT_LON', 'GLWD_ID']].first()
+        grouped_ids = df_grid_monthly.groupby('ID')[[
+            'YEAR', 'POINT_LAT', 'POINT_LON', 'GLWD_ID'
+        ]].first()
 
         grouped_ids = grouped_ids.merge(data, on='ID', how='left')
         grouped_ids.reset_index(inplace=True)
         grouped_ids.sort_values(by='ID', inplace=True)
         return grouped_ids
 
-    
     def save_model(self, fname: str) -> None:
         """save the model parameters to a file.
 
@@ -395,7 +428,6 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         file_path = _models_dir / fname
         _models_dir.mkdir(exist_ok=True)
         self.save_params(f_params=file_path.with_suffix(".pt"))
-
 
     def to(self, device):
         """Move model and necessary attributes to the specified device."""
@@ -410,7 +442,7 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
             self.some_tensor_attribute = self.some_tensor_attribute.to(device)
 
         return self
-    
+
     def _create_features_metadata(
             self,
             X: pd.DataFrame,
@@ -430,14 +462,17 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         """
         meta_data_columns = meta_data_columns or self.cfg.metaData
 
-        # Split features from metadata
-        # Get feature columns by subtracting metadata columns from all columns
-        feature_columns = X.columns.difference(meta_data_columns)
+        # # Split features from metadata
+        # # Get feature columns by subtracting metadata columns from all columns
+        # feature_columns = X.columns.difference(meta_data_columns)
 
-        # remove columns that are not used in metadata or features
-        feature_columns = feature_columns.drop(self.cfg.notMetaDataNotFeatures)
-        # Convert feature_columns to a list (if needed)
-        feature_columns = list(feature_columns)
+        # # remove columns that are not used in metadata or features
+        # feature_columns = feature_columns.drop(self.cfg.notMetaDataNotFeatures)
+        # # Convert feature_columns to a list (if needed)
+        # feature_columns = list(feature_columns)
+        # print(feature_columns, len(feature_columns))
+
+        feature_columns = self.cfg.featureColumns
 
         # Extract metadata and features
         metadata = X[meta_data_columns].values
@@ -446,7 +481,8 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         return features, metadata
 
     @staticmethod
-    def load_model(cfg: config.Config, fname: str, *args, **kwargs) -> "CustomNeuralNetRegressor":
+    def load_model(cfg: config.Config, fname: str, *args,
+                   **kwargs) -> "CustomNeuralNetRegressor":
         """Loads a pre-trained model from a file.
 
         Args:
