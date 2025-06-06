@@ -59,7 +59,7 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         self.nbFeatures = nbFeatures
         
         # seed all
-        self.seed_all(cfg.seed)
+        self.seed_all()
 
 
     def initialize_module(self):
@@ -385,6 +385,28 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
 
         return features, metadata
 
+
+    def seed_all(self):
+        """Sets the random seed everywhere for reproducibility.
+        """
+        # Python built-in random
+        rd.seed(self.cfg.seed)
+
+        # NumPy random
+        np.random.seed(self.cfg.seed)
+
+        # PyTorch seed
+        torch.manual_seed(self.cfg.seed)
+        torch.cuda.manual_seed(self.cfg.seed)
+        torch.cuda.manual_seed_all(self.cfg.seed)  # If using multiple GPUs
+
+        # Ensuring deterministic behavior in CuDNN
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
+        # Setting CUBLAS environment variable (helps in newer versions)
+        os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+        
     @staticmethod
     def load_model(cfg: config.Config, fname: str, *args,
                    **kwargs) -> "CustomNeuralNetRegressor":
@@ -403,29 +425,5 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         model.load_params(f_params=_models_dir / fname)
         return model
 
-    @staticmethod
-    def seed_all(seed=None):
-        """Sets the random seed everywhere for reproducibility.
-        """
-        if seed is None:
-            seed = 10  # Default seed value
 
-        # Python built-in random
-        rd.seed(seed)
-
-        # NumPy random
-        np.random.seed(seed)
-
-        # PyTorch seed
-        torch.manual_seed(seed)
-        torch.cuda.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed)  # If using multiple GPUs
-
-        # Ensuring deterministic behavior in CuDNN
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
-
-        # Setting CUBLAS environment variable (helps in newer versions)
-        os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
-        
     
