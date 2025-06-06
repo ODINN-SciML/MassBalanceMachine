@@ -299,9 +299,6 @@ class GeoData:
         pred_y_winter = pred_winter.drop(columns=['YEAR'], errors='ignore')
 
         # Save seasonal predictions
-        # Load glacier DEM data
-        # path_glacier_dem = os.path.join(path_glacier_dem,
-        #                         f"{glacier_name}_{year}.zarr")
         if not os.path.exists(path_glacier_dem):
             print(f"DEM file not found for {path_glacier_dem}, skipping...")
             return
