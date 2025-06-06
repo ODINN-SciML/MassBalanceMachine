@@ -42,6 +42,8 @@ def get_GLAMOS_glwmb(glacier_name, cfg):
     -----------
     glacier_name : str
         The name of the glacier.
+    cfg : mbm.Config
+        Configuration instance.
 
     Returns:
     --------
