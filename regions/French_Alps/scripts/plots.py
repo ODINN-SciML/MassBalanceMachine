@@ -317,6 +317,33 @@ def plotGridSearchParams(cv_results_, param_grid, lossType:str, N=None):
 
     plt.suptitle('Grid search results')
     plt.tight_layout()
+
+def print_top_n_models(cv_results_, n=10, lossType='rmse'):
+    
+    results = pd.DataFrame(cv_results_)
+    
+    # Sort by test score (taking absolute value since it's negative)
+    results['abs_test_score'] = results['mean_test_score'].abs()
+    results = results.sort_values('abs_test_score', ascending=True).head(n)
+    
+    # Extract parameters and scores
+    table = []
+    for i, row in enumerate(results.iterrows()):
+        row = row[1]
+        model_info = {
+            'Model': i+1,
+            'learning_rate': row['param_learning_rate'],
+            'max_depth': int(row['param_max_depth']),
+            'n_estimators': int(row['param_n_estimators']),
+            f'Validation {lossType}': abs(row['mean_test_score']),
+            f'Train {lossType}': abs(row['mean_train_score'])
+        }
+        table.append(model_info)
+    
+    df = pd.DataFrame(table)
+    df = df.set_index('Model')
+    
+    return display(df)
     
 def FIPlot(best_estimator, feature_columns, vois_climate):
     FI = best_estimator.feature_importances_
@@ -593,18 +620,20 @@ def plotMeanPred(grouped_ids, ax):
     ax.legend(fontsize=20, loc='lower right')
     
     
-def PlotIndividualGlacierPredVsTruth(grouped_ids, figsize=(15, 22)):
-    fig, axs = plt.subplots(3, 3, figsize=figsize)
+def PlotIndividualGlacierPredVsTruth(grouped_ids, base_figsize=(20, 15), height_per_row=5):
+    # Calculate number of rows needed based on number of glaciers
+    n_glaciers = len(grouped_ids['GLACIER'].unique())
+    n_rows = (n_glaciers + 2) // 3  # Ceiling division to get enough rows for 3 columns
 
-    colors_glacier = [
-        '#a6cee3', '#1f78b4', '#b2df8a', '#33a02c', '#fb9a99', '#e31a1c',
-        '#fdbf6f', '#ff7f00', '#cab2d6', '#6a3d9a', '#ffff99', '#b15928'
-    ]
-    color_palette_glaciers = dict(
-        zip(grouped_ids.GLACIER.unique(), colors_glacier))
-    color_palette_period = dict(
-        zip(grouped_ids.PERIOD.unique(),
-            colors_glacier[:len(grouped_ids.GLACIER.unique())]))
+    figsize = (base_figsize[0], n_rows * height_per_row)
+    
+    fig, axs = plt.subplots(n_rows, 3, figsize=figsize)
+
+    color_palette_period = {
+        'winter': '#a6cee3',  # blue
+        'summer': '#33a02c',  # green
+        'annual': '#e31a1c'   # red
+        }
 
     for i, test_gl in enumerate(grouped_ids['GLACIER'].unique()):
         df_gl = grouped_ids[grouped_ids.GLACIER == test_gl]
@@ -627,6 +656,11 @@ def PlotIndividualGlacierPredVsTruth(grouped_ids, figsize=(15, 22)):
                     hue='PERIOD',
                     palette=color_palette_period)
         ax1.set_title(f'{test_gl.capitalize()}', fontsize=28)
+    
+    # Hide empty subplots
+    for j in range(i+1, n_rows*3):
+        if j < len(axs.flatten()):
+            axs.flatten()[j].set_visible(False)
 
     plt.tight_layout()
     
