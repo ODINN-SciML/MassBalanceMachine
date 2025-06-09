@@ -5,12 +5,8 @@ import massbalancemachine as mbm
 from sklearn.model_selection import GroupKFold, KFold, train_test_split, GroupShuffleSplit
 import geopandas as gpd
 import xarray as xr
-import numpy as np
-import hashlib
-from tqdm.notebook import tqdm
 
 from scripts.config_ICE import *
-from scripts.helpers import Diff
 
 
 def process_or_load_data(run_flag,
@@ -32,22 +28,14 @@ def process_or_load_data(run_flag,
                      len(df.GLACIER.unique()),
                      df.GLACIER.unique())
 
-        # Add a glacier-wide ID (used for geodetic MB)
-        df['GLWD_ID'] = df.apply(
-            lambda x: get_hash(f"{x.GLACIER}_{x.YEAR}"), axis=1)
-        df['GLWD_ID'] = df['GLWD_ID'].astype(str)
-
         # Create dataset
         dataset_gl = mbm.Dataset(cfg=cfg,
                                  data=df,
-                                 region_name='ICE',
+                                 region_name='ICE', # Region
                                  data_path=paths['csv_path'])
-        logging.info("Number of winter and annual samples: %d",
-                     len(df))
-        logging.info("Number of annual samples: %d",
-                     len(df[df.PERIOD == 'annual']))
-        logging.info("Number of winter samples: %d",
-                     len(df[df.PERIOD == 'winter']))
+        for period in df['PERIOD'].unique():
+            count = len(df[df.PERIOD == period])
+            logging.info("Number of %s samples: %d", period, count)
 
         # Add climate data
         logging.info("Adding climate features...")
@@ -63,7 +51,7 @@ def process_or_load_data(run_flag,
         # Convert to monthly resolution
         logging.info("Converting to monthly resolution...")
         dataset_gl.convert_to_monthly(meta_data_columns=cfg.metaData,
-                                      vois_climate=vois_climate, #+ ['pcsr']
+                                      vois_climate=vois_climate,
                                       vois_topographical=vois_topographical)
         
 
@@ -92,12 +80,9 @@ def process_or_load_data(run_flag,
                                            meta_data_columns=cfg.metaData)
             logging.info("Loaded preprocessed data.")
             logging.info("Number of monthly rows: %d", len(dataloader_gl.data))
-            logging.info(
-                "Number of annual rows: %d",
-                len(dataloader_gl.data[dataloader_gl.data.PERIOD == 'annual']))
-            logging.info(
-                "Number of winter rows: %d",
-                len(dataloader_gl.data[dataloader_gl.data.PERIOD == 'winter']))
+            for period in dataloader_gl.data['PERIOD'].unique():
+                count = len(dataloader_gl.data[dataloader_gl.data.PERIOD == period])
+                logging.info("Number of %s samples: %d", period, count)
 
             return dataloader_gl
         except FileNotFoundError as e:
@@ -106,10 +91,10 @@ def process_or_load_data(run_flag,
 
 
 def get_CV_splits(dataloader_gl,
-                  test_split_on='YEAR',
-                  test_splits=None,
-                  random_state=0,
-                  test_size=0.2):
+                test_split_on='YEAR',
+                test_splits=None,
+                random_state=0,
+                test_size=0.2):
     # Split into training and test splits with train_test_split
     if test_splits is None:
         train_splits, test_splits = train_test_split(
@@ -141,8 +126,7 @@ def get_CV_splits(dataloader_gl,
     test_splits = df_X_test[test_split_on].unique()
 
     # Create the CV splits based on the training dataset. The default value for the number of splits is 5.
-    cv_splits = dataloader_gl.get_cv_split(n_splits=5,
-                                           type_fold='group-meas-id')
+    cv_splits = dataloader_gl.get_cv_split(n_splits=5, type_fold='group-meas-id')
 
     test_set = {
         'df_X': df_X_test,
@@ -158,7 +142,6 @@ def get_CV_splits(dataloader_gl,
     }
 
     return cv_splits, test_set, train_set
-
 
 def getDfAggregatePred(test_set, y_pred_agg, all_columns):
     # Aggregate predictions to annual or winter:

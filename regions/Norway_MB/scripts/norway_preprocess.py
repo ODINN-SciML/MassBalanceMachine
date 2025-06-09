@@ -11,6 +11,7 @@ from tqdm import tqdm
 import logging
 from oggm import utils, workflow, tasks
 from oggm import cfg as oggmCfg
+from scipy.spatial.distance import cdist
 
 from scripts.config_NOR import *
 from scripts.helpers import *
@@ -40,7 +41,6 @@ def fill_missing_dates(df):
         
         # For each row with missing prev_yr_min_date
         for idx in df_filled[missing_mask].index:
-            # Check if curr_yr_min_date exists
             if pd.notna(df_filled.loc[idx, 'curr_yr_max_date']):
                 # Extract date components
                 try:
@@ -55,8 +55,11 @@ def fill_missing_dates(df):
                     
                     # Fill the value
                     df_filled.loc[idx, 'prev_yr_min_date'] = new_date
+                    df_filled.loc[idx, 'DATA_MODIFICATION'] = 'Filled missing FROM_DATE with October 1st of previous year'
                 except:
                     print(f"Warning: Could not process date '{date_str}' at index {idx}")
+            else:
+                print('no curr_yr_max_date entry to extract the year from')
     
     return df_filled
 
@@ -71,8 +74,6 @@ def split_stake_measurements(df_stakes):
     Returns:
         DataFrame with separate rows for annual and winter measurements
     """
-    # First fill missing dates
-    df_stakes = fill_missing_dates(df_stakes)
     
     # Create annual measurements dataframe - only where ba is not NaN
     annual_df = df_stakes[df_stakes['ba'].notna()].copy()
@@ -157,6 +158,7 @@ def fix_january_to_october_dates(df, annual_inconsistent, winter_inconsistent):
         if isinstance(from_date, str) and from_date[4:6] == '01':  # If month is January
             # Replace '01' with '10'
             df_fixed.loc[idx, 'FROM_DATE'] = from_date[0:4] + '10' + from_date[6:]
+            df_fixed.loc[idx, 'DATA_MODIFICATION'] = 'Corrected FROM_DATE from January to October'
             fixes_made += 1
             
         # Check and fix TO_DATE
@@ -164,6 +166,7 @@ def fix_january_to_october_dates(df, annual_inconsistent, winter_inconsistent):
         if isinstance(to_date, str) and to_date[4:6] == '01':  # If month is January
             # Replace '01' with '10'
             df_fixed.loc[idx, 'TO_DATE'] = to_date[0:4] + '10' + to_date[6:]
+            df_fixed.loc[idx, 'DATA_MODIFICATION'] = 'Corrected TO_DATE from January to October'
             fixes_made += 1
     
     print(f"Made {fixes_made} fixes (01 → 10) across {len(all_indices)} inconsistent records")
@@ -220,100 +223,69 @@ def find_close_stakes(df, distance_threshold=10):
                                      'LAT_1', 'LON_1', 'LAT_2', 'LON_2', 
                                      'POINT_BALANCE_1', 'POINT_BALANCE_2', 'DISTANCE_M'])
 
-def merge_identical_stakes(df, close_stakes_df):
-    """
-    Merge stakes that have identical latitude and longitude coordinates (distance = 0).
-    Uses the existing close_stakes_df to identify identical stakes.
-    """
-    df = df.copy()
-    original_count = len(df)
-    
-    # Filter to only include stakes with exactly the same coordinates
-    identical_stakes = close_stakes_df[close_stakes_df['DISTANCE_M'] == 0]
-    
-    if len(identical_stakes) == 0:
-        print("No stakes with identical coordinates found.")
-        return df
-        
-    print(f"Found {len(identical_stakes)} pairs of stakes with identical coordinates")
-    
-    # Group identical points to handle cases with multiple points at same location
-    point_groups = {}
-    
-    for _, row in identical_stakes.iterrows():
-        point1 = row['POINT_ID_1']
-        point2 = row['POINT_ID_2']
-        loc_key = (row['GLACIER'], row['YEAR'], row['PERIOD'], row['LAT_1'], row['LON_1'])
-        
-        if loc_key not in point_groups:
-            point_groups[loc_key] = set()
-            
-        point_groups[loc_key].add(point1)
-        point_groups[loc_key].add(point2)
-    
-    # Process each group of identical points
-    points_to_drop = set()
-    kept_points = []
-    
-    for loc_key, point_ids in point_groups.items():
-        point_ids = list(point_ids)
-        
-        # Get all these points from the dataframe
-        mask = df['POINT_ID'].isin(point_ids)
-        points = df[mask]
-        
-        avg_balance = points['POINT_BALANCE'].mean()
-        
-        # Update first point's balance
-        keep_id = point_ids[0]
-        kept_points.append(keep_id)
-        df.loc[df['POINT_ID'] == keep_id, 'POINT_BALANCE'] = avg_balance
-        
-        # Mark other points for removal
-        points_to_drop.update(point_ids[1:])
-    
-    # Remove the duplicate points
-    df = df[~df['POINT_ID'].isin(points_to_drop)]
-    
-    print(f"Merged {len(points_to_drop)} identical stakes")
-    print(f"Original dataframe size: {original_count}")
-    print(f"After merging identical stakes: {len(df)}")
-    print(f"Kept point IDs: {kept_points}")
-    return df
+def remove_close_points(df_gl, meters=10):
+    df_gl_cleaned = pd.DataFrame()
+    for year in df_gl.YEAR.unique():
+        for period in df_gl.PERIOD.unique():
+            df_gl_y = df_gl[(df_gl.YEAR == year) & (df_gl.PERIOD == period)]
+            if len(df_gl_y) <= 1:
+                df_gl_cleaned = pd.concat([df_gl_cleaned, df_gl_y])
+                continue
 
-def merge_close_stakes(df, close_stakes_df, distance_threshold=10):
+            # Calculate distances to other points
+            df_gl_y['x'], df_gl_y['y'] = latlon_to_laea(
+                df_gl_y['POINT_LAT'], df_gl_y['POINT_LON'])
 
-    df = df.copy()
-    
-    # Sort close_stakes_df by distance to process closest pairs first
-    close_stakes_df = close_stakes_df.sort_values('DISTANCE_M')
-    
-    dropped_points = set()
-    
-    # Process each pair of close stakes
-    for _, row in tqdm(close_stakes_df.iterrows(), desc=f'Merging stakes within {distance_threshold}m'):
-        point_id_1 = row['POINT_ID_1']
-        point_id_2 = row['POINT_ID_2']
-        
-        # Skip if either point has already been dropped
-        if point_id_2 in dropped_points:
-            continue
-            
-        avg_balance = (row['POINT_BALANCE_1'] + row['POINT_BALANCE_2']) / 2
-        
-        # Update the balance of the first point
-        mask_1 = df['POINT_ID'] == point_id_1
-        if mask_1.any():
-            df.loc[mask_1, 'POINT_BALANCE'] = avg_balance
-            
-            # Drop the second point
-            mask_2 = df['POINT_ID'] == point_id_2
-            if mask_2.any():
-                df = df[~mask_2]
-                dropped_points.add(point_id_2)
-                
-    print(f"Merged {len(dropped_points)} pairs of close stakes")
-    return df
+            distance = cdist(df_gl_y[['x', 'y']], df_gl_y[['x', 'y']],
+                             'euclidean')
+
+            # Merge close points
+            merged_indices = set()
+            for i in range(len(df_gl_y)):
+                if i in merged_indices:
+                    continue  # Skip already merged points
+
+                # Find close points (distance < 10m)
+                close_indices = np.where(distance[i, :] < meters)[0]
+                close_indices = [idx for idx in close_indices if idx != i]
+
+                if close_indices:
+                    mean_MB = df_gl_y.iloc[close_indices +
+                                           [i]].POINT_BALANCE.mean()
+
+                    # Assign mean balance to the first point
+                    df_gl_y.loc[df_gl_y.index[i], 'POINT_BALANCE'] = mean_MB
+
+                    # Track which points were merged
+                    merged_point_ids = [df_gl_y.iloc[idx]['POINT_ID'] for idx in close_indices]
+                    merged_info = 'Merged with stakes: ' + ', '.join(merged_point_ids) + ' (taking average MB)'
+                    df_gl_y.loc[df_gl_y.index[i], 'DATA_MODIFICATION'] += merged_info
+
+                    # Mark other indices for removal
+                    merged_indices.update(close_indices)
+
+            # Drop surplus points
+            indices_to_drop = list(merged_indices)
+            df_gl_y = df_gl_y.drop(df_gl_y.index[indices_to_drop])
+
+            # Append cleaned DataFrame
+            df_gl_cleaned = pd.concat([df_gl_cleaned, df_gl_y])
+
+    # Final output
+    df_gl_cleaned.reset_index(drop=True, inplace=True)
+    points_dropped = len(df_gl) - len(df_gl_cleaned)
+    print(f'Number of points dropped: {points_dropped}')
+    df_gl_cleaned = df_gl_cleaned.drop(columns=['x', 'y'], errors='ignore')
+    return df_gl_cleaned if points_dropped > 0 else df_gl
+
+
+def latlon_to_laea(lat, lon):
+    # Define the transformer: WGS84 to ETRS89 / LAEA Europe
+    transformer = pyproj.Transformer.from_crs("epsg:4326", "epsg:3035")
+
+    # Perform the transformation
+    easting, northing = transformer.transform(lat, lon)
+    return easting, northing
 
 # --- OGGM --- #
 

@@ -9,9 +9,13 @@ import xarray as xr
 from scripts.config_FR import *
 
 
-def process_or_load_data_glacioclim(run_flag, df, paths, cfg, vois_climate,
-                         vois_topographical, 
-                         output_file = 'FR_wgms_dataset_monthly_full.csv'):
+def process_or_load_data_glacioclim(run_flag, 
+                                    df, 
+                                    paths, 
+                                    cfg, 
+                                    vois_climate,
+                                    vois_topographical, 
+                                    output_file = 'FR_wgms_dataset_monthly_full.csv'):
     """
     Process or load the data based on the RUN flag.
     """
@@ -27,14 +31,11 @@ def process_or_load_data_glacioclim(run_flag, df, paths, cfg, vois_climate,
         # Create dataset
         dataset_gl = mbm.Dataset(cfg=cfg,
                                  data=df,
-                                 region_name='FR',
+                                 region_name='FR', # Region
                                  data_path=paths['csv_path'])
-        logging.info("Number of winter, summer and annual samples: %d",
-                     len(df))
-        logging.info("Number of annual samples: %d",
-                     len(df[df.PERIOD == 'annual']))
-        logging.info("Number of winter samples: %d",
-                     len(df[df.PERIOD == 'winter']))
+        for period in df['PERIOD'].unique():
+            count = len(df[df.PERIOD == period])
+            logging.info("Number of %s samples: %d", period, count)
 
         # Add climate data
         logging.info("Adding climate features...")
@@ -81,12 +82,9 @@ def process_or_load_data_glacioclim(run_flag, df, paths, cfg, vois_climate,
                                            meta_data_columns=cfg.metaData)
             logging.info("Loaded preprocessed data.")
             logging.info("Number of monthly rows: %d", len(dataloader_gl.data))
-            logging.info(
-                "Number of annual rows: %d",
-                len(dataloader_gl.data[dataloader_gl.data.PERIOD == 'annual']))
-            logging.info(
-                "Number of winter rows: %d",
-                len(dataloader_gl.data[dataloader_gl.data.PERIOD == 'winter']))
+            for period in dataloader_gl.data['PERIOD'].unique():
+                count = len(dataloader_gl.data[dataloader_gl.data.PERIOD == period])
+                logging.info("Number of %s samples: %d", period, count)
 
             return dataloader_gl
         except FileNotFoundError as e:
