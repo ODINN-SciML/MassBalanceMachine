@@ -169,4 +169,6 @@ set a flag on other regions for changes made to dataset like with france
 ----
 norway features approx. loc and approx elevation but with no further info, this has so far been disregarded, might want to delete those points? I'm not sure
 
-IMPORTANT! check every prepocessing if the POINT_ID is really unique
+--- Tomorrow 09.06
+get updated mbm from dev_geodetic, replace all plots.py with french, rerun 3.2 . clean unused scripts, upload to github dev branch with marijn as reviewer (check again if
+already existing regions have changed in dev geodetic and if they can be replaced.)
