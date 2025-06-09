@@ -165,3 +165,8 @@ Iceland ERa5land needs to be redonwloaded on SSH, WSL ok, rerun all transfer lea
 do on weekend: rerun ##### A.3.1. Spatial Cross-Validation, the old model file still has 1 outlier in there, otherwise A. is good, go B., then other 3.2 
                     the current .plots file of france is the one with all the good plots, copy them to the other regions.
 set a flag on other regions for changes made to dataset like with france
+
+----
+norway features approx. loc and approx elevation but with no further info, this has so far been disregarded, might want to delete those points? I'm not sure
+
+IMPORTANT! check every prepocessing if the POINT_ID is really unique

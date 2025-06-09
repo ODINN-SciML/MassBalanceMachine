@@ -13,6 +13,7 @@ from oggm import utils, workflow, tasks
 from oggm import cfg as oggmCfg
 from pathlib import Path
 from shapely.geometry import Point
+from scipy.spatial.distance import cdist
 
 
 from scripts.wgs84_ch1903 import *
@@ -223,7 +224,7 @@ def transform_WGMS_df(df, key):
         print('ERROR')
     
     # Create POINT_ID
-    new_df['POINT_ID'] = key + '_' + 'setup' + new_df['stake_year_setup'].astype(str) + '_' + new_df['stake_number'].astype(str)
+    new_df['POINT_ID'] = key + '_' + new_df['profile_name'].astype(str) + '_' + 'setup' + new_df['stake_year_setup'].astype(str) + '_' + new_df['stake_number'].astype(str)
     
     # Create dates
     new_df['FROM_DATE'] = (new_df['year_start'].astype(str) + 
@@ -303,46 +304,69 @@ def find_close_stakes(df, distance_threshold=10):
                                      'LAT_1', 'LON_1', 'LAT_2', 'LON_2', 
                                      'POINT_BALANCE_1', 'POINT_BALANCE_2', 'DISTANCE_M'])
 
-def merge_close_stakes(df, close_stakes_df, distance_threshold=10):
-    """
-    Merges stakes that are within distance_threshold meters of each other.
-    For each pair, it averages the balances and keeps the first point.
-    Drops the second point from the DataFrame.
-    """
-    df_test = df.copy()
-    
-    # Sort close_stakes_df by distance to process closest pairs first
-    close_stakes_df = close_stakes_df.sort_values('DISTANCE_M')
-    
-    # Keep track of points that have been dropped
-    dropped_points = set()
-    
-    # Process each pair of close stakes
-    for _, row in tqdm(close_stakes_df.iterrows(), desc=f'Merging stakes within {distance_threshold}m'):
-        point_id_1 = row['POINT_ID_1']
-        point_id_2 = row['POINT_ID_2']
-        
-        # Skip if either point has already been dropped
-        if point_id_2 in dropped_points:
-            continue
-            
-        # Calculate average balance
-        avg_balance = (row['POINT_BALANCE_1'] + row['POINT_BALANCE_2']) / 2
-        
-        # Update the balance of the first point and set MODIFICATION Flag
-        mask_1 = df_test['POINT_ID'] == point_id_1
-        if mask_1.any():
-            df_test.loc[mask_1, 'POINT_BALANCE'] = avg_balance
-            df_test.loc[mask_1, 'DATA_MODIFICATION'] = 'Merged stake with ID ' + point_id_2 + ' by taking average mb and dropping second stake'
-            
-            # Drop the second point
-            mask_2 = df_test['POINT_ID'] == point_id_2
-            if mask_2.any():
-                df_test = df_test[~mask_2]
-                dropped_points.add(point_id_2)
-                
-    print(f"Merged {len(dropped_points)} pairs of close stakes")
-    return df_test
+def remove_close_points(df_gl, meters = 10):
+    df_gl_cleaned = pd.DataFrame()
+    for year in df_gl.YEAR.unique():
+        for period in df_gl.PERIOD.unique():
+            df_gl_y = df_gl[(df_gl.YEAR == year) & (df_gl.PERIOD == period)]
+            if len(df_gl_y) <= 1:
+                df_gl_cleaned = pd.concat([df_gl_cleaned, df_gl_y])
+                continue
+
+            # Calculate distances to other points
+            df_gl_y['x'], df_gl_y['y'] = latlon_to_laea(
+                df_gl_y['POINT_LAT'], df_gl_y['POINT_LON'])
+
+            distance = cdist(df_gl_y[['x', 'y']], df_gl_y[['x', 'y']],
+                             'euclidean')
+
+            # Merge close points
+            merged_indices = set()
+            for i in range(len(df_gl_y)):
+                if i in merged_indices:
+                    continue  # Skip already merged points
+
+                # Find close points (distance < 10m)
+                close_indices = np.where(distance[i, :] < meters)[0]
+                close_indices = [idx for idx in close_indices if idx != i]
+
+                if close_indices:
+                    mean_MB = df_gl_y.iloc[close_indices +
+                                           [i]].POINT_BALANCE.mean()
+
+                    # Assign mean balance to the first point
+                    df_gl_y.loc[df_gl_y.index[i], 'POINT_BALANCE'] = mean_MB
+
+                    # Track which points were merged
+                    merged_point_ids = [df_gl_y.iloc[idx]['POINT_ID'] for idx in close_indices]
+                    merged_info = 'Merged with stakes: ' + ', '.join(merged_point_ids) + ' (taking average MB)'
+                    df_gl_y.loc[df_gl_y.index[i], 'DATA_MODIFICATION'] += merged_info
+
+                    # Mark other indices for removal
+                    merged_indices.update(close_indices)
+
+            # Drop surplus points
+            indices_to_drop = list(merged_indices)
+            df_gl_y = df_gl_y.drop(df_gl_y.index[indices_to_drop])
+
+            # Append cleaned DataFrame
+            df_gl_cleaned = pd.concat([df_gl_cleaned, df_gl_y])
+
+    # Final output
+    df_gl_cleaned.reset_index(drop=True, inplace=True)
+    points_dropped = len(df_gl) - len(df_gl_cleaned)
+    print(f'Number of points dropped: {points_dropped}')
+    df_gl_cleaned = df_gl_cleaned.drop(columns=['x', 'y'], errors='ignore')
+    return df_gl_cleaned if points_dropped > 0 else df_gl
+
+
+def latlon_to_laea(lat, lon):
+    # Define the transformer: WGS84 to ETRS89 / LAEA Europe
+    transformer = pyproj.Transformer.from_crs("epsg:4326", "epsg:3035")
+
+    # Perform the transformation
+    easting, northing = transformer.transform(lat, lon)
+    return easting, northing
 
 def check_period_consistency(df):
     """
