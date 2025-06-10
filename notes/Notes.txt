@@ -172,3 +172,6 @@ norway features approx. loc and approx elevation but with no further info, this 
 --- Tomorrow 09.06
 get updated mbm from dev_geodetic, replace all plots.py with french, rerun 3.2 . clean unused scripts, upload to github dev branch with marijn as reviewer (check again if
 already existing regions have changed in dev geodetic and if they can be replaced.)
+
+- corrected the paths and corrected th mbm calls, everything should work now, rerun everything, check if wgs script is used anywhere, 
+        then ready for pull request

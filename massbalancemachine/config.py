@@ -162,7 +162,7 @@ class ItalyAustriaConfig(Config):
             *args,
             metaData: List[str] = ["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD", "GLACIER"],
             notMetaDataNotFeatures: List[str] = ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"],
-            dataPath: str = '/home/mburlet/scratch/data/DATA_MB/WGMS/IT_AT/',
+            dataPath: str = None,
             numJobs: int = 28,
             **kwargs,
     ):
@@ -185,7 +185,7 @@ class NorwayConfig(Config):
             *args,
             metaData: List[str] = ["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD", "GLACIER"],
             notMetaDataNotFeatures: List[str] = ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"],
-            dataPath: str = '/home/mburlet/scratch/data/DATA_MB/WGMS/Norway/',
+            dataPath: str = None,
             numJobs: int = 28,
             **kwargs,
     ):
@@ -208,7 +208,7 @@ class IcelandConfig(Config):
             *args,
             metaData: List[str] = ["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD", "GLACIER"],
             notMetaDataNotFeatures: List[str] = ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"],
-            dataPath: str = '/home/mburlet/scratch/data/DATA_MB/WGMS/Iceland/',
+            dataPath: str = None,
             numJobs: int = 28,
             **kwargs,
     ):
