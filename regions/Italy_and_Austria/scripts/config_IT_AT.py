@@ -1,9 +1,9 @@
 # <------------------ PATHS ------------------>
-path_PMB_WGMS_raw = '/home/mburlet/scratch/data/DATA_MB/WGMS/IT_AT/data/'
-path_PMB_WGMS_csv = '/home/mburlet/scratch/data/DATA_MB/WGMS/IT_AT/csv/'
-path_ERA5_raw = '/home/mburlet/scratch/data/DATA_MB/ERA5Land/raw/'  ###ATTENTION this uses ERA5 from other notebook
-path_OGGM = '/home/mburlet/scratch/data/DATA_MB/WGMS/IT_AT/OGGM/'
-path_OGGM_xrgrids = '/home/mburlet/scratch/data/DATA_MB/WGMS/IT_AT/OGGM/xr_grids/'
+path_PMB_WGMS_raw = 'data/'
+path_PMB_WGMS_csv = 'csv/'
+path_ERA5_raw = 'ERA5Land/raw/'
+path_OGGM = 'OGGM/'
+path_OGGM_xrgrids = 'OGGM/xr_grids/'
 
 
 

@@ -139,9 +139,22 @@ class FranceConfig(Config):
             *args,
             metaData: List[str] = ["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD", "GLACIER", "GLACIER_ZONE"],
             notMetaDataNotFeatures: List[str] = ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"],
+            dataPath: str = None,
+            numJobs: int = 28,
             **kwargs,
-        ):
-        super().__init__(*args, **kwargs, metaData=metaData, notMetaDataNotFeatures=notMetaDataNotFeatures)
+    ):
+        if dataPath is None:
+            mbmDir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../'))+'/'
+            self.dataPath = mbmDir+'../data/'
+        else:
+            if dataPath!='' and not dataPath.endswith('/'):
+                dataPath = dataPath+'/'
+            self.dataPath = dataPath
+        super().__init__(*args,
+                         metaData=metaData,
+                         notMetaDataNotFeatures=notMetaDataNotFeatures,
+                         numJobs=numJobs,
+                         **kwargs)
 
 class ItalyAustriaConfig(Config):
     def __init__(
@@ -149,9 +162,22 @@ class ItalyAustriaConfig(Config):
             *args,
             metaData: List[str] = ["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD", "GLACIER"],
             notMetaDataNotFeatures: List[str] = ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"],
+            dataPath: str = '/home/mburlet/scratch/data/DATA_MB/WGMS/IT_AT/',
+            numJobs: int = 28,
             **kwargs,
-        ):
-        super().__init__(*args, **kwargs, metaData=metaData, notMetaDataNotFeatures=notMetaDataNotFeatures)
+    ):
+        if dataPath is None:
+            mbmDir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../'))+'/'
+            self.dataPath = mbmDir+'../data/'
+        else:
+            if dataPath!='' and not dataPath.endswith('/'):
+                dataPath = dataPath+'/'
+            self.dataPath = dataPath
+        super().__init__(*args,
+                         metaData=metaData,
+                         notMetaDataNotFeatures=notMetaDataNotFeatures,
+                         numJobs=numJobs,
+                         **kwargs)
 
 class NorwayConfig(Config):
     def __init__(
@@ -159,9 +185,22 @@ class NorwayConfig(Config):
             *args,
             metaData: List[str] = ["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD", "GLACIER"],
             notMetaDataNotFeatures: List[str] = ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"],
+            dataPath: str = '/home/mburlet/scratch/data/DATA_MB/WGMS/Norway/',
+            numJobs: int = 28,
             **kwargs,
-        ):
-        super().__init__(*args, **kwargs, metaData=metaData, notMetaDataNotFeatures=notMetaDataNotFeatures)
+    ):
+        if dataPath is None:
+            mbmDir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../'))+'/'
+            self.dataPath = mbmDir+'../data/'
+        else:
+            if dataPath!='' and not dataPath.endswith('/'):
+                dataPath = dataPath+'/'
+            self.dataPath = dataPath
+        super().__init__(*args,
+                         metaData=metaData,
+                         notMetaDataNotFeatures=notMetaDataNotFeatures,
+                         numJobs=numJobs,
+                         **kwargs)
 
 class IcelandConfig(Config):
     def __init__(
@@ -169,6 +208,19 @@ class IcelandConfig(Config):
             *args,
             metaData: List[str] = ["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD", "GLACIER"],
             notMetaDataNotFeatures: List[str] = ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"],
+            dataPath: str = '/home/mburlet/scratch/data/DATA_MB/WGMS/Iceland/',
+            numJobs: int = 28,
             **kwargs,
-        ):
-        super().__init__(*args, **kwargs, metaData=metaData, notMetaDataNotFeatures=notMetaDataNotFeatures)
+    ):
+        if dataPath is None:
+            mbmDir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../'))+'/'
+            self.dataPath = mbmDir+'../data/'
+        else:
+            if dataPath!='' and not dataPath.endswith('/'):
+                dataPath = dataPath+'/'
+            self.dataPath = dataPath
+        super().__init__(*args,
+                         metaData=metaData,
+                         notMetaDataNotFeatures=notMetaDataNotFeatures,
+                         numJobs=numJobs,
+                         **kwargs)

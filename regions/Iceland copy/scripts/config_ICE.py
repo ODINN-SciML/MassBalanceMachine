@@ -1,9 +1,9 @@
 # <------------------ PATHS ------------------>
-path_PMB_WGMS_raw = '/home/mburlet/scratch/data/DATA_MB/WGMS/Iceland/data/all-stake-measurements/' # Raw Stake measurement ".csv"s
-path_PMB_WGMS_csv = '/home/mburlet/scratch/data/DATA_MB/WGMS/Iceland/csv/' # Processed stake measurements
-path_ERA5_raw = '/home/mburlet/scratch/data/DATA_MB/WGMS/Iceland/ERA5Land/raw/'  # ERA5-Land
-path_OGGM = '/home/mburlet/scratch/data/DATA_MB/WGMS/Iceland/OGGM/' # OGGM Data
-path_OGGM_xrgrids = '/home/mburlet/scratch/data/DATA_MB/WGMS/Iceland/OGGM/xr_grids/' # OGGM Data Grids
+path_PMB_WGMS_raw = 'data/all-stake-measurements/' # Raw Stake measurement ".csv"s
+path_PMB_WGMS_csv = 'csv/' # Processed stake measurements
+path_ERA5_raw = 'ERA5Land/raw/'  # ERA5-Land
+path_OGGM = 'OGGM/' # OGGM Data
+path_OGGM_xrgrids = 'OGGM/xr_grids/' # OGGM Data Grids
 
 # <------------------OTHER USEFUL FUNCTIONS & ATTRIBUTES: ------------------>
 vois_climate_long_name = {
