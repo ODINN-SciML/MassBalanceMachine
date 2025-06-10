@@ -291,7 +291,7 @@ def latlon_to_laea(lat, lon):
 
 
 def initialize_oggm_glacier_directories(
-    working_dir= path_OGGM,
+    working_dir= None,
     rgi_region="08",
     rgi_version="6",
     base_url="https://cluster.klima.uni-bremen.de/~oggm/gdirs/oggm_v1.6/L3-L5_files/2023.1/elev_bands/W5E5_w_data/",
@@ -343,7 +343,7 @@ def initialize_oggm_glacier_directories(
 
 def export_oggm_grids(gdirs,
                       subset_rgis=None,
-                      output_path= path_OGGM_xrgrids):
+                      output_path= None):
 
     # Save OGGM xr for all needed glaciers:
     emptyfolder(output_path)

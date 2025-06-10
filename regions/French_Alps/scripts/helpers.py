@@ -74,18 +74,6 @@ def emptyfolder(path):
     else:
         os.makedirs(path, exist_ok=True)  # Ensure directory exists
 
-# difference between two lists
-def Diff(li1, li2):
-    li_dif = list(set(li1) - set(li2))
-    return li_dif
-
-def format_rgi_code(X):
-    # Convert X to a string, and pad with leading zeros if its length is less than 5
-    Y = str(X).zfill(5)
-    # Return the final formatted string
-    return f"RGI60-11.{Y}"
-
-
 def lamberttoWGS84(df, lambert_type="III"):
     """Converts from x & y Lambert III (EPSG:27563) or Lambert II (EPSG:27562) to lat/lon WGS84 (EPSG:4326) coordinate system
     Args:

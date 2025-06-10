@@ -27,18 +27,18 @@ log = logging.getLogger(__name__)
 
 # --- Preprocess --- #
 
-def extract_glacioclim_files(path_PMB_GLACIOCLIM_raw):
+def extract_glacioclim_files(path):
     """
     Extract GLACIOCLIM zipfiles into organized directories.
     """
-    path_PMB_GLACIOCLIM_raw = Path(path_PMB_GLACIOCLIM_raw)
-    glacioclim_dir = path_PMB_GLACIOCLIM_raw.parent
+    path = Path(path)
+    glacioclim_dir = path.parent
 
     seasons = ['annual', 'summer', 'winter']
 
-    path_PMB_GLACIOCLIM_raw.mkdir(parents=True, exist_ok=True)
+    path.mkdir(parents=True, exist_ok=True)
 
-    emptyfolder(path_PMB_GLACIOCLIM_raw)
+    emptyfolder(path)
 
     for glacier_dir in glacioclim_dir.glob('*Glacier*'):
         glacier_name = glacier_dir.name
@@ -54,7 +54,7 @@ def extract_glacioclim_files(path_PMB_GLACIOCLIM_raw):
             print(f"  Found {len(zip_files)} zip files in {season}")
             
             for zip_path in zip_files:
-                extract_dir = path_PMB_GLACIOCLIM_raw / glacier_name / season / zip_path.stem
+                extract_dir = path / glacier_name / season / zip_path.stem
                 extract_dir.mkdir(parents=True, exist_ok=True)
                 
                 try:
@@ -408,7 +408,7 @@ def check_period_consistency(df):
 # --- OGGM --- #
 
 def initialize_oggm_glacier_directories(
-    working_dir = path_OGGM,
+    working_dir = None,
     rgi_region="11",
     rgi_version="6",
     base_url="https://cluster.klima.uni-bremen.de/~oggm/gdirs/oggm_v1.6/L3-L5_files/2023.1/elev_bands/W5E5_w_data/",
@@ -460,7 +460,7 @@ def initialize_oggm_glacier_directories(
 
 def export_oggm_grids(gdirs,
                       subset_rgis=None,
-                      output_path=path_OGGM_xrgrids):
+                      output_path=None):
 
     # Save OGGM xr for all needed glaciers:
     emptyfolder(output_path)
