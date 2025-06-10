@@ -1,26 +1,38 @@
 name: Run Unit Test via Pytest
 
 on: [push]
+permissions:
+  # needed to allow actions to create and delete old caches
+  actions: write
+  contents: read
+  # pull-requests: write # not needed for the moment but may be useful to create bots that comment the PR
+env:
+  data_encrypt: ${{ secrets.data_encrypt }}
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        python-version: ["3.10"]
+        python-version: ["3.11"]
+        os:
+          - ubuntu-latest
+          - macos-latest
 
     steps:
       - uses: actions/checkout@v4
+      - uses: ResearchSoftwareActions/EnsureCleanNotebooksAction@1.1
+        if: matrix.os == 'ubuntu-latest'
+      - name: Install OpenMP in MacOS
+        if: matrix.os == 'macos-latest'
+        run:
+          brew install libomp
+        shell: bash
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install Poetry
-        uses: snok/install-poetry@v1
-        with:
-          virtualenvs-create: true
-          virtualenvs-in-project: true
       #----------------------------------------------
       #       load cached venv if cache exists
       #----------------------------------------------
@@ -30,6 +42,12 @@ jobs:
         with:
           path: .venv
           key: venv-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('**/poetry.lock') }}
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          virtualenvs-create: true
+          virtualenvs-in-project: true
       #----------------------------------------------
       # install dependencies if cache does not exist
       #----------------------------------------------
@@ -44,7 +62,20 @@ jobs:
       #----------------------------------------------
       #    add matrix specifics and run test suite
       #----------------------------------------------
+      - name: Download preprocessed data
+        run: |
+          rm -rf dataDownload
+          mkdir -p dataDownload/
+          fileId=1SUMYw1jfQClnfv_gP0izBD8MsHNc8V5P
+          pip install gdown
+          gdown https://drive.google.com/uc?id=$fileId -O dataDownload/data.tar.gz.gpg
+          gpg -d --pinentry-mode=loopback --passphrase "$data_encrypt" dataDownload/data.tar.gz.gpg > dataDownload/data.tar.gz
+          tar -xzf dataDownload/data.tar.gz -C dataDownload/
       - name: Run tests
         run: |
           source .venv/bin/activate
-          pytest -v -s
+          python -m pytest --cov --cov-report xml
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

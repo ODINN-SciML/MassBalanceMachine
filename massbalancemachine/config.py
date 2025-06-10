@@ -1,18 +1,25 @@
-from typing import List
+from typing import List, Dict, Tuple
 import os
 
 
 class Config:
+
     def __init__(
-            self,
-            numJobs: int = -1,
-            testSize: float = 0.3,
-            nSplits: int = 5,
-            seed: int = 30,
-            metaData: List[str] = ["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS"],
-            notMetaDataNotFeatures: List[str] = ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON", "ALTITUDE_CLIMATE"],
-            loss: str = 'MSE',
-        ) -> None:
+        self,
+        numJobs: int = -1,
+        testSize: float = 0.3,
+        nSplits: int = 5,
+        seed: int = 30,
+        metaData: List[str] = [
+            "RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS"
+        ],
+        notMetaDataNotFeatures: List[str] = [
+            "POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON",
+            "ALTITUDE_CLIMATE"
+        ],
+        loss: str = 'MSE',
+        bnds: Dict[str, Tuple[float, float]] = {},
+    ) -> None:
         """
         Configuration class that defines the variables related to processing resources and the features to use.
 
@@ -27,15 +34,22 @@ class Config:
             - notMetaDataNotFeatures (list of str): Fields that are neither metadata nor
                 features.
             - loss (str): Type of loss to use
+            - bnds (dict of float tuple): Upper and lower bounds of each variable to
+                scale them (useful for the neural network). These bounds don't clip
+                the data and if a variable exceeds the bounds, its normalized
+                counterpart will simply be outside of [0, 1].
         """
 
         # Customizable attributes
-        self.numJobs = numJobs or max(1, min(os.cpu_count()-2, 25)) # Use provided value otherwise use number of logical cores minus 2 to keep resources
+        self.numJobs = numJobs or max(
+            1, min(os.cpu_count() - 2, 25)
+        )  # Use provided value otherwise use number of logical cores minus 2 to keep resources
         self.testSize = testSize
         self.nSplits = nSplits
         self.seed = seed
         self.metaData = metaData
         self.notMetaDataNotFeatures = notMetaDataNotFeatures
+        self.featureColumns = []
         self.loss = loss
 
         # Constant attributes
@@ -56,19 +70,68 @@ class Config:
             #'sep_': 13,
         }
 
+        # Scaling bounds
+        if len(bnds) == 0:
+            self.bnds = {
+                'ALTITUDE_CLIMATE': (1500, 3000),
+                'ELEVATION_DIFFERENCE': (0, 1000),
+                'POINT_ELEVATION': (2000, 3500),
+                'aspect': (0, 360),
+                'consensus_ice_thickness': (0, 300),
+                'fal': (0, 1),
+                'hugonnet_dhdt': (-5, 5, ),
+                'millan_v': (0, 300),
+                'pcsr': (0, 500),
+                'slhf': (-10e6, 10e6),
+                'slope': (0, 90),
+                'sshf': (-10e6, 10e6),
+                'ssrd': (-10e6, 10e6),
+                'str': (-10e6, 10e6),
+                't2m': (-20, 15),
+                'tp': (0, 0.1),
+                'u10': (-10, 10),
+                'v10': (-10, 10),
+            }
+        else:
+            self.bnds = bnds
+
     @property
     def fieldsNotFeatures(self):
         return self.metaData + self.notMetaDataNotFeatures
 
+    def setFeatures(self, featureColumns):
+        self.featureColumns = featureColumns
+
+
 class SwitzerlandConfig(Config):
     def __init__(
-            self,
-            *args,
-            metaData: List[str] = ["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD", "GLACIER"],
-            notMetaDataNotFeatures: List[str] = ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"],
-            **kwargs,
-        ):
-        super().__init__(*args, **kwargs, metaData=metaData, notMetaDataNotFeatures=notMetaDataNotFeatures)
+        self,
+        *args,
+        metaData: List[str] = [
+            "RGIId", "POINT_ID", "ID", "GLWD_ID", "N_MONTHS", "MONTHS",
+            "PERIOD", "GLACIER"
+        ],
+        notMetaDataNotFeatures: List[str] = [
+            "POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON", "ALTITUDE_CLIMATE", "POINT_ELEVATION"
+        ],
+        dataPath: str = None,
+        numJobs: int = 28,
+        **kwargs,
+    ):
+        if dataPath is None:
+            mbmDir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../'))+'/'
+            self.dataPath = mbmDir+'../data/'
+        else:
+            if dataPath!='' and not dataPath.endswith('/'):
+                dataPath = dataPath+'/'
+            self.dataPath = dataPath
+        super().__init__(*args,
+                         metaData=metaData,
+                         notMetaDataNotFeatures=notMetaDataNotFeatures,
+                         numJobs=numJobs,
+                         **kwargs)
+        self.bnds['slope_sgi'] = self.bnds['slope']
+        self.bnds['aspect_sgi'] = self.bnds['aspect']
 
 class FranceConfig(Config):
     def __init__(
