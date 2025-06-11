@@ -16,10 +16,10 @@ color_tim = '#c51b7d'
 color_winter = '#a6cee3'
 color_annual = '#1f78b4'
 
-def plotHeatmap(test_glaciers, data_glamos, period='annual'):
+def plotHeatmap(data_wgms, test_glaciers=None, period='annual', plot_elevation=False):
     # Heatmap of mean mass balance per glacier:
     # Get the mean mass balance per glacier
-    data_with_pot = data_glamos[data_glamos.PERIOD == period]
+    data_with_pot = data_wgms[data_wgms.PERIOD == period]
 
     mean_mb_per_glacier = data_with_pot.groupby(
         ['GLACIER', 'YEAR', 'PERIOD'])['POINT_BALANCE'].mean().reset_index()
@@ -47,23 +47,94 @@ def plotHeatmap(test_glaciers, data_glamos, period='annual'):
                 ax=ax)
 
     # add patches for test glaciers
-    for test_gl in test_glaciers:
-        if test_gl not in matrix.index:
-            continue
-        height = matrix.index.get_loc(test_gl)
-        row = np.where(matrix.loc[test_gl].notna())[0]
-        split_indices = np.where(np.diff(row) != 1)[0] + 1
-        continuous_sequences = np.split(row, split_indices)
-        for patch in continuous_sequences:
-            ax.add_patch(
-                Rectangle((patch.min(), height),
-                          patch.max() - patch.min() + 1,
-                          1,
-                          fill=False,
-                          edgecolor='black',
-                          lw=3))
+    if test_glaciers is not None:
+        for test_gl in test_glaciers:
+            if test_gl not in matrix.index:
+                continue
+            height = matrix.index.get_loc(test_gl)
+            row = np.where(matrix.loc[test_gl].notna())[0]
+            split_indices = np.where(np.diff(row) != 1)[0] + 1
+            continuous_sequences = np.split(row, split_indices)
+            for patch in continuous_sequences:
+                ax.add_patch(
+                    Rectangle((patch.min(), height),
+                            patch.max() - patch.min() + 1,
+                            1,
+                            fill=False,
+                            edgecolor='black',
+                            lw=3))
+    
+    if plot_elevation:
+        fig = plt.figure(figsize=(10, 3))
+        ax = plt.subplot(1, 1, 1)
+        sorted_elevations = gl_per_el.sort_values(ascending=True)
+
+        sns.lineplot(sorted_elevations,
+                    ax=ax,
+                    color='gray',
+                    marker='v')
+
+        ax.set_xticks(range(len(sorted_elevations)))
+        ax.set_xticklabels(sorted_elevations.index, rotation=45, ha='right')
+        ax.set_ylabel('Elevation [m]')
+        plt.tight_layout()
             
-            
+
+def plot_feature_correlation(df, exclude_columns=None):
+    """
+    Generate and plot a correlation heatmap of features.
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        DataFrame containing the data to analyze
+    exclude_columns : list, optional
+        List of columns to exclude from the correlation analysis
+    """
+    # Default columns to exclude if not specified
+    if exclude_columns is None:
+        exclude_columns = [
+            'GLACIER', 'PERIOD', 'YEAR', 'POINT_LON', 'POINT_LAT', 'POINT_BALANCE',
+            'ALTITUDE_CLIMATE', 'POINT_ELEVATION', 'RGIId', 'POINT_ID', 'ID',
+            'N_MONTHS', 'MONTHS', 'GLACIER_ZONE'
+        ]
+    
+    df_test = df.copy()
+    
+    # Define the columns to plot
+    columns_to_keep = [col for col in df_test.columns if col not in exclude_columns]
+    df_test = df_test[columns_to_keep]
+    
+    # Rename columns based on long names (if available in the global scope)
+    try:
+        df_test.rename(columns=vois_climate_long_name, inplace=True)
+    except NameError:
+        pass
+    
+    # Compute correlation matrix
+    corr = df_test.corr()
+    
+    # Generate a mask for the upper triangle
+    mask = np.triu(np.ones_like(corr, dtype=bool))
+
+    fig, ax = plt.subplots(figsize=(12, 10))
+    sns.heatmap(
+        corr,
+        mask=mask,
+        cmap='coolwarm',
+        vmax=1,
+        vmin=-1,
+        center=0,
+        annot=True,
+        fmt=".2f",
+        square=True,
+        linewidths=.5,
+        cbar_kws={"shrink": 0.8})
+    
+    plt.title("Feature Intercorrelation Heatmap", fontsize=16)
+    plt.tight_layout()
+    plt.show()
+  
 def visualiseSplits(y_test, y_train, splits, colors=[color_xgb, color_tim]):
     # Visualise the cross validation splits
     fig, ax = plt.subplots(1, 6, figsize=(20, 5))
@@ -181,7 +252,7 @@ def plotGridSearchScore(cv_results_, lossType: str):
     plt.title('Grid search score over iterations')
     plt.legend()
     
-def plotGridSearchParams(cv_results_, param_grid, lossType:str, N=None):
+def plotGridSearchParams(cv_results_, param_grid, lossType:str, N=10):
     dfCVResults = pd.DataFrame(cv_results_)
     best_params = dfCVResults.sort_values('mean_test_score',
                                           ascending=False).iloc[0].params
@@ -189,7 +260,7 @@ def plotGridSearchParams(cv_results_, param_grid, lossType:str, N=None):
     dfCVResults_ = dfCVResults[mask_raisonable]
     dfCVResults_.sort_values('mean_test_score', ascending=False, inplace=True)
     if N is not None:
-        dfCVResults_ = dfCVResults_.iloc[:10]
+        dfCVResults_ = dfCVResults_.iloc[:N]
     fig = plt.figure(figsize=(15, 5))
     for i, param in enumerate(param_grid.keys()):
 
@@ -246,6 +317,33 @@ def plotGridSearchParams(cv_results_, param_grid, lossType:str, N=None):
 
     plt.suptitle('Grid search results')
     plt.tight_layout()
+
+def print_top_n_models(cv_results_, n=10, lossType='rmse'):
+    
+    results = pd.DataFrame(cv_results_)
+    
+    # Sort by test score (taking absolute value since it's negative)
+    results['abs_test_score'] = results['mean_test_score'].abs()
+    results = results.sort_values('abs_test_score', ascending=True).head(n)
+    
+    # Extract parameters and scores
+    table = []
+    for i, row in enumerate(results.iterrows()):
+        row = row[1]
+        model_info = {
+            'Model': i+1,
+            'learning_rate': row['param_learning_rate'],
+            'max_depth': int(row['param_max_depth']),
+            'n_estimators': int(row['param_n_estimators']),
+            f'Validation {lossType}': abs(row['mean_test_score']),
+            f'Train {lossType}': abs(row['mean_train_score'])
+        }
+        table.append(model_info)
+    
+    df = pd.DataFrame(table)
+    df = df.set_index('Model')
+    
+    return display(df)
     
 def FIPlot(best_estimator, feature_columns, vois_climate):
     FI = best_estimator.feature_importances_
@@ -273,22 +371,17 @@ def FIPlot(best_estimator, feature_columns, vois_climate):
     ax.set_xlabel('Feature Importance')
     ax.set_ylabel('Feature')
 
-def PlotPredictions(grouped_ids, y_pred, metadata_test, test_set, model):
-    fig = plt.figure(figsize=(20, 15))
-    colors_glacier = [
-        '#a6cee3', '#1f78b4', '#b2df8a', '#33a02c', '#fb9a99', '#e31a1c',
-        '#fdbf6f', '#ff7f00', '#cab2d6', '#6a3d9a', '#ffff99', '#b15928',
-        '#8dd3c7', '#ffffb3', '#bebada', '#fb8072', '#80b1d3', '#fdb462', 
-        '#b3de69', '#fccde5', '#d9d9d9', '#bc80bd', '#ccebc5', '#ffed6f',
-        '#66c2a5', '#fc8d62', '#8da0cb', '#e78ac3', '#a6d854', '#ffd92f', 
-        '#e5c494', '#b3b3b3', '#7fc97f', '#beaed4', '#fdc086', '#ffff99',
-        '#386cb0', '#f0027f', '#bf5b17', '#666666', '#1b9e77', '#d95f02',
-        '#7570b3', '#e7298a'
-    ]
-    color_palette_glaciers = dict(
-        zip(grouped_ids.GLACIER.unique(), colors_glacier))
-    print(color_palette_glaciers)
-    ax1 = plt.subplot(2, 2, 1)
+def PlotPredictions(grouped_ids, y_pred, metadata_test, test_set, model, include_summer=False):
+    # Determine number of rows based on whether summer is included and present in the data
+    rows = 3 if include_summer and 'summer' in grouped_ids.PERIOD.unique() else 2
+    fig = plt.figure(figsize=(20, 7.5 * rows))
+    
+    # Use seaborn's color palette for consistent glacier colors
+    palette = sns.color_palette("husl", n_colors=len(grouped_ids.GLACIER.unique()))
+    color_palette_glaciers = dict(zip(grouped_ids.GLACIER.unique(), palette))
+    
+    # Always plot annual data (first row)
+    ax1 = plt.subplot(rows, 2, 1)
     grouped_ids_annual = grouped_ids[grouped_ids.PERIOD == 'annual']
     mse_annual, rmse_annual, mae_annual, pearson_corr_annual = model.evalMetrics(
         metadata_test, y_pred, test_set['y'], period='annual')
@@ -306,32 +399,58 @@ def PlotPredictions(grouped_ids, y_pred, metadata_test, test_set, model):
     ax1.set_title('Annual PMB', fontsize=24)
 
     grouped_ids_annual.sort_values(by='YEAR', inplace=True)
-    ax2 = plt.subplot(2, 2, 2)
+    ax2 = plt.subplot(rows, 2, 2)
     ax2.set_title('Mean annual PMB', fontsize=24)
     plotMeanPred(grouped_ids_annual, ax2)
 
-    if 'winter' in grouped_ids.PERIOD.unique():
-        grouped_ids_winter = grouped_ids[grouped_ids.PERIOD == 'winter']
-        ax3 = plt.subplot(2, 2, 3)
-        mse_winter, rmse_winter, mae_winter, pearson_corr_winter = model.evalMetrics(
-            metadata_test, y_pred, test_set['y'], period='winter')
-        scores_winter = {
-            'mse': mse_winter,
-            'rmse': rmse_winter,
-            'mae': mae_winter,
-            'pearson_corr': pearson_corr_winter
+    # Always plot winter data (second row)
+    grouped_ids_winter = grouped_ids[grouped_ids.PERIOD == 'winter']
+    ax3 = plt.subplot(rows, 2, 3)
+    mse_winter, rmse_winter, mae_winter, pearson_corr_winter = model.evalMetrics(
+        metadata_test, y_pred, test_set['y'], period='winter')
+    scores_winter = {
+        'mse': mse_winter,
+        'rmse': rmse_winter,
+        'mae': mae_winter,
+        'pearson_corr': pearson_corr_winter
+    }
+    predVSTruth(ax3,
+                grouped_ids_winter,
+                scores_winter,
+                hue='GLACIER',
+                palette=color_palette_glaciers)
+    ax3.set_title('Winter PMB', fontsize=24)
+
+    ax4 = plt.subplot(rows, 2, 4)
+    ax4.set_title('Mean winter PMB', fontsize=24)
+    grouped_ids_winter.sort_values(by='YEAR', inplace=True)
+    plotMeanPred(grouped_ids_winter, ax4)
+
+    # Conditionally plot summer data (third row) if requested and available
+    if include_summer and 'summer' in grouped_ids.PERIOD.unique():
+        grouped_ids_summer = grouped_ids[grouped_ids.PERIOD == 'summer']
+        ax5 = plt.subplot(rows, 2, 5)
+        mse_summer, rmse_summer, mae_summer, pearson_corr_summer = model.evalMetrics(
+            metadata_test, y_pred, test_set['y'], period='summer')
+        scores_summer = {
+            'mse': mse_summer,
+            'rmse': rmse_summer,
+            'mae': mae_summer,
+            'pearson_corr': pearson_corr_summer
         }
-        predVSTruth(ax3,
-                    grouped_ids_winter,
-                    scores_winter,
+        predVSTruth(ax5,
+                    grouped_ids_summer,
+                    scores_summer,
                     hue='GLACIER',
                     palette=color_palette_glaciers)
-        ax3.set_title('Winter PMB', fontsize=24)
+        ax5.set_title('Summer PMB', fontsize=24)
 
-        ax4 = plt.subplot(2, 2, 4)
-        ax4.set_title('Mean winter PMB', fontsize=24)
-        grouped_ids_winter.sort_values(by='YEAR', inplace=True)
-        plotMeanPred(grouped_ids_winter, ax4)
+        ax6 = plt.subplot(rows, 2, 6)
+        ax6.set_title('Mean summer PMB', fontsize=24)
+        grouped_ids_summer.sort_values(by='YEAR', inplace=True)
+        plotMeanPred(grouped_ids_summer, ax6)
+    
+    plt.tight_layout()
 
 def PlotPredictionsCombined(grouped_ids, y_pred, metadata_test, test_set, model, region_name="", include_summer=False):
     fig = plt.figure(figsize=(12, 10))
@@ -428,11 +547,7 @@ def predVSTruth(ax, grouped_ids, scores, hue='GLACIER', palette=None):
             fontsize=20,
             bbox=props)
     if hue is not None:
-        # Move legend outside the plot to the right
-        ax.legend(fontsize=12, 
-                  loc='center left', 
-                  bbox_to_anchor=(1.05, 0.5),
-                  ncol=1)  # You can adjust ncol if needed
+        ax.legend(fontsize=14, loc='center left', bbox_to_anchor=(1, 0.5))
     else:
         ax.legend([], [], frameon=False)
     # diagonal line
@@ -445,6 +560,10 @@ def predVSTruth(ax, grouped_ids, scores, hue='GLACIER', palette=None):
     # Set ylimits to be the same as xlimits
     ax.set_xlim(-15, 6)
     ax.set_ylim(-15, 6)
+
+    # Set aspect ratio to equal (square plot)
+    ax.set_aspect('equal')
+
     plt.tight_layout()
     
 def plotMeanPred(grouped_ids, ax):
@@ -510,21 +629,11 @@ def PlotIndividualGlacierPredVsTruth(grouped_ids, base_figsize=(20, 15), height_
     
     fig, axs = plt.subplots(n_rows, 3, figsize=figsize)
 
-    colors_glacier = [
-        '#a6cee3', '#1f78b4', '#b2df8a', '#33a02c', '#fb9a99', '#e31a1c',
-        '#fdbf6f', '#ff7f00', '#cab2d6', '#6a3d9a', '#ffff99', '#b15928',
-        '#8dd3c7', '#ffffb3', '#bebada', '#fb8072', '#80b1d3', '#fdb462', 
-        '#b3de69', '#fccde5', '#d9d9d9', '#bc80bd', '#ccebc5', '#ffed6f',
-        '#66c2a5', '#fc8d62', '#8da0cb', '#e78ac3', '#a6d854', '#ffd92f', 
-        '#e5c494', '#b3b3b3', '#7fc97f', '#beaed4', '#fdc086', '#ffff99',
-        '#386cb0', '#f0027f', '#bf5b17', '#666666', '#1b9e77', '#d95f02',
-        '#7570b3', '#e7298a'
-    ]
-    color_palette_glaciers = dict(
-        zip(grouped_ids.GLACIER.unique(), colors_glacier))
-    color_palette_period = dict(
-        zip(grouped_ids.PERIOD.unique(),
-            colors_glacier[:len(grouped_ids.PERIOD.unique())]))
+    color_palette_period = {
+        'winter': '#a6cee3',  # blue
+        'summer': '#33a02c',  # green
+        'annual': '#e31a1c'   # red
+        }
 
     for i, test_gl in enumerate(grouped_ids['GLACIER'].unique()):
         df_gl = grouped_ids[grouped_ids.GLACIER == test_gl]
@@ -553,22 +662,4 @@ def PlotIndividualGlacierPredVsTruth(grouped_ids, base_figsize=(20, 15), height_
         if j < len(axs.flatten()):
             axs.flatten()[j].set_visible(False)
 
-    plt.tight_layout(pad=3.0)
-    
-    
-def plotGlAttr(ds, cmap=cm.batlow):
-    # Plot glacier attributes
-    fig, ax = plt.subplots(2, 3, figsize=(18, 10))
-    ds.masked_slope.plot(ax=ax[0, 0], cmap=cmap)
-    ax[0, 0].set_title('Slope')
-    ds.masked_elev.plot(ax=ax[0, 1], cmap=cmap)
-    ax[0, 1].set_title('Elevation')
-    ds.masked_aspect.plot(ax=ax[0, 2], cmap=cmap)
-    ax[0, 2].set_title('Aspect')
-    ds.masked_hug.plot(ax=ax[1, 0], cmap=cmap)
-    ax[1, 0].set_title('Hugonnet')
-    ds.masked_cit.plot(ax=ax[1, 1], cmap=cmap)
-    ax[1, 1].set_title('Consensus ice thickness')
-    ds.masked_miv.plot(ax=ax[1, 2], cmap=cmap)
-    ax[1, 2].set_title('Millan v')
     plt.tight_layout()

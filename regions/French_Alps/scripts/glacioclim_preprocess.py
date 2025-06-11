@@ -6,6 +6,7 @@ import pyproj
 import xarray as xr
 import zipfile
 import logging
+import math
 from tqdm import tqdm
 from itertools import combinations
 from geopy.distance import geodesic
@@ -15,8 +16,6 @@ from pathlib import Path
 from shapely.geometry import Point
 from scipy.spatial.distance import cdist
 
-
-from scripts.wgs84_ch1903 import *
 from scripts.config_FR import *
 from scripts.helpers import *
 

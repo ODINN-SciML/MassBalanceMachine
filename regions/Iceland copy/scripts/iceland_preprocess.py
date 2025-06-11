@@ -3,12 +3,12 @@ import numpy as np
 import pyproj
 import xarray as xr
 import geopandas as gpd
-from shapely.geometry import Point
+import math
 import logging
+from shapely.geometry import Point
 from oggm import utils, workflow, tasks
 from oggm import cfg as oggmCfg
 
-from scripts.wgs84_ch1903 import *
 from scripts.config_ICE import *
 from scripts.helpers import *
 
