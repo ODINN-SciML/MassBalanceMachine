@@ -3,6 +3,7 @@ import numpy as np
 import pyproj
 import xarray as xr
 import geopandas as gpd
+import math
 from geopy.distance import geodesic
 from shapely.geometry import Point
 from tqdm import tqdm
@@ -12,7 +13,6 @@ from oggm import cfg as oggmCfg
 from itertools import combinations
 from scipy.spatial.distance import cdist
 
-from scripts.wgs84_ch1903 import *
 from scripts.config_IT_AT import *
 from scripts.helpers import *
 

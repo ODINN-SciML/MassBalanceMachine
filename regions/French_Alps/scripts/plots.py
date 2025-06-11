@@ -252,7 +252,7 @@ def plotGridSearchScore(cv_results_, lossType: str):
     plt.title('Grid search score over iterations')
     plt.legend()
     
-def plotGridSearchParams(cv_results_, param_grid, lossType:str, N=None):
+def plotGridSearchParams(cv_results_, param_grid, lossType:str, N=10):
     dfCVResults = pd.DataFrame(cv_results_)
     best_params = dfCVResults.sort_values('mean_test_score',
                                           ascending=False).iloc[0].params
@@ -260,7 +260,7 @@ def plotGridSearchParams(cv_results_, param_grid, lossType:str, N=None):
     dfCVResults_ = dfCVResults[mask_raisonable]
     dfCVResults_.sort_values('mean_test_score', ascending=False, inplace=True)
     if N is not None:
-        dfCVResults_ = dfCVResults_.iloc[:10]
+        dfCVResults_ = dfCVResults_.iloc[:N]
     fig = plt.figure(figsize=(15, 5))
     for i, param in enumerate(param_grid.keys()):
 
@@ -662,22 +662,4 @@ def PlotIndividualGlacierPredVsTruth(grouped_ids, base_figsize=(20, 15), height_
         if j < len(axs.flatten()):
             axs.flatten()[j].set_visible(False)
 
-    plt.tight_layout()
-    
-    
-def plotGlAttr(ds, cmap=cm.batlow):
-    # Plot glacier attributes
-    fig, ax = plt.subplots(2, 3, figsize=(18, 10))
-    ds.masked_slope.plot(ax=ax[0, 0], cmap=cmap)
-    ax[0, 0].set_title('Slope')
-    ds.masked_elev.plot(ax=ax[0, 1], cmap=cmap)
-    ax[0, 1].set_title('Elevation')
-    ds.masked_aspect.plot(ax=ax[0, 2], cmap=cmap)
-    ax[0, 2].set_title('Aspect')
-    ds.masked_hug.plot(ax=ax[1, 0], cmap=cmap)
-    ax[1, 0].set_title('Hugonnet')
-    ds.masked_cit.plot(ax=ax[1, 1], cmap=cmap)
-    ax[1, 1].set_title('Consensus ice thickness')
-    ds.masked_miv.plot(ax=ax[1, 2], cmap=cmap)
-    ax[1, 2].set_title('Millan v')
     plt.tight_layout()
