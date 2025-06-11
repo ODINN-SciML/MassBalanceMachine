@@ -9,12 +9,12 @@ from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 from scripts.helpers import *
 from scripts.config_FR import *
 
-colors = get_cmap_hex(cm.batlow, 2)
+colors = get_cmap_hex(cm.batlow, 10)
+color_dark_blue = colors[0]
+color_pink = '#c51b7d'
+color_orange = '#FFA500'
 color_xgb = colors[0]
 color_tim = '#c51b7d'
-
-color_winter = '#a6cee3'
-color_annual = '#1f78b4'
 
 def plotHeatmap(data_wgms, test_glaciers=None, period='annual', plot_elevation=False):
     # Heatmap of mean mass balance per glacier:
