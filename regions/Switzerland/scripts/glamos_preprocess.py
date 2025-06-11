@@ -531,6 +531,14 @@ def get_geodetic_MB(cfg):
     # Manually set Astart and Aend based on date_start and date_end
     geodetic_mb['Astart'] = geodetic_mb['date_start'].dt.year
     geodetic_mb['Aend'] = geodetic_mb['date_end'].dt.year
+    
+    glDirect = np.sort([
+        re.search(r'xr_direct_(.*?)\.zarr', f).group(1)
+        for f in os.listdir(cfg.dataPath + path_pcsr + 'zarr/')
+    ])
+
+    # filter to glaciers with potential clear sky radiation data
+    geodetic_mb = geodetic_mb[geodetic_mb.glacier_name.isin(glDirect)]
 
     return geodetic_mb
 
