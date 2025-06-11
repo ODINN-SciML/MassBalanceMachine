@@ -175,3 +175,5 @@ already existing regions have changed in dev geodetic and if they can be replace
 
 - corrected the paths and corrected th mbm calls, everything should work now, rerun everything, check if wgs script is used anywhere, 
         then ready for pull request
+
+----all ch transfer models there, plots from norway is the one, put in other regions, load models in all regions and run again then pull request
