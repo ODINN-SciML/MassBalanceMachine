@@ -11,7 +11,7 @@ from scripts.config_ICE import *
 
 colors_vik = get_cmap_hex(cm.vik, 10)
 color_xgb = colors_vik[0]
-color_tim = colors_vik[2]
+color_tim = '#c51b7d'
 
 color_dark_blue = '#00008B'
 color_orange = '#FFA500'
@@ -454,7 +454,9 @@ def PlotPredictionsCombined(grouped_ids, y_pred, metadata_test, test_set, model,
     fig = plt.figure(figsize=(12, 10))
     
     # Define colors for period (annual/winter/summer)
-    period_colors = {'annual': '#1f78b4', 'winter': '#e31a1c', 'summer': '#33a02c'}
+    period_colors = {'annual': '#e31a1c',
+                    'winter': '#1f78b4',
+                    'summer': '#33a02c'}
     
     # Calculate metrics for combined, annual and winter periods
     mse_all, rmse_all, mae_all, pearson_corr_all = model.evalMetrics(
@@ -545,7 +547,7 @@ def predVSTruth(ax, grouped_ids, scores, hue='GLACIER', palette=None):
             fontsize=20,
             bbox=props)
     if hue is not None:
-        ax.legend(fontsize=14, loc='center left', bbox_to_anchor=(1, 0.5))
+        ax.legend(fontsize=8, loc='center left', bbox_to_anchor=(1, 0.5))
     else:
         ax.legend([], [], frameon=False)
     # diagonal line
@@ -627,11 +629,10 @@ def PlotIndividualGlacierPredVsTruth(grouped_ids, base_figsize=(20, 15), height_
     
     fig, axs = plt.subplots(n_rows, 3, figsize=figsize)
 
-    color_palette_period = {
-        'winter': '#a6cee3',  # blue
-        'summer': '#33a02c',  # green
-        'annual': '#e31a1c'   # red
-        }
+    color_palette_period = {'annual': '#e31a1c',
+                            'winter': '#1f78b4',
+                            'summer': '#33a02c'}
+
 
     for i, test_gl in enumerate(grouped_ids['GLACIER'].unique()):
         df_gl = grouped_ids[grouped_ids.GLACIER == test_gl]
@@ -695,4 +696,50 @@ def plot_climate_glacier_elevations(test_glaciers, test_set, plots_per_row=7, ba
         ax[j].set_visible(False)
 
     plt.tight_layout()
+    return
+
+def plot_point_climate_variables(point_ids, data_monthly, vois_climate, vois_units=None, 
+                                figsize=(18, 12), ncol=3,
+                                title='Climate Variables for specific POINT_IDs'):
+    if vois_units is None:
+        vois_units = {}
+        
+    # Filter data for these specific point IDs
+    point_data = data_monthly[data_monthly['POINT_ID'].isin(point_ids)]
+    
+    fig = plt.figure(figsize=figsize)
+    
+    month_order = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+    
+    # Plot each climate variable
+    for var_idx, var in enumerate(vois_climate):
+        ax = plt.subplot(3, 3, var_idx+1)
+        
+        # Group by point ID and month, taking mean if multiple values exist
+        pivot_data = point_data.pivot_table(
+            index='MONTHS', columns='POINT_ID', values=var, aggfunc='mean')
+        
+        for point_id in point_ids:
+            if point_id in pivot_data.columns:
+                valid_months = [m for m in month_order if m in pivot_data.index]
+                if valid_months:
+                    x_pos = [month_order.index(m) for m in valid_months]
+                    y_vals = [pivot_data.loc[m, point_id] for m in valid_months]
+                    
+                    ax.plot(x_pos, y_vals, marker='o', linewidth=2, label=point_id)
+        
+        ax.set_title(f'{var}', fontsize=12)
+        ax.set_ylabel(vois_units.get(var, ''))
+        ax.set_xticks(range(len(month_order)))
+        ax.set_xticklabels(month_order, rotation=45)
+        ax.grid(True, linestyle='--', alpha=0.7)
+    
+    # Create a separate legend figure below the plots
+    plt.subplots_adjust(bottom=0.25)
+    handles, labels = ax.get_legend_handles_labels()
+    plt.figlegend(handles, labels, loc='lower center', ncol=ncol, fontsize=10, bbox_to_anchor=(0.5, 0.02))
+    
+    plt.suptitle(title, fontsize=16)
+    plt.tight_layout(rect=[0, 0.05, 1, 0.95])
+    
     return
