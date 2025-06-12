@@ -192,7 +192,7 @@ def plotGridSearchScore(cv_results_, lossType: str):
     plt.legend()
 
 
-def plotGridSearchParams(cv_results_, param_grid, lossType: str, N=None):
+def plotGridSearchParams(cv_results_, param_grid, lossType: str, N=10):
     dfCVResults = pd.DataFrame(cv_results_)
     best_params = dfCVResults.sort_values('mean_test_score',
                                           ascending=False).iloc[0].params
@@ -200,7 +200,7 @@ def plotGridSearchParams(cv_results_, param_grid, lossType: str, N=None):
     dfCVResults_ = dfCVResults[mask_raisonable]
     dfCVResults_.sort_values('mean_test_score', ascending=False, inplace=True)
     if N is not None:
-        dfCVResults_ = dfCVResults_.iloc[:10]
+        dfCVResults_ = dfCVResults_.iloc[:N]
     fig = plt.figure(figsize=(15, 5))
     for i, param in enumerate(param_grid.keys()):
 
