@@ -1,0 +1,179 @@
+Faulty measurement: mdg_langue_annual_smb_abl_2008_setup2008_9 goes from 2009 to 2008
+
+mdg_Tacul_annual_smb_abl_1999_setup1997_20 & mdg_Tacul_annual_smb_abl_1999_setup1998_20
+mdg_Tacul_annual_smb_abl_1999_setup1997_17 & mdg_Tacul_annual_smb_abl_1999_setup1998_17
+mdg_Tacul_annual_smb_abl_1993_setup1991_12 & mdg_Tacul_annual_smb_abl_1993_setup1992_12
+mdg_annual_accu_2017_setup2016_4  & mdg_annual_accu_2017_setup2017_4
+mdg_annual_accu_2017_setup2016_5 & mdg_annual_accu_2017_setup2017_5
+mdg_annual_accu_2017_setup2016_9 & mdg_annual_accu_2017_setup2017_9
+mdg_annual_accu_2017_setup2016_10 & mdg_annual_accu_2017_setup2017_10
+mdg_annual_accu_2022_setup2021_1 & mdg_annual_accu_2022_setup2022_1
+mdg_Leschaux_summer_smb_abl_2019_setup2017_1 & mdg_Leschaux_summer_smb_abl_2019_setup2017_3
+Argentiere_Profils_2_4_5_7_annual_smb_abl_1987_setup1984_1 & Argentiere_Profils_2_4_5_7_annual_smb_abl_1987_setup1986_1
+Argentiere_Profils_2_4_5_7_annual_smb_abl_1987_setup1984_3 & Argentiere_Profils_2_4_5_7_annual_smb_abl_1987_setup1986_3
+Argentiere_Profils_2_4_5_7_annual_smb_abl_1987_setup1984_4 & Argentiere_Profils_2_4_5_7_annual_smb_abl_1987_setup1986_4
+Argentiere_Profils_2_4_5_7_annual_smb_abl_1987_setup1984_5 & Argentiere_Profils_2_4_5_7_annual_smb_abl_1987_setup1986_5
+Argentiere_Profils_2_4_5_7_annual_smb_abl_1987_setup1984_6 & Argentiere_Profils_2_4_5_7_annual_smb_abl_1987_setup1986_6
+Argentiere_Profils_2_4_5_7_annual_smb_abl_1987_setup1984_8 & Argentiere_Profils_2_4_5_7_annual_smb_abl_1987_setup1986_8
+Argentiere_Profils_2_4_5_7_annual_smb_abl_1987_setup1984_2 & Argentiere_Profils_2_4_5_7_annual_smb_abl_1987_setup1986_2
+Argentiere_Profils_2_4_5_7_annual_smb_abl_1987_setup1984_7 & Argentiere_Profils_2_4_5_7_annual_smb_abl_1987_setup1986_7
+Argentiere_Profils_2_4_5_7_annual_smb_abl_1988_setup1984_6 & Argentiere_Profils_2_4_5_7_annual_smb_abl_1988_setup1986_6
+Argentiere_Profils_2_4_5_7_annual_smb_abl_2000_setup1994_21 & Argentiere_Profils_2_4_5_7_annual_smb_abl_2000_setup1998_21
+Argentiere_Profils_2_4_5_7_annual_smb_abl_2000_setup1994_20 & Argentiere_Profils_2_4_5_7_annual_smb_abl_2000_setup1998_20
+Argentiere_Profils_2_4_5_7_annual_smb_abl_2000_setup1994_19 & Argentiere_Profils_2_4_5_7_annual_smb_abl_2000_setup1998_19
+stso_annual_smb_abl_1973_setup1970_15 & stso_annual_smb_abl_1973_setup1971_15 (this one is also different elevation for some reason)
+stso_annual_smb_abl_1972_setup1970_15 & stso_annual_smb_abl_1972_setup1971_15
+mdg_Leschaux_winter_smb_abl_2020_setup2017_1 & mdg_Leschaux_winter_smb_abl_2020_setup2017_3 
+
+
+are the exact same measurement location and dates but the mass balance is different.
+
+mdg_Talefre_summer_smb_abl_1998_setup1995_2 & mdg_Talefre_summer_smb_abl_1998_setup1998_2
+
+is same measurement location but different dates.
+
+stso_annual_smb_abl_1963_setup1961_38 & stso_annual_smb_abl_1963_setup1962_38
+stso_annual_smb_abl_1972_setup1970_25 & stso_annual_smb_abl_1972_setup1971_25
+
+is same measurement location and dates and same mass balance.
+
+
+Notes from running new dev code:
+- hardcoded paths are still present in some parts (e.g. working-dir)
+- Folders are not created in the code but have to be manually created (point csv)
+- create_sgi_topo_masks in 1.1 is called after sgi_grid = xr.open_dataset(path_SGI_topo +
+                                                    f'xr_masked_grids/{glacierName}.zarr')
+- no instructions which files need to be manually downloaded and put into which folders for the code to run
+
+
+- Laufen lassen ohne Summer werte im FR Test, dann plot für alle gletscher im test set mit Temp, wind etc. 
+ (schauen wo ist unterschied bei den gletschern wo es nicht gut passt im vergleich zu schweizer gletschern).
+ Diese ergebnisse in den mass blaance machine chat.
+
+- als nächstes Italien und österreich. (später dann auch zB Island daten auf github) und 
+dann nochmal schauen wie auf schweiz trainiert und auf die anderen länder angewendet aussieht.
+
+
+
+28.04.2025
+
+-AT and IT, OGGM is missing millan_v on some RGIId completely
+- why is topo at times quite different from point_elevation?
+- "IT	MALAVALLE (VEDR. DI) / UEBELTALF.	672	2012	17938	ST19	1012-05-08	0.0	05/10/2012	0.0	46.939602	11.1834	2997 -2.037	summer" and other Malavalle have invalid dates
+
+- ich mal account um zu schauen ob das wirlich stakes sind im AT,
+- danmn trainieren auf schweiz und test auf IT und AT, dann noch Island und Norwegen.
+
+05.05
+millan_v is again missing for 1 glacier  RGI60-08.01258 in Norway. also some stakes have no consensus_ise_thickness
+eventhough they are within glacier shape. kicked out millan_v and kicked out the rows with missing thickness
+---> Error with ERA5Land data, try with smaller region set to debug
+
+-Alban anfrage auf Slack und schildern was im ERA5 Land alles nicht geht und was ich probiert habe
+
+
+für 1st intemediary slides machen, was für daten haben wir alles, was fehlt uns, was für tests habe ich schon gemacht.
+"Study site and data"
+Resultate mal präsentiere von frankreich und transfer learning CH F und CH IT_AT.
+Geographisch zeigen von wo die daten kommen, dann wie sehen die daten aus.
+--> dann erste resultate.
+
+Plan brauche ich nicht machen. wir besprechen dann am gespräch und plan kann ich dann im Summary einfügen
+
+bullet points kann ich ja machen wir haben jetzt schon easy transfer learning, und 
+dort wos nicht geht wäre möglichkeit mit NN
+
+- Norwegen regionen einteilen und schauen ob dann zb Nördlich und Süden besser ist beim transfer learning. Kamilla hat schon regionen im paper eingeteilt.
+
+- Mehr noch ausfinding machen wieso outliers zb Lupo wieso schlecht. einfach so generell biscchen resultate interpretieren.
+
+- plots machen wie viele gletscher es hat total pro Land und für welche haben wir daten. Pro land schauen gehen ihr RGIId mdg_Leschaux_winter_smb_abl_2020_setup2017_1
+
+- Marijn möchte alle Daten in Europa haben als ganzes Train Set und dann Volume change berechnen, mit Satellit als Test set sozusagen.
+
+- für gespräch: Result plots, alles CH zu andere REgionen in einen  plot und Winter Annual etc in einen plot
+
+- ich könnte auch vllt bei Norwegen die individual geltscher zeigen auf die Kamilla aug getestet hat und vergleichen mit ihrem resultate
+
+- Island oder NN das können wir morgen dann anschauen. Aber ich kann sonst schon mal anfangen mit
+
+----- 
+IT_AT
+!!DONE DONE!! AT hat ein Stake bei VERNAGT F. display(data_AT[data_AT['POINT_ELEVATION'] < 500]) der 296 anstatt 2960 ist.
+GRAND ETRETS in WGMS set had falsches datum bei stake in mass_balance_point, korriegieren und nochmal laufen lasse (wenn dabei auch gleich alle daten kontrollieren im dataset)
+!!!!!!!!!!!!!!!!!!IT,MALAVALLE (VEDR. DI) / UEBELTALF.,672,2013,17955,P04,2012-10-05,0.0,2013-09-24,0.0,46.9486,11.1883,1812,-0.811,,,,annual, ztiemlich sicher 1000m elevation zu wenig
+
+FR
+Height value in Sarennes is kept at same height over the years instead of adjusted every year.
+
+Is norway really in WGS84 coordinate? Yes they are im 99% sure, other coordinates system wouldnt be in pefrect lat lon, but still check...
+------
+Liss Mary Andreasen.
+
+Get started with neural network as soon as possible. Outlier analysis is much more interesting to see if they go away with neural network instead of spending too much time to anlyze them.
+
+bullet points summary for the document I have to hand in, 1 week, also include figures.
+
+next steps:
+- Clean up regional notebooks
+
+- Norway transfer learning analysis and general outlier analysis
+
+- Remaining IT/AT data
+
+- Iceland data and XGBoost transfer learning test
+
+- Neural Network transfer learning comparison
+
+
+------
+
+Get also the massbalancemachien again from dev-geodetic, it changed.
+make a plot (histogramm) that shows every climate feature distribution over the different regions for the intermed. meeting
+upload regions to main branhc, mark marijn as reviewer, check for norway and iceland if they are used in "notebooks"
+if not just delete the old ones.
+Marijn says the high std. deviation might be because there are more conistent measurement, according to her the more 
+measurements the higher the stddev, but i should chekc again if there is something wrong, it does seem very high,
+and its the same for french region i think.
+i can use NN no worries, but just check with htop if it uses up too much resources.
+
+Iceland reworked, norway 1.1 and 1.2 reworked (still remove sgi shit from glamos_propocess)
+
+----
+stratigraphic, 
+should i do randomly sample 1000 per region for distribution?
+
+morgen intermed.
+
+nochmal die neuen Plots zeigen.
+
+region notebooks auf geodetic laden.
+
+für NN vor allen Paths cfg.data, Sys path am anfang einfügen .ordner.
+
+alller neustes NN mit was obne beschrieben, paths etc, ist im neusten pull request auf dev-geodetic
+
+------
+
+Iceland ERa5land needs to be redonwloaded on SSH, WSL ok, rerun all transfer learning tomorrow
+
+--- drop point with no point_elevation, taking from topo doesnt make sense because topo is from a single year
+
+---get_cv_split( in DataLoader.py the comment says it makes sure that data from the same glacier is not split across different folds. but it actuallky makes sure
+            that data from the same stake (which has been split into monthly values, which all share the same 'ID') is not split accross folds.
+----plotGridSearchParams() bug, no matter what N is used, it is always 10 dfCVResults_.iloc[:10]
+do on weekend: rerun ##### A.3.1. Spatial Cross-Validation, the old model file still has 1 outlier in there, otherwise A. is good, go B., then other 3.2 
+                    the current .plots file of france is the one with all the good plots, copy them to the other regions.
+set a flag on other regions for changes made to dataset like with france
+
+----
+norway features approx. loc and approx elevation but with no further info, this has so far been disregarded, might want to delete those points? I'm not sure
+
+--- Tomorrow 09.06
+get updated mbm from dev_geodetic, replace all plots.py with french, rerun 3.2 . clean unused scripts, upload to github dev branch with marijn as reviewer (check again if
+already existing regions have changed in dev geodetic and if they can be replaced.)
+
+- corrected the paths and corrected th mbm calls, everything should work now, rerun everything, check if wgs script is used anywhere, 
+        then ready for pull request
+
+----all ch transfer models there, plots from norway is the one, put in other regions, load models in all regions and run again then pull request
