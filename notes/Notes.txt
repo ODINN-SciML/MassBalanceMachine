@@ -177,3 +177,5 @@ already existing regions have changed in dev geodetic and if they can be replace
         then ready for pull request
 
 ----all ch transfer models there, plots from norway is the one, put in other regions, load models in all regions and run again then pull request
+
+----------------------------NN----------------------------
