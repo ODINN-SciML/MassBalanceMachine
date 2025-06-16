@@ -18,3 +18,5 @@ regions/Switzerland/.ipynb_checkpoints
 regions/Norway/data/
 *.tox/
 *.tox
+
+logs/

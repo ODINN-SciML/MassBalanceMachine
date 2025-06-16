@@ -57,7 +57,7 @@ class GeoDataLoader:
 
         self.glaciersWithGeo = []
         for g in self.glacierList:
-            if has_geodetic_input(self.cfg, g, self.periods_per_glacier):
+            if g in self.periods_per_glacier and has_geodetic_input(self.cfg, g, self.periods_per_glacier):
                 self.glaciersWithGeo.append(g)
         print(f"Geodetic data contain {len(self.glaciersWithGeo)} glaciers out of {len(self.glacierList)}.")
 
