@@ -57,6 +57,7 @@ pytest-cov = "^6.1.1"
 zarr = "2.18.4"
 pyarrow = "^19.0.1"
 tensorboard = "^2.19.0"
+torcheval = "^0.0.7"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.2"
