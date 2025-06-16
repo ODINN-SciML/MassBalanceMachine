@@ -250,7 +250,6 @@ class GeoData:
                         all_columns,
                         path_glacier_dem,
                         path_save_glw,
-                        cfg,
                         save_monthly_pred=True,
                         type_model='XGBoost'):
         """
@@ -313,7 +312,7 @@ class GeoData:
                               path_save_glw, "annual")
 
         # Save monthly grids
-        if save_monthly_pred:
+        if save_monthly_pred and type_model == 'NN':
             coordinates = df_grid_monthly.groupby('ID')[[
                 'POINT_LAT', 'POINT_LON'
             ]].mean().reset_index()
@@ -321,8 +320,12 @@ class GeoData:
                                                                 on='ID',
                                                                 how='left')
 
-            self._save_monthly_predictions(cfg, df_pred_months_annual, ds,
+            self._save_monthly_predictions_NN(df_pred_months_annual, ds,
                                            glacier_name, year, path_save_glw)
+        elif save_monthly_pred and type_model == 'XGBoost':
+            self._save_monthly_predictions_XGB(df_grid_monthly, ds,
+                                           glacier_name, year, path_save_glw)
+            
 
         return df_pred_months_annual
 
@@ -356,7 +359,7 @@ class GeoData:
                          path=save_path + '/',
                          proj_type='wgs84')
 
-    def _save_monthly_predictions(self, cfg, df, ds, glacier_name, year,
+    def _save_monthly_predictions_NN(self, df, ds, glacier_name, year,
                                   path_save_glw):
         """Helper function to save monthly predictions."""
         hydro_months = [
@@ -365,10 +368,39 @@ class GeoData:
         ]
         df_cumulative = df[hydro_months].cumsum(axis=1)
 
-        for month, month_nb in cfg.month_abbr_hydr.items():
+        for month in hydro_months:
             df_month = df[[month, 'ID', 'POINT_LON', 'POINT_LAT']]
             df_month['pred'] = df_month[month]
             df_month['cum_pred'] = df_cumulative[month]
+            self.data = df_month
+            self.pred_to_xr(ds, pred_var='cum_pred', source_type='sgi')
+            save_path = os.path.join(path_save_glw, glacier_name)
+            os.makedirs(save_path, exist_ok=True)
+            self.save_arrays(f"{glacier_name}_{year}_{month}.zarr",
+                             path=save_path + '/',
+                             proj_type='wgs84')
+            
+    def _save_monthly_predictions_XGB(self, df, ds, glacier_name, year,
+                                  path_save_glw):
+        """Helper function to save monthly predictions."""
+        hydro_months = [
+            'sep', 'oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr', 'may',
+            'jun', 'jul', 'aug'
+        ]
+        for month in hydro_months:
+            df_month = df[df['MONTHS'] == month].groupby('ID').agg({
+                'YEAR':
+                'mean',
+                'POINT_LAT':
+                'mean',
+                'POINT_LON':
+                'mean',
+                'pred':
+                'mean',
+                'cum_pred':
+                'mean'
+            }).drop(columns=['YEAR'], errors='ignore')
+
             self.data = df_month
             self.pred_to_xr(ds, pred_var='cum_pred', source_type='sgi')
             save_path = os.path.join(path_save_glw, glacier_name)

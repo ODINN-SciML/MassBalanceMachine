@@ -358,7 +358,9 @@ class CustomXGBoostRegressor(XGBRegressor):
         """
         if type_pred == 'winter':
             # winter months from October to April
-            winter_months = ['oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr']
+            winter_months = [
+                'sep', 'oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr'
+            ]
             df_grid = df_grid[df_grid.MONTHS.isin(winter_months)]
 
         # Make predictions on whole glacier grid
@@ -367,13 +369,15 @@ class CustomXGBoostRegressor(XGBRegressor):
         # Make predictions aggregated to measurement ID:
         y_pred_grid_agg = self.aggrPredict(metadata_grid, features_grid)
 
-        grouped_ids = df_grid.groupby('ID')[['YEAR', 'POINT_LAT', 'POINT_LON', 'GLWD_ID']].first()
+        grouped_ids = df_grid.groupby('ID')[[
+            'YEAR', 'POINT_LAT', 'POINT_LON', 'GLWD_ID'
+        ]].first()
 
         grouped_ids['pred'] = y_pred_grid_agg
         grouped_ids.reset_index(inplace=True)
         grouped_ids.sort_values(by='YEAR', inplace=True)
 
-        return grouped_ids
+        return grouped_ids, None
 
     def save_model(self, fname: str) -> None:
         """Save a grid search or randomized search CV instance to a file"""
@@ -465,10 +469,10 @@ class CustomXGBoostRegressor(XGBRegressor):
         # based on the metadata.
         y_pred_agg, y_true_mean, grouped_ids, df_metadata = (
             self._create_metadata_scores(metadata,
-                                            y_true,
-                                            y_pred,
-                                            meta_data_columns,
-                                            period=None))
+                                         y_true,
+                                         y_pred,
+                                         meta_data_columns,
+                                         period=None))
 
         if self.cfg.loss == 'MSE':
             # Compute gradients and hessians
