@@ -6,12 +6,12 @@ from datetime import datetime
 import traceback
 
 import os
-import pickle
 import config
 import torch
 
 import numpy as np
 import pandas as pd
+import random as rd 
 
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 from sklearn.utils.validation import check_is_fitted
@@ -57,105 +57,10 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         self.param_search = None
         self.metadataColumns = metadataColumns or self.cfg.metaData
         self.nbFeatures = nbFeatures
-        # self.modelDtype = list(self.module.parameters())[0].dtype if len(
-        #     list(self.module.parameters())) > 0 else None
+        
+        # seed all
+        self.seed_all()
 
-    # def gridsearch(
-    #     self,
-    #     parameters: Dict[str, Union[list, np.ndarray]],
-    #     splits: Dict[str, Union[list, np.ndarray]],
-    #     dataset: list[SliceDataset],
-    # ) -> None:
-    #     """
-    #     Perform a grid search for hyperparameter tuning.
-
-    #     This method uses GridSearchCV to exhaustively search through a specified parameter grid.
-
-    #     Args:
-    #         parameters (dict): A dictionary of parameters to search over.
-    #         splits (tuple[list[tuple[ndarray, ndarray]]]): A dictionary containing cross-validation split information.
-    #         dataset (list of skorch.helper.SliceDataset): The datasets that provides both input features and targets for training.
-
-    #     Sets:
-    #         self.param_search (GridSearchCV): The fitted GridSearchCV object.
-    #     """
-
-    #     clf = GridSearchCV(
-    #         estimator=self,
-    #         param_grid=parameters,
-    #         cv=splits,
-    #         verbose=1,
-    #         n_jobs=self.cfg.numJobs,
-    #         scoring=None,
-    #         refit=True,
-    #         error_score="raise",
-    #         return_train_score=True,
-    #     )
-
-    #     clf.fit(dataset[0], y=dataset[1])
-    #     self.param_search = clf
-
-    # def randomsearch(
-    #     self,
-    #     parameters: Dict[str, Union[list, np.ndarray]],
-    #     n_iter: int,
-    #     dataset: list[SliceDataset],
-    #     njobs=None,
-    #     cv = None
-    #     ) -> None:
-    #     """
-    #     Perform a randomized search for hyperparameter tuning.
-
-    #     This method uses RandomizedSearchCV to search a subset of the specified parameter space.
-
-    #     Args:
-    #         parameters (dict): A dictionary of parameters and their distributions to sample from.
-    #         n_iter (int): Number of parameter settings that are sampled.
-    #         splits (tuple[list[tuple[ndarray, ndarray]]]): A dictionary containing cross-validation split information.
-    #         dataset (list of skorch.helper.SliceDataset): The datasets that provides both input features and targets for training.
-
-    #     Sets:
-    #         self.param_search (RandomizedSearchCV): The fitted RandomizedSearchCV object.
-    #     """
-    #     njobs = njobs or self.cfg.numJobs
-    #     try:
-    #         clf = RandomizedSearchCV(
-    #             estimator=self,
-    #             param_distributions=parameters,
-    #             n_iter=n_iter,
-    #             verbose=1,
-    #             n_jobs=njobs,
-    #             scoring=None,
-    #             refit=True,
-    #             error_score="raise",
-    #             return_train_score=True,
-    #             random_state=self.cfg.seed,
-    #             cv = cv
-    #         )
-
-    #         clf.fit(dataset.X, dataset.y)
-    #         self.param_search = clf
-
-    #         # Save cv_results_
-    #         os.makedirs('logs', exist_ok=True)
-    #         log_path = f'logs/cv_results_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.csv'
-    #         pd.DataFrame(clf.cv_results_).to_csv(log_path, index=False)
-
-    #         # Save best estimator
-    #         os.makedirs('models', exist_ok=True)
-    #         best_model_path = f'models/best_model_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.pt'
-    #         clf.best_estimator_.save_model(best_model_path)
-
-    #     except Exception as e:
-    #         os.makedirs('logs', exist_ok=True)
-    #         err_file = f'logs/randomsearch_error_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.log'
-    #         with open(err_file, 'w') as f:
-    #             f.write("RandomizedSearchCV crashed!\n\n")
-    #             traceback.print_exc(file=f)
-
-    #         print(f"RandomizedSearchCV crashed. See log: {err_file}")
-    #         raise  # optional: re-raise to let the calling process handle it
-    
 
     def initialize_module(self):
         super().initialize_module()
@@ -480,6 +385,28 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
 
         return features, metadata
 
+
+    def seed_all(self):
+        """Sets the random seed everywhere for reproducibility.
+        """
+        # Python built-in random
+        rd.seed(self.cfg.seed)
+
+        # NumPy random
+        np.random.seed(self.cfg.seed)
+
+        # PyTorch seed
+        torch.manual_seed(self.cfg.seed)
+        torch.cuda.manual_seed(self.cfg.seed)
+        torch.cuda.manual_seed_all(self.cfg.seed)  # If using multiple GPUs
+
+        # Ensuring deterministic behavior in CuDNN
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
+        # Setting CUBLAS environment variable (helps in newer versions)
+        os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+        
     @staticmethod
     def load_model(cfg: config.Config, fname: str, *args,
                    **kwargs) -> "CustomNeuralNetRegressor":
@@ -497,3 +424,6 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         model.initialize()
         model.load_params(f_params=_models_dir / fname)
         return model
+
+
+    

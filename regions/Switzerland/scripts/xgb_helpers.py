@@ -102,6 +102,8 @@ def process_or_load_data(run_flag,
         try:
             input_file = os.path.join(paths['csv_path'], output_file)
             data_monthly = pd.read_csv(input_file)
+            filt = data_monthly.filter(['YEAR.1','POINT_LAT.1','POINT_LON.1'])
+            data_monthly.drop(filt, inplace=True, axis=1)
             dataloader_gl = mbm.dataloader.DataLoader(cfg,
                                            data=data_monthly,
                                            random_seed=cfg.seed,
@@ -135,6 +137,7 @@ def get_CV_splits(dataloader_gl,
     else:
         split_data = dataloader_gl.data[test_split_on].unique()
         train_splits = [x for x in split_data if x not in test_splits]
+        
     train_indices = dataloader_gl.data[dataloader_gl.data[test_split_on].isin(
         train_splits)].index
     test_indices = dataloader_gl.data[dataloader_gl.data[test_split_on].isin(
@@ -254,6 +257,28 @@ def correct_vars_grid(df_grid_monthly,
     return df_grid_monthly
 
 
+def has_geodetic_input(cfg, glacier_name, periods_per_glacier):
+    """
+    Returns a boolean indicating whether a glacier has valid geodetic data or not.
+    For the data to be valid, no year should miss between between the minimum and
+    the maximum of all the geodetic periods.
+    """
+
+    # Get the minimum and maximum geodetic years for the glacier
+    min_geod_y, max_geod_y = np.min(periods_per_glacier[glacier_name]), np.max(
+        periods_per_glacier[glacier_name])
+
+    for year in range(min_geod_y, max_geod_y + 1):
+        # Check that the glacier grid file exists
+        file_name = f"{glacier_name}_grid_{year}.parquet"
+        file_path = os.path.join(cfg.dataPath, path_glacier_grid_glamos, glacier_name,
+                                 file_name)
+
+        if not os.path.exists(file_path):
+            return False
+    return True
+
+
 def create_geodetic_input(cfg, glacier_name,
                           periods_per_glacier,
                           to_seasonal=False):
@@ -282,7 +307,7 @@ def create_geodetic_input(cfg, glacier_name,
                                  file_name)
 
         if not os.path.exists(file_path):
-            print(f"Warning: File {file_name} not found, skipping...")
+            print(f"Warning: File {file_path} not found, skipping...")
             continue
 
         # Load parquet input glacier grid file in monthly format (pre-processed)
