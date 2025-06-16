@@ -6,6 +6,7 @@ from matplotlib.patches import Rectangle
 from cmcrameri import cm
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error, root_mean_squared_error
 from matplotlib import gridspec
+import math
 
 from regions.Switzerland.scripts.helpers import *
 from regions.Switzerland.scripts.config_CH import *
@@ -347,7 +348,9 @@ def predVSTruth(ax,
                 hue='GLACIER',
                 palette=None,
                 color=color_xgb,
-                add_legend=True):
+                add_legend=True,
+                ax_xlim=(-8, 6),
+                ax_ylim=(-8, 6)):
 
     legend_xgb = "\n".join(
         ((r"$\mathrm{RMSE}=%.3f$," % (scores["rmse"], )),
@@ -385,8 +388,8 @@ def predVSTruth(ax,
     ax.grid()
 
     # Set ylimits to be the same as xlimits
-    ax.set_xlim(-8, 6)
-    ax.set_ylim(-8, 6)
+    ax.set_xlim(ax_xlim)
+    ax.set_ylim(ax_ylim)
     plt.tight_layout()
 
 
@@ -450,8 +453,9 @@ def PlotIndividualGlacierPredVsTruth(grouped_ids,
                                      color_winter,
                                      axs,
                                      custom_order=None,
-                                ):
-    
+                                     add_text=True,
+                                     ax_xlim = (-8, 6),
+                                     ax_ylim = (-8, 6)):
 
     color_palette_period = [color_annual, color_winter]
 
@@ -484,8 +488,15 @@ def PlotIndividualGlacierPredVsTruth(grouped_ids,
         ax1.grid()
 
         # Set ylimits to be the same as xlimits
-        ax1.set_xlim(-8, 6)
-        ax1.set_ylim(-8, 6)
+        if ax_xlim is None:
+            ymin = math.floor(min(df_gl.pred.min(), df_gl.target.min()))
+            ymax = math.ceil(max(df_gl.pred.max(), df_gl.target.max()))
+            ax1.set_xlim(ymin, ymax)
+            ax1.set_ylim(ymin, ymax)
+        else:
+            ax1.set_xlim(ax_xlim)
+            ax1.set_ylim(ax_ylim)
+        
         ax1.legend(fontsize=16, loc='lower right', ncol=2)
 
         # Text:
@@ -559,14 +570,14 @@ def PlotIndividualGlacierPredVsTruth(grouped_ids,
             r"$\mathrm{B_a}=%.3f$, $\mathrm{B_w}=%.3f$" %
             (scores_annual["Bias"], scores_winter["Bias"]),
         ))
-
-        ax1.text(0.03,
-                 0.96,
-                 legend,
-                 transform=ax1.transAxes,
-                 verticalalignment="top",
-                 fontsize=16,
-                 bbox=dict(boxstyle='round', facecolor='white', alpha=0.0))
+        if add_text:
+            ax1.text(0.03,
+                     0.96,
+                     legend,
+                     transform=ax1.transAxes,
+                     verticalalignment="top",
+                     fontsize=16,
+                     bbox=dict(boxstyle='round', facecolor='white', alpha=0.0))
         ax1.set_title(f'{test_gl.capitalize()}', fontsize=28)
 
     plt.tight_layout()
@@ -590,9 +601,15 @@ def plotGlAttr(ds, cmap=cm.batlow):
     plt.tight_layout()
 
 
-def plot_predictions_summary(grouped_ids, scores_annual, scores_winter,
-                             predVSTruth, plotMeanPred, color_annual,
-                             color_winter):
+def plot_predictions_summary(grouped_ids,
+                             scores_annual,
+                             scores_winter,
+                             predVSTruth,
+                             plotMeanPred,
+                             color_annual,
+                             color_winter,
+                             ax_xlim=(-8, 6),
+                             ax_ylim=(-8, 6)):
     """
     Plots a summary figure with NN predictions and PMB trends.
 
@@ -624,7 +641,9 @@ def plot_predictions_summary(grouped_ids, scores_annual, scores_winter,
                 scores_annual,
                 hue='PERIOD',
                 add_legend=False,
-                palette=[color_annual, color_winter])
+                palette=[color_annual, color_winter],
+                ax_xlim=ax_xlim,
+                ax_ylim=ax_ylim)
 
     legend_NN = "\n".join([
         r"$\mathrm{RMSE_a}=%.3f$, $\mathrm{RMSE_w}=%.3f$" %
@@ -660,6 +679,7 @@ def plot_predictions_summary(grouped_ids, scores_annual, scores_winter,
 
     plt.tight_layout()
     return fig  # return figure in case further customization or saving is needed
+
 
 def compute_seasonal_scores(df, target_col='target', pred_col='pred'):
     """
