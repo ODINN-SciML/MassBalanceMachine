@@ -11,7 +11,7 @@ import torch
 
 import numpy as np
 import pandas as pd
-import random as rd 
+import random as rd
 
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 from sklearn.utils.validation import check_is_fitted
@@ -57,10 +57,9 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         self.param_search = None
         self.metadataColumns = metadataColumns or self.cfg.metaData
         self.nbFeatures = nbFeatures
-        
+
         # seed all
         self.seed_all()
-
 
     def initialize_module(self):
         super().initialize_module()
@@ -273,7 +272,9 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
 
         if type_pred == 'winter':
             # winter months from October to April
-            winter_months = ['oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr']
+            winter_months = [
+                'sep', 'oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr'
+            ]
             df_grid_monthly = df_grid_monthly[df_grid_monthly.MONTHS.isin(
                 winter_months)]
 
@@ -315,14 +316,68 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         data = pd.DataFrame(data)
         data.set_index('ID', inplace=True)
 
+        # Aggregated over seasonal:
         grouped_ids = df_grid_monthly.groupby('ID')[[
             'YEAR', 'POINT_LAT', 'POINT_LON', 'GLWD_ID'
         ]].first()
 
         grouped_ids = grouped_ids.merge(data, on='ID', how='left')
+
+        months_per_id = df_grid_monthly.groupby('ID')['MONTHS'].unique()
+        grouped_ids = grouped_ids.merge(months_per_id, on='ID')
+
         grouped_ids.reset_index(inplace=True)
         grouped_ids.sort_values(by='ID', inplace=True)
-        return grouped_ids
+        grouped_ids['PERIOD'] = type_pred
+
+        # Monthly preds:
+        df_pred_months = pd.DataFrame(y_pred)
+        df_pred_months['ID'] = id
+        df_pred_months['MONTHS'] = grouped_ids['MONTHS']
+        df_pred_months['PERIOD'] = grouped_ids['PERIOD']
+
+        months_extended = [
+            'sep',
+            'oct',
+            'nov',
+            'dec',
+            'jan',
+            'feb',
+            'mar',
+            'apr',
+            'may',
+            'jun',
+            'jul',
+            'aug',
+        ]
+
+        df_months_nn = pd.DataFrame(columns=months_extended)
+
+        for i, row in df_pred_months.iterrows():
+            dic = {}
+            for j, month in enumerate(row.MONTHS):
+                if month in dic.keys():
+                    month = month + '_'
+                dic[month] = row[j]
+
+            # add missing months from months extended
+            for month in months_extended:
+                if month not in dic.keys():
+                    dic[month] = np.nan
+            df_months_nn = pd.concat(
+                [df_months_nn, pd.DataFrame([dic])], ignore_index=True)
+
+        df_months_nn = df_months_nn.dropna(axis=1, how='all')
+        df_months_nn['ID'] = df_pred_months['ID']
+        df_months_nn['PERIOD'] = type_pred
+        # df_months_nn['y_agg'] = y_pred_agg
+        # if type_pred == 'winter':
+        #     months = winter_months
+        # else:
+        #     months = months_extended
+        # df_months_nn['sum'] = df_months_nn[months].sum(axis=1)
+
+        return grouped_ids, df_months_nn
 
     def save_model(self, fname: str) -> None:
         """save the model parameters to a file.
@@ -385,7 +440,6 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
 
         return features, metadata
 
-
     def seed_all(self):
         """Sets the random seed everywhere for reproducibility.
         """
@@ -406,7 +460,7 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
 
         # Setting CUBLAS environment variable (helps in newer versions)
         os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
-        
+
     @staticmethod
     def load_model(cfg: config.Config, fname: str, *args,
                    **kwargs) -> "CustomNeuralNetRegressor":
@@ -424,6 +478,3 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         model.initialize()
         model.load_params(f_params=_models_dir / fname)
         return model
-
-
-    

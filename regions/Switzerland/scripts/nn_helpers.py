@@ -195,5 +195,5 @@ def evaluate_model_and_group_predictions(custom_NN_model, df_X_subset, y, cfg, m
     # Add YEAR
     years_per_ids = df_X_subset.groupby('ID')['YEAR'].first()
     grouped_ids = grouped_ids.merge(years_per_ids, on='ID')
-
-    return grouped_ids, scores
+    
+    return grouped_ids, scores, ids, y_pred
