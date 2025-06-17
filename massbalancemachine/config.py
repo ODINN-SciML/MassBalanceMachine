@@ -209,7 +209,7 @@ class IcelandConfig(Config):
             metaData: List[str] = ["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD", "GLACIER"],
             notMetaDataNotFeatures: List[str] = ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"],
             dataPath: str = None,
-            numJobs: int = 4,
+            numJobs: int = 12,
             **kwargs,
     ):
         if dataPath is None:

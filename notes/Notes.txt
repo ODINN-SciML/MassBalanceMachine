@@ -178,4 +178,13 @@ already existing regions have changed in dev geodetic and if they can be replace
 
 ----all ch transfer models there, plots from norway is the one, put in other regions, load models in all regions and run again then pull request
 
+---------------
+
+Try out parameter search agian in Iceland regional and see if it findes lr 0.01 depth 6 and est 800, because the results are weird, 
+and that set is much better than what it finds without 800 in the search list
+
+
+weekly mass balance, Kamilla says that extreme negative values in CH_test_NOR_train in annual are probably from glaciers that are close to  ocean (I think) wiht steep slopes
+and its the negative tail of the "Elevation difference" plot in Overview.
+
 ----------------------------NN----------------------------
