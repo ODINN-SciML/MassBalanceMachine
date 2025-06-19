@@ -218,3 +218,7 @@ also ich updated DATA_MODIFICATION on norway, I should probably include that new
 
 
 !!!!!!!!!!!!!!!!!!!!find . -name "*.ipynb" -exec nbstripout {} \;!!!!!!!!!!!!!!!!!!!!!!!!!
+
+--new OGGM datasets are made with iceland etc. now run them
+
+--ran XGBoost with combined dataset

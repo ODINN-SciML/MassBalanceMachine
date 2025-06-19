@@ -137,7 +137,7 @@ class FranceConfig(Config):
     def __init__(
             self,
             *args,
-            metaData: List[str] = ["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD", "GLACIER"],
+            metaData: List[str] = ["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD", "GLACIER", "GLACIER_ZONE"],
             notMetaDataNotFeatures: List[str] = ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON", "ALTITUDE_CLIMATE", "POINT_ELEVATION"],
             dataPath: str = None,
             numJobs: int = 12,
