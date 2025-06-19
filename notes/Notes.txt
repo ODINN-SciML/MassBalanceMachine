@@ -188,3 +188,30 @@ weekly mass balance, Kamilla says that extreme negative values in CH_test_NOR_tr
 and its the negative tail of the "Elevation difference" plot in Overview.
 
 ----------------------------NN----------------------------
+-neustes model ist im Pull REquest von MArijn.
+
+1. XGBoost, csv speichern mit top modellen, und dann schauen ob es bessere modelle hat die nicht so overfitted sind.
+
+2. Einmal alles meine regional test sets als ein grosses test set und all train sets als ein train
+
+3. Freeze unfreeze transfer learning, als nächstes zuerst trainieren uf CH, dann simulieren enig aten oder nur einige gletscher auf Norwegen.
+
+4. Auf mass balance machine slack, when die ergebnisse "gecleaned" sind oder am meeting halt sonst.
+
+XGBoost geht das nicht so, also wir können nicht 2 mal trainieren einmal uf SChweiz, dann auf teil norwegen. darum kann man so nicht direct die resultate vergelichen.
+"wir können sagen, dass man sieht das NN generell gut ist im transfer, darum jetzt mit freeze unfreeze"
+
+------------------------
+FR
+no deleted points due to topographic variables
+ICE
+1'400 out of 14'000 datapoints deleted from Iceland due to hugonnet_dhdt
+IT_AT
+15 out of 5'336 datapoints deleted from Iceland due to millan_v. This is one whole glacier, 
+'RGI60-11.00002' // 'HALLSTAETTER G.' (&& 'RGI60-11.03241' // 'CALDERONE' Calderone isnt in the dataset anyways as its not within_glacier_shape)
+Norway
+ca 300 out of 6'500 datapoints deleted from Iceland due to millan_v. This is one whole glacier,
+'RGI60-08.01258' // 'Langfjordjoekulen'
+
+I've made a with_millanv oggm csv for both it_at and norway, now i also have to make a with hugonnet_dhdt for iceland. 
+also ich updated DATA_MODIFICATION on norway, I should probably include that new update on the PR tomorrow morning.
