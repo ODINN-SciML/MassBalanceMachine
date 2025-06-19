@@ -36,6 +36,7 @@ regions/Iceland_mb/figures
 regions/Iceland_mb/logs
 
 tests/data_processing/test_swiss_preprocessed_data.py
+tests/models/test_train.py
 
 #regions/Overview
 

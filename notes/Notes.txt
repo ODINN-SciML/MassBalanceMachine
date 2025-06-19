@@ -215,3 +215,6 @@ ca 300 out of 6'500 datapoints deleted from Iceland due to millan_v. This is one
 
 I've made a with_millanv oggm csv for both it_at and norway, now i also have to make a with hugonnet_dhdt for iceland. DONE
 also ich updated DATA_MODIFICATION on norway, I should probably include that new update on the PR tomorrow morning. DONE
+
+
+!!!!!!!!!!!!!!!!!!!!find . -name "*.ipynb" -exec nbstripout {} \;!!!!!!!!!!!!!!!!!!!!!!!!!
