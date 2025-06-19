@@ -205,7 +205,7 @@ XGBoost geht das nicht so, also wir können nicht 2 mal trainieren einmal uf SCh
 FR
 no deleted points due to topographic variables
 ICE
-1'400 out of 14'000 datapoints deleted from Iceland due to hugonnet_dhdt
+600 out of 6'000 datapoints deleted from Iceland due to hugonnet_dhdt
 IT_AT
 15 out of 5'336 datapoints deleted from Iceland due to millan_v. This is one whole glacier, 
 'RGI60-11.00002' // 'HALLSTAETTER G.' (&& 'RGI60-11.03241' // 'CALDERONE' Calderone isnt in the dataset anyways as its not within_glacier_shape)
@@ -213,5 +213,5 @@ Norway
 ca 300 out of 6'500 datapoints deleted from Iceland due to millan_v. This is one whole glacier,
 'RGI60-08.01258' // 'Langfjordjoekulen'
 
-I've made a with_millanv oggm csv for both it_at and norway, now i also have to make a with hugonnet_dhdt for iceland. 
-also ich updated DATA_MODIFICATION on norway, I should probably include that new update on the PR tomorrow morning.
+I've made a with_millanv oggm csv for both it_at and norway, now i also have to make a with hugonnet_dhdt for iceland. DONE
+also ich updated DATA_MODIFICATION on norway, I should probably include that new update on the PR tomorrow morning. DONE

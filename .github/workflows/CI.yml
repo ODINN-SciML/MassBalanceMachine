@@ -62,15 +62,15 @@ jobs:
       #----------------------------------------------
       #    add matrix specifics and run test suite
       #----------------------------------------------
-      - name: Download preprocessed data
-        run: |
-          rm -rf dataDownload
-          mkdir -p dataDownload/
-          fileId=1SUMYw1jfQClnfv_gP0izBD8MsHNc8V5P
-          pip install gdown
-          gdown https://drive.google.com/uc?id=$fileId -O dataDownload/data.tar.gz.gpg
-          gpg -d --pinentry-mode=loopback --passphrase "$data_encrypt" dataDownload/data.tar.gz.gpg > dataDownload/data.tar.gz
-          tar -xzf dataDownload/data.tar.gz -C dataDownload/
+      #- name: Download preprocessed data
+        #run: |
+          #rm -rf dataDownload
+          #mkdir -p dataDownload/
+          #fileId=1SUMYw1jfQClnfv_gP0izBD8MsHNc8V5P
+          #pip install gdown
+          #gdown https://drive.google.com/uc?id=$fileId -O dataDownload/data.tar.gz.gpg
+          #gpg -d --pinentry-mode=loopback --passphrase "$data_encrypt" dataDownload/data.tar.gz.gpg > dataDownload/data.tar.gz
+          #tar -xzf dataDownload/data.tar.gz -C dataDownload/
       - name: Run tests
         run: |
           source .venv/bin/activate
