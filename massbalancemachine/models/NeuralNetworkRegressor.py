@@ -6,12 +6,12 @@ from datetime import datetime
 import traceback
 
 import os
-import pickle
 import config
 import torch
 
 import numpy as np
 import pandas as pd
+import random as rd
 
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 from sklearn.utils.validation import check_is_fitted
@@ -57,105 +57,9 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         self.param_search = None
         self.metadataColumns = metadataColumns or self.cfg.metaData
         self.nbFeatures = nbFeatures
-        # self.modelDtype = list(self.module.parameters())[0].dtype if len(
-        #     list(self.module.parameters())) > 0 else None
 
-    # def gridsearch(
-    #     self,
-    #     parameters: Dict[str, Union[list, np.ndarray]],
-    #     splits: Dict[str, Union[list, np.ndarray]],
-    #     dataset: list[SliceDataset],
-    # ) -> None:
-    #     """
-    #     Perform a grid search for hyperparameter tuning.
-
-    #     This method uses GridSearchCV to exhaustively search through a specified parameter grid.
-
-    #     Args:
-    #         parameters (dict): A dictionary of parameters to search over.
-    #         splits (tuple[list[tuple[ndarray, ndarray]]]): A dictionary containing cross-validation split information.
-    #         dataset (list of skorch.helper.SliceDataset): The datasets that provides both input features and targets for training.
-
-    #     Sets:
-    #         self.param_search (GridSearchCV): The fitted GridSearchCV object.
-    #     """
-
-    #     clf = GridSearchCV(
-    #         estimator=self,
-    #         param_grid=parameters,
-    #         cv=splits,
-    #         verbose=1,
-    #         n_jobs=self.cfg.numJobs,
-    #         scoring=None,
-    #         refit=True,
-    #         error_score="raise",
-    #         return_train_score=True,
-    #     )
-
-    #     clf.fit(dataset[0], y=dataset[1])
-    #     self.param_search = clf
-
-    # def randomsearch(
-    #     self,
-    #     parameters: Dict[str, Union[list, np.ndarray]],
-    #     n_iter: int,
-    #     dataset: list[SliceDataset],
-    #     njobs=None,
-    #     cv = None
-    #     ) -> None:
-    #     """
-    #     Perform a randomized search for hyperparameter tuning.
-
-    #     This method uses RandomizedSearchCV to search a subset of the specified parameter space.
-
-    #     Args:
-    #         parameters (dict): A dictionary of parameters and their distributions to sample from.
-    #         n_iter (int): Number of parameter settings that are sampled.
-    #         splits (tuple[list[tuple[ndarray, ndarray]]]): A dictionary containing cross-validation split information.
-    #         dataset (list of skorch.helper.SliceDataset): The datasets that provides both input features and targets for training.
-
-    #     Sets:
-    #         self.param_search (RandomizedSearchCV): The fitted RandomizedSearchCV object.
-    #     """
-    #     njobs = njobs or self.cfg.numJobs
-    #     try:
-    #         clf = RandomizedSearchCV(
-    #             estimator=self,
-    #             param_distributions=parameters,
-    #             n_iter=n_iter,
-    #             verbose=1,
-    #             n_jobs=njobs,
-    #             scoring=None,
-    #             refit=True,
-    #             error_score="raise",
-    #             return_train_score=True,
-    #             random_state=self.cfg.seed,
-    #             cv = cv
-    #         )
-
-    #         clf.fit(dataset.X, dataset.y)
-    #         self.param_search = clf
-
-    #         # Save cv_results_
-    #         os.makedirs('logs', exist_ok=True)
-    #         log_path = f'logs/cv_results_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.csv'
-    #         pd.DataFrame(clf.cv_results_).to_csv(log_path, index=False)
-
-    #         # Save best estimator
-    #         os.makedirs('models', exist_ok=True)
-    #         best_model_path = f'models/best_model_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.pt'
-    #         clf.best_estimator_.save_model(best_model_path)
-
-    #     except Exception as e:
-    #         os.makedirs('logs', exist_ok=True)
-    #         err_file = f'logs/randomsearch_error_{datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}.log'
-    #         with open(err_file, 'w') as f:
-    #             f.write("RandomizedSearchCV crashed!\n\n")
-    #             traceback.print_exc(file=f)
-
-    #         print(f"RandomizedSearchCV crashed. See log: {err_file}")
-    #         raise  # optional: re-raise to let the calling process handle it
-    
+        # seed all
+        self.seed_all()
 
     def initialize_module(self):
         super().initialize_module()
@@ -368,7 +272,9 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
 
         if type_pred == 'winter':
             # winter months from October to April
-            winter_months = ['oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr']
+            winter_months = [
+                'sep', 'oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr'
+            ]
             df_grid_monthly = df_grid_monthly[df_grid_monthly.MONTHS.isin(
                 winter_months)]
 
@@ -410,14 +316,68 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         data = pd.DataFrame(data)
         data.set_index('ID', inplace=True)
 
+        # Aggregated over seasonal:
         grouped_ids = df_grid_monthly.groupby('ID')[[
             'YEAR', 'POINT_LAT', 'POINT_LON', 'GLWD_ID'
         ]].first()
 
         grouped_ids = grouped_ids.merge(data, on='ID', how='left')
+
+        months_per_id = df_grid_monthly.groupby('ID')['MONTHS'].unique()
+        grouped_ids = grouped_ids.merge(months_per_id, on='ID')
+
         grouped_ids.reset_index(inplace=True)
         grouped_ids.sort_values(by='ID', inplace=True)
-        return grouped_ids
+        grouped_ids['PERIOD'] = type_pred
+
+        # Monthly preds:
+        df_pred_months = pd.DataFrame(y_pred)
+        df_pred_months['ID'] = id
+        df_pred_months['MONTHS'] = grouped_ids['MONTHS']
+        df_pred_months['PERIOD'] = grouped_ids['PERIOD']
+
+        months_extended = [
+            'sep',
+            'oct',
+            'nov',
+            'dec',
+            'jan',
+            'feb',
+            'mar',
+            'apr',
+            'may',
+            'jun',
+            'jul',
+            'aug',
+        ]
+
+        df_months_nn = pd.DataFrame(columns=months_extended)
+
+        for i, row in df_pred_months.iterrows():
+            dic = {}
+            for j, month in enumerate(row.MONTHS):
+                if month in dic.keys():
+                    month = month + '_'
+                dic[month] = row[j]
+
+            # add missing months from months extended
+            for month in months_extended:
+                if month not in dic.keys():
+                    dic[month] = np.nan
+            df_months_nn = pd.concat(
+                [df_months_nn, pd.DataFrame([dic])], ignore_index=True)
+
+        df_months_nn = df_months_nn.dropna(axis=1, how='all')
+        df_months_nn['ID'] = df_pred_months['ID']
+        df_months_nn['PERIOD'] = type_pred
+        # df_months_nn['y_agg'] = y_pred_agg
+        # if type_pred == 'winter':
+        #     months = winter_months
+        # else:
+        #     months = months_extended
+        # df_months_nn['sum'] = df_months_nn[months].sum(axis=1)
+
+        return grouped_ids, df_months_nn
 
     def save_model(self, fname: str) -> None:
         """save the model parameters to a file.
@@ -479,6 +439,27 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         features = X[feature_columns].values
 
         return features, metadata
+
+    def seed_all(self):
+        """Sets the random seed everywhere for reproducibility.
+        """
+        # Python built-in random
+        rd.seed(self.cfg.seed)
+
+        # NumPy random
+        np.random.seed(self.cfg.seed)
+
+        # PyTorch seed
+        torch.manual_seed(self.cfg.seed)
+        torch.cuda.manual_seed(self.cfg.seed)
+        torch.cuda.manual_seed_all(self.cfg.seed)  # If using multiple GPUs
+
+        # Ensuring deterministic behavior in CuDNN
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
+        # Setting CUBLAS environment variable (helps in newer versions)
+        os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 
     @staticmethod
     def load_model(cfg: config.Config, fname: str, *args,

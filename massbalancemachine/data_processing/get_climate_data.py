@@ -44,10 +44,12 @@ def get_climate_features(
     """
 
     # Check if the input files exist.
-    if not os.path.exists(climate_data) or not os.path.exists(
-            geopotential_data):
+    if not os.path.exists(climate_data):
         raise FileNotFoundError(
-            f"Climate data or geopotential data do not exist.")
+            f"Climate data file {climate_data} does not exist.")
+    if not os.path.exists(geopotential_data):
+        raise FileNotFoundError(
+            f"Geopotential data file {geopotential_data} does not exist.")
 
     # Load the two climate datasets
     ds_climate, ds_geopotential = _load_datasets(climate_data,

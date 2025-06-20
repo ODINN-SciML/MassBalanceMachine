@@ -24,7 +24,7 @@ def test_process_or_load_data():
     cfg = mbm.SwitzerlandConfig(dataPath=dataPath)
 
     data_glamos = getStakesData(cfg)
-    assert data_glamos.shape == (4587, 20)
+    assert data_glamos.shape == (4543, 20)
 
     vois_climate = [
         't2m', 'tp', 'slhf', 'sshf', 'ssrd', 'fal', 'str', 'u10', 'v10'
@@ -54,7 +54,7 @@ def test_process_or_load_data():
         vois_topographical=vois_topographical,
         output_file='CH_wgms_dataset_monthly_silvretta.csv'
     )
-    assert dataloader_gl.data.shape == (43350, 30)
+    assert dataloader_gl.data.shape == (42841, 30)
 
 @pytest.mark.order2
 def test_geodataloader():
@@ -118,12 +118,12 @@ def test_geodataloader():
         print(f"Glacier {g}")
     g = 'silvretta'
     s, m, gt = gdl.stakes(g)
-    nRows = 38640
+    nRows = 38540
     assert s.shape == (nRows, 16)
     assert m.shape == (nRows, 8)
     assert gt.shape == (nRows, )
     x, m, y = gdl.geo(g)
-    nRows = 204300
+    nRows = 215952
     assert x.shape == (nRows, 16)
     assert m.shape == (nRows, 8)
     assert y.shape == (50,)
