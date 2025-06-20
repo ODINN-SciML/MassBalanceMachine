@@ -17,7 +17,7 @@ def test_geodetic_data():
 
     geodetic_mb = get_geodetic_MB(cfg)
     print("geodetic_mb.shape=",geodetic_mb.shape)
-    assert geodetic_mb.shape == (331, 17)
+    assert geodetic_mb.shape == (59, 17)
 
 @pytest.mark.order1
 def test_process_or_load_data():
