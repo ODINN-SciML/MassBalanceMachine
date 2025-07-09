@@ -18,15 +18,17 @@ import config
 import logging
 import pandas as pd
 import torch
+from skorch.helper import SliceDataset
 
-from get_climate_data import get_climate_features, retrieve_clear_sky_rad
-from get_topo_data import get_topographical_features, get_glacier_mask
-from transform_to_monthly import transform_to_monthly
-from create_glacier_grid import create_glacier_grid_RGI
+from data_processing.get_climate_data import get_climate_features, retrieve_clear_sky_rad, smooth_era5land_by_mode
+from data_processing.get_topo_data import get_topographical_features, get_glacier_mask
+from data_processing.transform_to_monthly import transform_to_monthly
+from data_processing.create_glacier_grid import create_glacier_grid_RGI
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
+
 
 class Dataset:
     """
@@ -69,7 +71,8 @@ class Dataset:
                              *,
                              climate_data: str,
                              geopotential_data: str,
-                             change_units: bool = False) -> None:
+                             change_units: bool = False,
+                             smoothing_vois: dict = None) -> None:
         """
         Fetches all the climate data, for a list of variables of interest, for the specified RGI IDs.
 
@@ -77,10 +80,17 @@ class Dataset:
             climate_data (str): A netCDF-3 file location containing the climate data for the region of interest
             geopotential_data (str): A netCDF-3 file location containing the geopotential data
             change_units (bool, optional): A boolean indicating whether to change the units of the climate data. Default to False.
+            smoothing_vois (dict, optional): A dictionary containing the variables of interest for smoothing climate artifacts. Default to None.
         """
         output_fname = self._get_output_filename("climate_features")
+
+        smoothing_vois = smoothing_vois or {}  # Safely default to empty dict
+        vois_climate = smoothing_vois.get('vois_climate')
+        vois_other = smoothing_vois.get('vois_other')
+
         self.data = get_climate_features(self.data, output_fname, climate_data,
-                                         geopotential_data, change_units)
+                                         geopotential_data, change_units,
+                                         vois_climate, vois_other)
 
     def get_potential_rad(self, path_to_direct):
         """Fetches monthly clear sky radiation data for each glacier in the dataset.
@@ -93,13 +103,25 @@ class Dataset:
 
         for glacierName in glaciers:
             df_glacier = df[df['GLACIER'] == glacierName]
-            path_to_file = path_to_direct + f'xr_direct_{glacierName}.nc'
+            path_to_file = path_to_direct + f'xr_direct_{glacierName}.zarr'
             df_glacier = retrieve_clear_sky_rad(df_glacier, path_to_file)
             df_concat = pd.concat([df_concat, df_glacier], axis=0)
 
         # reset index
         df_concat.reset_index(drop=True, inplace=True)
         self.data = df_concat
+
+    def remove_climate_artifacts(self, vois_climate: str,
+                                 vois_other: str) -> None:
+        """For big glaciers covered by more than one ERA5-Land grid cell, the
+        climate data is the one with the most data points. This function smooths the
+        climate data by taking the mode of the data for each grid cell. 
+
+        Args:
+            vois_climate (str): A string containing the climate variables of interest
+        """
+        self.data = smooth_era5land_by_mode(self.data, vois_climate,
+                                            vois_other)
 
     def convert_to_monthly(self,
                            *,
@@ -142,7 +164,7 @@ class Dataset:
         return ds, glacier_indices, gdir
 
     def create_glacier_grid_RGI(self,
-                            custom_working_dir: str = '') -> pd.DataFrame:
+                                custom_working_dir: str = '') -> pd.DataFrame:
         """Creates a dataframe with the glacier grid data from RGI v.6,
             which contains the glacier data from OGGM mapped over the glacier outline in yearly format.
 
@@ -156,14 +178,14 @@ class Dataset:
         ds, glacier_indices, gdir = get_glacier_mask(self.data,
                                                      custom_working_dir,
                                                      self.cfg)
-        years_stake = self.data['YEAR'].unique()
-        
+        # years_stake = self.data['YEAR'].unique()
+
         # Fixed time range because we want the grid from the beginning
         # of climate data to end (not just when there are stake measurements)
-        years = range(1951, 2023)
+        years = range(1951, 2024)
         rgi_gl = self.data['RGIId'].unique()[0]
         df_grid = create_glacier_grid_RGI(ds, years, glacier_indices, gdir,
-                                       rgi_gl)
+                                          rgi_gl)
         return df_grid
 
     def _get_output_filename(self, feature_type: str) -> str:
@@ -261,6 +283,8 @@ class AggregatedDataset(torch.utils.data.Dataset):
         self.metadata = metadata
         self.metadataColumns = metadataColumns or self.cfg.metaData
         self.targets = targets
+    
+        
         self.ID = np.array([
             self.metadata[i][self.metadataColumns.index('ID')]
             for i in range(len(self.metadata))
@@ -269,6 +293,7 @@ class AggregatedDataset(torch.utils.data.Dataset):
         self.maxConcatNb = max(
             [len(np.argwhere(self.ID == id)[:, 0]) for id in self.uniqueID])
         self.nbFeatures = self.features.shape[1]
+        self.norm = Normalizer({k: cfg.bnds[k] for k in cfg.featureColumns})
 
     def mapSplitsToDataset(
         self, splits: "list[tuple[np.ndarray, np.ndarray]]"
@@ -313,6 +338,7 @@ class AggregatedDataset(torch.utils.data.Dataset):
     def __getitem__(self, index: int) -> tuple:
         ind = self._getInd(index)
         f = self.features[ind][:, :]
+        f = self.norm.normalize(f)
         fpad = np.empty((self.maxConcatNb, self.nbFeatures))
         fpad.fill(np.nan)
         fpad[:f.shape[0], :] = f
@@ -345,6 +371,7 @@ class Normalizer:
     """
 
     def __init__(self, bnds: "dict[str, tuple[float, float]]") -> None:
+        assert not np.isnan(list(bnds.values())).any(), "Bounds contain NaNs"
         self.bnds = bnds
 
     def _norm(self, data, lower_bnd, upper_bnd):
@@ -361,7 +388,7 @@ class Normalizer:
                 z[k] = fct(x[k], self.bnds[k][0], self.bnds[k][1])
             return z
         elif isinstance(x, (torch.Tensor, np.ndarray)):
-            assert x.shape[-1] == len(self.bnds)
+            assert x.shape[-1] == len(self.bnds), f"Size of the input to normalize is {x.shape} and it doesn't match the number of bounds defined in the Normalizer object which is {len(self.bnds)}"
             z = torch.zeros_like(x) if isinstance(
                 x, torch.Tensor) else np.zeros_like(x)
             for i, k in enumerate(self.bnds):
@@ -381,3 +408,26 @@ class Normalizer:
     ) -> Union[dict, torch.Tensor, np.ndarray]:
         """Unnormalize data, the opposite operation of normalize"""
         return self._map(x, self._unorm)
+
+
+class SliceDatasetBinding(Dataset):
+    def __init__(self, X:SliceDataset, y:SliceDataset=None) -> None:
+        """
+        Binding to a SliceDataset that allows providing training and validation
+        datasets through the train_split argument of CustomNeuralNetRegressor.
+
+        Arguments:
+            X (SliceDataset): Features defined through a SliceDataset.
+            y (SliceDataset): Targets defined through a SliceDataset.
+        """
+        assert isinstance(X, SliceDataset), "X must be a SliceDataset instance"
+        assert y is None or isinstance(y, SliceDataset), "y must be a SliceDataset instance"
+        self.X = X
+        self.y = y
+    def __len__(self):
+        return len(self.X)
+    def __getitem__(self, idx):
+        # If y is None, just return X
+        if self.y is None:
+            return self.X[idx]
+        return self.X[idx], self.y[idx]
