@@ -9,7 +9,7 @@ class Config:
         numJobs: int = 14,
         testSize: float = 0.3,
         nSplits: int = 5,
-        seed: int = 30,
+        seed: int = 20,
         metaData: List[str] = [
             "RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS"
         ],
@@ -79,7 +79,10 @@ class Config:
                 'aspect': (0, 360),
                 'consensus_ice_thickness': (0, 300),
                 'fal': (0, 1),
-                'hugonnet_dhdt': (-5, 5, ),
+                'hugonnet_dhdt': (
+                    -5,
+                    5,
+                ),
                 'millan_v': (0, 300),
                 'pcsr': (0, 500),
                 'slhf': (-10e6, 10e6),
@@ -113,18 +116,20 @@ class SwitzerlandConfig(Config):
             "PERIOD", "GLACIER"
         ],
         notMetaDataNotFeatures: List[str] = [
-            "POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON", "ALTITUDE_CLIMATE", "POINT_ELEVATION"
+            "POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON",
+            "ALTITUDE_CLIMATE", "POINT_ELEVATION"
         ],
         dataPath: str = None,
         numJobs: int = 28,
         **kwargs,
     ):
         if dataPath is None:
-            mbmDir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../'))+'/'
-            self.dataPath = mbmDir+'../data/'
+            mbmDir = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), '../')) + '/'
+            self.dataPath = mbmDir + '../data/'
         else:
-            if dataPath!='' and not dataPath.endswith('/'):
-                dataPath = dataPath+'/'
+            if dataPath != '' and not dataPath.endswith('/'):
+                dataPath = dataPath + '/'
             self.dataPath = dataPath
         super().__init__(*args,
                          metaData=metaData,
