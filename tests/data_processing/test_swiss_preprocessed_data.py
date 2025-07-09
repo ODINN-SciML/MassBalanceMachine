@@ -13,18 +13,18 @@ else:
 
 @pytest.mark.order1
 def test_geodetic_data():
-    cfg = mbm.SwitzerlandConfig(dataPath=dataPath)
+    cfg = mbm.SwitzerlandConfig(dataPath=dataPath, seed=30)
 
     geodetic_mb = get_geodetic_MB(cfg)
     print("geodetic_mb.shape=",geodetic_mb.shape)
-    assert geodetic_mb.shape == (292, 17)
+    assert geodetic_mb.shape == (59, 17)
 
 @pytest.mark.order1
 def test_process_or_load_data():
-    cfg = mbm.SwitzerlandConfig(dataPath=dataPath)
+    cfg = mbm.SwitzerlandConfig(dataPath=dataPath, seed=30)
 
     data_glamos = getStakesData(cfg)
-    assert data_glamos.shape == (32574, 20)
+    assert data_glamos.shape == (4543, 20)
 
     vois_climate = [
         't2m', 'tp', 'slhf', 'sshf', 'ssrd', 'fal', 'str', 'u10', 'v10'
@@ -54,13 +54,13 @@ def test_process_or_load_data():
         vois_topographical=vois_topographical,
         output_file='CH_wgms_dataset_monthly_silvretta.csv'
     )
-    assert dataloader_gl.data.shape == (284645, 30)
+    assert dataloader_gl.data.shape == (42841, 30)
 
 @pytest.mark.order2
 def test_geodataloader():
     # This test needs to run after test_process_or_load_data since we use the
     # results of process_or_load_data by reading on disk
-    cfg = mbm.SwitzerlandConfig(dataPath=dataPath)
+    cfg = mbm.SwitzerlandConfig(dataPath=dataPath, seed=30)
 
     data_glamos = getStakesData(cfg)
 
@@ -118,7 +118,7 @@ def test_geodataloader():
         print(f"Glacier {g}")
     g = 'silvretta'
     s, m, gt = gdl.stakes(g)
-    nRows = 40107
+    nRows = 38540
     assert s.shape == (nRows, 16)
     assert m.shape == (nRows, 8)
     assert gt.shape == (nRows, )
