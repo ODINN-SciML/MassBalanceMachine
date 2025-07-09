@@ -222,3 +222,66 @@ also ich updated DATA_MODIFICATION on norway, I should probably include that new
 --new OGGM datasets are made with iceland etc. now run them
 
 --ran XGBoost with combined dataset
+
+----------------
+in NeuralNetworkRegressor.py small bug, torch tensor but then numpy array nan
+def meanTrue(self, y_true):
+        if isinstance(y_true, torch.Tensor):
+            y_true_agg = [
+                yi_true[~np.isnan(yi_true)].mean() for yi_true in y_true
+            ]
+            return torch.tensor(y_true_agg)
+
+Possible additional features:
+distance_to_ocean - How far the glacier is from the nearest coastline
+
+distance_to_terminus - How far up-glacier the measurement point is from the glacier's lowest end
+DEM?
+
+glacier_area_upstream - The total area of the glacier above the measurement point
+probably needs DEM
+
+elevation_above_ELA - How far above or below the Equilibrium Line Altitude the measurement point sits
+needs to model equlibrium line
+
+valley_orientation - Which direction the entire glacier valley faces, not just point like aspect
+needs DEM
+
+topographic_shelter_index - How protected the glacier is by surrounding mountains from wind, storms and direct solar radiation
+needs DEM
+
+----------------
+
+There is a subtle difference between CH trained models, im not sure where it comes from but a model trained on CH in the iceland notebook performs slightly worse
+if i test it on norway data than the models trained on CH galciers in norway notebook. I might have to change how i load the dataset. get climate variables on CH
+and on other region seperately then combined the dataloader like in periodspecific notebook.
+
+progressive transfer next steps, select 1 glacier each from the 4 norweay regions 3'000-6'000 samples, 
+then do conservative fine tuning
+
+
+in NeuralNetworkRegressor.py small bug, torch tensor but then numpy array nan
+def meanTrue(self, y_true):
+        if isinstance(y_true, torch.Tensor):
+            y_true_agg = [
+                yi_true[~np.isnan(yi_true)].mean() for yi_true in y_true
+            ]
+            return torch.tensor(y_true_agg)
+
+-------> Make pull request
+
+Was ist am interessantesten zum Testen? nur wenig Daten in Norway? mittel? kleine Gletscher? 1 Grosser? nur recent Norway und probieren mit transferlearning die alten Jahre zu machen?
+
+NAchher das Model auch wieder auf SChweiz anwenden, so kann man verstehen was passiert
+
+Auf nächste Wochen Tabelled machen welche tests habe ich alle gemacht etc für gespräch.
+
+Generall ist es ok Idee mit 50% Date in Norwegen, dann konservative nur 5-10% , dann spatial wäre interessant nur vom süden nehmen 
+und wie machts auf norden, oder high low, dann zuletzt vllt not temporal pretend norwegen amcht erst seit 2000 measurements.
+
+Immer auch noch Schweiz und Norwegen zusammen laufen lassen, also 3 sets, regional, schweiz norwegen udn schweiz norwegen fine tuned.
+wenn fine tuned schlechter ist als einfach schweiz norwegen dann machts eh keinen Sinn.
+
+Zuerst testen direkt auch mit freeze.
+
+----Period Indicator laufen lassen mit neuem Network von Marijn.

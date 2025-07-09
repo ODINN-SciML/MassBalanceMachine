@@ -83,12 +83,10 @@ def predVSTruth_all(grouped_ids, mae, rmse, title):
     
 def PlotPredictions_NN(grouped_ids):
     fig = plt.figure(figsize=(15, 10))
-    colors_glacier = [
-        '#a6cee3', '#1f78b4', '#b2df8a', '#33a02c', '#fb9a99', '#e31a1c',
-        '#fdbf6f', '#ff7f00', '#cab2d6', '#6a3d9a', '#ffff99', '#b15928'
-    ]
-    color_palette_glaciers = dict(
-        zip(grouped_ids.GLACIER.unique(), colors_glacier))
+    
+    # Use seaborn's color palette for consistent glacier colors
+    palette = sns.color_palette("husl", n_colors=len(grouped_ids.GLACIER.unique()))
+    color_palette_glaciers = dict(zip(grouped_ids.GLACIER.unique(), palette))
     ax1 = plt.subplot(2, 2, 1)
     grouped_ids_annual = grouped_ids[grouped_ids.PERIOD == 'annual']
 

@@ -75,3 +75,112 @@ class ClimateTopoNet(nn.Module):
 
         combined = torch.cat([topo_out, climate_out], dim=1)
         return self.final_net(combined)
+    
+    
+class PeriodSpecificNet(nn.Module):
+    def __init__(self,
+                 input_dim: int,
+                 hidden_dim_0: int = 64,
+                 hidden_dim_1: int = 32,
+                 hidden_dim_2: int = 32):
+        super().__init__()
+        self.input_dim = input_dim
+        
+        self.shared_net = nn.Sequential(
+            nn.Linear(input_dim - 1, hidden_dim_0),  # -1 remove PERIOD_INDICATOR, its just used as a switch
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(hidden_dim_0, hidden_dim_1),
+            nn.ReLU(),
+            nn.Dropout(0.2)
+        )
+        
+        # Annual-specific branch
+        self.annual_net = nn.Sequential(
+            nn.Linear(hidden_dim_1, hidden_dim_2),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(hidden_dim_2, 1)
+        )
+        
+        # Winter-specific branch  
+        self.winter_net = nn.Sequential(
+            nn.Linear(hidden_dim_1, hidden_dim_2),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(hidden_dim_2, 1)
+        )
+
+    def forward(self, x):
+        period_indicator = x[:, -1]  # 0=annual, 1=winter
+        features = x[:, :-1]  # All features except period indicator
+        
+        shared_features = self.shared_net(features)
+        
+        # Get predictions from both branches
+        annual_pred = self.annual_net(shared_features)
+        winter_pred = self.winter_net(shared_features)
+        
+        period_indicator = period_indicator.unsqueeze(1)  # Shape: (batch_size, 1)
+        
+        # For annual (0): use annual_pred, for winter (1): use winter_pred
+        output = (1 - period_indicator) * annual_pred + period_indicator * winter_pred
+        
+        return output
+    
+class PeriodSpecificNetBigger(nn.Module):
+    def __init__(self,
+                 input_dim: int,
+                 hidden_dim_0: int = 128,
+                 hidden_dim_1: int = 96,
+                 hidden_dim_2: int = 64,
+                 hidden_dim_3: int = 32):
+        super().__init__()
+        self.input_dim = input_dim
+        
+        # Shared feature extraction (without period indicator)
+        self.shared_net = nn.Sequential(
+            nn.Linear(input_dim - 1, hidden_dim_0),  # -1 remove PERIOD_INDICATOR, its just used as a switch
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(hidden_dim_0, hidden_dim_1),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(hidden_dim_1, hidden_dim_2),
+            nn.ReLU(),
+            nn.Dropout(0.1)
+        )
+        
+        # Annual-specific branch
+        self.annual_net = nn.Sequential(
+            nn.Linear(hidden_dim_2, hidden_dim_3),
+            nn.ReLU(),
+            nn.Dropout(0.05),
+            nn.Linear(hidden_dim_3, 1)
+        )
+        
+        # Winter-specific branch  
+        self.winter_net = nn.Sequential(
+            nn.Linear(hidden_dim_2, hidden_dim_3),
+            nn.ReLU(),
+            nn.Dropout(0.05),
+            nn.Linear(hidden_dim_3, 1)
+        )
+
+    def forward(self, x):
+        period_indicator = x[:, -1]  # 0=annual, 1=winter
+        features = x[:, :-1]  # All features except period indicator
+        
+        # Shared feature extraction
+        shared_features = self.shared_net(features)
+        
+        # Get predictions from both branches
+        annual_pred = self.annual_net(shared_features)
+        winter_pred = self.winter_net(shared_features)
+        
+        period_indicator = period_indicator.unsqueeze(1)  # Shape: (batch_size, 1)
+        
+        # For annual (0): use annual_pred, for winter (1): use winter_pred
+        output = (1 - period_indicator) * annual_pred + period_indicator * winter_pred
+        
+        return output

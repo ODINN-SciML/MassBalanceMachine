@@ -91,6 +91,7 @@ class Config:
                 'tp': (0, 0.1),
                 'u10': (-10, 10),
                 'v10': (-10, 10),
+                'PERIOD_INDICATOR': (0, 1),  # For seasonal branching: 0=annual, 1=winter
             }
         else:
             self.bnds = bnds
@@ -137,8 +138,8 @@ class FranceConfig(Config):
     def __init__(
             self,
             *args,
-            metaData: List[str] = ["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD", "GLACIER", "GLACIER_ZONE"],
-            notMetaDataNotFeatures: List[str] = ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON", "ALTITUDE_CLIMATE", "POINT_ELEVATION"],
+            metaData: List[str] = ["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD", "GLACIER"], #, "GLACIER_ZONE"
+            notMetaDataNotFeatures: List[str] = ["POINT_BALANCE", "YEAR", "ALTITUDE_CLIMATE", "POINT_ELEVATION", "POINT_LAT", "POINT_LON"],
             dataPath: str = None,
             numJobs: int = 12,
             **kwargs,
@@ -155,6 +156,7 @@ class FranceConfig(Config):
                          notMetaDataNotFeatures=notMetaDataNotFeatures,
                          numJobs=numJobs,
                          **kwargs)
+        self.bnds.pop('pcsr')
 
 class ItalyAustriaConfig(Config):
     def __init__(
@@ -178,6 +180,7 @@ class ItalyAustriaConfig(Config):
                          notMetaDataNotFeatures=notMetaDataNotFeatures,
                          numJobs=numJobs,
                          **kwargs)
+        self.bnds.pop('pcsr')
 
 class NorwayConfig(Config):
     def __init__(
@@ -201,6 +204,7 @@ class NorwayConfig(Config):
                          notMetaDataNotFeatures=notMetaDataNotFeatures,
                          numJobs=numJobs,
                          **kwargs)
+        self.bnds.pop('pcsr')
 
 class IcelandConfig(Config):
     def __init__(
@@ -224,3 +228,4 @@ class IcelandConfig(Config):
                          notMetaDataNotFeatures=notMetaDataNotFeatures,
                          numJobs=numJobs,
                          **kwargs)
+        self.bnds.pop('pcsr')
