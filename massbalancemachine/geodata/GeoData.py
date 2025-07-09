@@ -98,6 +98,7 @@ class GeoData:
 
             # Change from OGGM proj. to wgs84
             self.ds_latlon = self.oggmToWgs84(self.ds_xy, gdir)
+        
         if source_type == 'sgi':
             # Faster way:
             # Create a new variable pred_masked initialized with NaN
@@ -113,7 +114,7 @@ class GeoData:
             # Extract the DataFrame columns as numpy arrays
             point_lon = self.data["POINT_LON"].values
             point_lat = self.data["POINT_LAT"].values
-            pred_values = self.data["pred"].values
+            pred_values = self.data[pred_var].values
 
             # Use vectorized nearest neighbor selection
             nearest_points = ds.sel(lon=xr.DataArray(point_lon, dims="points"),
@@ -156,6 +157,7 @@ class GeoData:
             raise ValueError("proj_type must be either 'wgs84' or 'lv95'.")
 
     def xr_to_gpd(self):
+        """Converts an xarray dataset to a geopandas dataframe."""
         # Get lat and lon, and variables data
         lat = self.ds_latlon['lat'].values
         lon = self.ds_latlon['lon'].values
@@ -241,14 +243,15 @@ class GeoData:
         return self
 
     def gridded_MB_pred(self,
+                        df_grid_monthly,
                         custom_model,
                         glacier_name,
                         year,
                         all_columns,
                         path_glacier_dem,
                         path_save_glw,
-                        cfg,
-                        save_monthly_pred=True):
+                        save_monthly_pred=True,
+                        type_model='XGBoost'):
         """
         Computes and saves gridded mass balance (MB) predictions for a given glacier and year.
 
@@ -281,56 +284,68 @@ class GeoData:
             FileNotFoundError: If the DEM file for the glacier and year is not found.
         """
 
-        # Compute cumulative SMB predictions
-        df_grid_monthly = custom_model.cumulative_pred(self.data)
+        if type_model == 'XGBoost':
+            # Compute cumulative SMB predictions
+            df_grid_monthly = custom_model.cumulative_pred(self.data)
+            self.data = df_grid_monthly
 
         # Generate annual and winter predictions
-        pred_annual = self.__class__.glacier_wide_pred(
-            custom_model, df_grid_monthly[all_columns], type_pred='annual')
-        pred_winter = self.__class__.glacier_wide_pred(
-            custom_model, df_grid_monthly[all_columns], type_pred='winter')
+        pred_winter, df_pred_months_winter = custom_model.glacier_wide_pred(
+            self.data[all_columns], type_pred='winter')
+        pred_annual, df_pred_months_annual = custom_model.glacier_wide_pred(
+            self.data[all_columns], type_pred='annual')
 
         # Filter results for the current year
         pred_y_annual = pred_annual.drop(columns=['YEAR'], errors='ignore')
         pred_y_winter = pred_winter.drop(columns=['YEAR'], errors='ignore')
 
         # Save seasonal predictions
-        # Load glacier DEM data
-        dem_path = os.path.join(path_glacier_dem,
-                                f"{glacier_name}_{year}.zarr")
-        if not os.path.exists(dem_path):
-            print(f"DEM file not found for {dem_path}, skipping...")
+        if not os.path.exists(path_glacier_dem):
+            print(f"DEM file not found for {path_glacier_dem}, skipping...")
             return
-        ds = xr.open_dataset(dem_path)
+        ds = xr.open_dataset(path_glacier_dem)
 
         # Save both annual and winter predictions using the helper function
-        self._save_prediction(ds, pred_y_annual, glacier_name, year,
-                              path_save_glw, "annual")
         self._save_prediction(ds, pred_y_winter, glacier_name, year,
                               path_save_glw, "winter")
+        self._save_prediction(ds, pred_y_annual, glacier_name, year,
+                              path_save_glw, "annual")
 
         # Save monthly grids
-        if save_monthly_pred:
-            self._save_monthly_predictions(cfg, df_grid_monthly, ds,
+        if save_monthly_pred and type_model == 'NN':
+            coordinates = df_grid_monthly.groupby('ID')[[
+                'POINT_LAT', 'POINT_LON'
+            ]].mean().reset_index()
+            df_pred_months_annual = df_pred_months_annual.merge(coordinates,
+                                                                on='ID',
+                                                                how='left')
+
+            self._save_monthly_predictions_NN(df_pred_months_annual, ds,
                                            glacier_name, year, path_save_glw)
+        elif save_monthly_pred and type_model == 'XGBoost':
+            self._save_monthly_predictions_XGB(df_grid_monthly, ds,
+                                           glacier_name, year, path_save_glw)
+            
+
+        return df_pred_months_annual
 
     def get_mean_SMB(self, custom_model, all_columns):
+        """Computes the mean surface mass balance (SMB) for a glacier using the MassBalanceMachine model."""
         # Compute cumulative SMB predictions
-        df_grid_monthly = custom_model.cumulative_pred(self.data)
+        df_grid_monthly = custom_model.cumulative_pred(self.data[all_columns])
 
         # Generate annual and winter predictions
-        pred_annual = self.__class__.glacier_wide_pred(
+        pred_annual, df_pred_months = custom_model.glacier_wide_pred(
             custom_model, df_grid_monthly[all_columns], type_pred='annual')
 
-        # Filter results for the current year
+        # Drop year column
         pred_y_annual = pred_annual.drop(columns=['YEAR'], errors='ignore')
 
         # Take mean over all points:
         mean_SMB = pred_y_annual.pred.mean()
-        
+
         return mean_SMB
-        
-    
+
     def _save_prediction(self, ds, pred_data, glacier_name, year,
                          path_save_glw, season):
         """Helper function to save seasonal glacier-wide predictions."""
@@ -343,14 +358,36 @@ class GeoData:
         self.save_arrays(f"{glacier_name}_{year}_{season}.zarr",
                          path=save_path + '/',
                          proj_type='wgs84')
-        
-    def _save_monthly_predictions(self, cfg, df, ds, glacier_name, year,
+
+    def _save_monthly_predictions_NN(self, df, ds, glacier_name, year,
                                   path_save_glw):
         """Helper function to save monthly predictions."""
-        for month, month_nb in cfg.month_abbr_hydr.items():
-            if month in {'sep_', 'oct', 'nov', 'dec', 'jan', 'feb'}:
-                continue
+        hydro_months = [
+            'sep', 'oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr', 'may',
+            'jun', 'jul', 'aug'
+        ]
+        df_cumulative = df[hydro_months].cumsum(axis=1)
 
+        for month in hydro_months:
+            df_month = df[[month, 'ID', 'POINT_LON', 'POINT_LAT']]
+            df_month['pred'] = df_month[month]
+            df_month['cum_pred'] = df_cumulative[month]
+            self.data = df_month
+            self.pred_to_xr(ds, pred_var='cum_pred', source_type='sgi')
+            save_path = os.path.join(path_save_glw, glacier_name)
+            os.makedirs(save_path, exist_ok=True)
+            self.save_arrays(f"{glacier_name}_{year}_{month}.zarr",
+                             path=save_path + '/',
+                             proj_type='wgs84')
+            
+    def _save_monthly_predictions_XGB(self, df, ds, glacier_name, year,
+                                  path_save_glw):
+        """Helper function to save monthly predictions."""
+        hydro_months = [
+            'sep', 'oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr', 'may',
+            'jun', 'jul', 'aug'
+        ]
+        for month in hydro_months:
             df_month = df[df['MONTHS'] == month].groupby('ID').agg({
                 'YEAR':
                 'mean',
@@ -368,65 +405,9 @@ class GeoData:
             self.pred_to_xr(ds, pred_var='cum_pred', source_type='sgi')
             save_path = os.path.join(path_save_glw, glacier_name)
             os.makedirs(save_path, exist_ok=True)
-            self.save_arrays(f"{glacier_name}_{year}_{month_nb}.zarr",
+            self.save_arrays(f"{glacier_name}_{year}_{month}.zarr",
                              path=save_path + '/',
                              proj_type='wgs84')
-
-    @staticmethod
-    def glacier_wide_pred(custom_model, df_grid_monthly, type_pred='annual'):
-        if type_pred == 'annual':
-            # Make predictions on whole glacier grid
-            features_grid, metadata_grid = custom_model._create_features_metadata(
-                df_grid_monthly)
-
-            # Make predictions aggregated to measurement ID:
-            y_pred_grid_agg = custom_model.aggrPredict(metadata_grid,
-                                                    features_grid)
-
-            # Aggregate predictions to annual:
-            grouped_ids_annual = df_grid_monthly.groupby('ID').agg({
-                'YEAR':
-                'mean',
-                'POINT_LAT':
-                'mean',
-                'POINT_LON':
-                'mean'
-            })
-            grouped_ids_annual['pred'] = y_pred_grid_agg
-
-            return grouped_ids_annual
-
-        elif type_pred == 'winter':
-            # winter months from October to April
-            winter_months = ['oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr']
-            df_grid_winter = df_grid_monthly[df_grid_monthly.MONTHS.isin(
-                winter_months)]
-
-            # Make predictions on whole glacier grid
-            features_grid, metadata_grid = custom_model._create_features_metadata(
-                df_grid_winter)
-
-            # Make predictions aggregated to measurement ID:
-            y_pred_grid_agg = custom_model.aggrPredict(metadata_grid,
-                                                    features_grid)
-
-            # Aggregate predictions for winter:
-            grouped_ids_winter = df_grid_monthly.groupby('ID').agg({
-                'YEAR':
-                'mean',
-                'POINT_LAT':
-                'mean',
-                'POINT_LON':
-                'mean'
-            })
-            grouped_ids_winter['pred'] = y_pred_grid_agg
-
-            return grouped_ids_winter
-
-        else:
-            raise ValueError(
-                "Unsupported prediction type. Only 'annual' and 'winter' are currently supported."
-            )
 
     @staticmethod
     def save_to_zarr(ds: xr.Dataset, path: str, filename: str):

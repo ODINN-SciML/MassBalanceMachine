@@ -53,11 +53,13 @@ torch = "^2.5.0"
 skorch = "^1.1.0"
 cdsapi = "^0.7.4"
 pytest = "^8.2.2"
+pytest-cov = "^6.1.1"
 zarr = "2.18.4"
 pyarrow = "^19.0.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.2"
+pytest-cov = "^6.1.1"
 pylint = "^3.2.5"
 black = "^24.4.2"
 autopep8 = "^2.3.1"
