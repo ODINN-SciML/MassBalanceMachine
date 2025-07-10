@@ -500,6 +500,40 @@ def coarsenDS(ds, target_res_m=50):
     return ds
 
 
+def coarsenDS_mercator(ds, target_res_m=50):
+    # Get dx, dy directly from coordinates (assumes regular grid)
+    x = ds['x']
+    y = ds['y']
+    dx_m = abs(float(x[1] - x[0]))
+    dy_m = abs(float(y[1] - y[0]))
+
+    # Compute coarsening factor
+    resampling_fac_x = max(1, round(target_res_m / dx_m))
+    resampling_fac_y = max(1, round(target_res_m / dy_m))
+    
+
+    if dx_m < target_res_m or dy_m < target_res_m:
+        # Coarsen non-binary variables with mean
+        ds_non_binary = ds[['masked_slope', 'masked_aspect', 'masked_elev']].coarsen(
+            x=resampling_fac_x,
+            y=resampling_fac_y,
+            boundary="trim"
+        ).mean()
+
+        # Coarsen glacier mask with max
+        ds_glacier_mask = ds[['glacier_mask']].coarsen(
+            x=resampling_fac_x,
+            y=resampling_fac_y,
+            boundary="trim"
+        ).reduce(np.max)
+
+        # Merge and return
+        ds_res = xr.merge([ds_non_binary, ds_glacier_mask])
+        return ds_res
+
+    return ds
+
+
 def get_rgi_sgi_ids(cfg, glacier_name):
     rgi_df = pd.read_csv(cfg.dataPath+path_glacier_ids, sep=',')
     rgi_df.rename(columns=lambda x: x.strip(), inplace=True)
@@ -703,6 +737,21 @@ def get_res_from_degrees(ds):
         abs(ds.lat[1] - ds.lat[0]).values * meters_per_degree_lat, 3)
 
     return dx_m, dy_m
+
+def get_res_from_projected(ds):
+    """
+    Computes resolution in meters for projected xarray.Dataset.
+    Assumes regular grid and 'x' and 'y' coordinate names.
+    Returns (dx, dy) in meters.
+    """
+    x = ds.coords['x']
+    y = ds.coords['y']
+
+    # Use absolute value to avoid negative spacing (inverted axes)
+    dx = abs(float(x[1] - x[0]))
+    dy = abs(float(y[1] - y[0]))
+
+    return dx, dy
 
 
 def get_gl_area(cfg):
