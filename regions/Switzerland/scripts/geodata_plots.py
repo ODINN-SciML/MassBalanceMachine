@@ -116,43 +116,6 @@ def scatter_geodetic_MB(df_all, hue='GLACIER', size=False):
     plt.show()
 
 
-def plot_scatter(df_all, hue, size, ax, y_col, rmse, corr):
-    """ Helper function to plot a scatter plot with annotations """
-    sns.scatterplot(data=df_all,
-                    x="Geodetic MB",
-                    y=y_col,
-                    hue=hue,
-                    size="Area" if size else None,
-                    sizes=(10, 1000),
-                    alpha=0.7,
-                    ax=ax)
-
-    # Identity line (diagonal y=x)
-    # diagonal line
-    pt = (0, 0)
-    ax.axline(pt, slope=1, color="grey", linestyle="--", linewidth=1)
-
-    # Grid and axis labels
-    ax.axvline(0, color="grey", linestyle="--", linewidth=1)
-    ax.axhline(0, color="grey", linestyle="--", linewidth=1)
-    ax.grid(True, linestyle="--", linewidth=0.5)
-    ax.set_xlabel("Geodetic MB [m w.e.]")
-    ax.set_ylabel(f"{y_col} [m w.e.]")
-
-    # RMSE and correlation annotation
-    legend_text = "\n".join(
-        (r"$\mathrm{RMSE}=%.3f$" % rmse, r"$\mathrm{\rho}=%.3f$" % corr))
-    props = dict(boxstyle="round", facecolor="white", alpha=0.5)
-    ax.text(0.03,
-            0.94,
-            legend_text,
-            transform=ax.transAxes,
-            verticalalignment="top",
-            fontsize=18,
-            bbox=props)
-    ax.legend([], [], frameon=False)
-
-
 def get_color_maps(vmin_ann, vmax_ann, vmin_win, vmax_win):
     # print(
     #     f"Color scale range (Annual): vmin={vmin_ann:.3f}, vmax={vmax_ann:.3f}"
