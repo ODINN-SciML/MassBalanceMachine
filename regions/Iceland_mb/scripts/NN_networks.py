@@ -184,3 +184,34 @@ class PeriodSpecificNetBigger(nn.Module):
         output = (1 - period_indicator) * annual_pred + period_indicator * winter_pred
         
         return output
+
+class FlexibleNetwork(nn.Module):
+    def __init__(self, input_dim, hidden_layers, dropout=0.2, use_batchnorm=False):
+        """
+        input_dim: int, number of input features
+        hidden_layers: list of int, sizes of each hidden layer
+        dropout: float, dropout probability for all layers (or a list for per-layer dropout)
+        use_batchnorm: bool, whether to use batch normalization after each layer
+        """
+        super().__init__()
+
+        layers = []
+        current_dim = input_dim
+
+        if not isinstance(dropout, list):
+            dropout = [dropout] * len(hidden_layers)
+
+        for i, (hidden_dim, drop_rate) in enumerate(zip(hidden_layers, dropout)):
+            layers.append(nn.Linear(current_dim, hidden_dim))
+            if use_batchnorm:
+                layers.append(nn.BatchNorm1d(hidden_dim))
+            layers.append(nn.ReLU())
+            layers.append(nn.Dropout(drop_rate))
+            current_dim = hidden_dim
+
+        layers.append(nn.Linear(current_dim, 1))  # Output layer
+
+        self.model = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.model(x)

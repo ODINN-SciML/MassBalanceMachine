@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import os 
 import seaborn as sns
 from sklearn.metrics import mean_squared_error, mean_absolute_error, root_mean_squared_error
+from skorch.helper import SliceDataset
 
 from scripts.plots import *
 
@@ -134,3 +135,61 @@ def PlotPredictions_NN(grouped_ids):
     plotMeanPred(grouped_ids_winter, ax4)
 
     plt.tight_layout()
+
+def evaluate_model_and_group_predictions(custom_NN_model, df_X_subset, y, cfg, mbm):
+    # Create features and metadata
+    features, metadata = custom_NN_model._create_features_metadata(df_X_subset)
+
+    # Ensure features and targets are on CPU
+    if hasattr(features, 'cpu'):
+        features = features.cpu()
+    if hasattr(y, 'cpu'):
+        y = y.cpu()
+
+    # Define the dataset for the NN
+    dataset = mbm.data_processing.AggregatedDataset(cfg,
+                                                    features=features,
+                                                    metadata=metadata,
+                                                    targets=y)
+    dataset = [SliceDataset(dataset, idx=0), SliceDataset(dataset, idx=1)]
+
+    # Make predictions
+    y_pred = custom_NN_model.predict(dataset[0])
+    y_pred_agg = custom_NN_model.aggrPredict(dataset[0])
+
+    # Get true values
+    batchIndex = np.arange(len(y_pred_agg))
+    y_true = np.array([e for e in dataset[1][batchIndex]])
+
+    # Compute scores
+    score = custom_NN_model.score(dataset[0], dataset[1])
+    mse, rmse, mae, pearson = custom_NN_model.evalMetrics(y_pred, y_true)
+    scores = {
+        'score': score,
+        'mse': mse,
+        'rmse': rmse,
+        'mae': mae,
+        'pearson': pearson
+    }
+
+    # Create grouped prediction DataFrame
+    ids = dataset[0].dataset.indexToId(batchIndex)
+    grouped_ids = pd.DataFrame({
+        'target': [e[0] for e in dataset[1]],
+        'ID': ids,
+        'pred': y_pred_agg
+    })
+
+    # Add period
+    periods_per_ids = df_X_subset.groupby('ID')['PERIOD'].first()
+    grouped_ids = grouped_ids.merge(periods_per_ids, on='ID')
+
+    # Add glacier name
+    glacier_per_ids = df_X_subset.groupby('ID')['GLACIER'].first()
+    grouped_ids = grouped_ids.merge(glacier_per_ids, on='ID')
+
+    # Add YEAR
+    years_per_ids = df_X_subset.groupby('ID')['YEAR'].first()
+    grouped_ids = grouped_ids.merge(years_per_ids, on='ID')
+    
+    return grouped_ids, scores, ids, y_pred

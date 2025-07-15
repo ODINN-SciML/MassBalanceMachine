@@ -1,4 +1,4 @@
-
+"""
 # <------------------ GLAMOS DATA: ------------------>
 # Point data
 path_PMB_GLAMOS_raw = 'GLAMOS/point/point_raw/'
@@ -35,6 +35,8 @@ path_OGGM = 'OGGM/'
 path_OGGM_xrgrids = 'OGGM/xr_grids/'
 path_glogem = 'GloGEM'  # glogem c_prec and t_off factors
 path_rgi_outlines = 'GLAMOS/RGI/nsidc0770_11.rgi60.CentralEurope/11_rgi60_CentralEurope.shp'
+
+"""
 
 # <------------------OTHER USEFUL FUNCTIONS & ATTRIBUTES: ------------------>
 vois_climate_long_name = {

@@ -1,0 +1,507 @@
+==================NOR Flexible Period Indicator 4 Glaciers 50% fine tuning=======================
+=================Nothing fozen just fine tuning==============
+lr=0.00005,
+max_epochs=300, (stopped at 123)
+{'score': -1.0441645564418383,
+ 'mse': 1.0441645626226963,
+ 'rmse': 1.0218437075319768,
+ 'mae': 0.7992205710642974,
+ 'pearson': 0.8772554646903415}
+
+lr=0.00005,
+max_epochs=5,
+{'score': -1.0602784564925485,
+ 'mse': 1.0602784490370147,
+ 'rmse': 1.0296982320257788,
+ 'mae': 0.7892915641843298,
+ 'pearson': 0.8461722697443966}
+
+lr=0.00005,
+max_epochs=10,
+{'score': -0.9346336879495255,
+ 'mse': 0.9346336882992704,
+ 'rmse': 0.9667645464637553,
+ 'mae': 0.7372729145569721,
+ 'pearson': 0.8685708975662685}
+
+lr=0.00005,
+max_epochs=15,
+{'score': -0.9523787387521117,
+ 'mse': 0.9523787438841027,
+ 'rmse': 0.9758989414299529,
+ 'mae': 0.7522003929581003,
+ 'pearson': 0.8746647833923614}
+
+lr=0.00005,
+max_epochs=20,
+{'score': -0.9499518991316911,
+ 'mse': 0.9499519030077577,
+ 'rmse': 0.9746547609321763,
+ 'mae': 0.7522146224941088,
+ 'pearson': 0.8778980673127148}
+
+==================NOR Flexible Period Indicator 4 Glaciers 50% last 2 LAyers unfrozen=======================
+
+lr=0.0005,
+max_epochs=300, (stopped at 113)
+{'score': -1.2160945062234885,
+ 'mse': 1.21609451083292,
+ 'rmse': 1.1027667526874938,
+ 'mae': 0.8587649439763985,
+ 'pearson': 0.8597939071088362}
+
+lr=0.0005,
+max_epochs=50,
+ {'score': -1.189255115065613,
+ 'mse': 1.189255120576885,
+ 'rmse': 1.0905297430959346,
+ 'mae': 0.8513219472366323,
+ 'pearson': 0.863124056829538}
+
+lr=0.0005,
+max_epochs=10,
+{'score': -1.118302574062052,
+ 'mse': 1.1183025832026539,
+ 'rmse': 1.0574982662882497,
+ 'mae': 0.8074006361128226,
+ 'pearson': 0.8530119856764203}
+
+lr=0.0005,
+max_epochs=20,
+{'score': -1.076981724342323,
+ 'mse': 1.0769817075797665,
+ 'rmse': 1.0377772918982986,
+ 'mae': 0.7992782283521797,
+ 'pearson': 0.8616787648256471}
+
+lr=0.001,
+max_epochs=10,
+{'score': -1.1532660607116048,
+ 'mse': 1.1532660583520244,
+ 'rmse': 1.0739022573549348,
+ 'mae': 0.830744742840209,
+ 'pearson': 0.8569541006100981}
+
+lr=0.001,
+max_epochs=20,
+{'score': -1.0701464731006594,
+ 'mse': 1.0701464782377788,
+ 'rmse': 1.0344788437845303,
+ 'mae': 0.7941493972117943,
+ 'pearson': 0.8612779781639486}
+
+lr=0.001,
+max_epochs=30,
+{'score': -1.2048550012321282,
+ 'mse': 1.204855006398221,
+ 'rmse': 1.0976588752423135,
+ 'mae': 0.8558199370426763,
+ 'pearson': 0.860282679940301}
+
+lr=0.0001,
+max_epochs=300, (stopped at 157)
+{'score': -1.1051222204007236,
+ 'mse': 1.1051222135279188,
+ 'rmse': 1.051247931521351,
+ 'mae': 0.8130158042031054,
+ 'pearson': 0.8615606210038304}
+
+==================NOR Flexible Period Indicator 4 Glaciers 50% last 3 LAyers unfrozen=======================
+
+lr=0.0001,
+max_epochs=5,
+{'score': -1.1006937780304877,
+ 'mse': 1.1006937827363936,
+ 'rmse': 1.04913954397706,
+ 'mae': 0.7800975765650423,
+ 'pearson': 0.8368660466920402}
+
+lr=0.0001,
+max_epochs=10,
+{'score': -1.0482956680950228,
+ 'mse': 1.048295663384477,
+ 'rmse': 1.0238631077368092,
+ 'mae': 0.77993851385926,
+ 'pearson': 0.8615771255195753}
+
+lr=0.0001,
+max_epochs=15,
+{'score': -1.0389051245526633,
+ 'mse': 1.0389051301869427,
+ 'rmse': 1.0192669572722068,
+ 'mae': 0.7879902590874659,
+ 'pearson': 0.8700285716721327}
+
+lr=0.0001,
+max_epochs=20,
+{'score': -1.0190486599447512,
+ 'mse': 1.0190486655620352,
+ 'rmse': 1.009479403238142,
+ 'mae': 0.7839736054300751,
+ 'pearson': 0.8744837313194872}
+
+lr=0.0001,
+max_epochs=30,
+{'score': -1.008246538341669,
+ 'mse': 1.0082465360194552,
+ 'rmse': 1.0041148022111093,
+ 'mae': 0.7803351656824894,
+ 'pearson': 0.8790660179072826}
+
+lr=0.0001,
+max_epochs=50,
+{'score': -1.1097379982433015,
+ 'mse': 1.1097379922592283,
+ 'rmse': 1.0534410245757606,
+ 'mae': 0.8284272086542311,
+ 'pearson': 0.8773815273708536}
+
+====frozen batchnorm all, unfrozen last 3 linear layers===
+lr=0.0001,
+max_epochs=30,
+{'score': -0.9933540713901022,
+ 'mse': 0.9933540644812884,
+ 'rmse': 0.9966714927604222,
+ 'mae': 0.7750987917986826,
+ 'pearson': 0.8794511537897224}
+
+===============forzen batchnorm all, unfrozen linear all=========
+lr=0.00005,
+max_epochs=10,
+{'score': -0.924637194137796,
+ 'mse': 0.9246371927645245,
+ 'rmse': 0.9615805700847561,
+ 'mae': 0.7323858598383964,
+ 'pearson': 0.8683439634648465}
+
+lr=0.00005,
+max_epochs=15,
+{'score': -0.9379612688612761,
+ 'mse': 0.9379612627592644,
+ 'rmse': 0.9684840023249038,
+ 'mae': 0.7447449992386762,
+ 'pearson': 0.8744439992956996}
+
+!!!!!!!!!!!!!!NO PERIOD INDICATOR FROM HERE ON!!!!!!!!!!!!!!!!
+===============forzen batchnorm all, unfrozen linear all=========
+
+lr=0.00005,
+max_epochs=10,
+{'score': -0.9185376369165547,
+ 'mse': 0.918537642635811,
+ 'rmse': 0.9584036950240806,
+ 'mae': 0.7186247735664905,
+ 'pearson': 0.867449229100972}
+
+lr=0.00005,
+max_epochs=15,
+{'score': -0.8600750888968337,
+ 'mse': 0.8600750919880349,
+ 'rmse': 0.9274023355523938,
+ 'mae': 0.6986658002332988,
+ 'pearson': 0.8747674344368332}
+
+lr=0.00005,
+max_epochs=20,
+{'score': -0.818202191054835,
+ 'mse': 0.8182021989674018,
+ 'rmse': 0.9045452995662526,
+ 'mae': 0.6862170074665789,
+ 'pearson': 0.8809289013130461}
+
+
+=================Nothing fozen just fine tuning==============
+
+lr=0.00005,
+max_epochs=15,
+{'score': -0.854419597893848,
+ 'mse': 0.8544195929270582,
+ 'rmse': 0.9243481989634956,
+ 'mae': 0.6968658054387964,
+ 'pearson': 0.8757725322565707}
+
+lr=0.00005,
+max_epochs=20,
+{'score': -0.817206942771399,
+ 'mse': 0.8172069378378143,
+ 'rmse': 0.9039949877282585,
+ 'mae': 0.686712331718315,
+ 'pearson': 0.8817269024532204}
+
+lr=0.00005,
+max_epochs=25,
+{'score': -0.8368143648956428,
+ 'mse': 0.8368143590277456,
+ 'rmse': 0.9147755785042283,
+ 'mae': 0.6980128520881759,
+ 'pearson': 0.882382264325201}
+
+========Last 2 layers unfrozen========
+
+lr=0.0001,
+max_epochs=25,
+{'score': -1.1813836200573413,
+ 'mse': 1.1813836231510517,
+ 'rmse': 1.08691472671551,
+ 'mae': 0.8213409452996708,
+ 'pearson': 0.8403202108503922}
+
+
+lr=0.0001,
+max_epochs=50,
+{'score': -1.1126133901478263,
+ 'mse': 1.1126134036100377,
+ 'rmse': 1.0548049125833827,
+ 'mae': 0.8003094587184866,
+ 'pearson': 0.8505742589957155}
+
+lr=0.0001,
+max_epochs=100, (stopped at 98)
+{'score': -1.088746969123268,
+ 'mse': 1.0887469587270917,
+ 'rmse': 1.0434303803930052,
+ 'mae': 0.7915272377292123,
+ 'pearson': 0.8528267046772805}
+
+lr=0.0005,
+max_epochs=100,(stopped at 41)
+{'score': -1.0058608912241829,
+ 'mse': 1.0058608806692373,
+ 'rmse': 1.0029261591309888,
+ 'mae': 0.769744034013692,
+ 'pearson': 0.8673143455671845}
+
+lr=0.001,
+max_epochs=100,(stopped at 61)
+{'score': -0.9504808084324041,
+ 'mse': 0.9504808094733783,
+ 'rmse': 0.9749260533360354,
+ 'mae': 0.7470283702394714,
+ 'pearson': 0.8740644994515108}
+
+
+========Last 2 linear layers unfrozen, batchnorm frozen========
+lr=0.001,
+max_epochs=100,(stopped at 57 I think)
+{'score': -0.9503536977049065,
+ 'mse': 0.9503537066683707,
+ 'rmse': 0.9748608652871295,
+ 'mae': 0.7467076761571156,
+ 'pearson': 0.873640215940445}
+
+========Last 3 layers unfrozen========
+
+lr=0.001,
+max_epochs=100,(stopped at 48)
+{'score': -0.90950244801882,
+ 'mse': 0.9095024515414625,
+ 'rmse': 0.9536783795082399,
+ 'mae': 0.7475905232847312,
+ 'pearson': 0.8787081834834317}
+
+lr=0.001,
+max_epochs=20,
+{'score': -0.8923545124916025,
+ 'mse': 0.892354504325295,
+ 'rmse': 0.9446451737691222,
+ 'mae': 0.7434218469184822,
+ 'pearson': 0.8779443714293037}
+
+========Last 3 linear layers unfrozen, batchnorm frozen========
+
+lr=0.001,
+max_epochs=100,(stopped at 61)
+{'score': -0.897656036696923,
+ 'mse': 0.8976560369788429,
+ 'rmse': 0.9474471156633719,
+ 'mae': 0.7410292418951134,
+ 'pearson': 0.8830879568879919}
+
+lr=0.001,
+max_epochs=20,
+{'score': -0.892798090392482,
+ 'mse': 0.8927980915977946,
+ 'rmse': 0.944879935017034,
+ 'mae': 0.7436885144523997,
+ 'pearson': 0.8777841010421279}
+
+lr=0.001,
+max_epochs=10,
+{'score': -0.920835581768883,
+ 'mse': 0.9208355833435422,
+ 'rmse': 0.9596017837329932,
+ 'mae': 0.7505312976771357,
+ 'pearson': 0.8762165051099582}
+
+
+=================Progressive unfreezing====================
+layer_groups = [
+        (['model.16.weight', 'model.16.bias'], 5, 0.001),
+        (['model.12.weight', 'model.12.bias', 'model.13.weight', 'model.13.bias'], 5, 0.0005),
+        (['model.8.weight', 'model.8.bias', 'model.9.weight', 'model.9.bias'], 5, 0.0001)
+    ]
+{'score': -1.0820422204766644,
+ 'mse': 1.082042217008201,
+ 'rmse': 1.0402125826042488,
+ 'mae': 0.7995995764571371,
+ 'pearson': 0.8601697617560764}
+
+
+layer_groups = [
+        (['model.16.weight', 'model.16.bias'], 10, 0.001),
+        (['model.12.weight', 'model.12.bias', 'model.13.weight', 'model.13.bias'], 10, 0.0005),
+        (['model.8.weight', 'model.8.bias', 'model.9.weight', 'model.9.bias'], 10, 0.0001)
+    ]
+{'score': -1.0112901349563506,
+ 'mse': 1.0112901366176015,
+ 'rmse': 1.005629224226107,
+ 'mae': 0.7717857193647857,
+ 'pearson': 0.8691860768651691}
+
+
+layer_groups = [
+        (['model.16.weight', 'model.16.bias'], 20, 0.001),
+        (['model.12.weight', 'model.12.bias', 'model.13.weight', 'model.13.bias'], 20, 0.0005),
+        (['model.8.weight', 'model.8.bias', 'model.9.weight', 'model.9.bias'], 20, 0.0001)
+    ]
+{'score': -0.9615179125981722,
+ 'mse': 0.9615179195105313,
+ 'rmse': 0.98057020121485,
+ 'mae': 0.7524918774502454,
+ 'pearson': 0.8757016732457024}
+
+
+layer_groups = [
+        (['model.16.weight', 'model.16.bias'], 25, 0.001),
+        (['model.12.weight', 'model.12.bias', 'model.13.weight', 'model.13.bias'], 25, 0.0005),
+        (['model.8.weight', 'model.8.bias', 'model.9.weight', 'model.9.bias'], 25, 0.0001)
+    ]
+{'score': -0.9362448868073737,
+ 'mse': 0.9362449038399773,
+ 'rmse': 0.9675974906126913,
+ 'mae': 0.7430021865484161,
+ 'pearson': 0.8774641162319126}
+
+====from here on with best model not last====
+
+
+layer_groups = [
+        (['model.16.weight', 'model.16.bias'], 25, 0.001),
+        (['model.12.weight', 'model.12.bias', 'model.13.weight', 'model.13.bias'], 25, 0.0005),
+        (['model.8.weight', 'model.8.bias', 'model.9.weight', 'model.9.bias'], 25, 0.0001)
+    ]
+{'score': -0.9260738527697918,
+ 'mse': 0.9260738474961352,
+ 'rmse': 0.9623273078823729,
+ 'mae': 0.7392525686977506,
+ 'pearson': 0.8791080205392908}
+
+layer_groups = [
+        (['model.16.weight', 'model.16.bias'], 50, 0.001), stopping at 23
+        (['model.12.weight', 'model.12.bias', 'model.13.weight', 'model.13.bias'], 50, 0.0005), not stopping
+        (['model.8.weight', 'model.8.bias', 'model.9.weight', 'model.9.bias'], 50, 0.0001) stopping after 40 epochs
+    ]
+{'score': -0.9055193623682307,
+ 'mse': 0.9055193534505892,
+ 'rmse': 0.9515878064848189,
+ 'mae': 0.7327053757169366,
+ 'pearson': 0.8799571572177274}
+
+
+layer_groups = [
+        (['model.16.weight', 'model.16.bias'], 200, 0.001), stopping at 23
+        (['model.12.weight', 'model.12.bias', 'model.13.weight', 'model.13.bias'], 200, 0.0005), stopping at 92
+        (['model.8.weight', 'model.8.bias', 'model.9.weight', 'model.9.bias'], 200, 0.0001) stopping at 132
+    ]
+{'score': -0.9182625155149953,
+ 'mse': 0.9182625178774877,
+ 'rmse': 0.9582601514607021,
+ 'mae': 0.7375299098071306,
+ 'pearson': 0.8803550939086424}
+
+==================All Batchnorm unfrozen, all linear frozen===============
+
+lr=0.1,
+max_epochs=200, stopped at 30
+{'score': -0.692010296628052,
+ 'mse': 0.6920102920187112,
+ 'rmse': 0.8318715598087911,        BEST OVERALL
+ 'mae': 0.6487959413821035,
+ 'pearson': 0.9090364578117293}
+
+lr=0.05,
+max_epochs=200, stopped at 49
+{'score': -0.7593032509220589,
+ 'mse': 0.7593032476395571,
+ 'rmse': 0.8713800821912084,
+ 'mae': 0.6800956087732749,
+ 'pearson': 0.9010160044745855}
+
+
+lr=0.5,
+max_epochs=200, stopped at 60
+{'score': -0.7279418024364195,
+ 'mse': 0.727941805636579,
+ 'rmse': 0.8531950572035558,
+ 'mae': 0.6632098470081726,
+ 'pearson': 0.9010228087821744}
+
+==========Unreeze Batchnorm and then progressively unfreeze linear==========
+
+layer_groups = [
+        (
+        [
+            'model.1.weight', 'model.1.bias',
+            'model.5.weight', 'model.5.bias',
+            'model.9.weight', 'model.9.bias',
+            'model.13.weight', 'model.13.bias'
+        ],200,  0.1                                 stopped at 30
+    ),
+        (['model.16.weight', 'model.16.bias'], 200, 0.001),
+        (['model.12.weight', 'model.12.bias'], 200, 0.001),
+        (['model.8.weight', 'model.8.bias'], 200, 0.001)
+    ]
+    REMAINING linear layers had val_loss improve only once or not at all 
+    and result RMSE is worse than only batchnorm unfreeze
+
+{'score': -0.698934456299531,
+ 'mse': 0.698934453126214,
+ 'rmse': 0.8360229979648969,
+ 'mae': 0.652995828545298,
+ 'pearson': 0.9083100392219923}
+
+
+!!!!!!!!!!!!!!!!!!Engabreen val split!!!!!!!!!!!!!!!!!!! ----> Val_loss are much higher here, like around 2.5 or so, but test almost as good.
+=================Nothing fozen just fine tuning==============
+lr=0.001,
+max_epochs=300, stops at like 27 or so
+{'score': -0.8603173609012583,
+ 'mse': 0.8603173548048558,
+ 'rmse': 0.9275329400106801,
+ 'mae': 0.7290401452252719,
+ 'pearson': 0.8862329600194473}
+ VAL_LOSS is like 2.5 or so
+
+
+lr=0.0005,
+max_epochs=300, only improves epoch 1, lr too low for this train/val split
+{'score': -1.0177077988964311,
+ 'mse': 1.0177077950631264,
+ 'rmse': 1.0088150450221915,
+ 'mae': 0.7544372117735948,
+ 'pearson': 0.8604048559198649}
+
+
+=================Progressive unfreezing, but only linear layers====================
+
+layer_groups = [
+
+        (['model.16.weight', 'model.16.bias'], 50, 0.001), stopped at 23
+        (['model.12.weight', 'model.12.bias'], 200, 0.001), stopped at 52
+        (['model.8.weight', 'model.8.bias'], 200, 0.001)  stopped at 106
+    ]
+{'score': -0.8965841187447952,
+ 'mse': 0.8965841269500342,
+ 'rmse': 0.9468812633852431,
+ 'mae': 0.740868883139898,
+ 'pearson': 0.8823346399672235}

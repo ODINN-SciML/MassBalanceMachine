@@ -207,10 +207,10 @@ no deleted points due to topographic variables
 ICE
 600 out of 6'000 datapoints deleted from Iceland due to hugonnet_dhdt
 IT_AT
-15 out of 5'336 datapoints deleted from Iceland due to millan_v. This is one whole glacier, 
+15 out of 5'336 datapoints deleted from IT_AT due to millan_v. This is one whole glacier, 
 'RGI60-11.00002' // 'HALLSTAETTER G.' (&& 'RGI60-11.03241' // 'CALDERONE' Calderone isnt in the dataset anyways as its not within_glacier_shape)
 Norway
-ca 300 out of 6'500 datapoints deleted from Iceland due to millan_v. This is one whole glacier,
+ca 300 out of 6'500 datapoints deleted from Norway due to millan_v. This is one whole glacier,
 'RGI60-08.01258' // 'Langfjordjoekulen'
 
 I've made a with_millanv oggm csv for both it_at and norway, now i also have to make a with hugonnet_dhdt for iceland. DONE
@@ -285,3 +285,29 @@ wenn fine tuned schlechter ist als einfach schweiz norwegen dann machts eh keine
 Zuerst testen direkt auch mit freeze.
 
 ----Period Indicator laufen lassen mit neuem Network von Marijn.
+
+----->For some reason the POINT_ID on my github pull request is pre my additional changes (2x ablation), check 
+if that is really the case and why
+
+Period seems to only work for cross regional, might be because Swiss test glaciers share similar climate patterns with Swiss training glaciers, 
+so climate features alone are sufficient, while Norwegian glaciers have different climate patterns, so the explicit period indicator helps the model 
+understand "this is winter behavior" vs "this is annual behavior" regardless of the specific climate values
+or
+ winter/annual relationships is redudnant info, noise, in regional, as climate variables already capture all winter vs annual difference. 
+ when climate patterns change and alone dont transfer well between regions, this winter/annual relationship becomes additional information that is transferable.
+( Physical relationships (winter vs annual) are more universal than absolute climate sensitivities across regions.)
+
+
+I tried the earlier splitting, but it seems to overfit, next i have increased droput and added weight decay, rerun and see if better
+
+best NN for cross regional CH--->ICE is either the flexible with PERIOD_INDICATOR or the periodspecific notebook.
+lets try norway with flexible + period indicator, and if ok then try fine tuning + freezing.
+
+VERY INTERESTING. though the period indicator model performs bettwer cross regional swiss to norway, it actually performs worse in fine tuning
+when some norway data is seen. This is probably because the period indicator is this context flag, that acts like a crutch that just transfers the
+overall relationshipo between winter and annual measurements to the new region, wheres when some data is available on the new region, that context flag
+hurst the model as it relies too much on it, where fine tuning will adapt better to the new data seen during training.
+
+----------------
+So far all my NN testing has been done on 80/20 train/val split, maybe it could also be interesting to use glacier based splits, even for Swiss model
+in my limited testing so far, it also works well, the validation is a lot worse, but the test ends up being almost as good

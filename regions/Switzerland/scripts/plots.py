@@ -448,137 +448,46 @@ def plotMeanPred(
     ax.legend(fontsize=20, loc='lower right')
 
 
-def PlotIndividualGlacierPredVsTruth(grouped_ids,
-                                     color_annual,
-                                     color_winter,
-                                     axs,
-                                     custom_order=None,
-                                     add_text=True,
-                                     ax_xlim = (-8, 6),
-                                     ax_ylim = (-8, 6)):
+def PlotIndividualGlacierPredVsTruth(grouped_ids, base_figsize=(20, 15), height_per_row=5):
+    # Calculate number of rows needed based on number of glaciers
+    n_glaciers = len(grouped_ids['GLACIER'].unique())
+    n_rows = (n_glaciers + 2) // 3  # Ceiling division to get enough rows for 3 columns
 
-    color_palette_period = [color_annual, color_winter]
+    figsize = (base_figsize[0], n_rows * height_per_row)
+    
+    fig, axs = plt.subplots(n_rows, 3, figsize=figsize)
 
-    if custom_order is None:
-        custom_order = grouped_ids['GLACIER'].unique()
-    for i, test_gl in enumerate(custom_order):
+    color_palette_period = {'annual': '#e31a1c',
+                            'winter': '#1f78b4',
+                            'summer': '#33a02c'}
+
+
+    for i, test_gl in enumerate(grouped_ids['GLACIER'].unique()):
         df_gl = grouped_ids[grouped_ids.GLACIER == test_gl]
 
         ax1 = axs.flatten()[i]
 
-        sns.scatterplot(
-            df_gl,
-            x="target",
-            y="pred",
-            palette=color_palette_period,
-            hue='PERIOD',
-            ax=ax1,
-            marker='o',
-            hue_order=['annual', 'winter'],
-        )
-
-        ax1.set_ylabel('Predicted PMB [m w.e.]', fontsize=20)
-        ax1.set_xlabel('Observed PMB [m w.e.]', fontsize=20)
-
-        # diagonal line
-        pt = (0, 0)
-        ax1.axline(pt, slope=1, color="grey", linestyle="-", linewidth=0.2)
-        ax1.axvline(0, color="grey", linestyle="--", linewidth=1)
-        ax1.axhline(0, color="grey", linestyle="--", linewidth=1)
-        ax1.grid()
-
-        # Set ylimits to be the same as xlimits
-        if ax_xlim is None:
-            ymin = math.floor(min(df_gl.pred.min(), df_gl.target.min()))
-            ymax = math.ceil(max(df_gl.pred.max(), df_gl.target.max()))
-            ax1.set_xlim(ymin, ymax)
-            ax1.set_ylim(ymin, ymax)
-        else:
-            ax1.set_xlim(ax_xlim)
-            ax1.set_ylim(ax_ylim)
-        
-        ax1.legend(fontsize=16, loc='lower right', ncol=2)
-
-        # Text:
-        df_gl_annual = df_gl[df_gl['PERIOD'] == 'annual']
-        if not df_gl_annual.empty:
-            scores_annual = {
-                'mse':
-                mean_squared_error(df_gl_annual['target'],
-                                   df_gl_annual['pred']),
-                'rmse':
-                mean_squared_error(df_gl_annual['target'],
-                                   df_gl_annual['pred'],
-                                   squared=False),
-                'mae':
-                mean_absolute_error(df_gl_annual['target'],
-                                    df_gl_annual['pred']),
-                'pearson_corr':
-                np.corrcoef(df_gl_annual['target'], df_gl_annual['pred'])[0,
-                                                                          1],
-                'R2':
-                r2_score(df_gl_annual['target'], df_gl_annual['pred']),
-                'Bias':
-                np.mean(df_gl_annual['pred'] - df_gl_annual['target'])
-            }
-        else:
-            scores_annual = {
-                'mse': np.nan,
-                'rmse': np.nan,
-                'mae': np.nan,
-                'pearson_corr': np.nan,
-                'R2': np.nan,
-                'Bias': np.nan
-            }
-
-        df_gl_winter = df_gl[df_gl['PERIOD'] == 'winter']
-        # if array not empty
-        if not df_gl_winter.empty:
-            scores_winter = {
-                'mse':
-                mean_squared_error(df_gl_winter['target'],
-                                   df_gl_winter['pred']),
-                'rmse':
-                mean_squared_error(df_gl_winter['target'],
-                                   df_gl_winter['pred'],
-                                   squared=False),
-                'mae':
-                mean_absolute_error(df_gl_winter['target'],
-                                    df_gl_winter['pred']),
-                'pearson_corr':
-                np.corrcoef(df_gl_winter['target'], df_gl_winter['pred'])[0,
-                                                                          1],
-                'R2':
-                r2_score(df_gl_winter['target'], df_gl_winter['pred']),
-                'Bias':
-                np.mean(df_gl_winter['pred'] - df_gl_winter['target'])
-            }
-        else:
-            scores_winter = {
-                'mse': np.nan,
-                'rmse': np.nan,
-                'mae': np.nan,
-                'pearson_corr': np.nan,
-                'R2': np.nan,
-                'Bias': np.nan
-            }
-        legend = "\n".join((
-            (r"$\mathrm{RMSE_a}=%.3f$, $\mathrm{RMSE_w}=%.3f$," %
-             (scores_annual["rmse"], scores_winter["rmse"])),
-            (r"$\mathrm{R^2_a}=%.3f$, $\mathrm{R^2_w}=%.3f$" %
-             (scores_annual["R2"], scores_winter["R2"])),
-            r"$\mathrm{B_a}=%.3f$, $\mathrm{B_w}=%.3f$" %
-            (scores_annual["Bias"], scores_winter["Bias"]),
-        ))
-        if add_text:
-            ax1.text(0.03,
-                     0.96,
-                     legend,
-                     transform=ax1.transAxes,
-                     verticalalignment="top",
-                     fontsize=16,
-                     bbox=dict(boxstyle='round', facecolor='white', alpha=0.0))
+        scores = {
+            'mse':
+            mean_squared_error(df_gl['target'], df_gl['pred']),
+            'rmse':
+            mean_squared_error(df_gl['target'], df_gl['pred'], squared=False),
+            'mae':
+            mean_absolute_error(df_gl['target'], df_gl['pred']),
+            'pearson_corr':
+            np.corrcoef(df_gl['target'], df_gl['pred'])[0, 1]
+        }
+        predVSTruth(ax1,
+                    df_gl,
+                    scores,
+                    hue='PERIOD',
+                    palette=color_palette_period)
         ax1.set_title(f'{test_gl.capitalize()}', fontsize=28)
+    
+    # Hide empty subplots
+    for j in range(i+1, n_rows*3):
+        if j < len(axs.flatten()):
+            axs.flatten()[j].set_visible(False)
 
     plt.tight_layout()
 
