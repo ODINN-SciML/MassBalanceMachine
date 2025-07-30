@@ -98,7 +98,7 @@ class GeoData:
 
             # Change from OGGM proj. to wgs84
             self.ds_latlon = self.oggmToWgs84(self.ds_xy, gdir)
-        
+
         if source_type == 'sgi':
             # Faster way:
             # Create a new variable pred_masked initialized with NaN
@@ -251,6 +251,7 @@ class GeoData:
                         path_glacier_dem,
                         path_save_glw,
                         save_monthly_pred=True,
+                        save_seasonal_pred=True,
                         type_model='XGBoost'):
         """
         Computes and saves gridded mass balance (MB) predictions for a given glacier and year.
@@ -306,10 +307,11 @@ class GeoData:
         ds = xr.open_dataset(path_glacier_dem)
 
         # Save both annual and winter predictions using the helper function
-        self._save_prediction(ds, pred_y_winter, glacier_name, year,
-                              path_save_glw, "winter")
-        self._save_prediction(ds, pred_y_annual, glacier_name, year,
-                              path_save_glw, "annual")
+        if save_seasonal_pred:
+            self._save_prediction(ds, pred_y_winter, glacier_name, year,
+                                  path_save_glw, "winter")
+            self._save_prediction(ds, pred_y_annual, glacier_name, year,
+                                  path_save_glw, "annual")
 
         # Save monthly grids
         if save_monthly_pred and type_model == 'NN':
@@ -321,11 +323,12 @@ class GeoData:
                                                                 how='left')
 
             self._save_monthly_predictions_NN(df_pred_months_annual, ds,
-                                           glacier_name, year, path_save_glw)
+                                              glacier_name, year,
+                                              path_save_glw)
         elif save_monthly_pred and type_model == 'XGBoost':
             self._save_monthly_predictions_XGB(df_grid_monthly, ds,
-                                           glacier_name, year, path_save_glw)
-            
+                                               glacier_name, year,
+                                               path_save_glw)
 
         return df_pred_months_annual
 
@@ -360,7 +363,7 @@ class GeoData:
                          proj_type='wgs84')
 
     def _save_monthly_predictions_NN(self, df, ds, glacier_name, year,
-                                  path_save_glw):
+                                     path_save_glw):
         """Helper function to save monthly predictions."""
         hydro_months = [
             'sep', 'oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr', 'may',
@@ -379,9 +382,9 @@ class GeoData:
             self.save_arrays(f"{glacier_name}_{year}_{month}.zarr",
                              path=save_path + '/',
                              proj_type='wgs84')
-            
+
     def _save_monthly_predictions_XGB(self, df, ds, glacier_name, year,
-                                  path_save_glw):
+                                      path_save_glw):
         """Helper function to save monthly predictions."""
         hydro_months = [
             'sep', 'oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr', 'may',
