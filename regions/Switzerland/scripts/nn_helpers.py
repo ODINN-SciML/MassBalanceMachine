@@ -1,10 +1,14 @@
 import matplotlib.pyplot as plt
-import os 
+import os
 import seaborn as sns
 from sklearn.metrics import mean_squared_error, mean_absolute_error, root_mean_squared_error
 from skorch.helper import SliceDataset
+from datetime import datetime
+import massbalancemachine as mbm
+from tqdm.notebook import tqdm
 
 from scripts.plots import *
+
 
 def plot_training_history(custom_nn, skip_first_n=0):
     history = custom_nn.history
@@ -15,7 +19,9 @@ def plot_training_history(custom_nn, skip_first_n=0):
 
     epochs = [entry['epoch'] for entry in history]
     train_loss = [entry.get('train_loss') for entry in history]
-    valid_loss = [entry.get('valid_loss') for entry in history if 'valid_loss' in entry]
+    valid_loss = [
+        entry.get('valid_loss') for entry in history if 'valid_loss' in entry
+    ]
 
     plt.figure(figsize=(8, 5))
 
@@ -28,22 +34,23 @@ def plot_training_history(custom_nn, skip_first_n=0):
 
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
-    plt.title(f"Training and Validation Loss (Skipped first {skip_first_n} epochs)" if skip_first_n > 0 else "Training and Validation Loss")
+    plt.title(
+        f"Training and Validation Loss (Skipped first {skip_first_n} epochs)"
+        if skip_first_n > 0 else "Training and Validation Loss")
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
-    plt.show()
 
-    # save the plot
+    # Save the plot
     # Create a folder to save figures (optional)
-    save_dir = "figures"
+    save_dir = os.path.join("figures", "training_history")
     os.makedirs(save_dir, exist_ok=True)
-    
+
     # Save the figure
-    plt.savefig(os.path.join(save_dir, "training_history.png"),
+    current_date = datetime.now().strftime("%Y-%m-%d")
+    plt.savefig(os.path.join(save_dir, f"training_history_{current_date}.png"),
                 dpi=300,
                 bbox_inches='tight')
-    plt.close()  # closes the plot to avoid display in notebooks/scripts
 
 
 def predVSTruth_all(grouped_ids, mae, rmse, title):
@@ -80,8 +87,8 @@ def predVSTruth_all(grouped_ids, mae, rmse, title):
     ax.grid()
     ax.set_title(title, fontsize=20)
     plt.tight_layout()
-    
-    
+
+
 def PlotPredictions_NN(grouped_ids):
     fig = plt.figure(figsize=(15, 10))
     colors_glacier = [
@@ -94,7 +101,7 @@ def PlotPredictions_NN(grouped_ids):
     grouped_ids_annual = grouped_ids[grouped_ids.PERIOD == 'annual']
 
     y_true_mean = grouped_ids_annual['target']
-    y_pred_agg  = grouped_ids_annual['pred']
+    y_pred_agg = grouped_ids_annual['pred']
 
     scores_annual = {
         'mse': mean_squared_error(y_true_mean, y_pred_agg),
@@ -116,7 +123,7 @@ def PlotPredictions_NN(grouped_ids):
 
     grouped_ids_winter = grouped_ids[grouped_ids.PERIOD == 'winter']
     y_true_mean = grouped_ids_winter['target']
-    y_pred_agg  = grouped_ids_winter['pred']
+    y_pred_agg = grouped_ids_winter['pred']
 
     ax3 = plt.subplot(2, 2, 3)
     scores_winter = {
@@ -138,9 +145,10 @@ def PlotPredictions_NN(grouped_ids):
     plotMeanPred(grouped_ids_winter, ax4)
 
     plt.tight_layout()
-    
 
-def evaluate_model_and_group_predictions(custom_NN_model, df_X_subset, y, cfg, mbm):
+
+def evaluate_model_and_group_predictions(custom_NN_model, df_X_subset, y, cfg,
+                                         mbm):
     # Create features and metadata
     features, metadata = custom_NN_model._create_features_metadata(df_X_subset)
 
@@ -195,5 +203,84 @@ def evaluate_model_and_group_predictions(custom_NN_model, df_X_subset, y, cfg, m
     # Add YEAR
     years_per_ids = df_X_subset.groupby('ID')['YEAR'].first()
     grouped_ids = grouped_ids.merge(years_per_ids, on='ID')
-    
+
     return grouped_ids, scores, ids, y_pred
+
+
+def process_glacier_grids(cfg, glacier_list, periods_per_glacier, all_columns,
+                          loaded_model, path_glacier_grid_glamos,
+                          path_save_glw, path_xr_grids):
+    """
+    Process distributed MB grids for a list of glaciers using pre-trained models.
+
+    Parameters
+    ----------
+    cfg : object
+        Configuration object with dataPath attribute.
+    glacier_list : list of str
+        List of glacier names to process.
+    periods_per_glacier : dict
+        Dictionary mapping glacier names to periods (years) for processing.
+    all_columns : list of str
+        List of required column names in glacier grid files.
+    loaded_model : object
+        Pre-trained model to use for prediction.
+    path_glacier_grid_glamos : str
+        Relative path to glacier grids within cfg.dataPath.
+    emptyfolder : function
+        Function to empty a folder.
+    path_save_glw : str
+        Path where results will be saved.
+    path_xr_grids : str
+        Path to xr_masked_grids.
+    """
+    # Ensure save path exists
+    os.makedirs(path_save_glw, exist_ok=True)
+
+    emptyfolder(path_save_glw)
+
+    for glacier_name in glacier_list:
+        glacier_path = os.path.join(cfg.dataPath, path_glacier_grid_glamos, glacier_name)
+
+        if not os.path.exists(glacier_path):
+            print(f"Folder not found for {glacier_name}, skipping...")
+            continue
+
+        glacier_files = sorted([f for f in os.listdir(glacier_path) if glacier_name in f])
+
+        geodetic_range = range(np.min(periods_per_glacier[glacier_name]),
+                               np.max(periods_per_glacier['aletsch']) + 1)
+
+        years = [int(file_name.split('_')[2].split('.')[0]) for file_name in glacier_files]
+        years = [y for y in years if y in geodetic_range]
+
+        print(f"Processing {glacier_name} ({len(years)} files)")
+
+        for year in tqdm(years, desc=f"Processing {glacier_name}", leave=False):
+            file_name = f"{glacier_name}_grid_{year}.parquet"
+            file_path = os.path.join(cfg.dataPath, path_glacier_grid_glamos, glacier_name, file_name)
+
+            df_grid_monthly = pd.read_parquet(file_path)
+            df_grid_monthly.drop_duplicates(inplace=True)
+
+            # Keep only necessary columns
+            df_grid_monthly = df_grid_monthly[[col for col in all_columns if col in df_grid_monthly.columns]]
+            df_grid_monthly = df_grid_monthly.dropna()
+
+            # Create geodata object
+            geoData = mbm.geodata.GeoData(df_grid_monthly)
+
+            # Compute and save gridded MB
+            path_glacier_dem = os.path.join(path_xr_grids, f"{glacier_name}_{year}.zarr")
+
+            geoData.gridded_MB_pred(
+                df_grid_monthly,
+                loaded_model,
+                glacier_name,
+                year,
+                all_columns,
+                path_glacier_dem,
+                path_save_glw,
+                save_monthly_pred=True,
+                type_model='NN'
+            )
