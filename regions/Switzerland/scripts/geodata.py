@@ -165,7 +165,7 @@ def transform_xarray_coords_lv95_to_wgs84(data_array):
     df['z_pos'] = 0
 
     # Convert to lat/lon
-    #df = LV03toWGS84(df)
+    # df = LV03toWGS84(df)
     df = LV95toWGS84(df)
 
     # Transform LV95 to WGS84 (lat, lon)
@@ -910,15 +910,16 @@ def process_geodetic_mass_balance_comparison(
 
         # Check if GLAMOS file exists
         glamos_file = os.path.join(path_SMB_GLAMOS_csv, "fix", f"{glacier_name}_fix.csv")
-        if not os.path.exists(glamos_file):
-            print(f"Skipping {glacier_name}: GLAMOS file not found.")
-            continue
+        glamos_exists = os.path.exists(glamos_file)
 
-        # Load GLAMOS data
-        GLAMOS_glwmb = get_GLAMOS_glwmb(glacier_name, cfg)
-        if GLAMOS_glwmb is None:
-            print(f"Skipping {glacier_name}: Failed to load GLAMOS data.")
-            continue
+        if glamos_exists:
+            GLAMOS_glwmb = get_GLAMOS_glwmb(glacier_name, cfg)
+            if GLAMOS_glwmb is None:
+                print(f"Warning: Failed to load GLAMOS data for {glacier_name}. Using NaNs.")
+                GLAMOS_glwmb = {"GLAMOS Balance": {}}
+        else:
+            print(f"GLAMOS file not found for {glacier_name}. Using NaNs.")
+            GLAMOS_glwmb = {"GLAMOS Balance": {}}
 
         # Get periods and geodetic MBs
         periods = periods_per_glacier.get(glacier_name, [])
@@ -937,7 +938,6 @@ def process_geodetic_mass_balance_comparison(
             if period[1] == 2021 and glacier_name == 'silvretta':
                 continue
 
-            # Skip if required years are missing
             if check_missing_years(folder_path, glacier_name, period):
                 print(f"Skipping {glacier_name} {period}: Missing years")
                 continue
@@ -979,6 +979,8 @@ def process_geodetic_mass_balance_comparison(
 
     df_all.sort_values(by="Area", inplace=True, ascending=True)
     return df_all
+
+
 def prepareGeoTargets(geodetic_mb, periods_per_glacier, glacier_name=None):
     """
     Prepare the vector of geodetic targets for a given glacier by looping over the

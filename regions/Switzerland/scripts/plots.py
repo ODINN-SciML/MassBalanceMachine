@@ -45,6 +45,7 @@ def plotHeatmap(test_glaciers, data_glamos, glacierCap, period='annual'):
                                   ordered=True)
     fig = plt.figure(figsize=(20, 15))
     ax = plt.subplot(1, 1, 1)
+    print(matrix.min().min(), matrix.max().max())
     sns.heatmap(data=matrix,
                 center=0,
                 cmap=cm.vik_r,
@@ -72,6 +73,9 @@ def plotHeatmap(test_glaciers, data_glamos, glacierCap, period='annual'):
                           fill=False,
                           edgecolor='black',
                           lw=3))
+    ax.tick_params(axis='y', labelsize=20)  # Adjust 16 to your preferred size
+    ax.tick_params(axis='x', labelsize=20)  # Adjust 16 to your preferred size
+    plt.tight_layout()
 
 
 def visualiseSplits(y_test, y_train, splits, colors=[color_annual, color_winter]):
