@@ -905,6 +905,7 @@ def process_geodetic_mass_balance_comparison(
     mbm_mb_mean, glamos_mb_mean, geodetic_mb = [], [], []
     gl, period_len, gl_type, area = [], [], [], []
     start_year, end_year = [], []
+    mbm_mb_var, glamos_mb_var = [], []
 
     for glacier_name in tqdm(glacier_list, desc="Processing glaciers"):
 
@@ -955,7 +956,9 @@ def process_geodetic_mass_balance_comparison(
                 glamos_mb.append(GLAMOS_glwmb["GLAMOS Balance"].get(year, np.nan))
 
             mbm_mb_mean.append(np.nanmean(mbm_mb))
+            mbm_mb_var.append(np.nanstd(mbm_mb))
             glamos_mb_mean.append(np.nanmean(glamos_mb))
+            glamos_mb_var.append(np.nanstd(glamos_mb))
             geodetic_mb.append(geoMBs[periods.index(period)])
             gl.append(glacier_name)
             gl_type.append(glacier_name in test_glaciers)
@@ -968,6 +971,8 @@ def process_geodetic_mass_balance_comparison(
     df_all = pd.DataFrame({
         "MBM MB": mbm_mb_mean,
         "GLAMOS MB": glamos_mb_mean,
+        "MBM MB std": mbm_mb_var,
+        "GLAMOS MB std": glamos_mb_var,
         "Geodetic MB": geodetic_mb,
         "GLACIER": gl,
         "Period Length": period_len,
