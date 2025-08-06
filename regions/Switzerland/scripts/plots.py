@@ -45,7 +45,6 @@ def plotHeatmap(test_glaciers, data_glamos, glacierCap, period='annual'):
                                   ordered=True)
     fig = plt.figure(figsize=(20, 15))
     ax = plt.subplot(1, 1, 1)
-    print(matrix.min().min(), matrix.max().max())
     sns.heatmap(data=matrix,
                 center=0,
                 cmap=cm.vik_r,
@@ -78,7 +77,10 @@ def plotHeatmap(test_glaciers, data_glamos, glacierCap, period='annual'):
     plt.tight_layout()
 
 
-def visualiseSplits(y_test, y_train, splits, colors=[color_annual, color_winter]):
+def visualiseSplits(y_test,
+                    y_train,
+                    splits,
+                    colors=[color_annual, color_winter]):
     # Visualise the cross validation splits
     fig, ax = plt.subplots(1, 6, figsize=(20, 5))
     ax[0].hist(y_train, color=colors[0], density=False, alpha=0.5)
@@ -248,7 +250,10 @@ def plotGridSearchParams(cv_results_, param_grid, lossType: str, N=10):
                    y=mean_train.values,
                    marker='x',
                    color=color_annual)
-        ax.plot(mean_train.index, mean_train, color=color_annual, label='train')
+        ax.plot(mean_train.index,
+                mean_train,
+                color=color_annual,
+                label='train')
         ax.fill_between(mean_train.index,
                         mean_train - std_train,
                         mean_train + std_train,
@@ -522,7 +527,6 @@ def PlotIndividualGlacierPredVsTruth(grouped_ids,
                 np.mean(df_gl_annual['pred'] - df_gl_annual['target'])
             }
 
-
         df_gl_winter = df_gl[df_gl['PERIOD'] == 'winter']
         # if array not empty
         if not df_gl_winter.empty:
@@ -546,23 +550,20 @@ def PlotIndividualGlacierPredVsTruth(grouped_ids,
                 np.mean(df_gl_winter['pred'] - df_gl_winter['target'])
             }
             legend = "\n".join((
-            (r"$\mathrm{RMSE_a}=%.2f$, $\mathrm{RMSE_w}=%.2f$," %
-             (scores_annual["rmse"], scores_winter["rmse"])),
-            (r"$\mathrm{R^2_a}=%.2f$, $\mathrm{R^2_w}=%.2f$" %
-             (scores_annual["R2"], scores_winter["R2"])),
-            r"$\mathrm{B_a}=%.2f$, $\mathrm{B_w}=%.2f$" %
-            (scores_annual["Bias"], scores_winter["Bias"]),
-        ))
+                (r"$\mathrm{RMSE_a}=%.2f$, $\mathrm{RMSE_w}=%.2f$," %
+                 (scores_annual["rmse"], scores_winter["rmse"])),
+                (r"$\mathrm{R^2_a}=%.2f$, $\mathrm{R^2_w}=%.2f$" %
+                 (scores_annual["R2"], scores_winter["R2"])),
+                r"$\mathrm{B_a}=%.2f$, $\mathrm{B_w}=%.2f$" %
+                (scores_annual["Bias"], scores_winter["Bias"]),
+            ))
         else:
             legend = "\n".join((
-            (r"$\mathrm{RMSE_a}=%.2f$ " %
-             (scores_annual["rmse"], )),
-            (r"$\mathrm{R^2_a}=%.2f$ " %
-             (scores_annual["R2"], )),
-            r"$\mathrm{B_a}=%.2f$" %
-            (scores_annual["Bias"],),
-        ))
-        
+                (r"$\mathrm{RMSE_a}=%.2f$ " % (scores_annual["rmse"], )),
+                (r"$\mathrm{R^2_a}=%.2f$ " % (scores_annual["R2"], )),
+                r"$\mathrm{B_a}=%.2f$" % (scores_annual["Bias"], ),
+            ))
+
         if add_text:
             ax1.text(0.03,
                      0.96,
@@ -656,14 +657,20 @@ def plot_predictions_summary(grouped_ids,
     ax2.set_title('Mean yearly annual point mass balance', fontsize=24)
     grouped_ids_xgb_annual = grouped_ids[grouped_ids.PERIOD ==
                                          'annual'].sort_values(by='YEAR')
-    plotMeanPred(grouped_ids_xgb_annual, ax2, color_pred = color_pred, color_obs = color_obs)
+    plotMeanPred(grouped_ids_xgb_annual,
+                 ax2,
+                 color_pred=color_pred,
+                 color_obs=color_obs)
     ax2.set_ylabel('PMB [m w.e.]', fontsize=20)
 
     # Bottom-right: Mean winter PMB
     ax3.set_title('Mean yearly winter point mass balance', fontsize=24)
     grouped_ids_xgb_winter = grouped_ids[grouped_ids.PERIOD ==
                                          'winter'].sort_values(by='YEAR')
-    plotMeanPred(grouped_ids_xgb_winter, ax3, color_pred = color_pred, color_obs = color_obs)
+    plotMeanPred(grouped_ids_xgb_winter,
+                 ax3,
+                 color_pred=color_pred,
+                 color_obs=color_obs)
     ax3.set_ylabel('PMB [m w.e.]', fontsize=20)
 
     # Remove legend from ax3 if it exists
@@ -703,6 +710,7 @@ def compute_seasonal_scores(df, target_col='target', pred_col='pred'):
         }
     return scores['annual'], scores['winter']
 
+
 def plot_scatter_geodetic_MB(df_all, hue, size, ax, y_col, rmse, corr):
     """ Helper function to plot a scatter plot with annotations """
     sns.scatterplot(data=df_all,
@@ -714,10 +722,14 @@ def plot_scatter_geodetic_MB(df_all, hue, size, ax, y_col, rmse, corr):
                     alpha=0.7,
                     ax=ax)
 
-    # Identity line (diagonal y=x)
-    # diagonal line
-    pt = (0, 0)
-    ax.axline(pt, slope=1, color="grey", linestyle="--", linewidth=1)
+    # Identity line through the origin
+    xlims = ax.get_xlim()
+    ylims = ax.get_ylim()
+    lims = [min(xlims[0], ylims[0]), max(xlims[1], ylims[1])]
+    ax.plot(lims, lims, '--', color='grey', linewidth=1)
+
+    ax.set_xlim(lims)
+    ax.set_ylim(lims)
 
     # Grid and axis labels
     ax.axvline(0, color="grey", linestyle="--", linewidth=1)
@@ -738,3 +750,28 @@ def plot_scatter_geodetic_MB(df_all, hue, size, ax, y_col, rmse, corr):
             fontsize=18,
             bbox=props)
     ax.legend([], [], frameon=False)
+
+
+def plot_permutation_importance(df_importance,
+                                top_n=None,
+                                figsize=(10, 6),
+                                title="Permutation Feature Importance"):
+    # Sort features by importance
+    df_plot = df_importance.sort_values(by="mean_importance", ascending=True)
+    if top_n:
+        df_plot = df_plot.tail(top_n)
+
+    plt.figure(figsize=figsize)
+    plt.barh(df_plot["feature"],
+             df_plot["mean_importance"],
+             xerr=df_plot["std_importance"],
+             align="center",
+             alpha=0.7,
+             ecolor="black",
+             capsize=5)
+    plt.xlabel("Increase in RMSE (mean ± std)")
+    plt.ylabel("Feature")
+    plt.title(title)
+    plt.grid(True, linestyle="--", alpha=0.6)
+    plt.tight_layout()
+    plt.show()
