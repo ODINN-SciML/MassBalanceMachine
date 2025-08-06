@@ -1090,3 +1090,89 @@ def mbm_glwd_pred(PATH_PREDICTIONS, GLACIER_NAME):
     # Create DataFrame
     MBM_glwmb = pd.DataFrame(pred_gl, index=years, columns=["MBM Balance"])
     return MBM_glwmb
+
+
+def plot_mbm_vs_geodetic_by_area_bin(
+    df,
+    area_column='Area',
+    geodetic_col='Geodetic MB',
+    mbm_col='MBM MB',
+    glacier_col='GLACIER',
+    bins=[0, 1, 5, 10, 100, np.inf],
+    labels=['<1', '1-5', '5–10', '>10', '>100'],
+    max_bins=4,
+    figsize=(15, 6)):
+    """
+    Plot MBM vs. Geodetic mass balance grouped by glacier area bins.
+
+    Parameters:
+    - df: DataFrame containing the data.
+    - area_column: Name of the column with glacier areas (in km²).
+    - geodetic_col: Name of the column with geodetic mass balance.
+    - mbm_col: Name of the column with MBM mass balance.
+    - glacier_col: Name of the column identifying glaciers.
+    - bins: List of bin edges for area binning.
+    - labels: Labels corresponding to area bins.
+    - max_bins: Max number of area bins to plot.
+    - figsize: Figure size for the subplots.
+    """
+
+    df = df.copy()
+    df['Area_bin'] = pd.cut(df[area_column],
+                            bins=bins,
+                            labels=labels,
+                            right=False)
+
+    # Set up subplots
+    fig, axs = plt.subplots(1,
+                            max_bins,
+                            figsize=figsize,
+                            sharex=True,
+                            sharey=True)
+    axs = axs.flatten()
+
+    # Get unique bins in order (excluding NaN)
+    unique_bins = df['Area_bin'].dropna().unique().tolist()
+
+    for i, area_bin in enumerate(unique_bins[:max_bins]):
+        ax = axs[i]
+        df_bin = df[df['Area_bin'] == area_bin]
+
+        sns.scatterplot(
+            data=df_bin,
+            x=geodetic_col,
+            y=mbm_col,
+            hue=glacier_col,
+            alpha=0.7,
+            ax=ax,
+            palette=sns.color_palette("Paired",
+                                      len(df_bin[glacier_col].unique())),
+        )
+
+        # Identity line and axes formatting
+        ax.axvline(0, color="grey", linestyle="--", linewidth=1)
+        ax.axhline(0, color="grey", linestyle="--", linewidth=1)
+        ax.grid(True, linestyle="--", linewidth=0.5)
+        ax.set_xlabel(f"{geodetic_col} [m w.e.]")
+        ax.set_ylabel(f"{mbm_col} [m w.e.]")
+        ax.set_title(f"Area: {area_bin} km²")
+
+        ax.legend(loc="lower center",
+                  borderaxespad=0.5,
+                  fontsize=12,
+                  bbox_to_anchor=(0.5, -0.3),
+                  ncol=2)
+
+    # Set equal and symmetric limits across all subplots
+    for ax in axs:
+        xmin, xmax = ax.get_xlim()
+        ymin, ymax = ax.get_ylim()
+        min_limit = min(xmin, ymin)
+        max_limit = max(xmax, ymax)
+
+        ax.set_xlim(min_limit, max_limit)
+        ax.set_ylim(min_limit, max_limit)
+        ax.axline((0, 0), slope=1, color="grey", linestyle="--", linewidth=1)
+
+    plt.tight_layout()
+    plt.show()

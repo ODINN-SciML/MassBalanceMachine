@@ -66,3 +66,8 @@ vois_units = {
     'u10': 'm s-1',
     'v10': 'm s-1',
 }
+
+TEST_GLACIERS = [
+    'tortin', 'plattalva', 'albigna','schwarzberg', 'hohlaub', 'sanktanna',
+    'corvatsch', 'tsanfleuron', 'forno'
+]
