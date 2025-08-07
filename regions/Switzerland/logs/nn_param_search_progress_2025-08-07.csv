@@ -1,0 +1,7 @@
+lr,batch_size,optimizer,optimizer__weight_decay,module__hidden_layers,module__dropout,module__use_batchnorm,valid_loss,test_rmse,status,error
+0.0005,128,<class 'torch.optim.radam.RAdam'>,1e-05,"[128, 64, 32]",0.0,True,0.17345449031151877,0.592918314233912,success,
+0.0001,256,<class 'torch.optim.adam.Adam'>,1e-05,"[128, 128, 64, 32]",0.0,False,0.2667054303182471,0.6244520302771619,success,
+0.001,128,<class 'torch.optim.adam.Adam'>,0.0001,"[128, 64, 32]",0.0,False,0.20709316213728976,0.5851595883759966,success,
+0.0005,256,<class 'torch.optim.adam.Adam'>,0.0,"[64, 32, 32]",0.2,False,0.2681197113900247,0.595914234487524,success,
+0.0001,256,<class 'torch.optim.adam.Adam'>,0.0001,"[128, 128, 64, 32]",0.0,True,0.18491778729719627,0.6156684807745937,success,
+0.0005,256,<class 'torch.optim.adam.Adam'>,1e-05,"[256, 256, 128, 64, 32]",0.3,False,0.19507249578690036,0.6124402803859407,success,
