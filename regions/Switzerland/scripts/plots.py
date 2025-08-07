@@ -768,6 +768,7 @@ def plot_permutation_importance(df_importance,
              align="center",
              alpha=0.7,
              ecolor="black",
+             color = color_annual,
              capsize=5)
     plt.xlabel("Increase in RMSE (mean ± std)")
     plt.ylabel("Feature")
