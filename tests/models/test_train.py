@@ -10,9 +10,10 @@ from regions.Switzerland.scripts.glamos_preprocess import getStakesData, get_geo
 from regions.Switzerland.scripts.config_CH import path_PMB_GLAMOS_csv, path_ERA5_raw, path_pcsr
 from regions.Switzerland.scripts.xgb_helpers import process_or_load_data, get_CV_splits
 
-
 if "CI" in os.environ:
-    pathDataDownload = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)), '../../dataDownload/data/'))
+    pathDataDownload = os.path.abspath(
+        os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                     '../../dataDownload/data/'))
     dataPath = pathDataDownload
 else:
     dataPath = None
@@ -21,11 +22,14 @@ else:
 @pytest.mark.order3
 def test_train():
     cfg = mbm.SwitzerlandConfig(
-        metaData=["RGIId", "POINT_ID", "ID", "GLWD_ID", "N_MONTHS", "MONTHS", "PERIOD", "GLACIER", "YEAR", "POINT_LAT", "POINT_LON"],
+        metaData=[
+            "RGIId", "POINT_ID", "ID", "GLWD_ID", "N_MONTHS", "MONTHS",
+            "PERIOD", "GLACIER", "YEAR", "POINT_LAT", "POINT_LON"
+        ],
         notMetaDataNotFeatures=["POINT_BALANCE"],
         dataPath=dataPath,
+        seed=30,
     )
-
 
     vois_climate = [
         't2m', 'tp', 'slhf', 'sshf', 'ssrd', 'fal', 'str', 'u10', 'v10'
@@ -43,37 +47,38 @@ def test_train():
 
     data_glamos = getStakesData(cfg)
 
-
     # Transform data to monthly format (run or load data):
     paths = {
         'csv_path': cfg.dataPath + path_PMB_GLAMOS_csv,
-        'era5_climate_data': cfg.dataPath + path_ERA5_raw + 'era5_monthly_averaged_data.nc',
-        'geopotential_data': cfg.dataPath + path_ERA5_raw + 'era5_geopotential_pressure.nc',
+        'era5_climate_data':
+        cfg.dataPath + path_ERA5_raw + 'era5_monthly_averaged_data.nc',
+        'geopotential_data':
+        cfg.dataPath + path_ERA5_raw + 'era5_geopotential_pressure.nc',
         'radiation_save_path': cfg.dataPath + path_pcsr + 'zarr/'
     }
-    dataloader_gl = process_or_load_data(run_flag=True,
-                                        data_glamos=data_glamos,
-                                        paths=paths,
-                                        cfg=cfg,
-                                        vois_climate=vois_climate,
-                                        vois_topographical=vois_topographical,
-                                        output_file='CH_wgms_dataset_monthly_all.csv')
-
-
+    dataloader_gl = process_or_load_data(
+        run_flag=True,
+        data_glamos=data_glamos,
+        paths=paths,
+        cfg=cfg,
+        vois_climate=vois_climate,
+        vois_topographical=vois_topographical,
+        output_file='CH_wgms_dataset_monthly_all.csv')
 
     data_monthly = dataloader_gl.data
 
     data_monthly['GLWD_ID'] = data_monthly.apply(
-        lambda x: mbm.data_processing.utils.get_hash(f"{x.GLACIER}_{x.YEAR}"), axis=1)
+        lambda x: mbm.data_processing.utils.get_hash(f"{x.GLACIER}_{x.YEAR}"),
+        axis=1)
     data_monthly['GLWD_ID'] = data_monthly['GLWD_ID'].astype(str)
 
     # data_seas = transform_df_to_seasonal(data_monthly)
     # print('Number of seasonal rows', len(data_seas))
 
     dataloader_gl = mbm.dataloader.DataLoader(cfg,
-                                data=data_monthly,
-                                random_seed=cfg.seed,
-                                meta_data_columns=cfg.metaData)
+                                              data=data_monthly,
+                                              random_seed=cfg.seed,
+                                              meta_data_columns=cfg.metaData)
 
     # Split on measurements (IDs)
     splits, test_set, train_set = get_CV_splits(dataloader_gl,
@@ -81,11 +86,11 @@ def test_train():
                                                 random_state=cfg.seed,
                                                 test_size=0.1)
 
-
-
     data_train = train_set['df_X']
 
-    feature_columns = list(data_train.columns.difference(cfg.metaData).drop(cfg.notMetaDataNotFeatures))
+    feature_columns = list(
+        data_train.columns.difference(cfg.metaData).drop(
+            cfg.notMetaDataNotFeatures))
     cfg.setFeatures(feature_columns)
 
     all_columns = feature_columns + cfg.fieldsNotFeatures
@@ -93,23 +98,11 @@ def test_train():
     print('Shape of training dataset:', df_X_train_subset.shape)
     print('Running with features:', feature_columns)
 
-    assert all(train_set['df_X'].POINT_BALANCE==train_set['y'])
-
-
+    assert all(train_set['df_X'].POINT_BALANCE == train_set['y'])
 
     geodetic_mb = get_geodetic_MB(cfg)
 
-    glDirect = np.sort([
-        re.search(r'xr_direct_(.*?)\.zarr', f).group(1)
-        for f in os.listdir(cfg.dataPath + path_pcsr + 'zarr/')
-    ])
-
-    # filter to glaciers with potential clear sky radiation data
-    geodetic_mb = geodetic_mb[geodetic_mb.glacier_name.isin(glDirect)]
-
-
     gdl = mbm.dataloader.GeoDataLoader(cfg, ['silvretta'], train_set['df_X'])
-
 
     nInp = len(feature_columns)
     network = nn.Sequential(

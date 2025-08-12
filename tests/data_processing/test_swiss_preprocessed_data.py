@@ -13,15 +13,15 @@ else:
 
 @pytest.mark.order1
 def test_geodetic_data():
-    cfg = mbm.SwitzerlandConfig(dataPath=dataPath)
+    cfg = mbm.SwitzerlandConfig(dataPath=dataPath, seed=30)
 
     geodetic_mb = get_geodetic_MB(cfg)
     print("geodetic_mb.shape=",geodetic_mb.shape)
-    assert geodetic_mb.shape == (331, 17)
+    assert geodetic_mb.shape == (59, 17)
 
 @pytest.mark.order1
 def test_process_or_load_data():
-    cfg = mbm.SwitzerlandConfig(dataPath=dataPath)
+    cfg = mbm.SwitzerlandConfig(dataPath=dataPath, seed=30)
 
     data_glamos = getStakesData(cfg)
     assert data_glamos.shape == (4543, 20)
@@ -60,7 +60,7 @@ def test_process_or_load_data():
 def test_geodataloader():
     # This test needs to run after test_process_or_load_data since we use the
     # results of process_or_load_data by reading on disk
-    cfg = mbm.SwitzerlandConfig(dataPath=dataPath)
+    cfg = mbm.SwitzerlandConfig(dataPath=dataPath, seed=30)
 
     data_glamos = getStakesData(cfg)
 

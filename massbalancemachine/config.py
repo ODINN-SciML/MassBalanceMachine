@@ -9,7 +9,7 @@ class Config:
         numJobs: int = -1,
         testSize: float = 0.3,
         nSplits: int = 5,
-        seed: int = 30,
+        seed: int = 20,
         metaData: List[str] = [
             "RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS"
         ],
@@ -39,6 +39,9 @@ class Config:
                 the data and if a variable exceeds the bounds, its normalized
                 counterpart will simply be outside of [0, 1].
         """
+
+        if "CI" in os.environ:
+            assert seed is not None, "In the CI and in the tests the seed must be defined."
 
         # Customizable attributes
         self.numJobs = numJobs or max(
@@ -79,7 +82,10 @@ class Config:
                 'aspect': (0, 360),
                 'consensus_ice_thickness': (0, 300),
                 'fal': (0, 1),
-                'hugonnet_dhdt': (-5, 5, ),
+                'hugonnet_dhdt': (
+                    -5,
+                    5,
+                ),
                 'millan_v': (0, 300),
                 'pcsr': (0, 500),
                 'slhf': (-10e6, 10e6),
@@ -104,7 +110,6 @@ class Config:
 
 
 class SwitzerlandConfig(Config):
-
     def __init__(
         self,
         *args,
@@ -113,11 +118,38 @@ class SwitzerlandConfig(Config):
             "PERIOD", "GLACIER"
         ],
         notMetaDataNotFeatures: List[str] = [
-            "POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON", "ALTITUDE_CLIMATE", "POINT_ELEVATION"
+            "POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON",
+            "ALTITUDE_CLIMATE", "POINT_ELEVATION"
         ],
         dataPath: str = None,
         numJobs: int = 28,
         **kwargs,
+    ):
+        if dataPath is None:
+            mbmDir = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), '../')) + '/'
+            self.dataPath = mbmDir + '../data/'
+        else:
+            if dataPath != '' and not dataPath.endswith('/'):
+                dataPath = dataPath + '/'
+            self.dataPath = dataPath
+        super().__init__(*args,
+                         metaData=metaData,
+                         notMetaDataNotFeatures=notMetaDataNotFeatures,
+                         numJobs=numJobs,
+                         **kwargs)
+        self.bnds['slope_sgi'] = self.bnds['slope']
+        self.bnds['aspect_sgi'] = self.bnds['aspect']
+
+class FranceConfig(Config):
+    def __init__(
+            self,
+            *args,
+            metaData: List[str] = ["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD", "GLACIER", "GLACIER_ZONE"],
+            notMetaDataNotFeatures: List[str] = ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"],
+            dataPath: str = None,
+            numJobs: int = 28,
+            **kwargs,
     ):
         if dataPath is None:
             mbmDir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../'))+'/'
@@ -131,5 +163,72 @@ class SwitzerlandConfig(Config):
                          notMetaDataNotFeatures=notMetaDataNotFeatures,
                          numJobs=numJobs,
                          **kwargs)
-        self.bnds['slope_sgi'] = self.bnds['slope']
-        self.bnds['aspect_sgi'] = self.bnds['aspect']
+
+class ItalyAustriaConfig(Config):
+    def __init__(
+            self,
+            *args,
+            metaData: List[str] = ["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD", "GLACIER"],
+            notMetaDataNotFeatures: List[str] = ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"],
+            dataPath: str = None,
+            numJobs: int = 28,
+            **kwargs,
+    ):
+        if dataPath is None:
+            mbmDir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../'))+'/'
+            self.dataPath = mbmDir+'../data/'
+        else:
+            if dataPath!='' and not dataPath.endswith('/'):
+                dataPath = dataPath+'/'
+            self.dataPath = dataPath
+        super().__init__(*args,
+                         metaData=metaData,
+                         notMetaDataNotFeatures=notMetaDataNotFeatures,
+                         numJobs=numJobs,
+                         **kwargs)
+
+class NorwayConfig(Config):
+    def __init__(
+            self,
+            *args,
+            metaData: List[str] = ["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD", "GLACIER"],
+            notMetaDataNotFeatures: List[str] = ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"],
+            dataPath: str = None,
+            numJobs: int = 28,
+            **kwargs,
+    ):
+        if dataPath is None:
+            mbmDir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../'))+'/'
+            self.dataPath = mbmDir+'../data/'
+        else:
+            if dataPath!='' and not dataPath.endswith('/'):
+                dataPath = dataPath+'/'
+            self.dataPath = dataPath
+        super().__init__(*args,
+                         metaData=metaData,
+                         notMetaDataNotFeatures=notMetaDataNotFeatures,
+                         numJobs=numJobs,
+                         **kwargs)
+
+class IcelandConfig(Config):
+    def __init__(
+            self,
+            *args,
+            metaData: List[str] = ["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD", "GLACIER"],
+            notMetaDataNotFeatures: List[str] = ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"],
+            dataPath: str = None,
+            numJobs: int = 28,
+            **kwargs,
+    ):
+        if dataPath is None:
+            mbmDir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../'))+'/'
+            self.dataPath = mbmDir+'../data/'
+        else:
+            if dataPath!='' and not dataPath.endswith('/'):
+                dataPath = dataPath+'/'
+            self.dataPath = dataPath
+        super().__init__(*args,
+                         metaData=metaData,
+                         notMetaDataNotFeatures=notMetaDataNotFeatures,
+                         numJobs=numJobs,
+                         **kwargs)
