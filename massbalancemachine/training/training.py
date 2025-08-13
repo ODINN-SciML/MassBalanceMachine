@@ -215,6 +215,7 @@ def loadBestModel(log_dir, model):
             bestVal = val
         val = float(val)
     model.load_state_dict(torch.load(files[best], weights_only=True))
+    return files[best]
 
 
 def train_geo(

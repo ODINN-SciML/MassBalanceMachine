@@ -1,3 +1,3 @@
 from models.CustomXGBoostRegressor import CustomXGBoostRegressor
 from models.NeuralNetworkRegressor import CustomNeuralNetRegressor
-from models.TorchNeuralNetworkRegressor import CustomTorchNeuralNetRegressor
+from models.TorchNeuralNetworkRegressor import CustomTorchNeuralNetRegressor, buildModel

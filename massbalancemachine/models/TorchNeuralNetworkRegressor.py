@@ -1,6 +1,41 @@
 import torch
 import torch.nn as nn
 import numpy as np
+import yaml
+
+def createModel(cfg, modelParams):
+    nInp = len(cfg.featureColumns)
+    if modelParams['type'] == 'sequential':
+        assert len(modelParams['layers']) > 0
+        l = [nn.Linear(nInp, modelParams['layers'][0])]
+        for i in range(len(modelParams['layers'])-1):
+            l.append(nn.ReLU())
+            l.append(nn.Linear(modelParams['layers'][i], modelParams['layers'][i+1]))
+        l.append(nn.ReLU())
+        l.append(nn.Linear(modelParams['layers'][-1], 1))
+        network = nn.Sequential(*l)
+        return network
+    else: raise ValueError(f"Model {modelParams['type']} is not supported.")
+
+def selectModel(cfg, version):
+    if version == 'minimalistic':
+        paramsFile = 'minimalistic.yml'
+    with open('scripts/geo/cfg/'+paramsFile) as stream:
+        try:
+            params = yaml.safe_load(stream)
+        except yaml.YAMLError as exc:
+            print(exc)
+    return createModel(cfg, params['model'])
+
+def buildModel(cfg, version=None, params=None):
+    assert (version is None) ^ (params is None), "Either version or params must be provided."
+    if version is not None:
+        model = selectModel(cfg, version)
+    else:
+        if 'model' in params:
+            params = params['model']
+        model = createModel(cfg, params)
+    return model
 
 class CustomTorchNeuralNetRegressor(nn.Module):
     """
