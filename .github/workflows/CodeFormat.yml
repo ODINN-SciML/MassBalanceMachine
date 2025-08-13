@@ -15,7 +15,18 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: ResearchSoftwareActions/EnsureCleanNotebooksAction@1.1
+      - name: Check notebook outputs
+        id: notebooks
+        uses: ResearchSoftwareActions/EnsureCleanNotebooksAction@1.1
+      - name: Notebook check failed message
+        if: ${{ steps.notebooks.outcome == 'failure' }}
+        run: |
+          echo "::error::❌ Some Jupyter notebooks contain execution output or metadata."
+          echo "Please clear outputs before committing."
+          echo "To fix locally, open the notebook and use:"
+          echo "  Kernel → Restart & Clear Output"
+          echo "Then save and commit."
+
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v4
         with:
@@ -23,13 +34,14 @@ jobs:
       - name: Install Black
         run: pip install black
       - name: Run Black
+        id: black
         run: |
           set -e
           black --check --diff .
           echo "✅ Code is formatted correctly!"
         shell: bash
-      - name: Suggest fix if Black fails
-        if: failure()
+      - name: Black check failed message
+        if: ${{ steps.black.outcome == 'failure' }}
         run: |
           echo "::error::❌ Black found formatting issues."
           echo "To fix them locally, run in your MBM Python environment:"
