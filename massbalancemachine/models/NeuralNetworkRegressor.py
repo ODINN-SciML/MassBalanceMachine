@@ -15,7 +15,7 @@ import random as rd
 
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 from sklearn.utils.validation import check_is_fitted
-from sklearn.metrics import mean_squared_error, mean_absolute_error, root_mean_squared_error
+from sklearn.metrics import mean_squared_error, mean_absolute_error, root_mean_squared_error, r2_score
 from skorch import NeuralNetRegressor
 from skorch.utils import to_tensor
 from skorch.helper import SliceDataset
@@ -192,7 +192,10 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         # Pearson correlation
         pearson_corr = np.corrcoef(y_true_mean, y_pred_agg)[0, 1]
 
-        return mse, rmse, mae, pearson_corr
+        # R2 regression score
+        r2 = r2_score(y_true_mean, y_pred_agg)
+
+        return mse, rmse, mae, pearson_corr, r2
 
     def aggrPred(self, y_pred):
         if isinstance(y_pred, torch.Tensor):
