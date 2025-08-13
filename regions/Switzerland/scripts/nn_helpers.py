@@ -131,13 +131,14 @@ def evaluate_model_and_group_predictions(custom_NN_model, df_X_subset, y, cfg, m
 
     # Compute scores
     score = custom_NN_model.score(dataset[0], dataset[1])
-    mse, rmse, mae, pearson = custom_NN_model.evalMetrics(y_pred, y_true)
+    mse, rmse, mae, pearson, r2 = custom_NN_model.evalMetrics(y_pred, y_true)
     scores = {
         'score': score,
         'mse': mse,
         'rmse': rmse,
         'mae': mae,
-        'pearson': pearson
+        'pearson': pearson,
+        'r2': r2,
     }
 
     # Create grouped prediction DataFrame
