@@ -10,11 +10,12 @@ import argparse
 import massbalancemachine as mbm
 from massbalancemachine.dataloader.GeoDataLoader import GeoDataLoader
 
-from common import (
+from scripts.common import (
     getTrainTestSets,
     _default_test_glaciers,
     _default_train_glaciers,
     _default_input,
+    seed_all,
 )
 
 
@@ -23,7 +24,7 @@ parser.add_argument("modelType", type=str, help="Type of model to train")
 args = parser.parse_args()
 modelType = args.modelType
 
-with open("scripts/geo/cfg/" + modelType + ".yml") as stream:
+with open("scripts/netcfg/" + modelType + ".yml") as stream:
     try:
         params = yaml.safe_load(stream)
     except yaml.YAMLError as exc:
@@ -50,18 +51,18 @@ metaData = list(
     ).union(set(featuresToRemove))
 )
 
-
 cfg = mbm.SwitzerlandConfig(
     metaData=metaData,
     notMetaDataNotFeatures=["POINT_BALANCE"],
 )
+seed_all(cfg.seed)
 
 
 train_glaciers = params["training"].get("train_glaciers") or _default_train_glaciers
 test_glaciers = params["training"].get("test_glaciers") or _default_test_glaciers
 
-train_set, test_set = getTrainTestSets(
-    train_glaciers, test_glaciers, params, cfg, process=False
+train_set, test_set, data_glamos = getTrainTestSets(
+    train_glaciers, test_glaciers, params, cfg, "CH_wgms_dataset_monthly_NN_geo.csv", process=False
 )
 
 
@@ -112,8 +113,9 @@ network = mbm.models.buildModel(cfg, params=params)
 model = mbm.models.CustomTorchNeuralNetRegressor(network)
 optimType = params["training"].get("optim", "ADAM")
 schedulerType = params["training"].get("scheduler")
+lr = float(params["training"].get("lr", 1e-3))
+Nepochs = int(params["training"].get("Nepochs", 1000))
 if optimType == "ADAM":
-    lr = float(params["training"].get("lr", 1e-3))
     optim = torch.optim.Adam(model.parameters(), lr=lr)
 elif optimType == "SGD":
     optim = torch.optim.SGD(model.parameters(), lr=4e-4, momentum=0.9)
@@ -139,7 +141,6 @@ gdl_test = GeoDataLoader(
     trainStakesDf=data_test,
 )
 
-Nepochs = int(params["training"].get("Nepochs", 1000))
 trainCfg = {"Nepochs": Nepochs, "wGeo": 0, "log_suffix": "wgeo=0"}
 ret = mbm.training.train_geo(
     model,

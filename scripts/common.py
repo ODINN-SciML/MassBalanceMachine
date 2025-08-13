@@ -1,6 +1,6 @@
 import sys, os
 
-mbm_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+mbm_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../"))
 sys.path.append(mbm_path)  # Add root of repo to import MBM
 
 import massbalancemachine as mbm
@@ -16,6 +16,7 @@ from regions.Switzerland.scripts.xgb_helpers import (
     transform_df_to_seasonal,
     get_CV_splits,
 )
+from regions.Switzerland.scripts.helpers import seed_all
 
 
 _default_test_glaciers = [
@@ -83,7 +84,7 @@ _default_input = (
 )
 
 
-def getTrainTestSets(target_train_glaciers, test_glaciers, params, cfg, process=False):
+def getTrainTestSets(target_train_glaciers, test_glaciers, params, cfg, csvFileName, process=False):
 
     data_glamos = getStakesData(cfg)
     data_glamos.drop(
@@ -104,6 +105,8 @@ def getTrainTestSets(target_train_glaciers, test_glaciers, params, cfg, process=
         + "era5_geopotential_pressure.nc",
         "radiation_save_path": cfg.dataPath + path_pcsr + "zarr/",
     }
+
+    # Transform data to monthly format (run or load data)
     dataloader_gl = process_or_load_data(
         run_flag=process,
         data_glamos=data_glamos,
@@ -111,7 +114,7 @@ def getTrainTestSets(target_train_glaciers, test_glaciers, params, cfg, process=
         cfg=cfg,
         vois_climate=vois_climate,
         vois_topographical=vois_topographical,
-        output_file="CH_wgms_dataset_monthly_NN_geo.csv",
+        output_file=csvFileName,
     )
 
     data_monthly = dataloader_gl.data
@@ -225,4 +228,4 @@ def getTrainTestSets(target_train_glaciers, test_glaciers, params, cfg, process=
     )
     print("Size of train set:", len(train_set["df_X"]))
 
-    return train_set, test_set
+    return train_set, test_set, data_glamos

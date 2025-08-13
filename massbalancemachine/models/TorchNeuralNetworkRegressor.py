@@ -20,7 +20,7 @@ def createModel(cfg, modelParams):
 def selectModel(cfg, version):
     if version == 'minimalistic':
         paramsFile = 'minimalistic.yml'
-    with open('scripts/geo/cfg/'+paramsFile) as stream:
+    with open('scripts/netcfg/'+paramsFile) as stream:
         try:
             params = yaml.safe_load(stream)
         except yaml.YAMLError as exc:
