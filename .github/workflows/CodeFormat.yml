@@ -1,0 +1,39 @@
+name: Code Format
+
+on: [push]
+permissions:
+  # needed to allow actions to create and delete old caches
+  actions: write
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ResearchSoftwareActions/EnsureCleanNotebooksAction@1.1
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install Black
+        run: pip install black
+      - name: Run Black
+        run: |
+          set -e
+          black --check --diff .
+          echo "✅ Code is formatted correctly!"
+        shell: bash
+      - name: Suggest fix if Black fails
+        if: failure()
+        run: |
+          echo "::error::❌ Black found formatting issues."
+          echo "To fix them locally, run in your MBM Python environment:"
+          echo ""
+          echo "    black ."
+          echo ""
+          echo "Make sure to commit the changes after running Black."

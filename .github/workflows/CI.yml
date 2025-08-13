@@ -21,8 +21,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: ResearchSoftwareActions/EnsureCleanNotebooksAction@1.1
-        if: matrix.os == 'ubuntu-latest'
       - name: Install OpenMP in MacOS
         if: matrix.os == 'macos-latest'
         run:
