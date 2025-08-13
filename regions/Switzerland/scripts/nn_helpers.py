@@ -4,7 +4,7 @@ import seaborn as sns
 from sklearn.metrics import mean_squared_error, mean_absolute_error, root_mean_squared_error
 from skorch.helper import SliceDataset
 
-from scripts.plots import *
+from regions.Switzerland.scripts.plots import *
 
 def plot_training_history(custom_nn, skip_first_n=0):
     history = custom_nn.history
