@@ -51,7 +51,7 @@ args = parser.parse_args()
 
 modelFolder = args.modelFolder
 plot = args.plot
-pathFolder = os.path.join("models", modelFolder)
+pathFolder = os.path.join("logs", modelFolder)
 
 with open(f"{pathFolder}/params.json", "r") as f:
     params = json.load(f)
@@ -121,15 +121,12 @@ model = mbm.models.buildModel(cfg, params=params)
 #################################
 
 
-# Load model and set to CPU
-model_filename = f"{modelFolder}/model.pt"
-
-
 args = buildArgs(cfg, params, model, my_train_split)
 
+# Load model and set to CPU
 loaded_model = mbm.models.CustomNeuralNetRegressor.load_model(
     cfg,
-    model_filename,
+    pathFolder,
     **{**args, **param_init},
 )
 loaded_model = loaded_model.set_params(device="cpu")

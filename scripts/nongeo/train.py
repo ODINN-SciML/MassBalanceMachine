@@ -10,6 +10,7 @@ import massbalancemachine as mbm
 import logging
 import torch
 import json
+import git
 import argparse
 import numpy as np
 from datetime import datetime
@@ -31,7 +32,6 @@ from scripts.nongeo.utils import (
     trainValData,
     setFeatures,
 )
-
 
 from regions.Switzerland.scripts.helpers import get_cmap_hex
 from regions.Switzerland.scripts.nn_helpers import plot_training_history
@@ -139,11 +139,7 @@ model = mbm.models.buildModel(cfg, params=params)
 
 
 class TensorBoardMetricLogger(Callback):
-    def __init__(self, logdir=None):
-        if logdir is None:
-            run_name = datetime.now().strftime("%Y%m%d_%H%M%S")
-            suffixStr = f"_{suffix}" if suffix is not None else ""
-            logdir = f"logs/nongeo_{run_name}{suffixStr}"
+    def __init__(self, logdir):
         self.writer = SummaryWriter(logdir)
 
     def on_batch_end(self, model, Xi=None, yi=None, training=False, **kwargs):
@@ -210,7 +206,13 @@ class TensorBoardMetricLogger(Callback):
         self.writer.close()
 
 
-logger = TensorBoardMetricLogger()
+# Generate filename with current date
+run_name = datetime.now().strftime("%Y%m%d_%H%M%S")
+suffixStr = f"_{suffix}" if suffix is not None else ""
+logdir = f"logs/nongeo_{run_name}{suffixStr}"
+print(f"Logging in {logdir}")
+
+logger = TensorBoardMetricLogger(logdir)
 
 callbacks = [
     ("early_stop", early_stop),
@@ -237,19 +239,14 @@ for key, value in args.items():
 custom_nn.fit(dataset.X, dataset.y)
 # The dataset provided in fit is not used as the datasets are overwritten in the provided train_split function
 
-# Generate filename with current date
-current_date = datetime.now().strftime("%Y%m%d_%H%M%S")
-suffixStr = f"_{suffix}" if suffix is not None else ""
-model_dir = f"nn_{current_date}{suffixStr}"
-model_filename = f"{model_dir}/model.pt"
-
 # Save the model
-pathSave = custom_nn.save_model(model_filename)
-pathFolder = os.path.dirname(pathSave)
+custom_nn.save_model(model_dir=logdir)
 
 plot_training_history(custom_nn, skip_first_n=5, save=False)
-plt.savefig(os.path.join(pathFolder, "training_history.pdf"))
+plt.savefig(os.path.join(logdir, "training_history.pdf"))
 plt.close()
 
-with open(os.path.join(pathFolder, "params.json"), "w") as f:
+repo = git.Repo(search_parent_directories=True)
+params["commit_hash"] = repo.head.object.hexsha
+with open(os.path.join(logdir, "params.json"), "w") as f:
     json.dump(params, f, indent=4, sort_keys=True)
