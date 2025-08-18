@@ -382,15 +382,22 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
 
         return grouped_ids, df_months_nn
 
-    def save_model(self, fname: str) -> None:
+    def save_model(self, fpath: str) -> None:
         """save the model parameters to a file.
 
         Args:
-            fname (str): filename to save the model parameters to (without .pt extension).
+            fpath (str): Path of the file to save the model parameters to.
+                This relative path is saved in the `_models_dir` folder.
+                If the filename has no `.pt` extension, it is automatically added.
+
+        Return:
+            f_params (pathlib.PosixPath): Path of the file where the model parameters were saved.
         """
-        file_path = _models_dir / fname
-        _models_dir.mkdir(exist_ok=True)
-        self.save_params(f_params=file_path.with_suffix(".pt"))
+        file_path = _models_dir / fpath
+        file_path.parent.mkdir(exist_ok=True)
+        f_params = file_path.with_suffix(".pt")
+        self.save_params(f_params=f_params)
+        return f_params
 
     def to(self, device):
         """Move model and necessary attributes to the specified device."""
