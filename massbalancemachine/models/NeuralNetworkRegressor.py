@@ -195,7 +195,10 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         # R2 regression score
         r2 = r2_score(y_true_mean, y_pred_agg)
 
-        return mse, rmse, mae, pearson_corr, r2
+        # Model bias
+        bias = np.mean(y_pred_agg - y_true_mean)
+
+        return mse, rmse, mae, pearson_corr, r2, bias
 
     def aggrPred(self, y_pred):
         if isinstance(y_pred, torch.Tensor):
