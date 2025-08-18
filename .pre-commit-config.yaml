@@ -3,3 +3,11 @@ repos:
     rev: 24.8.0
     hooks:
       - id: black
+        files: |
+          ^(
+            scripts/geo/.*\.py$|
+            scripts/legacy/.*\.py$|
+            massbalancemachine/dataloader/GeoDataLoader\.py$|
+            massbalancemachine/plots/.*\.py$|
+            massbalancemachine/training/.*\.py$
+          )
