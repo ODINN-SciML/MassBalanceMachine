@@ -80,6 +80,7 @@ target-version = ['py311']
 include = '''
 /(
     scripts/geo/.*\.py$ |
+    scripts/legacy/.*\.py$ |
     massbalancemachine/dataloader/GeoDataLoader.py |
     massbalancemachine/plots/.*\.py$ |
     massbalancemachine/training/.*\.py$

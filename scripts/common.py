@@ -3,6 +3,8 @@ import sys, os
 mbm_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../"))
 sys.path.append(mbm_path)  # Add root of repo to import MBM
 
+import yaml
+
 import massbalancemachine as mbm
 from regions.Switzerland.scripts.glamos_preprocess import getStakesData, get_geodetic_MB
 from regions.Switzerland.scripts.geodata import build_periods_per_glacier
@@ -84,7 +86,42 @@ _default_input = (
 )
 
 
-def getTrainTestSets(target_train_glaciers, test_glaciers, params, cfg, csvFileName, process=False):
+def parseParams(params):
+    lr = float(params["training"].get("lr", 1e-3))
+    optimType = params["training"].get("optim", "ADAM")
+    Nepochs = int(params["training"].get("Nepochs", 1000))
+    inputs = params["model"].get("inputs") or _default_input
+    batch_size = params["training"].get("batch_size", 128)
+    weight_decay = params["training"].get("weight_decay", 0.0)
+    return {
+        "model": {
+            "type": params["model"]["type"],
+            "layers": params["model"]["layers"],
+            "inputs": inputs,
+        },
+        "training": {
+            "lr": lr,
+            "optimType": optimType,
+            "Nepochs": Nepochs,
+            "batch_size": batch_size,
+            "weight_decay": weight_decay,
+        },
+    }
+
+
+def loadParams(modelType):
+    with open("scripts/netcfg/" + modelType + ".yml") as stream:
+        try:
+            params = yaml.safe_load(stream)
+        except yaml.YAMLError as exc:
+            print(exc)
+    parsedParams = parseParams(params)
+    return parsedParams
+
+
+def getTrainTestSets(
+    target_train_glaciers, test_glaciers, params, cfg, csvFileName, process=False
+):
 
     data_glamos = getStakesData(cfg)
     data_glamos.drop(

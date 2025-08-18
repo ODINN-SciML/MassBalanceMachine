@@ -4,7 +4,6 @@ mbm_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 sys.path.append(mbm_path)  # Add root of repo to import MBM
 
 import torch
-import yaml
 import json
 import argparse
 import massbalancemachine as mbm
@@ -16,21 +15,16 @@ from scripts.common import (
     _default_train_glaciers,
     _default_input,
     seed_all,
+    loadParams,
 )
 
 
 parser = argparse.ArgumentParser()
 parser.add_argument("modelType", type=str, help="Type of model to train")
 args = parser.parse_args()
-modelType = args.modelType
 
-with open("scripts/netcfg/" + modelType + ".yml") as stream:
-    try:
-        params = yaml.safe_load(stream)
-    except yaml.YAMLError as exc:
-        print(exc)
-
-featuresInpModel = params["model"].get("inputs") or _default_input
+params = loadParams(args.modelType)
+featuresInpModel = params["model"]["inputs"]
 
 featuresToRemove = list(set(_default_input) - set(featuresInpModel))
 metaData = list(
@@ -62,7 +56,12 @@ train_glaciers = params["training"].get("train_glaciers") or _default_train_glac
 test_glaciers = params["training"].get("test_glaciers") or _default_test_glaciers
 
 train_set, test_set, data_glamos = getTrainTestSets(
-    train_glaciers, test_glaciers, params, cfg, "CH_wgms_dataset_monthly_NN_geo.csv", process=False
+    train_glaciers,
+    test_glaciers,
+    params,
+    cfg,
+    "CH_wgms_dataset_monthly_NN_geo.csv",
+    process=False,
 )
 
 
