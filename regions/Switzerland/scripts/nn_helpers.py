@@ -6,7 +6,7 @@ from skorch.helper import SliceDataset
 
 from regions.Switzerland.scripts.plots import *
 
-def plot_training_history(custom_nn, skip_first_n=0):
+def plot_training_history(custom_nn, skip_first_n=0, save=True):
     history = custom_nn.history
 
     # Skip first N entries if specified
@@ -32,18 +32,18 @@ def plot_training_history(custom_nn, skip_first_n=0):
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
-    plt.show()
 
-    # save the plot
-    # Create a folder to save figures (optional)
-    save_dir = "figures"
-    os.makedirs(save_dir, exist_ok=True)
-    
-    # Save the figure
-    plt.savefig(os.path.join(save_dir, "training_history.png"),
-                dpi=300,
-                bbox_inches='tight')
-    plt.close()  # closes the plot to avoid display in notebooks/scripts
+    if save:
+        # save the plot
+        # Create a folder to save figures (optional)
+        save_dir = "figures"
+        os.makedirs(save_dir, exist_ok=True)
+
+        # Save the figure
+        plt.savefig(os.path.join(save_dir, "training_history.png"),
+                    dpi=300,
+                    bbox_inches='tight')
+        plt.close()  # closes the plot to avoid display in notebooks/scripts
 
 
 def predVSTruth_all(grouped_ids, mae, rmse, title):
