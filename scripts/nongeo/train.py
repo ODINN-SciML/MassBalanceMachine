@@ -11,16 +11,19 @@ import logging
 import torch
 import json
 import argparse
+import numpy as np
 from datetime import datetime
-from skorch.callbacks import EarlyStopping, LRScheduler
+from skorch.callbacks import EarlyStopping, LRScheduler, Callback
+from skorch.helper import SliceDataset
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.utils.tensorboard import SummaryWriter
 
 from scripts.common import (
     getTrainTestSets,
     seed_all,
     loadParams,
 )
-from scripts.legacy.utils import (
+from scripts.nongeo.utils import (
     getMetaData,
     trainTestGlaciers,
     getDatasets,
@@ -28,6 +31,7 @@ from scripts.legacy.utils import (
     trainValData,
     setFeatures,
 )
+
 
 from regions.Switzerland.scripts.helpers import get_cmap_hex
 from regions.Switzerland.scripts.nn_helpers import plot_training_history
@@ -133,9 +137,85 @@ nInp = len(feature_columns)
 
 model = mbm.models.buildModel(cfg, params=params)
 
+
+class TensorBoardMetricLogger(Callback):
+    def __init__(self, logdir=None):
+        if logdir is None:
+            run_name = datetime.now().strftime("%Y%m%d_%H%M%S")
+            suffixStr = f"_{suffix}" if suffix is not None else ""
+            logdir = f"logs/nongeo_{run_name}{suffixStr}"
+        self.writer = SummaryWriter(logdir)
+
+    def on_batch_end(self, model, Xi=None, yi=None, training=False, **kwargs):
+        if not training:
+            return
+        step = len(model.history[-1]["batches"]) + sum(
+            len(e["batches"]) for e in model.history[:-1]
+        )
+
+        # training or validation loss
+        loss = kwargs.get("loss")
+        if loss is not None:
+            tag = "Loss/train"
+            self.writer.add_scalar(tag, float(loss), step)
+
+        # Log learning rate (assuming one param group)
+        lr = model.optimizer_.param_groups[0]["lr"]
+        self.writer.add_scalar("Step", lr, step)
+
+    def on_epoch_end(self, model, dataset_train=None, dataset_valid=None, **kwargs):
+        if dataset_valid is None:
+            return
+
+        Xval = SliceDataset(dataset_valid, idx=0)
+        yval = SliceDataset(dataset_valid, idx=1)
+
+        # Make predictions
+        y_pred = model.predict(Xval)
+        y_pred_agg = model.aggrPredict(Xval)
+
+        # Get true values
+        batchIndex = np.arange(len(y_pred_agg))
+        y_true = np.array([e for e in yval[batchIndex]])
+
+        # Calculate scores
+        loss = -model.score(Xval, yval)
+        mse, rmse, mae, pearson, r2, bias = model.evalMetrics(y_pred, y_true)
+
+        epoch = len(model.history)
+
+        # Log to TensorBoard
+        self.writer.add_scalar("Loss/val", loss, epoch)
+        self.writer.add_scalar("RMSE/val", rmse, epoch)
+        # self.writer.add_scalar("RMSE_annual/val", rmse_annual, epoch)
+        # self.writer.add_scalar("RMSE_winter/val", rmse_winter, epoch)
+        self.writer.add_scalar("MAE/val", mae, epoch)
+        # self.writer.add_scalar("MAE_annual/val", mae_annual, epoch)
+        # self.writer.add_scalar("MAE_winter/val", mae_winter, epoch)
+        self.writer.add_scalar("Pearson/val", pearson, epoch)
+        # self.writer.add_scalar(
+        #     "Pearson_annual/val", pearson_corr_annual, epoch
+        # )
+        # self.writer.add_scalar(
+        #     "Pearson_winter/val", pearson_corr_winter, epoch
+        # )
+        self.writer.add_scalar("R2/val", r2, epoch)
+        # self.writer.add_scalar("R2_annual/val", r2_annual, epoch)
+        # self.writer.add_scalar("R2_winter/val", r2_winter, epoch)
+        self.writer.add_scalar("bias/val", bias, epoch)
+        # self.writer.add_scalar("bias_annual/val", bias_annual, epoch)
+        # self.writer.add_scalar("bias_winter/val", bias_winter, epoch)
+
+    def on_train_end(self, model, **kwargs):
+        self.writer.close()
+
+
+logger = TensorBoardMetricLogger()
+
 callbacks = [
     ("early_stop", early_stop),
     ("lr_scheduler", lr_scheduler_cb),
+    ("logger", logger),
 ]
 args = buildArgs(cfg, params, model, my_train_split, callbacks=callbacks)
 

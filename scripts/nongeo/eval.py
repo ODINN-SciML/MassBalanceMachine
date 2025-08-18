@@ -16,7 +16,7 @@ from scripts.common import (
     getTrainTestSets,
     seed_all,
 )
-from scripts.legacy.utils import (
+from scripts.nongeo.utils import (
     getMetaData,
     trainTestGlaciers,
     buildArgs,
