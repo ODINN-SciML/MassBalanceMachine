@@ -43,11 +43,19 @@ parser.add_argument(
     default=False,
     help="Train on GPU. By default training runs on CPU.",
 )
+parser.add_argument(
+    "-s",
+    "--suffix",
+    type=str,
+    default=None,
+    help="Suffix to add to the folder that contains the model once trained.",
+)
 args = parser.parse_args()
 
+runOnGpu = args.gpu
+suffix = args.suffix
 params = loadParams(args.modelType)
 featuresInpModel = params["model"]["inputs"]
-runOnGpu = args.gpu
 
 metaData = getMetaData(featuresInpModel)
 
@@ -151,7 +159,8 @@ custom_nn.fit(dataset.X, dataset.y)
 
 # Generate filename with current date
 current_date = datetime.now().strftime("%Y%m%d_%H%M%S")
-model_dir = f"nn_{current_date}"
+suffixStr = f"_{suffix}" if suffix is not None else ""
+model_dir = f"nn_{current_date}{suffixStr}"
 model_filename = f"{model_dir}/model.pt"
 
 # Save the model
