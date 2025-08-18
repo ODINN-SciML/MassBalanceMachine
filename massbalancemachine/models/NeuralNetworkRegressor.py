@@ -385,22 +385,21 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
 
         return grouped_ids, df_months_nn
 
-    def save_model(self, fpath: str) -> None:
+    def save_model(self, fname: str = None, model_dir: str = None) -> None:
         """save the model parameters to a file.
 
         Args:
-            fpath (str): Path of the file to save the model parameters to.
-                This relative path is saved in the `_models_dir` folder.
-                If the filename has no `.pt` extension, it is automatically added.
-
-        Return:
-            f_params (pathlib.PosixPath): Path of the file where the model parameters were saved.
+            fname (str): filename to save the model parameters to (without .pt extension).
+            model_dir (str): Folder where to save model (optional).
         """
-        file_path = _models_dir / fpath
+        assert (fname is None) ^ (model_dir is None), "Either fname or model_dir must be provided."
+        if fname is not None:
+            file_path = _models_dir / fname
+        else:
+            file_path = Path(model_dir) / "model"
         file_path.parent.mkdir(exist_ok=True)
         f_params = file_path.with_suffix(".pt")
         self.save_params(f_params=f_params)
-        return f_params
 
     def to(self, device):
         """Move model and necessary attributes to the specified device."""
@@ -481,13 +480,17 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
 
         Args:
             cfg (config.Config): config file.
-            fname (str): model filename (with .pt extension).
+            fname (str): Either the model filename (with .pt extension) or a path to a folder that contains a `model.pt` file.
             *args & **kwargs: Additional arguments for model initialisation.
-            
+
         Returns:
             CustomNeuralNetRegressor: loaded (and trained) model instance.
         """
         model = CustomNeuralNetRegressor(cfg, *args, **kwargs)
         model.initialize()
-        model.load_params(f_params=_models_dir / fname)
+        if fname.endswith(".pt"):
+            f_params = _models_dir / fname
+        else:
+            f_params = Path(fname) / "model.pt"
+        model.load_params(f_params=f_params)
         return model
