@@ -9,6 +9,7 @@ import heapq
 import matplotlib.pyplot as plt
 import pandas as pd
 import glob
+import warnings
 
 from plots import predVSTruth_all
 
@@ -238,6 +239,7 @@ def loadBestModel(log_dir, model):
     files = glob.glob(os.path.join(log_dir, "model_epoch*.pt"))
     best = None
     bestVal = None
+    bestEpoch = None
     for i, f in enumerate(files):
         s = os.path.basename(f).replace("model_epoch", "").replace(".pt", "")
         epoch = s.split("_")[0]
@@ -249,16 +251,22 @@ def loadBestModel(log_dir, model):
         if bestVal is None:
             best = i
             bestVal = val
-        elif val == bestVal:
-            raise Exception(
-                "Two models have exactly the same validation score. Please update the implementation of loadBestModel to support this case."
+            bestEpoch = epoch
+        elif val == bestVal and (epoch > bestEpoch):
+            warnings.warn(
+                "Two models have exactly the same validation score. Taking the one with the largest epoch number."
             )
+            best = i
+            bestVal = val
+            bestEpoch = epoch
         elif higherBetter and val > bestVal:
             best = i
             bestVal = val
+            bestEpoch = epoch
         elif not higherBetter and val < bestVal:
             best = i
             bestVal = val
+            bestEpoch = epoch
         val = float(val)
     model.load_state_dict(torch.load(files[best], weights_only=True))
     return files[best]

@@ -11,8 +11,6 @@ from skorch.helper import SliceDataset
 
 from scripts.common import (
     getTrainTestSets,
-    _default_test_glaciers,
-    _default_train_glaciers,
     _default_input,
     seed_all,
 )
@@ -42,12 +40,6 @@ def getMetaData(featuresInpModel):
         ).union(set(featuresToRemove))
     )
     return metaData
-
-
-def trainTestGlaciers(params):
-    train_glaciers = params["training"].get("train_glaciers") or _default_train_glaciers
-    test_glaciers = params["training"].get("test_glaciers") or _default_test_glaciers
-    return train_glaciers, test_glaciers
 
 
 def setFeatures(cfg, data_train, featuresInpModel):
@@ -136,7 +128,7 @@ def testData(cfg, test_set, feature_columns):
 
 def buildArgs(cfg, params, model, train_split, callbacks=[]):
     lr = params["training"]["lr"]
-    optimType = params["training"]["optimType"]
+    optimType = params["training"]["optim"]
     Nepochs = params["training"]["Nepochs"]
     batch_size = params["training"]["batch_size"]
     weight_decay = params["training"]["weight_decay"]

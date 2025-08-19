@@ -88,20 +88,28 @@ _default_input = (
 
 def parseParams(params):
     lr = float(params["training"].get("lr", 1e-3))
-    optimType = params["training"].get("optim", "ADAM")
+    optim = params["training"].get("optim", "ADAM")
+    scheduler = params["training"].get("scheduler", None)
+    scheduler_gamma = float(params["training"].get("scheduler_gamma", 0.5))
+    scheduler_step_size = int(params["training"].get("scheduler_step_size", 200))
     Nepochs = int(params["training"].get("Nepochs", 1000))
     inputs = params["model"].get("inputs") or _default_input
-    batch_size = params["training"].get("batch_size", 128)
-    weight_decay = params["training"].get("weight_decay", 0.0)
+    batch_size = int(params["training"].get("batch_size", 128))
+    weight_decay = float(params["training"].get("weight_decay", 0.0))
+    downscale = params["model"].get("downscale", None)
     return {
         "model": {
             "type": params["model"]["type"],
             "layers": params["model"]["layers"],
             "inputs": inputs,
+            "downscale": downscale,
         },
         "training": {
             "lr": lr,
-            "optimType": optimType,
+            "optim": optim,
+            "scheduler": scheduler,
+            "scheduler_gamma": scheduler_gamma,
+            "scheduler_step_size": scheduler_step_size,
             "Nepochs": Nepochs,
             "batch_size": batch_size,
             "weight_decay": weight_decay,
@@ -119,6 +127,12 @@ def loadParams(modelType):
     return parsedParams
 
 
+def trainTestGlaciers(params):
+    train_glaciers = params["training"].get("train_glaciers") or _default_train_glaciers
+    test_glaciers = params["training"].get("test_glaciers") or _default_test_glaciers
+    return train_glaciers, test_glaciers
+
+
 def getTrainTestSets(
     target_train_glaciers, test_glaciers, params, cfg, csvFileName, process=False
 ):
@@ -127,6 +141,10 @@ def getTrainTestSets(
     data_glamos.drop(
         data_glamos[data_glamos.GLACIER == "taelliboden"].index, inplace=True
     )
+    downscale = params["model"]["downscale"]
+    if downscale is not None:
+        assert False, "The downscale option is not supported yet."
+        # assert downscale == "linear"
 
     vois_climate = params["model"].get("vois_climate", _default_vois_climate)
     vois_topographical = params["model"].get(

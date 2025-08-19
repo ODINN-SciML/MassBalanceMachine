@@ -13,12 +13,12 @@ import json
 import argparse
 
 from scripts.common import (
+    trainTestGlaciers,
     getTrainTestSets,
     seed_all,
 )
 from scripts.nongeo.utils import (
     getMetaData,
-    trainTestGlaciers,
     buildArgs,
     trainValData,
     testData,

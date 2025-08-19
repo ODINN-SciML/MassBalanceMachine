@@ -10,9 +10,8 @@ import massbalancemachine as mbm
 from massbalancemachine.dataloader.GeoDataLoader import GeoDataLoader
 
 from scripts.common import (
+    trainTestGlaciers,
     getTrainTestSets,
-    _default_test_glaciers,
-    _default_train_glaciers,
     _default_input,
     seed_all,
     loadParams,
@@ -52,8 +51,7 @@ cfg = mbm.SwitzerlandConfig(
 seed_all(cfg.seed)
 
 
-train_glaciers = params["training"].get("train_glaciers") or _default_train_glaciers
-test_glaciers = params["training"].get("test_glaciers") or _default_test_glaciers
+train_glaciers, test_glaciers = trainTestGlaciers(params)
 
 train_set, test_set, data_glamos = getTrainTestSets(
     train_glaciers,
@@ -110,22 +108,25 @@ gdl = GeoDataLoader(cfg, glaciers, trainStakesDf=df_X_train, valStakesDf=df_X_va
 network = mbm.models.buildModel(cfg, params=params)
 
 model = mbm.models.CustomTorchNeuralNetRegressor(network)
-optimType = params["training"].get("optim", "ADAM")
-schedulerType = params["training"].get("scheduler")
-lr = float(params["training"].get("lr", 1e-3))
+optimType = params["training"]["optim"]
+schedulerType = params["training"]["scheduler"]
+lr = params["training"]["lr"]
 Nepochs = int(params["training"].get("Nepochs", 1000))
+weight_decay = params["training"]["weight_decay"]
 if optimType == "ADAM":
-    optim = torch.optim.Adam(model.parameters(), lr=lr)
+    optim = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 elif optimType == "SGD":
-    optim = torch.optim.SGD(model.parameters(), lr=4e-4, momentum=0.9)
+    optim = torch.optim.SGD(
+        model.parameters(), lr=lr, momentum=0.9, weight_decay=weight_decay
+    )
 else:
     raise ValueError(f"Optimizer {optimType} is not supported.")
 
 if schedulerType is None:
     scheduler = None
 elif schedulerType == "StepLR":
-    gamma = float(params["training"].get("scheduler_gamma", 0.2))
-    step_size = float(params["training"].get("scheduler_step_size", 20))
+    gamma = params["training"]["scheduler_gamma"]
+    step_size = params["training"]["scheduler_step_size"]
     scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=step_size, gamma=gamma)
 else:
     raise ValueError(f"Scheduler {schedulerType} is not supported.")
