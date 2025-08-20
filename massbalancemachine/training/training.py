@@ -298,6 +298,8 @@ def train_geo(
     freqVal = trainCfg.get("freqVal", 1)
     bestModelCriterion = trainCfg.get("bestModelCriterion", "lossVal")
     assert bestModelCriterion in _criterionVal
+    scalingStakes = trainCfg.get("scalingStakes", "glacier")
+    assert scalingStakes in ["meas", "glacier"]
     iterPerEpoch = len(geodataloader)
     nColsProgressBar = 500 if _inJupyterNotebook else 100
 
@@ -357,6 +359,8 @@ def train_geo(
                     model, stakes, metadata, point_balance
                 )
 
+                valScalingStakes = stakes.shape[0] if scalingStakes == "meas" else 1.0
+                lossStake = lossStake * valScalingStakes
                 if wGeo > 0 and geodataloader.hasGeo(g):
                     geoGrid, metadata, ygeo = geodataloader.geo(g)
                     geod_periods = geodataloader.periods_per_glacier[g]
@@ -423,6 +427,12 @@ def train_geo(
                     periodAll = torch.concatenate(
                         (periodAll, torch.tensor(grouped_ids["PERIOD_int"].values))
                     )
+
+                    valScalingStakes = (
+                        stakes.shape[0] if scalingStakes == "meas" else 1.0
+                    )
+                    l = l * valScalingStakes
+
                     lossStake += l
 
                     if wGeo > 0 and geodataloader.hasGeo(g):
@@ -433,7 +443,7 @@ def train_geo(
                         )
                         cntGeo += 1
 
-                    cntStake += 1
+                    cntStake += valScalingStakes
                 lossStake /= cntStake
                 if wGeo > 0 and cntGeo > 0:
                     lossGeo /= cntGeo

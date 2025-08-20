@@ -20,13 +20,13 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.tensorboard import SummaryWriter
 
 from scripts.common import (
+    trainTestGlaciers,
     getTrainTestSets,
     seed_all,
     loadParams,
 )
 from scripts.nongeo.utils import (
     getMetaData,
-    trainTestGlaciers,
     getDatasets,
     buildArgs,
     trainValData,
@@ -139,8 +139,9 @@ model = mbm.models.buildModel(cfg, params=params)
 
 
 class TensorBoardMetricLogger(Callback):
-    def __init__(self, logdir):
+    def __init__(self, logdir, additional_scores_funcs={}):
         self.writer = SummaryWriter(logdir)
+        self.additional_scores_funcs = additional_scores_funcs
 
     def on_batch_end(self, model, Xi=None, yi=None, training=False, **kwargs):
         if not training:
@@ -183,24 +184,16 @@ class TensorBoardMetricLogger(Callback):
         # Log to TensorBoard
         self.writer.add_scalar("Loss/val", loss, epoch)
         self.writer.add_scalar("RMSE/val", rmse, epoch)
-        # self.writer.add_scalar("RMSE_annual/val", rmse_annual, epoch)
-        # self.writer.add_scalar("RMSE_winter/val", rmse_winter, epoch)
         self.writer.add_scalar("MAE/val", mae, epoch)
-        # self.writer.add_scalar("MAE_annual/val", mae_annual, epoch)
-        # self.writer.add_scalar("MAE_winter/val", mae_winter, epoch)
         self.writer.add_scalar("Pearson/val", pearson, epoch)
-        # self.writer.add_scalar(
-        #     "Pearson_annual/val", pearson_corr_annual, epoch
-        # )
-        # self.writer.add_scalar(
-        #     "Pearson_winter/val", pearson_corr_winter, epoch
-        # )
         self.writer.add_scalar("R2/val", r2, epoch)
-        # self.writer.add_scalar("R2_annual/val", r2_annual, epoch)
-        # self.writer.add_scalar("R2_winter/val", r2_winter, epoch)
         self.writer.add_scalar("bias/val", bias, epoch)
-        # self.writer.add_scalar("bias_annual/val", bias_annual, epoch)
-        # self.writer.add_scalar("bias_winter/val", bias_winter, epoch)
+
+        for freq, func in self.additional_scores_funcs.items():
+            if epoch % freq == freq - 1:
+                scores = func(model, dataset_valid)
+                for k, v in scores.items():
+                    self.writer.add_scalar(k, v, epoch)
 
     def on_train_end(self, model, **kwargs):
         self.writer.close()
@@ -212,7 +205,67 @@ suffixStr = f"_{suffix}" if suffix is not None else ""
 logdir = f"logs/nongeo_{run_name}{suffixStr}"
 print(f"Logging in {logdir}")
 
-logger = TensorBoardMetricLogger(logdir)
+
+def annual_winter_func(model, dataset):
+    Xval = SliceDataset(dataset, idx=0)
+    yval = SliceDataset(dataset, idx=1)
+    Mval = [dataset.getMetadata(i) for i in range(len(dataset))]
+    Mval = [Mval[i].reshape(len(yval[i]), -1) for i in range(len(Mval))]
+
+    # Retrieve the period associated to each element of the batch
+    posPeriod = dataset.metadataColumns.index("PERIOD")
+    indAnnual = []
+    indWinter = []
+    for i in range(len(Mval)):
+        period = Mval[i][0, posPeriod]
+        if period == "annual":
+            indAnnual.append(i)
+        elif period == "winter":
+            indWinter.append(i)
+        else:
+            raise ValueError(f"Period {period} is unknown.")
+
+    # Make predictions
+    y_pred = model.predict(Xval)
+    y_pred_agg = model.aggrPredict(Xval)
+
+    # Get true values
+    batchIndex = np.arange(len(y_pred_agg))
+    y_true = np.array([e for e in yval[batchIndex]])
+
+    y_pred_annual = y_pred[indAnnual]
+    y_true_annual = y_true[indAnnual]
+    y_pred_winter = y_pred[indWinter]
+    y_true_winter = y_true[indWinter]
+
+    mse_annual, rmse_annual, mae_annual, pearson_annual, r2_annual, bias_annual = (
+        model.evalMetrics(y_pred_annual, y_true_annual)
+    )
+    mse_winter, rmse_winter, mae_winter, pearson_winter, r2_winter, bias_winter = (
+        model.evalMetrics(y_pred_winter, y_true_winter)
+    )
+
+    scores = {
+        "RMSE_annual/val": rmse_annual,
+        "RMSE_winter/val": rmse_winter,
+        "MAE_annual/val": mae_annual,
+        "MAE_winter/val": mae_winter,
+        "Pearson_annual/val": pearson_annual,
+        "Pearson_winter/val": pearson_winter,
+        "R2_annual/val": r2_annual,
+        "R2_winter/val": r2_winter,
+        "bias_annual/val": bias_annual,
+        "bias_winter/val": bias_winter,
+    }
+    return scores
+
+
+additional_scores_funcs = {
+    10: annual_winter_func
+}  # Compute the annual/winter scores every 10 epochs
+logger = TensorBoardMetricLogger(
+    logdir, additional_scores_funcs=additional_scores_funcs
+)
 
 callbacks = [
     ("early_stop", early_stop),

@@ -65,7 +65,10 @@ def getDatasets(cfg, df_X_train, y_train, df_X_val, y_val, df_test, custom_nn):
         cfg, features=features, metadata=metadata, targets=y_train
     )
     dataset = mbm.data_processing.SliceDatasetBinding(
-        SliceDataset(dataset, idx=0), SliceDataset(dataset, idx=1)
+        SliceDataset(dataset, idx=0),
+        SliceDataset(dataset, idx=1),
+        M=SliceDataset(dataset, idx=2),
+        metadataColumns=dataset.metadataColumns,
     )
     print("train:", dataset.X.shape, dataset.y.shape)
 
@@ -73,7 +76,10 @@ def getDatasets(cfg, df_X_train, y_train, df_X_val, y_val, df_test, custom_nn):
         cfg, features=features_val, metadata=metadata_val, targets=y_val
     )
     dataset_val = mbm.data_processing.SliceDatasetBinding(
-        SliceDataset(dataset_val, idx=0), SliceDataset(dataset_val, idx=1)
+        SliceDataset(dataset_val, idx=0),
+        SliceDataset(dataset_val, idx=1),
+        M=SliceDataset(dataset_val, idx=2),
+        metadataColumns=dataset.metadataColumns,
     )
     print("validation:", dataset_val.X.shape, dataset_val.y.shape)
     return dataset, dataset_val

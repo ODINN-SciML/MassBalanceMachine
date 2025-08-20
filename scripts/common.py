@@ -89,6 +89,9 @@ _default_input = (
 def parseParams(params):
     lr = float(params["training"].get("lr", 1e-3))
     optim = params["training"].get("optim", "ADAM")
+    momentum = float(params["training"].get("momentum", 0.0))
+    beta1 = float(params["training"].get("beta1", 0.9))
+    beta2 = float(params["training"].get("beta2", 0.999))
     scheduler = params["training"].get("scheduler", None)
     scheduler_gamma = float(params["training"].get("scheduler_gamma", 0.5))
     scheduler_step_size = int(params["training"].get("scheduler_step_size", 200))
@@ -97,6 +100,7 @@ def parseParams(params):
     batch_size = int(params["training"].get("batch_size", 128))
     weight_decay = float(params["training"].get("weight_decay", 0.0))
     downscale = params["model"].get("downscale", None)
+    scalingStakes = params["training"].get("scalingStakes", "glacier")
     return {
         "model": {
             "type": params["model"]["type"],
@@ -106,6 +110,9 @@ def parseParams(params):
         },
         "training": {
             "lr": lr,
+            "momentum": momentum,
+            "beta1": beta1,
+            "beta2": beta2,
             "optim": optim,
             "scheduler": scheduler,
             "scheduler_gamma": scheduler_gamma,
@@ -113,6 +120,7 @@ def parseParams(params):
             "Nepochs": Nepochs,
             "batch_size": batch_size,
             "weight_decay": weight_decay,
+            "scalingStakes": scalingStakes,
         },
     }
 

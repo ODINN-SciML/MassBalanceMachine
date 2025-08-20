@@ -111,13 +111,18 @@ model = mbm.models.CustomTorchNeuralNetRegressor(network)
 optimType = params["training"]["optim"]
 schedulerType = params["training"]["scheduler"]
 lr = params["training"]["lr"]
-Nepochs = int(params["training"].get("Nepochs", 1000))
+momentum = params["training"]["momentum"]
+beta1 = params["training"]["beta1"]
+beta2 = params["training"]["beta2"]
+Nepochs = params["training"]["Nepochs"]
 weight_decay = params["training"]["weight_decay"]
 if optimType == "ADAM":
-    optim = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+    optim = torch.optim.Adam(
+        model.parameters(), lr=lr, betas=(beta1, beta2), weight_decay=weight_decay
+    )
 elif optimType == "SGD":
     optim = torch.optim.SGD(
-        model.parameters(), lr=lr, momentum=0.9, weight_decay=weight_decay
+        model.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay
     )
 else:
     raise ValueError(f"Optimizer {optimType} is not supported.")
@@ -141,7 +146,12 @@ gdl_test = GeoDataLoader(
     trainStakesDf=data_test,
 )
 
-trainCfg = {"Nepochs": Nepochs, "wGeo": 0, "log_suffix": "wgeo=0"}
+trainCfg = {
+    "Nepochs": Nepochs,
+    "wGeo": 0,
+    "log_suffix": "wgeo=0_scaling",
+    "scalingStakes": params["training"]["scalingStakes"],
+}
 ret = mbm.training.train_geo(
     model,
     gdl,
