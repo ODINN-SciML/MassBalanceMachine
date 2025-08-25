@@ -20,7 +20,7 @@ else:
 
 
 @pytest.mark.order3
-def test_train():
+def test_swiss_train_geo():
     cfg = mbm.SwitzerlandConfig(
         metaData=[
             "RGIId", "POINT_ID", "ID", "GLWD_ID", "N_MONTHS", "MONTHS",
@@ -120,4 +120,4 @@ def test_train():
 
 
 if __name__ == "__main__":
-    test_train()
+    test_swiss_train_geo()
