@@ -45,10 +45,21 @@ conda env create -f environment_cpu.yml
 
 #### GPU
 
-##### Linux and Windows
+##### Linux
 
 ```
 conda env create -f environment_gpu.yml
+```
+
+##### Windows
+
+Windows users need to manually install PyTorch with GPU support.
+You can refer to the [installation instructions of PyTorch](https://pytorch.org/get-started/locally/) and run commands similar to:
+```
+conda env create -f environment_gpu.yml
+
+# Update command below to your needs
+pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu126
 ```
 
 ##### MacOS
