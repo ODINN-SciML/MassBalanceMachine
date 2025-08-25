@@ -66,7 +66,7 @@ def test_iceland_train():
         **params_init
     )
 
-    features, metadata = custom_nn._create_features_metadata(df_X_train)
+    features, metadata = mbm.data_processing.utils.create_features_metadata(cfg, df_X_train)
 
     # Define the dataset for the NN
     dataset = mbm.data_processing.AggregatedDataset(

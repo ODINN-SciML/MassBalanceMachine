@@ -285,8 +285,7 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
                 winter_months)]
 
         # Create features and metadata
-        features_grid, metadata_grid = self._create_features_metadata(
-            df_grid_monthly)
+        features_grid, metadata_grid = data_processing.utils.create_features_metadata(self.cfg, df_grid_monthly)
 
         # Ensure all tensors are on CPU if they are torch tensors
         if hasattr(features_grid, 'cpu'):
@@ -414,43 +413,6 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
             self.some_tensor_attribute = self.some_tensor_attribute.to(device)
 
         return self
-
-    def _create_features_metadata(
-            self,
-            X: pd.DataFrame,
-            meta_data_columns: list = None) -> Tuple[np.array, np.ndarray]:
-        """
-        Split the input DataFrame into features and metadata.
-
-        Args:
-            X (pd.DataFrame): The input DataFrame containing both features and metadata.
-            meta_data_columns (list): The metadata columns to be extracted. If not
-                specified, metadata fields of the configuration instance will be used.
-
-        Returns:
-            tuple: A tuple containing:
-                - features (array-like): The feature values.
-                - metadata (array-like): The metadata values.
-        """
-        meta_data_columns = meta_data_columns or self.cfg.metaData
-
-        # # Split features from metadata
-        # # Get feature columns by subtracting metadata columns from all columns
-        # feature_columns = X.columns.difference(meta_data_columns)
-
-        # # remove columns that are not used in metadata or features
-        # feature_columns = feature_columns.drop(self.cfg.notMetaDataNotFeatures)
-        # # Convert feature_columns to a list (if needed)
-        # feature_columns = list(feature_columns)
-        # print(feature_columns, len(feature_columns))
-
-        feature_columns = self.cfg.featureColumns
-
-        # Extract metadata and features
-        metadata = X[meta_data_columns].values
-        features = X[feature_columns].values
-
-        return features, metadata
 
     def seed_all(self):
         """Sets the random seed everywhere for reproducibility.
