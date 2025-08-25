@@ -314,7 +314,7 @@ class AggregatedDataset(torch.utils.data.Dataset):
         Maps split indices (usually the result of DataLoader.get_cv_split) to the
         indices used by the AggregatedDataset class.
 
-        Attributes:
+        Args:
             splits (list of tuple): List containing the splits indices for the cross
                 validation groups
 
