@@ -142,8 +142,11 @@ def convert_to_wgms(
         pandas.DataFrame: DataFrame in WGMS-like format with individual records for each measurement period.
     """
 
-    df_combined = _reshape_dataset(data, date_columns, smb_columns,
-                                   list(wgms_data_columns.keys())[:-3])
+    ids = list(wgms_data_columns.keys())
+    ids.remove("TO_DATE")
+    ids.remove("FROM_DATE")
+    ids.remove("POINT_BALANCE")
+    df_combined = _reshape_dataset(data, date_columns, smb_columns, ids)
 
     df_combined = df_combined[list(
         wgms_data_columns.keys())].rename(columns=wgms_data_columns)

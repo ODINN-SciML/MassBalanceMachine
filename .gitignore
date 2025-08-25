@@ -14,6 +14,7 @@ docs/_build/
 docs/generated/
 docs/notebooks/
 docs/MBM_logo.png
+.data/
 
 regions/Switzerland/models/**
 regions/Switzerland/results

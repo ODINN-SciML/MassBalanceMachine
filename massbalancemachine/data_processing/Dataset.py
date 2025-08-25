@@ -24,6 +24,7 @@ from data_processing.get_climate_data import get_climate_features, retrieve_clea
 from data_processing.get_topo_data import get_topographical_features, get_glacier_mask
 from data_processing.transform_to_monthly import transform_to_monthly
 from data_processing.create_glacier_grid import create_glacier_grid_RGI
+from data_processing.climate_data_download import download_climate_ERA5, path_climate_data
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s - %(levelname)s - %(message)s")
@@ -39,21 +40,22 @@ class Dataset:
         cfg (config.Config): Configuration instance.
         data (pd.DataFrame): A pandas dataframe containing the raw data
         region (str): The name of the region, for saving the files accordingly
+        region_id (str): The region ID, for saving the files accordingly and eventually downloading them if needed
         data_dir (str): Path to the directory containing the raw data, and save intermediate results
         RGIIds (pd.Series): Series of RGI IDs from the data
     """
 
     def __init__(self, cfg: config.Config, data: pd.DataFrame,
-                 region_name: str, data_path: str):
+                 region_name: str, region_id: int, data_path: str):
         self.cfg = cfg
         self.data = self._clean_data(data=data.copy())
         self.region = region_name
+        self.region_id = region_id
         self.data_dir = data_path
         self.RGIIds = self.data["RGIId"]
 
     def get_topo_features(self,
-                          *,
-                          vois: "list[str]",
+                          vois: list[str],
                           custom_working_dir: str = '') -> None:
         """
         Fetches all the topographical data, for a list of variables of interest, using OGGM for the specified RGI IDs
@@ -68,17 +70,18 @@ class Dataset:
                                                self.cfg)
 
     def get_climate_features(self,
-                             *,
-                             climate_data: str,
-                             geopotential_data: str,
+                             climate_data: str = None,
+                             geopotential_data: str = None,
                              change_units: bool = False,
                              smoothing_vois: dict = None) -> None:
         """
         Fetches all the climate data, for a list of variables of interest, for the specified RGI IDs.
 
         Args:
-            climate_data (str): A netCDF-3 file location containing the climate data for the region of interest
-            geopotential_data (str): A netCDF-3 file location containing the geopotential data
+            climate_data (str): A netCDF-3 file location containing the climate data for the region of interest.
+                Defaults to `None` which automatically downloads the file if necessary using the CDSAPI.
+            geopotential_data (str): A netCDF-3 file location containing the geopotential data.
+                Defaults to `None` which automatically downloads the file if necessary using the CDSAPI.
             change_units (bool, optional): A boolean indicating whether to change the units of the climate data. Default to False.
             smoothing_vois (dict, optional): A dictionary containing the variables of interest for smoothing climate artifacts. Default to None.
         """
@@ -87,6 +90,14 @@ class Dataset:
         smoothing_vois = smoothing_vois or {}  # Safely default to empty dict
         vois_climate = smoothing_vois.get('vois_climate')
         vois_other = smoothing_vois.get('vois_other')
+
+        local_path = path_climate_data(self.region_id)
+        assert (climate_data is None) == (geopotential_data is None), "When climate_data is provided, geopotential_data should also be provided."
+        if climate_data is None:
+            climate_data = local_path+"era5_monthly_averaged_data.nc"
+            geopotential_data = local_path+"era5_geopotential_pressure.nc"
+            if not (os.path.isfile(climate_data) and os.path.isfile(geopotential_data)):
+                download_climate_ERA5(region)
 
         self.data = get_climate_features(self.data, output_fname, climate_data,
                                          geopotential_data, change_units,
@@ -115,7 +126,7 @@ class Dataset:
                                  vois_other: str) -> None:
         """For big glaciers covered by more than one ERA5-Land grid cell, the
         climate data is the one with the most data points. This function smooths the
-        climate data by taking the mode of the data for each grid cell. 
+        climate data by taking the mode of the data for each grid cell.
 
         Args:
             vois_climate (str): A string containing the climate variables of interest
@@ -124,10 +135,9 @@ class Dataset:
                                             vois_other)
 
     def convert_to_monthly(self,
-                           *,
-                           vois_climate: "list[str]",
-                           vois_topographical: "list[str]",
-                           meta_data_columns: "list[str]" = None) -> None:
+                           vois_climate: list[str],
+                           vois_topographical: list[str],
+                           meta_data_columns: list[str] = None) -> None:
         """
         Converts a variable period for the SMB target data measurement to a monthly time resolution.
 
@@ -146,7 +156,7 @@ class Dataset:
     def get_glacier_mask(
         self,
         custom_working_dir: str = ''
-    ) -> "tuple[xr.Dataset, tuple[np.array, np.array], oggm.GlacierDirectory]":
+    ) -> tuple[xr.Dataset, tuple[np.array, np.array], oggm.GlacierDirectory]:
         """Creates an xarray that contains different variables from OGGM,
             mapped over the glacier outline. The glacier mask is also returned.
 
@@ -229,7 +239,7 @@ class Dataset:
 
     @staticmethod
     def _validate_columns(data: pd.DataFrame,
-                          required_columns: "list[str]") -> None:
+                          required_columns: list[str]) -> None:
         """Validates that all required columns are present in the DataFrame."""
         if not all(col in data.columns for col in required_columns):
             logging.error(
@@ -240,7 +250,7 @@ class Dataset:
 
     @staticmethod
     def _remove_missing_dates(data: pd.DataFrame,
-                              date_columns: "list[str]") -> pd.DataFrame:
+                              date_columns: list[str]) -> pd.DataFrame:
         """Removes rows with missing dates from the DataFrame."""
         return data.dropna(subset=date_columns)
 
@@ -276,7 +286,7 @@ class AggregatedDataset(torch.utils.data.Dataset):
                  cfg: config.Config,
                  features: np.ndarray,
                  metadata: np.ndarray,
-                 metadataColumns: "list[str]" = None,
+                 metadataColumns: list[str] = None,
                  targets: np.ndarray = None) -> None:
         self.cfg = cfg
         self.features = features
@@ -296,8 +306,8 @@ class AggregatedDataset(torch.utils.data.Dataset):
         self.norm = Normalizer({k: cfg.bnds[k] for k in cfg.featureColumns})
 
     def mapSplitsToDataset(
-        self, splits: "list[tuple[np.ndarray, np.ndarray]]"
-    ) -> "list[tuple[np.ndarray, np.ndarray]]":
+        self, splits: list[tuple[np.ndarray, np.ndarray]]
+    ) -> list[tuple[np.ndarray, np.ndarray]]:
         """
         Maps split indices (usually the result of DataLoader.get_cv_split) to the
         indices used by the AggregatedDataset class.
@@ -375,7 +385,7 @@ class Normalizer:
             the two values in the tuple are respectively the lower and upper bounds.
     """
 
-    def __init__(self, bnds: "dict[str, tuple[float, float]]") -> None:
+    def __init__(self, bnds: dict[str, tuple[float, float]]) -> None:
         assert not np.isnan(list(bnds.values())).any(), "Bounds contain NaNs"
         self.bnds = bnds
 
