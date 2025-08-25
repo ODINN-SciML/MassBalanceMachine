@@ -53,6 +53,8 @@ class Dataset:
         self.region_id = region_id
         self.data_dir = data_path
         self.RGIIds = self.data["RGIId"]
+        if not os.path.isdir(self.data_dir):
+            os.makedirs(self.data_dir, exist_ok=True)
 
     def get_topo_features(self,
                           vois: list[str],
