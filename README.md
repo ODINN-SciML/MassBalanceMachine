@@ -27,38 +27,45 @@ You can run the MassBalanceMachine core scripts and notebooks with the following
   - [Miniconda](https://docs.anaconda.com/miniconda/miniconda-install/)
   - [Micromamba](https://mamba.readthedocs.io/en/latest/installation/micromamba-installation.html) (recommended)
 
-## Installation (for all users)
+## Installation
 
-To run the Jupyter Notebooks, you'll need to set up a Conda environment. Within this environment, Poetry will handle the installation of all necessary packages and dependencies. Follow these steps to create a new Conda environment named MassBalanceMachine:
+To run the MassBalanceMachine, you'll need to set up a Conda environment.
+Within this environment, Poetry will handle the installation of all necessary packages and dependencies.
+Follow these steps to create a new Conda environment named `MassBalanceMachine`:
 
-**Note:** If you are on **Linux or Windows** and plan to run the MassBalanceMachine on a **GPU machine**:
+### Environment setup
+
+**Note:** if you are using micromamba, replace `conda` by `micromamba` in the commands below.
+
+#### CPU only
+
+```
+conda env create -f environment_cpu.yml
+```
+
+#### GPU
+
+##### Linux and Windows
 
 ```
 conda env create -f environment_gpu.yml
 ```
-or if you are using micromamba:
+
+##### MacOS
+
+After having created and activated the `MassBalanceMachine` environment, you need to install cupy separately:
 ```
-micromamba env create -f environment_gpu.yml
+conda env create -f environment_gpu.yml
+conda activate MassBalanceMachine
+conda install -c conda-forge cupy
 ```
 
-Else **on MacOs** or if you **plan to only use a CPU**: 
-```
-conda env create -f environment_cpu.yml
-```
-or if you are using micromamba:
-```
-micromamba env create -f environment_cpu.yml
-```
-
+### Install dependencies
 
 Activate the MassBalanceMachine environment:
-
 ```
-conda activate MassBalanceMachine # for linux and unix users alternatively: source activate MassBalanceMachine
+conda activate MassBalanceMachine
 ```
-**If you're on MacOS and plan to use a GPU**, you need to install cupy separately: 
-```conda install -c conda-forge cupy```
-
 
 Install all required packages and dependencies needed in the environment via poetry:
 
