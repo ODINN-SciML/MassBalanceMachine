@@ -10,6 +10,9 @@ notebooks/OGGM/**
 notebooks/models
 notebooks/.ipynb_checkpoints
 
+docs/_build/
+docs/generated/
+
 regions/Switzerland/models/**
 regions/Switzerland/results
 regions/Switzerland/figures

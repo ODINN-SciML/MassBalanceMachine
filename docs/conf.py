@@ -9,17 +9,17 @@
 # If extensions (or modules to document with autodoc) are in another directory,
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
-#
+
 # import os
 # import sys
-# sys.path.insert(0, os.path.abspath('.'))
 
+# sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "../"))
 
 # -- Project information -----------------------------------------------------
 
-project = "Basic Sphinx Example Project"
-copyright = "2022, Read the Docs core team"
-author = "Read the Docs core team"
+project = "MassBalanceMachine"
+copyright = "2024, MassBalanceMachine core team"
+author = "MassBalanceMachine core team"
 
 
 # -- General configuration ---------------------------------------------------
@@ -31,7 +31,9 @@ extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.autosummary",
     "sphinx.ext.intersphinx",
+    # "sphinx.ext.autodoc",
     "myst_parser",
+    "nbsphinx",
 ]
 
 intersphinx_mapping = {
@@ -61,4 +63,4 @@ html_theme = "default"
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
-html_static_path = ["_static"]
+html_static_path = []

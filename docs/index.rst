@@ -9,13 +9,29 @@ Check out the :doc:`usage` section for further information, including how to :re
 
 .. note::
 
-   This project is under active development.
+    This project is under active development.
 
 Contents
 --------
 
 .. toctree::
 
-   Home <self>
-   usage
-   api
+    Home <self>
+    usage
+    api
+
+.. toctree::
+    :maxdepth: 2
+    :caption: Getting Started
+
+    getting_started/install
+
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Project Information
+
+    project_info/goals
+    project_info/contributing
+
+..    notebooks/data_preprocessing.ipynb
