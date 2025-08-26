@@ -283,8 +283,7 @@ class AggregatedDataset(torch.utils.data.Dataset):
         self.metadata = metadata
         self.metadataColumns = metadataColumns or self.cfg.metaData
         self.targets = targets
-    
-        
+
         self.ID = np.array([
             self.metadata[i][self.metadataColumns.index('ID')]
             for i in range(len(self.metadata))
@@ -293,6 +292,7 @@ class AggregatedDataset(torch.utils.data.Dataset):
         self.maxConcatNb = max(
             [len(np.argwhere(self.ID == id)[:, 0]) for id in self.uniqueID])
         self.nbFeatures = self.features.shape[1]
+        self.nbMetadata = self.metadata.shape[1]
         self.norm = Normalizer({k: cfg.bnds[k] for k in cfg.featureColumns})
 
     def mapSplitsToDataset(
@@ -339,7 +339,7 @@ class AggregatedDataset(torch.utils.data.Dataset):
         ind = self._getInd(index)
         f = self.features[ind][:, :]
         f = self.norm.normalize(f)
-        fpad = np.empty((self.maxConcatNb, self.nbFeatures))
+        fpad = np.empty((self.maxConcatNb, self.nbFeatures)) # Features padded
         fpad.fill(np.nan)
         fpad[:f.shape[0], :] = f
         fpad = fpad.reshape(-1)
@@ -347,10 +347,15 @@ class AggregatedDataset(torch.utils.data.Dataset):
             return (fpad, )
         else:
             t = self.targets[ind][:]
-            tpad = np.empty(self.maxConcatNb)
+            tpad = np.empty(self.maxConcatNb) # Target padded
             tpad.fill(np.nan)
             tpad[:t.shape[0]] = t
-            return fpad, tpad
+            m = self.metadata[ind][:, :]
+            mpad = np.empty((self.maxConcatNb, self.nbMetadata), dtype=self.metadata.dtype) # Metadata padded
+            mpad.fill(np.nan)
+            mpad[:m.shape[0], :] = m
+            mpad = mpad.reshape(-1)
+            return fpad, tpad, mpad
 
     def indexToId(self, index):
         """Maps an index of the dataset to the ID of the stake measurement."""
@@ -411,7 +416,7 @@ class Normalizer:
 
 
 class SliceDatasetBinding(Dataset):
-    def __init__(self, X:SliceDataset, y:SliceDataset=None) -> None:
+    def __init__(self, X:SliceDataset, y:SliceDataset=None, M:SliceDataset=None, metadataColumns:list[str] = None) -> None:
         """
         Binding to a SliceDataset that allows providing training and validation
         datasets through the train_split argument of CustomNeuralNetRegressor.
@@ -419,15 +424,21 @@ class SliceDatasetBinding(Dataset):
         Arguments:
             X (SliceDataset): Features defined through a SliceDataset.
             y (SliceDataset): Targets defined through a SliceDataset.
+            M (SliceDataset): Metadata defined through a SliceDataset.
         """
         assert isinstance(X, SliceDataset), "X must be a SliceDataset instance"
         assert y is None or isinstance(y, SliceDataset), "y must be a SliceDataset instance"
+        assert M is None or isinstance(M, SliceDataset), "M must be a SliceDataset instance"
+        assert (M is None) == (metadataColumns is None), "If M or metadataColumns is provided, the other variable must be provided too."
         self.X = X
         self.y = y
+        self.M = M
+        self.metadataColumns = metadataColumns
     def __len__(self):
         return len(self.X)
     def __getitem__(self, idx):
-        # If y is None, just return X
         if self.y is None:
             return self.X[idx]
         return self.X[idx], self.y[idx]
+    def getMetadata(self, idx):
+        return self.M[idx]

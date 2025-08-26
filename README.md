@@ -48,8 +48,6 @@ or if you are using micromamba:
 ```
 micromamba env create -f environment_cpu.yml
 ```
-**If you're on MacOS and plan to use a GPU**, you need to install cupy separately: 
-```conda install -c conda-forge cupy```
 
 
 Activate the MassBalanceMachine environment:
@@ -57,6 +55,9 @@ Activate the MassBalanceMachine environment:
 ```
 conda activate MassBalanceMachine # for linux and unix users alternatively: source activate MassBalanceMachine
 ```
+**If you're on MacOS and plan to use a GPU**, you need to install cupy separately: 
+```conda install -c conda-forge cupy```
+
 
 Install all required packages and dependencies needed in the environment via poetry:
 

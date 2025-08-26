@@ -40,6 +40,9 @@ class Config:
                 counterpart will simply be outside of [0, 1].
         """
 
+        if "CI" in os.environ:
+            assert seed is not None, "In the CI and in the tests the seed must be defined."
+
         # Customizable attributes
         self.numJobs = numJobs or max(
             1, min(os.cpu_count() - 2, 25)

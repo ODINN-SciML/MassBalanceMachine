@@ -5,7 +5,7 @@ import massbalancemachine as mbm
 def test_dataloader():
     data = pd.read_csv('./notebooks/example_data/iceland/files/iceland_monthly_dataset.csv')
 
-    cfg = mbm.Config()
+    cfg = mbm.Config(seed=30)
 
     # Create a new DataLoader object with the monthly stake data measurements
     dataloader = mbm.dataloader.DataLoader(cfg, data=data, random_seed=0)
@@ -20,13 +20,13 @@ def test_dataloader():
     # Get the features and targets of the training data for the indices as defined above, that will be used during the cross validation
     df_X_train = data.iloc[train_indices]
     y_train = df_X_train['POINT_BALANCE'].values
-    assert df_X_train.shape == (296,20)
-    assert y_train.shape == (296,)
+    assert df_X_train.shape == (307,20)
+    assert y_train.shape == (307,)
 
     df_X_test = data.iloc[test_indices]
     y_test = df_X_test['POINT_BALANCE'].values
-    assert df_X_test.shape == (151,20)
-    assert y_test.shape == (151,)
+    assert df_X_test.shape == (140,20)
+    assert y_test.shape == (140,)
 
     # Create the cross validation splits based on the training dataset
     splits = dataloader.get_cv_split(n_splits=5, type_fold='group-meas-id')

@@ -28,6 +28,7 @@ def test_train():
         ],
         notMetaDataNotFeatures=["POINT_BALANCE"],
         dataPath=dataPath,
+        seed=30,
     )
 
     vois_climate = [

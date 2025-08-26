@@ -18,7 +18,7 @@ def test_aggregatedDataset():
     targets = np.array([10, 11, 12])
     splits = [(np.array([0, 1]), np.array([2]))]
 
-    cfg = mbm.Config(bnds={'COL1': (0., 10.), 'COL2': (-1., 1.0)})
+    cfg = mbm.Config(bnds={'COL1': (0., 10.), 'COL2': (-1., 1.0)}, seed=30)
 
     cfg.setFeatures(['COL1', 'COL2'])
 
