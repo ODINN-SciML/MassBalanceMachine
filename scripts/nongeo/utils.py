@@ -95,6 +95,14 @@ class NetworkBinding(nn.Module):
 
 
 def trainValData(cfg, train_set, feature_columns):
+    """
+    Split training dataset into train and validation sets.
+
+    Args:
+        - cfg: A configuration instance.
+        - train_set: Dictionary with at least the following keys: `df_X` (pd.DataFrame) and `y` (pd.Series) which represent respectively the features and the targets.
+        - feature_columns: List of string representing the columns to be used as features in the dataframe.
+    """
     # Validation and train split:
     data_train = train_set["df_X"]
     data_train["y"] = train_set["y"]
@@ -117,7 +125,6 @@ def trainValData(cfg, train_set, feature_columns):
     all_columns = feature_columns + cfg.fieldsNotFeatures
     print("Shape of training dataset:", df_X_train[all_columns].shape)
     print("Shape of validation dataset:", df_X_val[all_columns].shape)
-    # print('Shape of testing dataset:', test_set["df_X"][all_columns].shape)
     print("Running with features:", feature_columns)
 
     return df_X_train, y_train, df_X_val, y_val

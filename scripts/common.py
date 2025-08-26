@@ -4,6 +4,7 @@ mbm_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../"))
 sys.path.append(mbm_path)  # Add root of repo to import MBM
 
 import yaml
+import pandas as pd
 
 import massbalancemachine as mbm
 from regions.Switzerland.scripts.glamos_preprocess import getStakesData, get_geodetic_MB
@@ -139,6 +140,98 @@ def trainTestGlaciers(params):
     train_glaciers = params["training"].get("train_glaciers") or _default_train_glaciers
     test_glaciers = params["training"].get("test_glaciers") or _default_test_glaciers
     return train_glaciers, test_glaciers
+
+
+def get_CV_splits_iceland(
+    dataloader,
+    test_split_on='YEAR',
+    test_splits=None,
+    random_state=0,
+    test_size=0.2
+):
+    # Split into training and test splits with train_test_split
+    if test_splits is None:
+        train_splits, test_splits = train_test_split(
+            dataloader.data[test_split_on].unique(),
+            test_size=test_size,
+            random_state=random_state)
+    else:
+        split_data = dataloader.data[test_split_on].unique()
+        train_splits = [x for x in split_data if x not in test_splits]
+
+    train_indices = dataloader.data[dataloader.data[test_split_on].isin(train_splits)].index
+    test_indices = dataloader.data[dataloader.data[test_split_on].isin(test_splits)].index
+
+    dataloader.set_custom_train_test_indices(train_indices, test_indices)
+
+    # Get the features and targets of the training data for the indices as defined above, that will be used during the cross validation.
+    df_X_train = dataloader.data.iloc[train_indices]
+    y_train = df_X_train['POINT_BALANCE'].values
+    train_meas_id = df_X_train['ID'].unique()
+
+    # Get test set
+    df_X_test = dataloader.data.iloc[test_indices]
+    y_test = df_X_test['POINT_BALANCE'].values
+    test_meas_id = df_X_test['ID'].unique()
+
+    # Values split in training and test set
+    train_splits = df_X_train[test_split_on].unique()
+    test_splits = df_X_test[test_split_on].unique()
+
+    test_set = {
+        'df_X': df_X_test,
+        'y': y_test,
+        'meas_id': test_meas_id,
+        'splits_vals': test_splits
+    }
+    train_set = {
+        'df_X': df_X_train,
+        'y': y_train,
+        'splits_vals': train_splits,
+        'meas_id': train_meas_id,
+    }
+    return test_set, train_set
+
+
+def getTrainTestSetsIceland(test_glaciers, params, cfg):
+    # TODO: for the moment the arguments are the RGIId but we should manage this properly in the future
+    data = pd.read_csv(os.path.join(mbm_path, 'notebooks/example_data/iceland/files/iceland_monthly_dataset.csv'))
+    existing_glaciers = set(data.RGIId.unique())
+    missing_glaciers = [g for g in test_glaciers if g not in existing_glaciers]
+    if missing_glaciers:
+        print(f"Warning: The following test glaciers are not in the dataset: {missing_glaciers}")
+
+    train_glaciers = [i for i in existing_glaciers if i not in test_glaciers]
+
+    dataloader = mbm.dataloader.DataLoader(
+        cfg,
+        data=data,
+        random_seed=cfg.seed,
+        meta_data_columns=cfg.metaData
+    )
+
+    data_test = dataloader.data[dataloader.data.RGIId.isin(test_glaciers)]
+    print("Size of monthly test data:", len(data_test))
+
+    data_train = dataloader.data[dataloader.data.RGIId.isin(train_glaciers)]
+    print("Size of monthly train data:", len(data_train))
+
+    if len(data_train) == 0:
+        print("Warning: No training data available!")
+    else:
+        test_perc = (len(data_test) / len(data_train)) * 100
+        print("Percentage of test size: {:.2f}%".format(test_perc))
+
+    # Split on measurements (IDs)
+    test_set, train_set = get_CV_splits_iceland(
+        dataloader,
+        test_split_on="RGIId",
+        test_splits=test_glaciers,
+        random_state=cfg.seed,
+    )
+    return train_set, test_set
+
+
 
 
 def getTrainTestSets(
