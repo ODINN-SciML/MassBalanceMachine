@@ -40,7 +40,7 @@ for root, dirs, files in os.walk(examples_source):
     for dr in dirs:
         os.mkdir(os.path.join(root.replace(examples_source, examples_dest), dr))
     for fil in files:
-        if os.path.splitext(fil)[1] in [".ipynb", ".md", ".rst", ".csv", ".dbf", ".prj", ".shp", ".shx"]:
+        if os.path.splitext(fil)[1] in [".ipynb", ".md", ".rst", ".csv", ".dbf", ".prj", ".shp", ".shx", ".nc"]:
             source_filename = os.path.join(root, fil)
             dest_filename = source_filename.replace(examples_source, examples_dest)
 

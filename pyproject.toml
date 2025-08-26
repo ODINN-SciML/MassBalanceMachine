@@ -2,7 +2,7 @@
 name = "massbalancemachine"
 version = "0.0.1"
 description = "A bridge between mass balance modelling and observations. Global machine learning glacier mass balance modelling that assimilates all glaciological and remote sensing data sources."
-authors = ["Julian Biesheuvel <j.p.biesheuvel@student.tudelft.nl>"]
+authors = ["Julian Biesheuvel", "Kamilla Hauknes Sjursen", "Marijn van der Meer", "Jordi Bolibar", "Alban Gossard"]
 license = "MIT"
 readme = "README.md"
 package-mode = true
@@ -67,6 +67,7 @@ sphinx-autorun = "^1.1.1"
 myst-parser = "^2.0"
 nbsphinx = "^0.9"
 ipykernel = "^6.0"
+pandoc = "2.4"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.2"
