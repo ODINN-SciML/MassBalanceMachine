@@ -6,6 +6,7 @@ from skorch.helper import SliceDataset
 from datetime import datetime
 import massbalancemachine as mbm
 from tqdm.notebook import tqdm
+import ast
 
 from scripts.plots import *
 
@@ -284,3 +285,35 @@ def process_glacier_grids(cfg, glacier_list, periods_per_glacier, all_columns,
                 save_monthly_pred=True,
                 type_model='NN'
             )
+            
+            
+def retrieve_best_params(path):
+    # Open grid_search results
+    gs_results = pd.read_csv(path).sort_values(by='test_rmse', ascending=True)
+    
+    # Take best row
+    best_params = gs_results.iloc[0].to_dict()
+
+    # Clean it up into a proper dict
+    params = {}
+
+    for key, value in best_params.items():
+        if key in ['valid_loss', 'train_loss', 'test_rmse', 'status', 'error']:
+            continue  # skip these
+
+        if isinstance(value, str):
+            # Convert optimizer string to actual torch class
+            if "torch.optim" in value:
+                # e.g. "<class 'torch.optim.adamw.AdamW'>" → torch.optim.AdamW
+                cls_name = value.split("'")[1].split('.')[-1]
+                params[key] = getattr(torch.optim, cls_name)
+            else:
+                # Convert string representations of lists, bools, numbers
+                try:
+                    params[key] = ast.literal_eval(value)
+                except (ValueError, SyntaxError):
+                    params[key] = value
+        else:
+            params[key] = value
+
+    return params
