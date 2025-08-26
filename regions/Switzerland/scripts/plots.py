@@ -372,9 +372,13 @@ def predVSTruth(ax,
                     hue=hue,
                     ax=ax,
                     color=color,
-                    marker='o')
+                    style="PERIOD",
+                    markers={
+                        "annual": "o",
+                        "winter": "s"
+                    })  # optional custom marker map)
 
-    ax.set_ylabel('Predicted PMB [m w.e.]', fontsize=20)
+    ax.set_ylabel('Modelled PMB [m w.e.]', fontsize=20)
     ax.set_xlabel('Observed PMB [m w.e.]', fontsize=20)
 
     if add_legend:
@@ -477,12 +481,16 @@ def PlotIndividualGlacierPredVsTruth(grouped_ids,
             y="pred",
             palette=color_palette_period,
             hue='PERIOD',
+            style="PERIOD",  # markers
+            markers={
+                "annual": "o",
+                "winter": "s"
+            },
             ax=ax1,
-            marker='o',
             hue_order=['annual', 'winter'],
         )
 
-        ax1.set_ylabel('Predicted PMB [m w.e.]', fontsize=20)
+        ax1.set_ylabel('Modelled PMB [m w.e.]', fontsize=20)
         ax1.set_xlabel('Observed PMB [m w.e.]', fontsize=20)
 
         # diagonal line
@@ -761,17 +769,20 @@ def plot_permutation_importance(df_importance,
     if top_n:
         df_plot = df_plot.tail(top_n)
 
+    # give long name to features
+    df_plot['feature_long'] = df_plot['feature'].apply(
+        lambda x: vois_climate_long_name.get(x, x))
+
     plt.figure(figsize=figsize)
-    plt.barh(df_plot["feature"],
+    plt.barh(df_plot["feature_long"],
              df_plot["mean_importance"],
              xerr=df_plot["std_importance"],
              align="center",
              alpha=0.7,
              ecolor="black",
-             color = color_annual,
+             color=color_annual,
              capsize=5)
     plt.xlabel("Increase in RMSE (mean ± std)")
-    plt.ylabel("Feature")
     plt.title(title)
     plt.grid(True, linestyle="--", alpha=0.6)
     plt.tight_layout()
