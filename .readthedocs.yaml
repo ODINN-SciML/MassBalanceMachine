@@ -12,11 +12,12 @@ build:
   tools:
     python: "3.11"
   jobs:
-    pre_install:
-      - |
-        pip install poetry
-        poetry install
-        python3 -m ipykernel install --name python3 --user
+    post_create_environment:
+      - pip install poetry
+      - poetry config virtualenvs.create false
+    post_install:
+      - VIRTUAL_ENV=$READTHEDOCS_VIRTUALENV_PATH poetry install --with docs
+
 
 # Build documentation in the "docs/" directory with Sphinx
 sphinx:
