@@ -298,13 +298,15 @@ def PlotPredictions(grouped_ids, y_pred, metadata_test, test_set, model):
         zip(grouped_ids.GLACIER.unique(), colors_glacier))
     ax1 = plt.subplot(2, 2, 1)
     grouped_ids_annual = grouped_ids[grouped_ids.PERIOD == 'annual']
-    mse_annual, rmse_annual, mae_annual, pearson_corr_annual = model.evalMetrics(
+    mse_annual, rmse_annual, mae_annual, pearson_corr_annual, r2_annual, bias_annual = model.evalMetrics(
         metadata_test, y_pred, test_set['y'], period='annual')
     scores_annual = {
         'mse': mse_annual,
         'rmse': rmse_annual,
         'mae': mae_annual,
-        'pearson_corr': pearson_corr_annual
+        'pearson_corr': pearson_corr_annual,
+        'r2': r2_annual,
+        'bias': bias_annual,
     }
     predVSTruth(ax1,
                 grouped_ids_annual,
@@ -321,13 +323,15 @@ def PlotPredictions(grouped_ids, y_pred, metadata_test, test_set, model):
     if 'winter' in grouped_ids.PERIOD.unique():
         grouped_ids_winter = grouped_ids[grouped_ids.PERIOD == 'winter']
         ax3 = plt.subplot(2, 2, 3)
-        mse_winter, rmse_winter, mae_winter, pearson_corr_winter = model.evalMetrics(
+        mse_winter, rmse_winter, mae_winter, pearson_corr_winter, r2_winter, bias_winter = model.evalMetrics(
             metadata_test, y_pred, test_set['y'], period='winter')
         scores_winter = {
             'mse': mse_winter,
             'rmse': rmse_winter,
             'mae': mae_winter,
-            'pearson_corr': pearson_corr_winter
+            'pearson_corr': pearson_corr_winter,
+            'r2': r2_winter,
+            'bias': bias_winter,
         }
         predVSTruth(ax3,
                     grouped_ids_winter,

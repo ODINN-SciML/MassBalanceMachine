@@ -4,9 +4,9 @@ import seaborn as sns
 from sklearn.metrics import mean_squared_error, mean_absolute_error, root_mean_squared_error
 from skorch.helper import SliceDataset
 
-from scripts.plots import *
+from regions.Switzerland.scripts.plots import *
 
-def plot_training_history(custom_nn, skip_first_n=0):
+def plot_training_history(custom_nn, skip_first_n=0, save=True):
     history = custom_nn.history
 
     # Skip first N entries if specified
@@ -32,18 +32,18 @@ def plot_training_history(custom_nn, skip_first_n=0):
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
-    plt.show()
 
-    # save the plot
-    # Create a folder to save figures (optional)
-    save_dir = "figures"
-    os.makedirs(save_dir, exist_ok=True)
-    
-    # Save the figure
-    plt.savefig(os.path.join(save_dir, "training_history.png"),
-                dpi=300,
-                bbox_inches='tight')
-    plt.close()  # closes the plot to avoid display in notebooks/scripts
+    if save:
+        # save the plot
+        # Create a folder to save figures (optional)
+        save_dir = "figures"
+        os.makedirs(save_dir, exist_ok=True)
+
+        # Save the figure
+        plt.savefig(os.path.join(save_dir, "training_history.png"),
+                    dpi=300,
+                    bbox_inches='tight')
+        plt.close()  # closes the plot to avoid display in notebooks/scripts
 
 
 def predVSTruth_all(grouped_ids, mae, rmse, title):
@@ -167,13 +167,15 @@ def evaluate_model_and_group_predictions(custom_NN_model, df_X_subset, y, cfg, m
 
     # Compute scores
     score = custom_NN_model.score(dataset[0], dataset[1])
-    mse, rmse, mae, pearson = custom_NN_model.evalMetrics(y_pred, y_true)
+    mse, rmse, mae, pearson, r2, bias = custom_NN_model.evalMetrics(y_pred, y_true)
     scores = {
         'score': score,
         'mse': mse,
         'rmse': rmse,
         'mae': mae,
-        'pearson': pearson
+        'pearson': pearson,
+        'r2': r2,
+        'bias': bias,
     }
 
     # Create grouped prediction DataFrame
