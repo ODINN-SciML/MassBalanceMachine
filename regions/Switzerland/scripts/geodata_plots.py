@@ -7,8 +7,7 @@ import massbalancemachine as mbm
 import matplotlib.patches as mpatches
 from cmcrameri import cm
 
-from scripts.geodata import *
-from regions.Switzerland.scripts.helpers import *
+from regions.Switzerland.scripts.geodata import *
 
 
 def plot_geodetic_MB(df, glacier_name, color_xgb='blue', color_tim='red'):
