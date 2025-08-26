@@ -289,9 +289,9 @@ def process_glacier_grids(cfg, glacier_list, periods_per_glacier, all_columns,
             )
             
             
-def retrieve_best_params(path):
+def retrieve_best_params(path, sort_values = 'valid_loss'):
     # Open grid_search results
-    gs_results = pd.read_csv(path).sort_values(by='test_rmse', ascending=True)
+    gs_results = pd.read_csv(path).sort_values(by=sort_values, ascending=True)
     
     # Take best row
     best_params = gs_results.iloc[0].to_dict()
