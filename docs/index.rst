@@ -1,11 +1,12 @@
-.. include:: ../README.md
+:github_url: https://github.com/ODINN-SciML/MassBalanceMachine
 
 Welcome to the MassBalanceMachine documentation!
-===================================
+================================================
 
 **MassBalanceMachine** is global machine learning glacier mass balance model that assimilates all glaciological and remote sensing data sources.
 
-Check out the :doc:`usage` section for further information, including how to :ref:`installation` the project.
+Check out the :doc:`install` section for installation information.
+Before contributing please read the :doc:`contributing` section.
 
 .. note::
 
@@ -15,23 +16,26 @@ Contents
 --------
 
 .. toctree::
-
     Home <self>
-    usage
-    api
 
 .. toctree::
+    :glob:
     :maxdepth: 2
     :caption: Getting Started
 
-    getting_started/install
-
+    install
 
 .. toctree::
-   :maxdepth: 1
-   :caption: Project Information
+    :glob:
+    :maxdepth: 2
+    :caption: Project Information
 
-    project_info/goals
-    project_info/contributing
+    goals
+    contributing
 
-..    notebooks/data_preprocessing.ipynb
+.. toctree::
+    :glob:
+    :maxdepth: 2
+    :caption: API
+
+    api

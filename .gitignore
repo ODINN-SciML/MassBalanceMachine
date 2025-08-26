@@ -12,6 +12,7 @@ notebooks/.ipynb_checkpoints
 
 docs/_build/
 docs/generated/
+docs/notebooks/
 
 regions/Switzerland/models/**
 regions/Switzerland/results

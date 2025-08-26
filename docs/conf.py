@@ -58,7 +58,13 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-html_theme = "default"
+html_theme = "sphinx_rtd_theme"
+
+html_theme_options = {
+    "collapse_navigation": False, # keep sidebar sections expanded
+    "navigation_depth": 4,        # how deep to show headings
+    "titles_only": False,         # if True, only show top-level page titles
+}
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
