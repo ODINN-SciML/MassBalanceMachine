@@ -16,6 +16,7 @@ build:
       - |
         pip install poetry
         poetry install
+        python3 -m ipykernel install --name python3 --user
 
 # Build documentation in the "docs/" directory with Sphinx
 sphinx:

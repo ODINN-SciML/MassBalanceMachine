@@ -10,10 +10,55 @@
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 
-# import os
-# import sys
+import os
+import sys
 
-# sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "../"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "../"))
+
+
+import io
+import re
+import shutil
+import sphinx_rtd_theme  # noqa
+
+### Code below is a copy paste from gpytorch ###
+# Cf https://github.com/cornellius-gp/gpytorch/blob/main/docs/source/conf.py
+
+# - Copy over notebooks folder to docs/source
+# This makes it so that nbsphinx properly loads the notebook images
+
+examples_source = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "notebooks"))
+examples_dest = os.path.abspath(os.path.join(os.path.dirname(__file__), "notebooks"))
+
+if os.path.exists(examples_dest):
+    shutil.rmtree(examples_dest)
+os.mkdir(examples_dest)
+
+# Include examples in documentation
+# This adds a lot of time to the doc buiod; to bypass use the environment variable SKIP_EXAMPLES=true
+for root, dirs, files in os.walk(examples_source):
+    for dr in dirs:
+        os.mkdir(os.path.join(root.replace(examples_source, examples_dest), dr))
+    for fil in files:
+        if os.path.splitext(fil)[1] in [".ipynb", ".md", ".rst", ".csv", ".dbf", ".prj", ".shp", ".shx"]:
+            source_filename = os.path.join(root, fil)
+            dest_filename = source_filename.replace(examples_source, examples_dest)
+
+            # If we're skipping examples, put a dummy file in place
+            if os.getenv("SKIP_EXAMPLES"):
+                if dest_filename.endswith("index.rst"):
+                    shutil.copyfile(source_filename, dest_filename)
+                else:
+                    with open(os.path.splitext(dest_filename)[0] + ".rst", "w") as f:
+                        basename = os.path.splitext(os.path.basename(dest_filename))[0]
+                        f.write(f"{basename}\n" + "=" * 80)
+
+            # Otherwise, copy over the real example files
+            else:
+                shutil.copyfile(source_filename, dest_filename)
+
+################################################
+
 
 # -- Project information -----------------------------------------------------
 
@@ -34,6 +79,7 @@ extensions = [
     # "sphinx.ext.autodoc",
     "myst_parser",
     "nbsphinx",
+    # "sphinx_autorun",
 ]
 
 intersphinx_mapping = {
@@ -65,6 +111,8 @@ html_theme_options = {
     "navigation_depth": 4,        # how deep to show headings
     "titles_only": False,         # if True, only show top-level page titles
 }
+
+language = "en"
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,

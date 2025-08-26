@@ -24,6 +24,7 @@ Contents
     :caption: Getting Started
 
     install
+    ../notebooks/data_preprocessing
 
 .. toctree::
     :glob:
@@ -32,10 +33,3 @@ Contents
 
     goals
     contributing
-
-.. toctree::
-    :glob:
-    :maxdepth: 2
-    :caption: API
-
-    api
