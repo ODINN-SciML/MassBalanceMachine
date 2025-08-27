@@ -1,6 +1,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![GitHub contributors](https://img.shields.io/github/contributors/ODINN-SciML/MassBalanceMachine?style=social)](#contributors)
 [![Build Status](https://github.com/ODINN-SciML/MassBalanceMachine/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/ODINN-SciML/MassBalanceMachine/actions/workflows/CI.yml?query=branch%3Amain)
 [![Coverage](https://codecov.io/gh/ODINN-SciML/MassBalanceMachine/branch/main/graph/badge.svg)](https://app.codecov.io/gh/ODINN-SciML/MassBalanceMachine)
+[![Documentation](https://app.readthedocs.org/projects/massbalancemachine/badge/?version=latest)](https://massbalancemachine.readthedocs.io/en/latest/)
 
 <p align="center">
   <img src="./MBM_logo.png" width="300" title="MBM_Logo">
@@ -117,14 +118,6 @@ Specifically, the example notebooks concentrate on glaciers documented in the WG
   - [COMING SOON] ``Norway``
   - [ADD YOUR OWN REGION]. PRs welcome! Message us if you have questions 🙂
 
-## Project Roadmap
-
-The following features are on the roadmap to be implemented in the coming months:
-
-- 🛰️ MassBalanceMachine uses geodetic mass balance data as an extra target variable on top of glaciological data. This will help calibrate the bias/trend in long simulations where the cumulative mass balance matters.
-- 🔄 MassBalanceMachine can do transfer learning for new regions, reducing the training time and making more accurate predictions.
-- 📊 MassBalanceMachine can incorporate physical constraints to merge physical knowledge with data-driven discovery.
-
 ## Contributors
 
 <!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
@@ -147,13 +140,6 @@ The following features are on the roadmap to be implemented in the coming months
 <!-- prettier-ignore-end -->
 
 <!-- ALL-CONTRIBUTORS-LIST:END -->
-
-## Contribution Guidelines
-Here are some basic contribution guidelines outlined below. For a more comprehensive set of instructions, please refer to the [contribution guidelines](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/CONTRIBUTING.md) file in this repository.
-
-- The MassBalanceMachine project is an open-source community initiative that welcomes new users to fork the repository, add new regions, or modify the existing code and submit a [pull request](https://github.com/ODINN-SciML/MassBalanceMachine/pulls).
-- **Currently, uploading data is not allowed unless it is accompanied by a license that explicitly permits open access, allowing it to be shared and used by others.** Pull requests containing data will be rejected. In the future, data sharing will be supported.
-- If you have any questions, please contact one of the contributors listed above. You can also create new Git issues via the [issue tracker](https://github.com/ODINN-SciML/MassBalanceMachine/issues) to propose new features, and changes to existing ones, or report bugs.
 
 ## Support
 

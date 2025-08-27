@@ -132,7 +132,7 @@ General (and presumably static) information about each glacier. When submitting 
       - 8 (Group): A number of similar ice masses occurring in close proximity and too small to be assessed individually.
       - 9 (Remnant): Inactive, usually small ice masses left by a receding glacier.
 
-    ![](figures/form.jpg)
+    <!-- ![](figures/form.jpg) -->
   - `example`: 1
   - `type`: integer
   - `constraints`:
@@ -153,7 +153,7 @@ General (and presumably static) information about each glacier. When submitting 
       - 8: Single lobe, mainly clean ice (mountain or valley glaciers).
       - 9: Single lobe, debris-covered (mountain or valley glaciers).
 
-    ![](figures/frontal_chars.jpg)
+    <!-- ![](figures/frontal_chars.jpg) -->
   - `example`: 6
   - `type`: integer
   - `constraints`:
