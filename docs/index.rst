@@ -24,7 +24,11 @@ Contents
     :caption: Getting Started
 
     install
-    ../notebooks/data_preprocessing
+    notebooks/data_preprocessing
+    notebooks/data_processing_wgms
+    notebooks/date_exploration
+    notebooks/model_training_xgboost
+    notebooks/model_training_neuralnetwork
 
 .. toctree::
     :glob:
