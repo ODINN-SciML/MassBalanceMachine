@@ -1,4 +1,6 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![GitHub contributors](https://img.shields.io/github/contributors/ODINN-SciML/MassBalanceMachine?style=social)](#contributors)
+[![Build Status](https://github.com/ODINN-SciML/MassBalanceMachine/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/ODINN-SciML/MassBalanceMachine/actions/workflows/CI.yml?query=branch%3Amain)
+[![Coverage](https://codecov.io/gh/ODINN-SciML/MassBalanceMachine/branch/main/graph/badge.svg)](https://app.codecov.io/gh/ODINN-SciML/MassBalanceMachine)
 
 <p align="center">
   <img src="./MBM_logo.png" width="300" title="MBM_Logo">
@@ -46,8 +48,6 @@ or if you are using micromamba:
 ```
 micromamba env create -f environment_cpu.yml
 ```
-For **MacOS and a GPU**, you need to install cupy separately: 
-```conda install -c conda-forge cupy```
 
 
 Activate the MassBalanceMachine environment:
@@ -55,6 +55,9 @@ Activate the MassBalanceMachine environment:
 ```
 conda activate MassBalanceMachine # for linux and unix users alternatively: source activate MassBalanceMachine
 ```
+**If you're on MacOS and plan to use a GPU**, you need to install cupy separately: 
+```conda install -c conda-forge cupy```
+
 
 Install all required packages and dependencies needed in the environment via poetry:
 
@@ -130,12 +133,12 @@ The following features are on the roadmap to be implemented in the coming months
 <table>
   <tbody>
     <tr>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/JulianBiesheuvel"><img src="https://avatars.githubusercontent.com/u/16390017?v=4?s=100" width="100px;" alt="Julian"/><br /><sub><b>Julian</b></sub></a><br /><a href="#code-JulianBiesheuvel" title="Code">💻</a> <a href="#doc-JulianBiesheuvel" title="Documentation">📖</a> <a href="#maintenance-JulianBiesheuvel" title="Maintenance">🚧</a> <a href="#data-JulianBiesheuvel" title="Data">🔣</a> <a href="#research-JulianBiesheuvel" title="Research">🔬</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/khsjursen"><img src="https://avatars.githubusercontent.com/u/69296367?v=4?s=100" width="100px;" alt="khsjursen"/><br /><sub><b>khsjursen</b></sub></a><br /><a href="#research-khsjursen" title="Research">🔬</a> <a href="#code-khsjursen" title="Code">💻</a> <a href="#ideas-khsjursen" title="Ideas, Planning, & Feedback">🤔</a> <a href="#data-khsjursen" title="Data">🔣</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://jordibolibar.wordpress.com"><img src="https://avatars.githubusercontent.com/u/2025815?v=4?s=100" width="100px;" alt="Jordi Bolibar"/><br /><sub><b>Jordi Bolibar</b></sub></a><br /><a href="#research-JordiBolibar" title="Research">🔬</a> <a href="#projectManagement-JordiBolibar" title="Project Management">📆</a> <a href="#financial-JordiBolibar" title="Financial">💵</a> <a href="#ideas-JordiBolibar" title="Ideas, Planning, & Feedback">🤔</a> <a href="#mentoring-JordiBolibar" title="Mentoring">🧑‍🏫</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/marvande"><img src="https://avatars.githubusercontent.com/u/22401294?v=4?s=100" width="100px;" alt="Marijn  "/><br /><sub><b>Marijn  </b></sub></a><br /><a href="#ideas-marvande" title="Ideas, Planning, & Feedback">🤔</a> <a href="#data-marvande" title="Data">🔣</a> <a href="#research-marvande" title="Research">🔬</a> <a href="#code-marvande" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/marvande"><img src="https://avatars.githubusercontent.com/u/22401294?v=4?s=100" width="100px;" alt="Marijn  "/><br /><sub><b>Marijn  </b></sub></a><br /><a href="#ideas-marvande" title="Ideas, Planning, & Feedback">🤔</a> <a href="#data-marvande" title="Data">🔣</a> <a href="#research-marvande" title="Research">🔬</a> <a href="#code-marvande" title="Code">💻</a> <a href="#maintenance-marvande" title="Maintenance">🚧</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/zekollari"><img src="https://avatars.githubusercontent.com/u/19975538?v=4?s=100" width="100px;" alt="zekollari"/><br /><sub><b>zekollari</b></sub></a><br /><a href="#research-zekollari" title="Research">🔬</a> <a href="#financial-zekollari" title="Financial">💵</a> <a href="#ideas-zekollari" title="Ideas, Planning, & Feedback">🤔</a> <a href="#mentoring-zekollari" title="Mentoring">🧑‍🏫</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://albangossard.github.io/"><img src="https://avatars.githubusercontent.com/u/24877968?v=4?s=100" width="100px;" alt="Alban Gossard"/><br /><sub><b>Alban Gossard</b></sub></a><br /><a href="#code-albangossard" title="Code">💻</a> <a href="#research-albangossard" title="Research">🔬</a> <a href="#maintenance-albangossard" title="Maintenance">🚧</a> <a href="#doc-albangossard" title="Documentation">📖</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/JulianBiesheuvel"><img src="https://avatars.githubusercontent.com/u/16390017?v=4?s=100" width="100px;" alt="Julian"/><br /><sub><b>Julian</b></sub></a><br /><a href="#code-JulianBiesheuvel" title="Code">💻</a> <a href="#doc-JulianBiesheuvel" title="Documentation">📖</a><a href="#data-JulianBiesheuvel" title="Data">🔣</a> <a href="#research-JulianBiesheuvel" title="Research">🔬</a></td>
     </tr>
   </tbody>
 </table>

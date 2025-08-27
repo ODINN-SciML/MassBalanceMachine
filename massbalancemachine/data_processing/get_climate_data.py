@@ -23,6 +23,8 @@ def get_climate_features(
     climate_data: str,
     geopotential_data: str,
     change_units: bool,
+    vois_climate: list = None,
+    vois_other: list = None,
 ) -> pd.DataFrame:
     """
     Takes as input ERA5-Land monthly averaged climate data (pre-downloaded), and matches this with the locations
@@ -34,16 +36,20 @@ def get_climate_features(
         climate_data (str): Path to the ERA5-Land climate data file.
         geopotential_data (str): Path to the geopotential data file.
         change_units (bool): If True, change temperature to Celsius and precipitation to m.w.e.
+        vois_climate (list): List of climate variables of interest to smooth out their climate artificats .
+        vois_other (list): List of other variables of interest to smooth out their climate artificats (typically ALTITUDE_CLIMATE).
 
     Returns:
         pd.DataFrame: The updated DataFrame with climate and altitude features.
     """
 
     # Check if the input files exist.
-    if not os.path.exists(climate_data) or not os.path.exists(
-            geopotential_data):
+    if not os.path.exists(climate_data):
         raise FileNotFoundError(
-            f"Climate data or geopotential data do not exist.")
+            f"Climate data file {climate_data} does not exist.")
+    if not os.path.exists(geopotential_data):
+        raise FileNotFoundError(
+            f"Geopotential data file {geopotential_data} does not exist.")
 
     # Load the two climate datasets
     ds_climate, ds_geopotential = _load_datasets(climate_data,
@@ -63,12 +69,19 @@ def get_climate_features(
     # Crop the geopotential height to the region of interest
     ds_geopotential_cropped = _crop_geopotential(ds_180, lat, lon)
 
+    # Remove duplicates
+    ds_geopotential_cropped = ds_geopotential_cropped.drop_duplicates(
+        dim="latitude")
+    ds_geopotential_cropped = ds_geopotential_cropped.drop_duplicates(
+        dim="longitude")
+
     # Calculate the geopotential height in meters
     ds_geopotential_metric = _calculate_geopotential_height(
         ds_geopotential_cropped)
 
-    # Reduce expver dimension
-    ds_climate = ds_climate.reduce(np.nansum, "expver")
+    if 'expver' in ds_climate.dims:
+        # Reduce expver dimension
+        ds_climate = ds_climate.reduce(np.nansum, "expver")
 
     # Create a date range for one hydrological year
     df = _add_date_range(df)
@@ -76,13 +89,17 @@ def get_climate_features(
     # Get the climate data for the latitudes and longitudes and date ranges as
     # specified
     climate_df = _process_climate_data(ds_climate, df)
-    
+
     # Get the geopotential height for the latitudes and longitudes as specified,
     # for the locations of the stake measurements.
     altitude_df = _process_altitude_data(ds_geopotential_metric, df)
 
     # Combine the climate data with the altitude climate data
     df = _combine_dataframes(df, climate_df, altitude_df)
+
+    # Remove climate artifacts
+    df = smooth_era5land_by_mode(df, vois_climate, vois_other)
+
     # Add a new feature to the dataframe that is the height difference between the elevation
     # of the stake and the recorded height of the climate.
     df = _calculate_elevation_difference(df)
@@ -117,17 +134,41 @@ def retrieve_clear_sky_rad(df, path_to_file):
         lon=lon_da,
         method="nearest",
     )
-
     climate_df = (xr_data_points.to_dataframe().drop(
-    columns=["lat", "lon", "x", "y"]).reset_index())
+        columns=["lat", "lon", "x", "y"]).reset_index())
     climate_df = climate_df.drop(columns=["points"])
-    
-    reshaped_ = []
-    for month in range(0, 12):
-        month_ = climate_df[climate_df.time == month].drop(columns = ['time'])
-        reshaped_.append(month_.values.squeeze())
-    
-    result_df = pd.DataFrame(np.array(reshaped_).transpose(), columns=[f'Month_{i+1}' for i in range(12)])
+
+    # The normal way does not work if there is only one point per glacier
+    if len(xr_data_points.points) == 1:
+        # Initialize reshaped_ as a list
+        reshaped_ = []
+
+        for month in range(0, 12):
+            month_ = climate_df[climate_df.time == month].drop(
+                columns=['time'])
+
+            values = month_.values
+            # values.shape is (n_points, n_vars) or (1, n_vars) if one point
+
+            reshaped_.append(values)
+
+        # Now stack along axis=0 to get shape (12, n_points) if multiple points,
+        # or (12, 1) if only one point, and then transpose to get (n_points, 12)
+        reshaped_array = np.vstack(reshaped_).T
+
+        result_df = pd.DataFrame(reshaped_array,
+                                 columns=[f'Month_{i+1}' for i in range(12)])
+    elif len(xr_data_points.points) > 1:
+        reshaped_ = []
+        for month in range(0, 12):
+            month_ = climate_df[climate_df.time == month].drop(
+                columns=['time'])
+            reshaped_.append(month_.values.squeeze())
+
+        result_df = pd.DataFrame(np.array(reshaped_).transpose(),
+                                 columns=[f'Month_{i+1}' for i in range(12)])
+    else:   
+        raise ValueError("No points found in the radiation dataset.")
 
     # Set the new column names for the dataframe (normal year not hydrological)
     climate_var = 'pcsr'
@@ -139,6 +180,35 @@ def retrieve_clear_sky_rad(df, path_to_file):
     result_df = result_df.reset_index(drop=True)
     df.reset_index(drop=True, inplace=True)
     df = pd.concat([df, result_df], axis=1)
+    return df
+
+
+def smooth_era5land_by_mode(df, vois_climate=None, vois_other=None):
+    """For big glaciers covered by more than one ERA5-Land grid cell, the
+        climate data is the one with the most data points. This function smooths the
+        climate data by taking the mode of the data for each grid cell. 
+
+        Args:
+            vois_climate (str): A string containing the climate variables of interest
+            df (pd.DataFrame): DataFrame containing the stakes data.
+        """
+    if vois_climate is not None:
+        # Filter out the climate variable columns based on vois_climate
+        climate_cols = [
+            col for col in df.columns if any(
+                col.startswith(vo + '_') for vo in vois_climate)
+        ]
+
+        # Replace each climate column with its mode value
+        for col in climate_cols:
+            mode_val = df[col].mode().iloc[0]  # Most frequent value
+            df[col] = mode_val
+    if vois_other is not None:
+        # also smooth the other variables
+        for col in vois_other:
+            mode_val = df[col].mode().iloc[0]
+            df[col] = mode_val
+
     return df
 
 
@@ -216,9 +286,16 @@ def _process_climate_data(ds_climate: xr.Dataset,
         method="nearest",
     )
 
+    # Handle new netcdf format where number and expver are coordinates
+    dropColumns = ["latitude", "longitude"]
+    if "number" in climate_data_points.coords:
+        dropColumns.append("number")
+    if "expver" in climate_data_points.coords:
+        dropColumns.append("expver")
+
     # Create a dataframe from the DataArray
     climate_df = (climate_data_points.to_dataframe().drop(
-        columns=["latitude", "longitude"]).reset_index())
+        columns=dropColumns).reset_index())
 
     # Drop columns
     climate_df = climate_df.drop(columns=["points", "time"])
@@ -248,7 +325,13 @@ def _process_altitude_data(ds_geopotential: xr.Dataset,
     lat_da = xr.DataArray(df["POINT_LAT"].values, dims="points")
     lon_da = xr.DataArray(df["POINT_LON"].values, dims="points")
 
-    altitude_data_points = ds_geopotential.sel(
+    if 'valid_time' in ds_geopotential.dims:
+        # Handle new netcdf format
+        ds_renamed = ds_geopotential.rename({"valid_time": "time"})
+    else:
+        ds_renamed = ds_geopotential
+
+    altitude_data_points = ds_renamed.sel(
         latitude=lat_da,
         longitude=lon_da,
         method="nearest",

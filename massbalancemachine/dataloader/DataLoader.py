@@ -19,7 +19,7 @@ import pandas as pd
 from numpy import ndarray
 from sklearn.model_selection import GroupKFold, KFold, GroupShuffleSplit
 
-from correct_for_elevation import correct_T_P
+from dataloader.utils.correct_for_elevation import correct_T_P
 
 
 class DataLoader:
@@ -42,6 +42,7 @@ class DataLoader:
 
     def __init__(
         self,
+        cfg: config.Config,
         data: pd.DataFrame,
         meta_data_columns: List[str] = None,
         random_seed: int = None,
@@ -49,32 +50,32 @@ class DataLoader:
         """
         Initialize the DataLoader with the provided dataset.
         Args:
+            cfg (config.Config): Configuration instance.
             data (pd.DataFrame): The input dataset to be processed.
             meta_data_columns (list): List of columns that contain metadata.
             random_seed (int): Seed for random operations to ensure reproducibility.
         """
         self.data = data
-        self.n_splits = config.N_SPLITS
-        self.random_seed = config.SEED
-        self.test_size = config.TEST_SIZE
+        self.n_splits = cfg.nSplits
+        self.random_seed = random_seed or cfg.seed
+        self.test_size = cfg.testSize
         self.cv_split = None
         self.train_indices = None
         self.test_indices = None
-        self.meta_data_columns = config.META_DATA
+        self.meta_data_columns = meta_data_columns or cfg.metaData
 
     def set_train_test_split(
         self,
         *,
         test_size: float = None,
-        # random_seed: int = None,
-        shuffle: bool = True,
+        type_fold: str = "group-meas-id"
     ) -> Tuple[Iterator[Any], Iterator[Any]]:
         """
         Split the dataset into training and testing sets.
 
         Args:
             test_size (float): Proportion of the dataset to include in the test split.
-            shuffle (bool): Whether to shuffle the data before splitting.
+            type_fold (str): Type of splitting between train and test sets. Options are 'group-rgi', or 'group-meas-id'.
 
         Returns:
             Tuple[Iterator[Any], Iterator[Any]]: Iterators for training and testing indices.
@@ -97,12 +98,13 @@ class DataLoader:
         gss = GroupShuffleSplit(
             n_splits=1, test_size=test_size, random_state=self.random_seed
         )
-        train_indices, test_indices = next(gss.split(X, y, stake_meas_id))
+        groups = {'group-meas-id': stake_meas_id, 'group-rgi': glacier_ids}.get(type_fold)
+        train_indices, test_indices = next(gss.split(X, y, groups))
 
         # Check that the intersection train and test ids is empty
-        train_stake_meas_id = stake_meas_id[train_indices]
-        test_stake_meas_id = stake_meas_id[test_indices]
-        assert len(np.intersect1d(train_stake_meas_id, test_stake_meas_id)) == 0
+        train_group_id = groups[train_indices]
+        test_group_id = groups[test_indices]
+        assert len(np.intersect1d(train_group_id, test_group_id)) == 0
 
         # Make it iterators and set as an attribute of the class
         self.train_indices = train_indices
@@ -124,18 +126,18 @@ class DataLoader:
         self.test_indices = test_indices
 
     def get_cv_split(
-        self, *, n_splits: int = None, type_fold: str = "random"
+        self, *, n_splits: int = None, type_fold: str = "group-meas-id"
     ) -> "list[tuple[ndarray, ndarray]]":
         """
         Create a cross-validation split of the training data.
 
         This method orchestrates the process of creating a cross-validation split,
-        using either a random or group-based strategy. For groups, it uses scikit-learn's GroupKFold to ensure that data from the same glacier is not split
-        across different folds.
+        using one of the group-based strategies. It uses scikit-learn's GroupKFold
+        to ensure that data from the same glacier is not split across different folds.
 
         Args:
             n_splits (int): Number of splits for cross-validation.
-            type_fold (str): Type of cross-validation fold. Options are 'random', 'group-rgi', or 'group-meas-id'.
+            type_fold (str): Type of cross-validation fold. Options are 'group-rgi', or 'group-meas-id'.
 
         Returns:
             tuple[list[tuple[ndarray, ndarray]]]: A dictionary containing glacier IDs and CV split information.
@@ -181,7 +183,7 @@ class DataLoader:
         """Retrieve the training data using the train_iterator."""
         train_indices = self.train_indices
         return self.data.iloc[train_indices]
-    
+
     def correct_for_elevation(self,
                                 *,
                                 temp_grad: float = -6.5 / 1000,
@@ -193,7 +195,7 @@ class DataLoader:
                                 t_off: float = 0.617) -> None:
             """Corrects the temperature and precipitation data for elevation differences and correction factors.
             This factors can be glacier specific, when given as a dictionary or as a constant value for all glaciers.
-    
+
             Args:
                 temp_grad (float, optional): temperature gradient. Defaults to -6.5/1000 [deg/1000m].
                 dpdz (float, optional): Precipitation increase in % per 100m. Defaults to 1.5/10000.
@@ -228,16 +230,13 @@ class DataLoader:
         fold_types = {
             "group-rgi": (GroupKFold, glacier_ids),
             "group-meas-id": (GroupKFold, stake_meas_id),
-            "random": (KFold, None),
         }
 
         FoldClass, groups = fold_types.get(type_fold, (KFold, None))
 
         kf = FoldClass(n_splits=self.n_splits)
 
-        if isinstance(kf, KFold) and type_fold == "random":
-            kf.shuffle = True
-            kf.random_state = self.random_seed
-
         split_args = [X, y, groups] if groups is not None else [X, y]
         return list(kf.split(*split_args))
+    
+    
