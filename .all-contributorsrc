@@ -77,7 +77,9 @@
       "profile": "https://albangossard.github.io/",
       "contributions": [
         "code",
-        "research"
+        "research",
+        "maintenance",
+        "doc"
       ]
     }
   ]
