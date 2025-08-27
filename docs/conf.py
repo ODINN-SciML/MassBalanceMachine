@@ -34,6 +34,10 @@ if os.path.exists(examples_dest):
     shutil.rmtree(examples_dest)
 os.mkdir(examples_dest)
 
+logo_file_name = "MBM_logo.png"
+# Copy logo file
+shutil.copyfile("../"+logo_file_name, logo_file_name)
+
 # Include examples in documentation
 # This adds a lot of time to the doc buiod; to bypass use the environment variable SKIP_EXAMPLES=true
 for root, dirs, files in os.walk(examples_source):
@@ -114,6 +118,8 @@ html_theme_options = {
     "collapse_navigation": False, # keep sidebar sections expanded
     "navigation_depth": 4,        # how deep to show headings
     "titles_only": False,         # if True, only show top-level page titles
+    "logo_only": False,
+    "display_version": True,
 }
 
 language = "en"
@@ -122,3 +128,15 @@ language = "en"
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = []
+
+html_context = {
+    "display_github": True, # Integrate GitHub
+    "github_user": "ODINN-SciML", # Username
+    "github_repo": "MassBalanceMachine", # Repo name
+    "github_version": "main", # Version
+    "conf_py_path": "/docs/", # Path in the checkout to the docs root
+}
+
+html_logo = logo_file_name
+
+html_favicon = 'favicon.ico'
