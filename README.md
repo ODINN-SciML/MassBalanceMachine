@@ -1,6 +1,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![GitHub contributors](https://img.shields.io/github/contributors/ODINN-SciML/MassBalanceMachine?style=social)](#contributors)
 [![Build Status](https://github.com/ODINN-SciML/MassBalanceMachine/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/ODINN-SciML/MassBalanceMachine/actions/workflows/CI.yml?query=branch%3Amain)
 [![Coverage](https://codecov.io/gh/ODINN-SciML/MassBalanceMachine/branch/main/graph/badge.svg)](https://app.codecov.io/gh/ODINN-SciML/MassBalanceMachine)
+[![Documentation](https://app.readthedocs.org/projects/massbalancemachine/badge/?version=latest)](https://massbalancemachine.readthedocs.io/en/latest/)
 
 <p align="center">
   <img src="./MBM_logo.png" width="300" title="MBM_Logo">
