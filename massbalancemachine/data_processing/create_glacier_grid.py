@@ -6,9 +6,10 @@ import xarray as xr
 import oggm
 
 
-def create_glacier_grids(ds: xr.Dataset, years: list, glacier_indices: "tuple[np.array, np.array]",
-                        gdir: oggm.GlacierDirectory,
-                        rgi_gl: str) -> pd.DataFrame:
+def create_glacier_grid_RGI(ds: xr.Dataset, years: list,
+                            glacier_indices: "tuple[np.array, np.array]",
+                            gdir: oggm.GlacierDirectory,
+                            rgi_gl: str) -> pd.DataFrame:
     """Creates a DataFrame of glacier grid data for each year
 
     Args:
@@ -24,11 +25,10 @@ def create_glacier_grids(ds: xr.Dataset, years: list, glacier_indices: "tuple[np
     x_coords = ds['x'].values
     y_coords = ds['y'].values
 
-     
     # Retrieve the x and y values using the glacier indices
     glacier_x_vals = x_coords[glacier_indices[1]]
     glacier_y_vals = y_coords[glacier_indices[0]]
-    
+
     # Convert glacier coordinates to latitude and longitude
     # Transform stake coord to glacier system:
     transf = pyproj.Transformer.from_proj(gdir.grid.proj,
@@ -38,6 +38,7 @@ def create_glacier_grids(ds: xr.Dataset, years: list, glacier_indices: "tuple[np
 
     # Glacier mask as boolean array:
     gl_mask_bool = ds['glacier_mask'].values.astype(bool)
+    
     # Create a DataFrame
     data_grid = {
         'RGIId': [rgi_gl] * len(ds.masked_elev.values[gl_mask_bool]),
@@ -72,5 +73,6 @@ def create_glacier_grids(ds: xr.Dataset, years: list, glacier_indices: "tuple[np
     )  # 'year' column that has len(df_grid) instances of year
     df_grid['FROM_DATE'] = df_grid['YEAR'].apply(lambda x: str(x) + '1001')
     df_grid['TO_DATE'] = df_grid['YEAR'].apply(lambda x: str(x + 1) + '0930')
-
+    df_grid["PERIOD"] = "annual"
+    
     return df_grid

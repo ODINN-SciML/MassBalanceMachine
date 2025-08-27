@@ -15,6 +15,7 @@ import pandas as pd
 import geopandas as gpd
 from shapely.geometry import Point
 from pyproj import CRS, Transformer
+import hashlib
 
 
 def convert_to_wgs84(*, data: pd.DataFrame,
@@ -205,3 +206,9 @@ def get_rgi(*, data: pd.DataFrame,
     joined_df = joined_df[columns_to_keep]
 
     return joined_df
+
+# Generate a unique glacier-wide ID
+def get_hash(unique_string):
+    unique_id = hashlib.md5(
+        unique_string.encode()).hexdigest()[:10]  # Shortened hash
+    return unique_id

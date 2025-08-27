@@ -1,176 +1,92 @@
-import numpy as np
 import os
-from os import listdir
-from os.path import isfile, join
-import xarray as xr
-import geopandas as gpd
 import pandas as pd
-from shapely.geometry import Point, box
-import rasterio
-from rasterio.transform import from_origin
-from rasterio.warp import calculate_default_transform, reproject, Resampling
-from rasterio.merge import merge
 from scipy.ndimage import gaussian_filter
-from scipy.spatial import cKDTree
-from datetime import datetime
+import pyproj
+import numpy as np
 from collections import defaultdict
 from dateutil.relativedelta import relativedelta
-from sklearn.neighbors import NearestNeighbors
-from shapely.geometry import Polygon, LineString, Point
-from pyproj import Transformer
-import rasterio.features
-from rasterio.transform import from_bounds
+import rasterio
+from os.path import isfile, join
+import geopandas as gpd
+import xarray as xr
+from datetime import datetime
+import re
 from tqdm.notebook import tqdm
-import pyproj
-from pyproj import Transformer
-from rasterio import features
-from shapely.geometry import shape
-
-def toRaster(gdf, lon, lat, file_name, source_crs='EPSG:4326'):
-    # Assuming your GeoDataFrame is named gdf
-    # Define the grid dimensions and resolution based on your data
-    nrows, ncols = lat.shape[0], lon.shape[
-        0]  # Adjust based on your latitude and longitude resolution
-
-    data_array = np.full((nrows, ncols), np.nan)  # Initialize with NaNs
-
-    # Create a raster transformation for the grid (assuming lat/lon range)
-    transform = from_origin(min(lon), max(lat), abs(lon[1] - lon[0]),
-                            abs(lat[1] - lat[0]))
-
-    # Populate the raster data
-    for index, row in gdf.iterrows():
-        # Assuming row['geometry'].x and row['geometry'].y give you lon and lat
-        lon_idx = np.argmin(np.abs(lon - row.geometry.x))
-        lat_idx = np.argmin(np.abs(lat - row.geometry.y))
-        data_array[lat_idx, lon_idx] = row['pred_masked']
-
-    # Save the raster
-    with rasterio.open(
-            file_name,
-            'w',
-            driver='GTiff',
-            height=data_array.shape[0],
-            width=data_array.shape[1],
-            count=1,
-            dtype=data_array.dtype,
-            crs=source_crs,
-            transform=transform,
-    ) as dst:
-        dst.write(data_array, 1)
-
-    # Read the raster data
-    with rasterio.open(file_name) as src:
-        raster_data = src.read(1)  # Read the first band
-        extent = [
-            src.bounds.left, src.bounds.right, src.bounds.bottom,
-            src.bounds.top
-        ]
-    return raster_data, extent
 
 
-def reproject_raster_to_lv95(
-        input_raster,
-        output_raster,
-        dst_crs='EPSG:2056'  # Destination CRS (Swiss LV95) or EPSG:21781
-):
-    # Define the source and destination CRS
-    src_crs = 'EPSG:4326'  # Original CRS (lat/lon)
-
-    # Open the source raster
-    with rasterio.open(input_raster) as src:
-        # Calculate the transform and dimensions for the destination CRS
-        transform, width, height = calculate_default_transform(
-            src.crs, dst_crs, src.width, src.height, *src.bounds)
-
-        # Set up the destination raster metadata
-        dst_meta = src.meta.copy()
-        dst_meta.update({
-            'crs': dst_crs,
-            'transform': transform,
-            'width': width,
-            'height': height
-        })
-
-        # Perform the reprojection
-        with rasterio.open(output_raster, 'w', **dst_meta) as dst:
-            for i in range(1, src.count + 1):  # Iterate over each band
-                # reproject(
-                #     source=rasterio.band(src, i),
-                #     destination=rasterio.band(dst, i),
-                #     src_transform=src.transform,
-                #     src_crs=src.crs,
-                #     dst_transform=transform,
-                #     dst_crs=dst_crs,
-                #     resampling=Resampling.nearest  # You can also use other methods, like bilinear
-                # )
-                # Create an array to hold the reprojected data
-                data = np.empty((height, width), dtype=src.meta['dtype'])
-
-                reproject(
-                    source=rasterio.band(src, i),
-                    destination=data,
-                    src_transform=src.transform,
-                    src_crs=src.crs,
-                    dst_transform=transform,
-                    dst_crs=dst_crs,
-                    resampling=Resampling.
-                    nearest  # You can also use other methods, like bilinear
-                )
-
-                # Replace any 0 values in `data` with NaN
-                data[data == 0] = np.nan
-
-                # Write the modified data to the output raster band
-                dst.write(data, i)
+from regions.Switzerland.scripts.config_CH import *
+from regions.Switzerland.scripts.wgs84_ch1903 import *
 
 
-def merge_rasters(raster1_path, raster2_path, output_path):
-    # Open the rasters
-    raster_files = [raster1_path, raster2_path]
-    src_files_to_mosaic = [rasterio.open(fp) for fp in raster_files]
+def get_glwd_glamos_years(cfg, glacier_name):
+    folder = os.path.join(cfg.dataPath, path_distributed_MB_glamos, 'GLAMOS', glacier_name)
 
-    # Merge the rasters
-    mosaic, out_transform = merge(src_files_to_mosaic)
-
-    # Update the metadata to match the mosaic output
-    out_meta = src_files_to_mosaic[0].meta.copy()
-    out_meta.update({
-        "driver": "GTiff",
-        "height": mosaic.shape[1],
-        "width": mosaic.shape[2],
-        "transform": out_transform,
-        "crs": src_files_to_mosaic[0].crs
-    })
-    # replace 0 values with NaN
-    mosaic[mosaic == 0] = np.nan
-
-    # Write the mosaic raster to disk
-    with rasterio.open(output_path, "w", **out_meta) as dest:
-        dest.write(mosaic)
-
-    # Close all source files
-    for src in src_files_to_mosaic:
-        src.close()
-
-
-def GaussianFilter(ds, variable_name='pred_masked', sigma=1):
-    """
-    Apply Gaussian filter only to the specified variable in the xarray.Dataset.
+    if not os.path.exists(folder):
+        print(f"Warning: Folder {folder} does not exist.")
+        return []
+    pattern = re.compile(r'^(\d{4})_ann_fix\.grid$')
+    years = []
+    for filename in os.listdir(folder):
+        match = pattern.match(filename)
+        if match:
+            years.append(int(match.group(1)))  # Extract the year as an integer
+    years.sort()
     
+    return years
+
+def get_GLAMOS_glwmb(glacier_name, cfg):
+    """
+    Loads and processes GLAMOS glacier-wide mass balance data.
+
     Parameters:
-    - ds (xarray.Dataset): Input dataset
-    - variable_name (str): The name of the variable to apply the filter to (default 'pred_masked')
-    - sigma (float): The standard deviation for the Gaussian filter
-    
-    Returns:
-    - xarray.Dataset: New dataset with smoothed variable
-    """
-    # Check if the variable exists in the dataset
-    if variable_name not in ds:
-        raise ValueError(
-            f"Variable '{variable_name}' not found in the dataset.")
+    -----------
+    glacier_name : str
+        The name of the glacier.
+    cfg : mbm.Config
+        Configuration instance.
 
+    Returns:
+    --------
+    pd.DataFrame or None
+        A DataFrame with columns ['YEAR', 'GLAMOS Balance'] indexed by 'YEAR',
+        or None if the file is missing.
+    """
+
+    # Construct file path safely
+    file_path = os.path.join(cfg.dataPath, path_SMB_GLAMOS_csv, "fix",
+                             f"{glacier_name}_fix.csv")
+
+    # Check if file exists
+    if not os.path.exists(file_path):
+        print(
+            f"Warning: GLAMOS data file not found for {glacier_name}. Skipping..."
+        )
+        return None
+    years = get_glwd_glamos_years(cfg, glacier_name)
+    if years == []:
+        print(f"Warning: No GLAMOS data found for {glacier_name}.")
+    glamos_glwd_mb = []
+    for year in years:
+        file_ann = f"{year}_ann_fix_lv95.grid"
+        grid_path_ann = os.path.join(cfg.dataPath, path_distributed_MB_glamos, 'GLAMOS',
+                                    glacier_name, file_ann)
+
+        metadata_ann, grid_data_ann = load_grid_file(grid_path_ann)
+        ds_glamos_ann = convert_to_xarray_geodata(grid_data_ann, metadata_ann)
+        ds_glamos_wgs84_ann = transform_xarray_coords_lv95_to_wgs84(ds_glamos_ann)
+        glamos_glwd_mb.append(float(ds_glamos_wgs84_ann.mean().values))
+
+    df = pd.DataFrame({
+        'GLAMOS Balance': glamos_glwd_mb,
+        'YEAR': years
+    })
+    
+    # set index years
+    df.set_index('YEAR', inplace = True)
+    return df
+    
+
+def apply_gaussian_filter(ds, variable_name='pred_masked', sigma: float = 1):
     # Get the DataArray for the specified variable
     data_array = ds[variable_name]
 
@@ -189,315 +105,21 @@ def GaussianFilter(ds, variable_name='pred_masked', sigma=1):
                                  coords=data_array.coords,
                                  attrs=data_array.attrs).where(
                                      mask)  # Apply the mask to restore NaNs
-
-    # Create a new dataset with the smoothed data
-    smoothed_dataset = ds.copy()  # Make a copy of the original dataset
-    smoothed_dataset[
-        variable_name] = smoothed_data  # Replace the original variable with the smoothed one
-
-    return smoothed_dataset
-
-
-def TransformToRaster(filename_nc,
-                      filename_tif,
-                      path_nc_wgs84,
-                      path_tif_wgs84,
-                      path_tif_lv95,
-                      dst_crs='EPSG:2056'):
-    ds_latlon = xr.open_dataset(path_nc_wgs84 + filename_nc)
-
-    # Smoothing
-    ds_latlon_g = GaussianFilter(ds_latlon)
-
-    # Convert to GeoPandas
-    gdf, lon, lat = toGeoPandas(ds_latlon_g)
-
-    # Reproject to LV95 (EPSG:2056) swiss coordinates
-    # gdf_lv95 = gdf.to_crs("EPSG:2056")
-
-    createPath(path_tif_wgs84)
-    createPath(path_tif_lv95)
-
-    # Convert to raster and save
-    raster_data, extent = toRaster(gdf,
-                                   lon,
-                                   lat,
-                                   file_name=path_tif_wgs84 + filename_tif)
-
-    # Reproject raster to Swiss coordinates (LV95)
-    reproject_raster_to_lv95(path_tif_wgs84 + filename_tif,
-                             path_tif_lv95 + filename_tif,
-                             dst_crs=dst_crs)
-
-    # Make classes map of snow/ice:
-    # Replace values: below 0 with 3, above 0 with 1
-    gdf_class = gdf.copy()
-    tol = 0
-    gdf_class.loc[gdf['pred_masked'] <= 0 + tol, 'pred_masked'] = 3
-    gdf_class.loc[gdf['pred_masked'] > 0 + tol, 'pred_masked'] = 1
-
-    path_class_tif_lv95 = path_tif_lv95 + 'classes/'
-    path_class_tif_wgs84 = path_tif_wgs84 + 'classes/'
-
-    createPath(path_class_tif_lv95)
-    createPath(path_class_tif_wgs84)
-
-    # Convert to raster and save
-    raster_data, extent = toRaster(gdf_class,
-                                   lon,
-                                   lat,
-                                   file_name=path_class_tif_wgs84 +
-                                   filename_tif)
-
-    # Reproject raster to Swiss coordinates (LV95)
-    reproject_raster_to_lv95(path_class_tif_wgs84 + filename_tif,
-                             path_class_tif_lv95 + filename_tif,
-                             dst_crs=dst_crs)
-
-    return gdf, gdf_class, raster_data, extent
-
-
-def createPath(path):
-    if not os.path.exists(path):
-        os.makedirs(path)
-
-
-# empties a folder
-def emptyfolder(path):
-    if os.path.exists(path):
-        onlyfiles = [f for f in os.listdir(path) if isfile(join(path, f))]
-        for f in onlyfiles:
-            os.remove(path + f)
-    else:
-        createPath(path)
-
-
-def get_hydro_year_and_month(file_date):
-    if file_date.day < 15:
-        # Move to the first day of the previous month
-        file_date -= relativedelta(months=1)  # Move to the previous month
-        file_date = file_date.replace(
-            day=1)  # Set the day to the 1st of the previous month
-    else:
-        # Move to the first day of the current month
-        file_date = file_date.replace(
-            day=1)  # Set the day to the 1st of the current month
-
-    # Step 2: Determine the closest month
-    closest_month = file_date.strftime(
-        '%b').lower()  # Get the full name of the month
-
-    # Step 3: Determine the hydrological year
-    # Hydrological year runs from September to August
-    if file_date.month >= 9:  # September, October, November, December
-        hydro_year = file_date.year + 1  # Assign to the next year
-    else:  # January to August
-        hydro_year = file_date.year  # Assign to the current year
-
-    return closest_month, hydro_year
-
-
-def organize_rasters_by_hydro_year(path_S2, satellite_years):
-    rasters = defaultdict(
-        lambda: defaultdict(list))  # Nested dictionary for years and months
-
-    for year in satellite_years:
-        folder_path = os.path.join(path_S2, str(year))
-        for f in os.listdir(folder_path):
-            if f.endswith(".tif"):  # Only process raster files
-                # Step 1: Extract the date from the string
-                date_str = f.split(
-                    '_')[3][:8]  # Extract the 8-digit date (YYYYMMDD)
-                file_date = datetime.strptime(
-                    date_str, "%Y%m%d")  # Convert to datetime object
-
-                closest_month, hydro_year = get_hydro_year_and_month(file_date)
-                if hydro_year < 2022:
-                    rasters[hydro_year][closest_month].append(f)
-
-    return rasters
-
-
-def IceSnowCover(gdf_class, gdf_class_raster):
-    # Exclude pixels with "classes" 5 (cloud) in gdf_class_raster
-    valid_classes = gdf_class[gdf_class_raster.classes != 5]
-
-    # Calculate percentage of snow cover (class 1) in valid classes
-    snow_cover_glacier = valid_classes.classes[
-        valid_classes.classes == 1].count() / valid_classes.classes.count()
-
-    return snow_cover_glacier
-
-
-def replace_clouds_with_nearest_neighbor(gdf,
-                                         class_column='classes',
-                                         cloud_class=5):
-    """
-    Replace cloud pixels in a GeoDataFrame with the most common class among their 
-    nearest neighbors, excluding NaN values.
-
-    Parameters:
-    - gdf (GeoDataFrame): GeoPandas DataFrame containing pixel data with a geometry column.
-    - class_column (str): The column name representing the class of each pixel (integer classes).
-    - cloud_class (int): The class to be replaced (e.g., 1 for cloud).
-    - n_neighbors (int): The number of nearest neighbors to consider for majority voting.
-
-    Returns:
-    - GeoDataFrame: Updated GeoDataFrame with cloud classes replaced.
-    """
-    # Separate cloud pixels and non-cloud pixels
-    cloud_pixels = gdf[gdf[class_column] == cloud_class]
-    non_cloud_pixels = gdf[gdf[class_column] != cloud_class]
-
-    # Remove NaN values from non-cloud pixels
-    non_cloud_pixels = non_cloud_pixels[non_cloud_pixels[class_column].notna()]
-
-    # If no clouds or no non-NaN non-cloud pixels, return the original GeoDataFrame
-    if cloud_pixels.empty or non_cloud_pixels.empty:
-        return gdf
-
-    # Extract coordinates for nearest-neighbor search
-    cloud_coords = np.array(
-        list(cloud_pixels.geometry.apply(lambda geom: (geom.x, geom.y))))
-    non_cloud_coords = np.array(
-        list(non_cloud_pixels.geometry.apply(lambda geom: (geom.x, geom.y))))
-
-    # Perform nearest-neighbor search
-    nbrs = NearestNeighbors(n_neighbors=1,
-                            algorithm='auto').fit(non_cloud_coords)
-    distances, indices = nbrs.kneighbors(cloud_coords)
-
-    # Map nearest neighbor's class to cloud pixels
-    nearest_classes = non_cloud_pixels.iloc[
-        indices.flatten()][class_column].values
-    gdf.loc[cloud_pixels.index, class_column] = nearest_classes
-
-    return gdf
-
-
-def snowline(gdf, class_value=1, percentage_threshold=20):
-    """
-    Find the first elevation band where the percentage of the given class exceeds the specified threshold
-    and add a boolean column to gdf indicating the selected band.
-    
-    Parameters:
-    - gdf (GeoDataFrame): Input GeoDataFrame with 'elev_band' and 'classes' columns
-    - class_value (int): The class value to check for (default is 1 for snow)
-    - percentage_threshold (float): The percentage threshold to exceed (default is 20%)
-    
-    Returns:
-    - gdf (GeoDataFrame): GeoDataFrame with an additional boolean column indicating the selected elevation band
-    - first_band (int): The first elevation band that meets the condition
-    """
-    # Step 1: Group by elevation band and calculate the percentage of 'class_value' in each band
-    band_class_counts = gdf.groupby('elev_band')['classes'].value_counts(
-        normalize=True)
-
-    # Step 2: Calculate the percentage of the specified class in each band
-    class_percentage = band_class_counts.xs(
-        class_value, level=1) * 100  # Multiply by 100 to convert to percentage
-
-    # Step 3: Find the first band where the class percentage exceeds the threshold
-    first_band = None
-    for elev_band, percentage in class_percentage.items():
-        if percentage >= percentage_threshold:
-            first_band = elev_band
-            break
-
-    if first_band is not None:
-        # Step 4: Add a new column to the GeoDataFrame to indicate the first elevation band
-        gdf['selected_band'] = gdf['elev_band'] == first_band
-    else:
-        # If no band meets the threshold, the new column will be False for all rows
-        gdf['selected_band'] = False
-
-    return gdf, first_band
-
-
-def classify_elevation_bands(gdf_glacier, band_size=50):
-    """
-    Classify elevation into bands based on the 'elev_masked' column in the GeoDataFrame.
-
-    Parameters:
-        gdf_glacier (GeoDataFrame): A GeoDataFrame containing an 'elev_masked' column.
-        band_size (int): The size of each elevation band.
-
-    Returns:
-        GeoDataFrame: The input GeoDataFrame with an additional 'elev_band' column.
-    """
-    # Ensure the 'elev_masked' column exists and contains valid data
-    if 'elev_masked' not in gdf_glacier.columns:
-        raise ValueError("GeoDataFrame does not contain 'elev_masked' column")
-
-    # Handle NaN values in 'elev_masked' and classify into elevation bands
-    gdf_glacier['elev_band'] = (
-        gdf_glacier['elev_masked'].fillna(
-            -1)  # Replace NaN with a placeholder (e.g., -1 or another value)
-        .floordiv(band_size) * band_size  # Calculate the elevation band
-    )
-
-    # Optionally set the 'elev_band' of NaN entries back to NaN
-    gdf_glacier.loc[gdf_glacier['elev_masked'].isna(), 'elev_band'] = None
-
-    return gdf_glacier
-
-
-def AddSnowline(gdf_glacier_corr, band_size=100, percentage_threshold=50):
-    # Add snowline
-    # Remove weird border effect
-    #gdf_glacier_corr = gdf_glacier_corr[gdf_glacier_corr.dis_masked > 10]
-
-    gdf_glacier_corr = classify_elevation_bands(gdf_glacier_corr, band_size)
-
-    snowline(gdf_glacier_corr,
-             class_value=1,
-             percentage_threshold=percentage_threshold)
-
-    return gdf_glacier_corr
-
-
-def load_grid_file(filepath):
-    with open(filepath, 'r') as file:
-        # Read metadata
-        metadata = {}
-        for _ in range(6):  # First 6 lines are metadata
-            line = file.readline().strip().split()
-            metadata[line[0].lower()] = float(line[1])
-
-        # Get ncols from metadata to control the number of columns
-        ncols = int(metadata['ncols'])
-        nrows = int(metadata['nrows'])
-        #print(f"ncols: {ncols}, nrows: {nrows}")
-
-        # Initialize an empty list to store rows of the grid
-        data = []
-
-        # Read the grid data line by line
-        row_ = []
-        for line in file:
-            row = line.strip().split()
-            if len(row_) < ncols:
-                row_ += row
-            if len(row_) == ncols:
-                data.append([
-                    np.nan
-                    if float(x) == metadata['nodata_value'] else float(x)
-                    for x in row_
-                ])
-                # reset row_
-                row_ = []
-
-        # Convert list to numpy array
-        grid_data = np.array(data)
-
-        # Check that shape of grid data is correct
-        #print(grid_data.shape)
-        assert grid_data.shape == (nrows, ncols)
-
-    return metadata, grid_data
+    ds[variable_name] = smoothed_data
+    return ds
 
 
 def convert_to_xarray_geodata(grid_data, metadata):
+    """Converts .grid file data to an xarray DataArray.
+
+    Args:
+        grid_data (.grid): grid file of glacier DEM
+        metadata (dic): metadata of the grid file
+
+    Returns:
+        xr.DataSet: xarray DataArray of the grid data in LV95 coordinates
+    """
+
     # Extract metadata values
     ncols = int(metadata['ncols'])
     nrows = int(metadata['nrows'])
@@ -518,31 +140,6 @@ def convert_to_xarray_geodata(grid_data, metadata):
                               },
                               name="grid_data")
     return data_array
-
-
-def xyzn_to_dataframe(xyzn_filename):
-    """
-    Reads a .xyzn file and converts it into a pandas DataFrame with columns x_pos, y_pos, and z_pos.
-
-    Parameters:
-    - xyzn_filename: Path to the .xyzn file.
-
-    Returns:
-    - A pandas DataFrame containing x, y, and z positions.
-    """
-    # Step 1: Read the .xyzn file and extract X, Y, Z positions
-    data = []
-    with open(xyzn_filename, 'r') as file:
-        for line in file:
-            # Split each line by space and extract the first three values (X, Y, Z)
-            values = list(map(float, line.split()))
-            x, y, z = values[0], values[1], values[2]
-            data.append([x, y, z])  # Store X, Y, and Z
-
-    # Step 2: Convert the list to a pandas DataFrame with columns x_pos, y_pos, z_pos
-    df = pd.DataFrame(data, columns=['x_pos', 'y_pos', 'z_pos'])
-
-    return df
 
 
 def transform_xarray_coords_lv95_to_wgs84(data_array):
@@ -591,9 +188,6 @@ def transform_xarray_coords_lv95_to_wgs84(data_array):
     # First, swap 'x' with 'lon' and 'y' with 'lat'
     data_array = data_array.swap_dims({'x': 'lon', 'y': 'lat'})
 
-    # Reorder the dimensions to be (lon, lat)
-    # data_array = data_array.transpose("lon", "lat")
-
     return data_array
 
 
@@ -621,9 +215,9 @@ def LV95toWGS84(df):
     Returns:
         pd.DataFrame: data in lat/lon/coords
     """
-    transformer = Transformer.from_crs("EPSG:2056",
-                                       "EPSG:4326",
-                                       always_xy=True)
+    transformer = pyproj.Transformer.from_crs("EPSG:2056",
+                                              "EPSG:4326",
+                                              always_xy=True)
 
     # Sample CH1903+ / LV95 coordinates (Easting and Northing)
 
@@ -635,140 +229,195 @@ def LV95toWGS84(df):
     df.drop(['x_pos', 'y_pos', 'z_pos'], axis=1, inplace=True)
     return df
 
+def LV03toLV95(df):
+    """Convert Swiss LV03 (EPSG:21781) coordinates to LV95 (EPSG:2056)."""
+    transformer = pyproj.Transformer.from_crs("EPSG:21781", "EPSG:2056", always_xy=True)
+    x_lv95, y_lv95 = transformer.transform(df.x_pos, df.y_pos)
+    df['x_lv95'] = x_lv95
+    df['y_lv95'] = y_lv95
+    df.drop(['x_pos', 'y_pos', 'z_pos'], axis=1, inplace=True)
+    return df
 
-def draw_glacier_outline(xarray_data, xyzn_filename):
+def transform_xarray_coords_lv03_to_lv95(data_array):
+    # Extract and flatten x and y coordinates
+    y_coords, x_coords = np.meshgrid(data_array.y.values, data_array.x.values, indexing='ij')
+    flattened_x = x_coords.flatten()
+    flattened_y = y_coords.flatten()
+    flattened_values = data_array.values.flatten()
+
+    # Create DataFrame
+    df = pd.DataFrame({
+        'x_pos': flattened_x,
+        'y_pos': flattened_y,
+        'value': flattened_values
+    })
+    df['z_pos'] = 0  # dummy height
+
+    # Convert from LV03 to LV95
+    df = LV03toLV95(df)
+
+    # Reshape coordinates back to 2D
+    x_lv95 = df.x_lv95.values.reshape(x_coords.shape)
+    y_lv95 = df.y_lv95.values.reshape(y_coords.shape)
+
+    # 1D coordinates to assign back to xarray
+    x_lv95_1d = x_lv95[0, :]  # Eastings
+    y_lv95_1d = y_lv95[:, 0]  # Northings
+
+    # Assign new LV95 coordinates and swap dims
+    data_array = data_array.assign_coords(x_lv95=("x", x_lv95_1d),
+                                          y_lv95=("y", y_lv95_1d))
+    data_array = data_array.swap_dims({"x": "x_lv95", "y": "y_lv95"})
+
+    return data_array
+
+def save_xarray_to_grid(data_array, filepath, nodata_value=-9999):
     """
-    Add a glacier outline binary mask to an existing xarray. The glacier coordinates 
-    might not perfectly align with the xarray grid, but the closest grid points will be used.
+    Save an xarray.DataArray to a .grid (ASCII raster) file.
 
     Parameters:
-    - xarray_data: The existing xarray with 'x' and 'y' coordinates.
-    - xyzn_filename: The .xyzn file containing the glacier outline coordinates.
-
-    Returns:
-    - Updated xarray with a new variable `glacier_outline`.
+    - data_array: xarray.DataArray with 2D shape (y, x)
+    - filepath: Path to save the .grid file
+    - nodata_value: Value to use for NaNs
     """
-    # Step 1: Read the glacier coordinates from the .xyzn file
-    df = xyzn_to_dataframe(
-        xyzn_filename
-    )  # This function must read the file and return a DataFrame
-    if not all(col in df.columns for col in ['x_pos', 'y_pos']):
-        raise ValueError("The dataframe must contain 'X' and 'Y' columns.")
 
-    # Step 2: Extract the grid's x and y coordinates from the existing xarray
-    x_coords = xarray_data.coords['x'].values
-    y_coords = xarray_data.coords['y'].values
+    # Ensure it's 2D
+    if data_array.ndim != 2:
+        raise ValueError("Only 2D DataArrays are supported.")
 
-    # Step 3: Initialize the glacier outline mask with zeros (matching shape y, x)
-    glacier_mask = np.zeros((len(y_coords), len(x_coords)), dtype=int)
+    # Extract coordinates and data
+    values = data_array.values
+    values = np.where(np.isnan(values), nodata_value, values)
 
-    # Step 4: Loop through glacier coordinates and map to closest grid points
-    for _, row in df.iterrows():
-        gx, gy = row['x_pos'], row['y_pos']
+    nrows, ncols = values.shape
+    x = data_array.coords[data_array.dims[1]].values  # x
+    y = data_array.coords[data_array.dims[0]].values  # y
 
-        # Find the closest grid point (using absolute difference)
-        closest_x_idx = (np.abs(x_coords - gx)).argmin()
-        closest_y_idx = (np.abs(y_coords - gy)).argmin()
+    cellsize_x = np.abs(x[1] - x[0])
+    cellsize_y = np.abs(y[1] - y[0])
 
-        # Update the glacier mask
-        glacier_mask[closest_y_idx,
-                     closest_x_idx] = 1  # Note: y index first, then x index
+    if not np.allclose(cellsize_x, cellsize_y):
+        raise ValueError("Non-square pixels are not supported in .grid format.")
 
-    # Step 5: Create an xarray DataArray for the glacier outline mask
-    glacier_outline = xr.DataArray(glacier_mask,
-                                   coords={
-                                       "y": y_coords,
-                                       "x": x_coords
-                                   },
-                                   dims=["y", "x"],
-                                   name="glacier_outline")
+    cellsize = cellsize_x
 
-    return glacier_outline
+    xllcorner = x.min() if x[1] > x[0] else x.max() - (ncols - 1) * cellsize
+    yllcorner = y.min() if y[1] > y[0] else y.max() - (nrows - 1) * cellsize
+
+    # Write header + data
+    with open(filepath, 'w') as f:
+        f.write(f"ncols         {ncols}\n")
+        f.write(f"nrows         {nrows}\n")
+        f.write(f"xllcorner     {xllcorner:.6f}\n")
+        f.write(f"yllcorner     {yllcorner:.6f}\n")
+        f.write(f"cellsize      {cellsize:.6f}\n")
+        f.write(f"NODATA_value  {nodata_value}\n")
+        
+        for row in values[::-1]:  # Flip vertically
+            f.write(' '.join(f"{val:.6f}" for val in row) + "\n")
+
+def organize_rasters_by_hydro_year(path_S2, satellite_years):
+    rasters = defaultdict(
+        lambda: defaultdict(list))  # Nested dictionary for years and months
+
+    for year in satellite_years:
+        folder_path = os.path.join(path_S2, str(year))
+        for f in os.listdir(folder_path):
+            if f.endswith(".tif"):  # Only process raster files
+                # Step 1: Extract the date from the string
+                date_str = f.split(
+                    '_')[3][:8]  # Extract the 8-digit date (YYYYMMDD)
+                file_date = datetime.strptime(
+                    date_str, "%Y%m%d")  # Convert to datetime object
+
+                closest_month, hydro_year = get_hydro_year_and_month(file_date)
+                if hydro_year < 2022:
+                    rasters[hydro_year][closest_month].append(f)
+
+    return rasters
 
 
-def xarray_to_geodataframe(xarray_data, var_name, crs=None):
-    """
-    Converts an xarray.DataArray into a GeoPandas GeoDataFrame with point geometries.
-
-    Parameters:
-    - xarray_data: xarray.DataArray or xarray.Dataset
-    - var_name: Name of the variable to include in the GeoDataFrame.
-    - crs: Coordinate Reference System (e.g., "EPSG:4326") for the GeoDataFrame.
-
-    Returns:
-    - GeoPandas GeoDataFrame with x, y coordinates and the variable values.
-    """
-    # Ensure xarray_data is a DataArray
-    if isinstance(xarray_data, xr.Dataset):
-        data_array = xarray_data[var_name]
-    elif isinstance(xarray_data, xr.DataArray):
-        data_array = xarray_data
+def get_hydro_year_and_month(file_date):
+    if file_date.day < 15:
+        # Move to the first day of the previous month
+        file_date -= relativedelta(months=1)  # Move to the previous month
+        file_date = file_date.replace(
+            day=1)  # Set the day to the 1st of the previous month
     else:
-        raise ValueError(
-            "Input must be an xarray.DataArray or xarray.Dataset.")
+        # Move to the first day of the current month
+        file_date = file_date.replace(
+            day=1)  # Set the day to the 1st of the current month
 
-    # Flatten the DataArray into a 1D array
-    flat_values = data_array.values.flatten()
-    lon_coords, lat_coords = data_array.coords[
-        'lon'].values, data_array.coords['lat'].values
+    # Step 2: Determine the closest month
+    closest_month = file_date.strftime(
+        '%b').lower()  # Get the full name of the month
 
-    # Create a meshgrid of x and y coordinates
-    grid_lon, grid_lat = np.meshgrid(lon_coords, lat_coords)
+    # Step 3: Determine the hydrological year
+    # Hydrological year runs from September to August
+    if file_date.month >= 9:  # September, October, November, December
+        hydro_year = file_date.year + 1  # Assign to the next year
+    else:  # January to August
+        hydro_year = file_date.year  # Assign to the current year
 
-    # Flatten the coordinate grids
-    flat_lon = grid_lon.flatten()
-    flat_lat = grid_lat.flatten()
+    return closest_month, hydro_year
 
-    # Create geometries (Point objects) for the GeoDataFrame
-    geometries = [Point(lon, lat) for lon, lat in zip(flat_lon, flat_lat)]
 
-    # Create a GeoDataFrame
-    gdf = gpd.GeoDataFrame(
-        {"value": flat_values},  # Add variable values as a column
-        geometry=geometries,  # Add geometries
-        crs=crs  # Set CRS if provided
-    )
+def IceSnowCover(gdf_class, gdf_class_raster):
+    # Exclude pixels with "classes" 5 (cloud) in gdf_class_raster
+    valid_classes = gdf_class[gdf_class_raster.classes != 5]
 
-    return gdf
+    # Calculate percentage of snow cover (class 1) in valid classes
+    snow_cover_glacier = valid_classes.classes[
+        valid_classes.classes == 1].count() / valid_classes.classes.count()
 
-def xarray_to_geopolygon(xarray_data, var_name, crs=None):
-    """
-    Converts an xarray.DataArray into a GeoPandas GeoDataFrame with polygon geometries.
-    
-    Parameters:
-    - xarray_data: xarray.DataArray or xarray.Dataset
-    - var_name: Name of the variable to include in the GeoDataFrame.
-    - crs: Coordinate Reference System (e.g., "EPSG:4326") for the GeoDataFrame.
-    
-    Returns:
-    - GeoPandas GeoDataFrame with polygon geometries representing valid (non-NaN) areas.
-    """
-    # Ensure xarray_data is a DataArray
-    if isinstance(xarray_data, xr.Dataset):
-        data_array = xarray_data[var_name]
-    elif isinstance(xarray_data, xr.DataArray):
-        data_array = xarray_data
-    else:
-        raise ValueError("Input must be an xarray.DataArray or xarray.Dataset.")
+    return snow_cover_glacier
 
-    # Create a binary mask (1 where not NaN, 0 where NaN)
-    mask = np.where(np.isnan(data_array.values), 0, 1).astype(np.uint8)
 
-    # Define transform assuming regular grid spacing
-    lon_coords, lat_coords = data_array.coords['lon'].values, data_array.coords['lat'].values
-    transform = [lon_coords[0], lon_coords[1] - lon_coords[0], 0,
-                 lat_coords[0], 0, lat_coords[1] - lat_coords[0]]  # Affine-like transform
+def xr_SGI_masked_topo(gdf_shapefiles, sgi_id, cfg):
+    path_aspect = os.path.join(cfg.dataPath, path_SGI_topo, 'aspect')
+    path_slope = os.path.join(cfg.dataPath, path_SGI_topo, 'slope')
+    path_DEM = os.path.join(cfg.dataPath, path_SGI_topo, 'dem_HR')
 
-    # Convert raster to vector polygons
-    shapes = features.shapes(mask, transform=transform)
+    # Get SGI topo files
+    aspect_gl = [f for f in os.listdir(path_aspect) if sgi_id in f][0]
+    slope_gl = [f for f in os.listdir(path_slope) if sgi_id in f][0]
+    dem_gl = [f for f in os.listdir(path_DEM) if sgi_id in f][0]
 
-    # Extract polygons where mask is 1
-    polygons = [shape(geom) for geom, value in shapes if value == 1]
+    metadata_aspect, grid_data_aspect = load_grid_file(
+        join(path_aspect, aspect_gl))
+    metadata_slope, grid_data_slope = load_grid_file(join(
+        path_slope, slope_gl))
+    metadata_dem, grid_data_dem = load_grid_file(join(path_DEM, dem_gl))
 
-    # Create a GeoDataFrame
-    gdf = gpd.GeoDataFrame(geometry=polygons, crs=crs)
+    # Convert to xarray
+    aspect = convert_to_xarray_geodata(grid_data_aspect, metadata_aspect)
+    slope = convert_to_xarray_geodata(grid_data_slope, metadata_slope)
+    dem = convert_to_xarray_geodata(grid_data_dem, metadata_dem)
 
-    return gdf
+    # Transform to WGS84
+    aspect_wgs84 = transform_xarray_coords_lv95_to_wgs84(aspect)
+    slope_wgs84 = transform_xarray_coords_lv95_to_wgs84(slope)
+    dem_wgs84 = transform_xarray_coords_lv95_to_wgs84(dem)
+
+    # 2016 shapefile of glacier
+    gdf_mask_gl = gdf_shapefiles[gdf_shapefiles['sgi-id'] == sgi_id]
+
+    # Mask over glacier outline
+    mask, masked_aspect = extract_topo_over_outline(aspect_wgs84, gdf_mask_gl)
+    mask, masked_slope = extract_topo_over_outline(slope_wgs84, gdf_mask_gl)
+    mask, masked_dem = extract_topo_over_outline(dem_wgs84, gdf_mask_gl)
+
+    # Create new dataset
+    ds = xr.Dataset({
+        "masked_aspect": masked_aspect,
+        "masked_slope": masked_slope,
+        "masked_elev": masked_dem,
+        "glacier_mask": mask
+    })
+
+    # Mask elevations below 0 (bug values)
+    ds["masked_elev"] = ds.masked_elev.where(ds.masked_elev >= 0, np.nan)
+    return ds
 
 
 def extract_topo_over_outline(aspect_xarray, glacier_polygon_gdf):
@@ -793,12 +442,12 @@ def extract_topo_over_outline(aspect_xarray, glacier_polygon_gdf):
     lat_coords = aspect_xarray.coords['lat'].values
 
     # Compute the transform using rasterio's from_bounds
-    transform = from_bounds(lon_coords.min(),
-                            lat_coords.min(),
-                            lon_coords.max(),
-                            lat_coords.max(),
-                            width=len(lon_coords),
-                            height=len(lat_coords))
+    transform = rasterio.transform.from_bounds(lon_coords.min(),
+                                               lat_coords.min(),
+                                               lon_coords.max(),
+                                               lat_coords.max(),
+                                               width=len(lon_coords),
+                                               height=len(lat_coords))
 
     # Rasterize the glacier polygon
     shapes = [(geom, 1) for geom in glacier_polygon_gdf.geometry]
@@ -822,6 +471,64 @@ def extract_topo_over_outline(aspect_xarray, glacier_polygon_gdf):
     return mask_xarray, masked_aspect
 
 
+def coarsenDS(ds, target_res_m=50):
+    dx_m, dy_m = get_res_from_degrees(ds)  # Get resolution in meters
+
+    # Compute resampling factor
+    resampling_fac_lon = max(1, round(target_res_m / dx_m))
+    resampling_fac_lat = max(1, round(target_res_m / dy_m))
+
+    # print(f"Resampling factor: lon={resampling_fac_lon}, lat={resampling_fac_lat}")
+
+    if dx_m < target_res_m or dy_m < target_res_m:
+        # Coarsen non-binary variables with mean
+        ds_non_binary = ds[['masked_slope', 'masked_aspect',
+                            'masked_elev']].coarsen(lon=resampling_fac_lon,
+                                                    lat=resampling_fac_lat,
+                                                    boundary="trim").mean()
+
+        # Coarsen glacier mask with max
+        ds_glacier_mask = ds[['glacier_mask'
+                              ]].coarsen(lon=resampling_fac_lon,
+                                         lat=resampling_fac_lat,
+                                         boundary="trim").reduce(np.max)
+
+        # Merge back into a single dataset
+        ds_res = xr.merge([ds_non_binary, ds_glacier_mask])
+        return ds_res
+
+    return ds
+
+
+def get_rgi_sgi_ids(cfg, glacier_name):
+    rgi_df = pd.read_csv(cfg.dataPath+path_glacier_ids, sep=',')
+    rgi_df.rename(columns=lambda x: x.strip(), inplace=True)
+    rgi_df.sort_values(by='short_name', inplace=True)
+    rgi_df.set_index('short_name', inplace=True)
+
+    # Handle 'clariden' separately due to its unique ID format
+    if glacier_name == 'clariden':
+        sgi_id = rgi_df.at[
+            'claridenU',
+            'sgi-id'].strip() if 'claridenU' in rgi_df.index else ''
+        rgi_id = rgi_df.at['claridenU',
+                           'rgi_id.v6'] if 'claridenU' in rgi_df.index else ''
+        rgi_shp = rgi_df.at[
+            'claridenU',
+            'rgi_id_v6_2016_shp'] if 'claridenU' in rgi_df.index else ''
+    else:
+        sgi_id = rgi_df.at[
+            glacier_name,
+            'sgi-id'].strip() if glacier_name in rgi_df.index else ''
+        rgi_id = rgi_df.at[glacier_name,
+                           'rgi_id.v6'] if glacier_name in rgi_df.index else ''
+        rgi_shp = rgi_df.at[
+            glacier_name,
+            'rgi_id_v6_2016_shp'] if glacier_name in rgi_df.index else ''
+
+    return sgi_id, rgi_id, rgi_shp
+
+
 def create_glacier_grid_SGI(
     glacierName,
     year,
@@ -838,7 +545,7 @@ def create_glacier_grid_SGI(
 
     lon = lon_coords[glacier_indices[1]]
     lat = lat_coords[glacier_indices[0]]
-    
+
     # Create a DataFrame
     data_grid = {
         'RGIId': [rgi_id] * len(ds.masked_elev.values[gl_mask_bool]),
@@ -868,104 +575,6 @@ def create_glacier_grid_SGI(
     return df_grid
 
 
-def xr_SGI_masked_topo(rgi_shp, gdf_shapefiles, path_aspect, path_slope,
-                       path_DEM, sgi_id):
-    # SGI topo files
-    aspect_gl = [f for f in os.listdir(path_aspect) if sgi_id in f][0]
-    slope_gl = [f for f in os.listdir(path_slope) if sgi_id in f][0]
-    dem_gl = [f for f in os.listdir(path_DEM) if sgi_id in f][0]
-
-    metadata_aspect, grid_data_aspect = load_grid_file(path_aspect + aspect_gl)
-    metadata_slope, grid_data_slope = load_grid_file(path_slope + slope_gl)
-    metadata_dem, grid_data_dem = load_grid_file(path_DEM + dem_gl)
-
-    # convert to xarray
-    aspect = convert_to_xarray_geodata(grid_data_aspect, metadata_aspect)
-    slope = convert_to_xarray_geodata(grid_data_slope, metadata_slope)
-    dem = convert_to_xarray_geodata(grid_data_dem, metadata_dem)
-
-    # Transform to WGS84
-    aspect_wgs84 = transform_xarray_coords_lv95_to_wgs84(aspect)
-    slope_wgs84 = transform_xarray_coords_lv95_to_wgs84(slope)
-    dem_wgs84 = transform_xarray_coords_lv95_to_wgs84(dem)
-
-    # 2016 shapefile of glacier
-    gdf_mask_gl = gdf_shapefiles[gdf_shapefiles.RGIId == rgi_shp]
-
-    # Mask over glacier outline
-    mask, masked_aspect = extract_topo_over_outline(aspect_wgs84, gdf_mask_gl)
-    mask, masked_slope = extract_topo_over_outline(slope_wgs84, gdf_mask_gl)
-    mask, masked_dem = extract_topo_over_outline(dem_wgs84, gdf_mask_gl)
-
-    # Create new dataset
-    ds = xr.Dataset({
-        "masked_aspect": masked_aspect,
-        "masked_slope": masked_slope,
-        "masked_elev": masked_dem,
-        "glacier_mask": mask
-    })
-    
-    # Mask elevations below 0 (bug values)
-    ds["masked_elev"] = ds.masked_elev.where(ds.masked_elev >= 0, np.nan)
-    return ds
-
-def xr_GLAMOS_masked_topo(path_aspect, path_slope, sgi_id, ds_gl):
-    # Load SGI topo files
-    aspect_gl = [f for f in os.listdir(path_aspect) if sgi_id in f][0]
-    slope_gl = [f for f in os.listdir(path_slope) if sgi_id in f][0]
-
-    metadata_aspect, grid_data_aspect = load_grid_file(path_aspect + aspect_gl)
-    metadata_slope, grid_data_slope = load_grid_file(path_slope + slope_gl)
-
-    # Convert to xarray
-    aspect = convert_to_xarray_geodata(grid_data_aspect, metadata_aspect)
-    slope = convert_to_xarray_geodata(grid_data_slope, metadata_slope)
-
-    # Transform to WGS84
-    aspect_wgs84 = transform_xarray_coords_lv95_to_wgs84(aspect)
-    slope_wgs84 = transform_xarray_coords_lv95_to_wgs84(slope)
-
-    # Step 1: Upscale glacier mask to match aspect resolution
-    glacier_mask_resampled = ds_gl["glacier_mask"].interp_like(aspect_wgs84, method="nearest")
-    # Replace NaN values in glacier mask by 0 
-    glacier_mask_resampled = glacier_mask_resampled.fillna(0)
-    
-    dem_resampled = ds_gl["dem"].interp_like(aspect_wgs84, method="nearest")
-
-    # Step 2: Apply the glacier mask to aspect data (keeping values where glacier_mask == 1)
-    masked_aspect = aspect_wgs84.where(glacier_mask_resampled == 1, np.nan)
-    masked_slope = slope_wgs84.where(glacier_mask_resampled == 1, np.nan)
-    
-    # Create new dataset with downsampled variables
-    ds = xr.Dataset({
-        "masked_aspect": masked_aspect,
-        "masked_elev": dem_resampled,
-        "masked_slope": masked_slope,
-        "glacier_mask": glacier_mask_resampled
-    })
-
-    # Mask elevations below 0 (bug values)
-    ds["masked_elev"] = ds.masked_elev.where(ds.masked_elev >= 0, np.nan)
-    
-    return ds
-
-
-def coarsenDS(ds, resampling_fac = 3):
-    # Coarson to 30 m resolution
-    # Coarsen non-binary variables with mean
-    ds_non_binary = ds[['masked_slope', 'masked_aspect',
-                        'masked_elev']].coarsen(lon=resampling_fac, lat=resampling_fac,
-                                                boundary="trim").mean()
-
-    # Coarsen glacier mask with max
-    ds_glacier_mask = ds[['glacier_mask']].coarsen(lon=resampling_fac, lat=resampling_fac,
-                                                boundary="trim").reduce(np.max)
-
-    # Merge back into a single dataset
-    ds_res = xr.merge([ds_non_binary, ds_glacier_mask])
-    return ds_res
-
-
 def add_OGGM_features(df_y_gl, voi, path_OGGM):
     df_pmb = df_y_gl.copy()
 
@@ -981,8 +590,8 @@ def add_OGGM_features(df_y_gl, voi, path_OGGM):
 
     # Process each group
     for rgi_id, group in grouped:
-        file_path = f"{path_to_data}{rgi_id}.nc"
-        
+        file_path = f"{path_to_data}{rgi_id}.zarr"
+
         try:
             # Load the xarray dataset for the current RGIId
             ds_oggm = xr.open_dataset(file_path)
@@ -993,20 +602,18 @@ def add_OGGM_features(df_y_gl, voi, path_OGGM):
         # Define the coordinate transformation
         transf = pyproj.Transformer.from_proj(
             pyproj.CRS.from_user_input("EPSG:4326"),  # Input CRS (WGS84)
-            pyproj.CRS.from_user_input(ds_oggm.pyproj_srs),  # Output CRS from dataset
-            always_xy=True
-        )
+            pyproj.CRS.from_user_input(
+                ds_oggm.pyproj_srs),  # Output CRS from dataset
+            always_xy=True)
 
         # Transform all coordinates in the group
         lon, lat = group["POINT_LON"].values, group["POINT_LAT"].values
         x_stake, y_stake = transf.transform(lon, lat)
         # Select nearest values for all points
         try:
-            stake = ds_oggm.sel(
-                x=xr.DataArray(x_stake, dims="points"),
-                y=xr.DataArray(y_stake, dims="points"),
-                method="nearest"
-            )
+            stake = ds_oggm.sel(x=xr.DataArray(x_stake, dims="points"),
+                                y=xr.DataArray(y_stake, dims="points"),
+                                method="nearest")
 
             # Extract variables of interest
             stake_var = stake[voi]
@@ -1021,3 +628,384 @@ def add_OGGM_features(df_y_gl, voi, path_OGGM):
             print(f"Variable missing in dataset {file_path}: {e}")
             continue
     return df_pmb
+
+
+def xr_GLAMOS_masked_topo(cfg, sgi_id, ds_gl):
+    path_aspect = os.path.join(cfg.dataPath, path_SGI_topo, "aspect")
+    path_slope = os.path.join(cfg.dataPath, path_SGI_topo, "slope")
+
+    # Load SGI topo files
+    aspect_gl = [f for f in os.listdir(path_aspect) if sgi_id in f][0]
+    slope_gl = [f for f in os.listdir(path_slope) if sgi_id in f][0]
+
+    metadata_aspect, grid_data_aspect = load_grid_file(
+        join(path_aspect, aspect_gl))
+    metadata_slope, grid_data_slope = load_grid_file(join(
+        path_slope, slope_gl))
+
+    # Convert to xarray
+    aspect = convert_to_xarray_geodata(grid_data_aspect, metadata_aspect)
+    slope = convert_to_xarray_geodata(grid_data_slope, metadata_slope)
+
+    # Transform to WGS84
+    aspect_wgs84 = transform_xarray_coords_lv95_to_wgs84(aspect)
+    slope_wgs84 = transform_xarray_coords_lv95_to_wgs84(slope)
+
+    # Compute original resolution (for checking)
+    dx_m, dy_m = get_res_from_degrees(aspect_wgs84)
+    # print(f"aspect resolution: {dx_m} x {dy_m} meters")
+
+    # Step 1: Downsample aspect & slope to glacier mask resolution
+    aspect_resampled = aspect_wgs84.interp_like(ds_gl["glacier_mask"],
+                                                method="nearest")
+    slope_resampled = slope_wgs84.interp_like(ds_gl["glacier_mask"],
+                                              method="nearest")
+
+    # Compute new resolution (after downsampling)
+    dx_m, dy_m = get_res_from_degrees(ds_gl["glacier_mask"])
+    # print(f"New resolution (after downsampling): {dx_m} x {dy_m} meters")
+
+    # Step 2: Apply the glacier mask
+    masked_aspect = aspect_resampled.where(ds_gl["glacier_mask"] == 1, np.nan)
+    masked_slope = slope_resampled.where(ds_gl["glacier_mask"] == 1, np.nan)
+
+    # Resample DEM to the same resolution
+    dem_resampled = ds_gl["dem"].interp_like(ds_gl["glacier_mask"],
+                                             method="nearest")
+
+    # Create a new dataset
+    ds = xr.Dataset({
+        "masked_aspect": masked_aspect,
+        "masked_elev": dem_resampled,
+        "masked_slope": masked_slope,
+        "glacier_mask": ds_gl["glacier_mask"]
+    })
+
+    # Mask elevations below 0 (to remove erroneous values)
+    ds["masked_elev"] = ds.masked_elev.where(ds.masked_elev >= 0, np.nan)
+
+    return ds
+
+
+def get_res_from_degrees(ds):
+    # Get central latitude (mean of lat values)
+    lat_center = ds.lat.values.mean()
+
+    # Earth's approximate conversion factor (meters per degree)
+    meters_per_degree_lat = 111320  # Roughly constant for latitude
+    meters_per_degree_lon = 111320 * np.cos(
+        np.radians(lat_center))  # Adjust for longitude
+
+    # Compute resolution
+    dx_m = np.round(
+        abs(ds.lon[1] - ds.lon[0]).values * meters_per_degree_lon, 3)
+    dy_m = np.round(
+        abs(ds.lat[1] - ds.lat[0]).values * meters_per_degree_lat, 3)
+
+    return dx_m, dy_m
+
+
+def get_gl_area(cfg):
+    # Load glacier metadata
+    rgi_df = pd.read_csv(cfg.dataPath+path_glacier_ids, sep=',')
+    rgi_df.rename(columns=lambda x: x.strip(), inplace=True)
+    rgi_df.sort_values(by='short_name', inplace=True)
+    rgi_df.set_index('short_name', inplace=True)
+
+    # Load the shapefile
+    shapefile_path = os.path.join(cfg.dataPath, path_SGI_topo, 'inventory_sgi2016_r2020',
+                                  'SGI_2016_glaciers_copy.shp')
+    gdf_shapefiles = gpd.read_file(shapefile_path)
+
+    gl_area = {}
+
+    for glacierName in rgi_df.index:
+        if glacierName == 'clariden':
+            rgi_shp = rgi_df.loc[
+                'claridenL',
+                'rgi_id_v6_2016_shp'] if 'claridenL' in rgi_df.index else None
+        else:
+            rgi_shp = rgi_df.loc[glacierName, 'rgi_id_v6_2016_shp']
+
+        # Skip if rgi_shp is not found
+        if pd.isna(rgi_shp) or rgi_shp is None:
+            continue
+
+        # Ensure matching data types
+        rgi_shp = str(rgi_shp)
+        gdf_mask_gl = gdf_shapefiles[gdf_shapefiles.RGIId.astype(str) ==
+                                     rgi_shp]
+
+        # If a glacier is found, get its area
+        if not gdf_mask_gl.empty:
+            gl_area[glacierName] = gdf_mask_gl.Area.iloc[
+                0]  # Use .iloc[0] safely
+
+    return gl_area
+
+def load_grid_file(filepath):
+    with open(filepath, 'r') as file:
+        # Read metadata
+        metadata = {}
+        for _ in range(6):  # First 6 lines are metadata
+            line = file.readline().strip().split()
+            metadata[line[0].lower()] = float(line[1])
+
+        # Get ncols from metadata to control the number of columns
+        ncols = int(metadata['ncols'])
+        nrows = int(metadata['nrows'])
+
+        # Initialize an empty list to store rows of the grid
+        data = []
+
+        # Read the grid data line by line
+        row_ = []
+        for line in file:
+            row = line.strip().split()
+            if len(row_) < ncols:
+                row_ += row
+            if len(row_) == ncols:
+                data.append([
+                    np.nan
+                    if float(x) == metadata['nodata_value'] else float(x)
+                    for x in row_
+                ])
+                # reset row_
+                row_ = []
+
+        # Convert list to numpy array
+        grid_data = np.array(data)
+
+        # Check that shape of grid data is correct
+        assert grid_data.shape == (nrows, ncols)
+
+    return metadata, grid_data
+
+
+def datetime_obj(value):
+    date = str(value)
+    year = date[:4]
+    month = date[4:6]
+    day = date[6:8]
+    return pd.to_datetime(month + '-' + day + '-' + year)
+
+
+
+def transformDates(df_or):
+    """Some dates are missing in the original GLAMOS data and need to be corrected.
+
+    Args:
+        df_or (pd.DataFrame): Raw GLAMOS DataFrame
+
+    Returns:
+        pd.DataFrame: DataFrame with corrected dates
+    """
+    df = df_or.copy()
+
+    # Ensure 'date0' and 'date1' are datetime objects
+    df['date0'] = df['date0'].apply(lambda x: datetime_obj(x))
+    df['date1'] = df['date1'].apply(lambda x: datetime_obj(x))
+
+    # Initialize new columns with NaT (not np.nan, since we'll use datetime later)
+    df['date_fix0'] = pd.NaT
+    df['date_fix1'] = pd.NaT
+
+    # Assign fixed dates using .loc to avoid chained assignment warning
+    for i in range(len(df)):
+        year = df.loc[i, 'date0'].year
+        df.loc[i, 'date_fix0'] = pd.Timestamp(f"{year}-10-01")
+        df.loc[i, 'date_fix1'] = pd.Timestamp(f"{year + 1}-09-30")
+
+    # Format original dates for WGMS
+    df['date0'] = df['date0'].apply(lambda x: x.strftime('%Y%m%d'))
+    df['date1'] = df['date1'].apply(lambda x: x.strftime('%Y%m%d'))
+
+    return df
+
+def check_missing_years(folder_path, glacier_name, period):
+    start_year, end_year = period
+    expected_years = set(range(start_year, end_year + 1))
+
+    # Extract years from filenames
+    available_years = set()
+    pattern = re.compile(rf'{glacier_name}_(\d{{4}})_annual\.zarr')
+
+    for filename in os.listdir(folder_path):
+        match = pattern.match(filename)
+        if match:
+            year = int(match.group(1))
+            available_years.add(year)
+
+    missing_years = expected_years - available_years
+    if missing_years:
+        return True
+    else:
+        return False
+
+def process_geodetic_mass_balance_comparison(
+    glacier_list,
+    path_SMB_GLAMOS_csv,
+    periods_per_glacier,
+    geoMB_per_glacier,
+    gl_area,
+    test_glaciers,
+    path_predictions,
+    cfg
+):
+    # Storage lists for results
+    mbm_mb_mean, glamos_mb_mean, geodetic_mb = [], [], []
+    gl, period_len, gl_type, area = [], [], [], []
+    start_year, end_year = [], []
+
+    for glacier_name in tqdm(glacier_list, desc="Processing glaciers"):
+
+        # Check if GLAMOS file exists
+        glamos_file = os.path.join(path_SMB_GLAMOS_csv, "fix", f"{glacier_name}_fix.csv")
+        if not os.path.exists(glamos_file):
+            print(f"Skipping {glacier_name}: GLAMOS file not found.")
+            continue
+
+        # Load GLAMOS data
+        GLAMOS_glwmb = get_GLAMOS_glwmb(glacier_name, cfg)
+        if GLAMOS_glwmb is None:
+            print(f"Skipping {glacier_name}: Failed to load GLAMOS data.")
+            continue
+
+        # Get periods and geodetic MBs
+        periods = periods_per_glacier.get(glacier_name, [])
+        geoMBs = geoMB_per_glacier.get(glacier_name, [])
+
+        if not periods or not geoMBs:
+            print(f"Skipping {glacier_name}: No geodetic mass balance data available.")
+            continue
+
+        # Path to model predictions
+        folder_path = os.path.join(path_predictions, glacier_name)
+
+        for period in periods:
+            mbm_mb, glamos_mb = [], []
+
+            if period[1] == 2021 and glacier_name == 'silvretta':
+                continue
+
+            # Skip if required years are missing
+            if check_missing_years(folder_path, glacier_name, period):
+                print(f"Skipping {glacier_name} {period}: Missing years")
+                continue
+
+            for year in range(period[0], period[1] + 1):
+                file_path = os.path.join(folder_path, f"{glacier_name}_{year}_annual.zarr")
+
+                if not os.path.exists(file_path):
+                    print(f"Warning: Missing MBM file for {glacier_name} ({year}).")
+                    mbm_mb.append(np.nan)
+                else:
+                    ds = xr.open_dataset(file_path)
+                    mbm_mb.append(ds["pred_masked"].mean().values)
+
+                glamos_mb.append(GLAMOS_glwmb["GLAMOS Balance"].get(year, np.nan))
+
+            mbm_mb_mean.append(np.nanmean(mbm_mb))
+            glamos_mb_mean.append(np.nanmean(glamos_mb))
+            geodetic_mb.append(geoMBs[periods.index(period)])
+            gl.append(glacier_name)
+            gl_type.append(glacier_name in test_glaciers)
+            period_len.append(period[1] - period[0])
+            area.append(gl_area.get(glacier_name, np.nan))
+            start_year.append(period[0])
+            end_year.append(period[1])
+
+    # Create and return DataFrame
+    df_all = pd.DataFrame({
+        "MBM MB": mbm_mb_mean,
+        "GLAMOS MB": glamos_mb_mean,
+        "Geodetic MB": geodetic_mb,
+        "GLACIER": gl,
+        "Period Length": period_len,
+        "Test Glacier": gl_type,
+        "Area": area,
+        "start_year": start_year,
+        "end_year": end_year
+    })
+
+    df_all.sort_values(by="Area", inplace=True, ascending=True)
+    return df_all
+def prepareGeoTargets(geodetic_mb, periods_per_glacier, glacier_name=None):
+    """
+    Prepare the vector of geodetic targets for a given glacier by looping over the
+    periods defined for this glacier.
+
+    Parameters:
+    -----------
+    geodetic_mb: pd.Dataframe
+        Dataframe that contains the geodetic mass balance.
+    periods_per_glacier: Dictionary of list of tuples.
+        Each key is the name of a glacier and the list associated to each entry
+        contains tuples of integers that define the time window over which data
+        are defined.
+    glacier_name: str or None
+        The name of the glacier to process. If not specified, the geodetic targets
+        are generated for all the keys of `periods_per_glacier`.
+
+    Returns:
+    --------
+        Dictionary of numpy arrays or numpy array depending if `glacier_name` is
+        specified or not.
+    """
+    if glacier_name is not None:
+        geodetic_MB_target = []
+        for geodetic_period in periods_per_glacier[glacier_name]:
+            mask = ((geodetic_mb.glacier_name == glacier_name) &
+                    (geodetic_mb.Astart == geodetic_period[0]) &
+                    (geodetic_mb.Aend == geodetic_period[1]))
+            geodetic_MB_target.append(geodetic_mb[mask].Bgeod.values[0])
+
+        return np.array(geodetic_MB_target)
+    else:
+        return {glacier_name: prepareGeoTargets(
+            geodetic_mb,
+            periods_per_glacier,
+            glacier_name=glacier_name
+        ) for glacier_name in periods_per_glacier}
+
+def build_periods_per_glacier(geodetic_mb):
+    """
+    Builds the dictionary that contains the geodetic periods for each glacier.
+
+    Parameters:
+    -----------
+    geodetic_mb: pd.Dataframe
+        Dataframe that contains the geodetic mass balance.
+
+    Returns:
+    --------
+    periods_per_glacier: Dictionary of list of tuples.
+        Each key is the name of a glacier and the list associated to each entry
+        contains tuples of integers that define the time window over which data
+        are defined.
+    geoMB_per_glacier: Dictionary of list of floats.
+        Each key is the name of a glacier and the list associated to each entry
+        contains the geodetic mass balance.
+    """
+
+    periods_per_glacier = defaultdict(list)
+    geoMB_per_glacier = defaultdict(list)
+
+    # Iterate through the DataFrame rows
+    for _, row in geodetic_mb.iterrows():
+        glacier_name = row['glacier_name']
+        start_year = row['Astart']
+        end_year = row['Aend']
+        geoMB = row['Bgeod']
+
+        # Append the (start, end) tuple to the glacier's list
+        # Only if period is longer than 5 years
+        if end_year - start_year >= 5:
+            periods_per_glacier[glacier_name].append((start_year, end_year))
+            geoMB_per_glacier[glacier_name].append(geoMB)
+
+    # sort by glacier_list
+    periods_per_glacier = dict(sorted(periods_per_glacier.items()))
+    geoMB_per_glacier = dict(sorted(geoMB_per_glacier.items()))
+
+    return periods_per_glacier, geoMB_per_glacier

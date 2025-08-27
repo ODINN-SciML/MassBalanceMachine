@@ -1,6 +1,2 @@
-import os, sys
-
-sys.path.append(os.path.dirname(os.path.realpath(__file__)))
-
-from Dataset import Dataset
-from utils import *
+from data_processing.Dataset import Dataset, AggregatedDataset, Normalizer, SliceDatasetBinding
+import data_processing.utils

@@ -13,12 +13,13 @@ import config
 import xarray as xr
 import pandas as pd
 import numpy as np
-from oggm import cfg, workflow, tasks
+from oggm import workflow, tasks
+from oggm import cfg as oggmCfg
 
 
 def get_topographical_features(df: pd.DataFrame, output_fname: str,
                                voi: "list[str]", rgi_ids: pd.Series,
-                               custom_working_dir: str) -> pd.DataFrame:
+                               custom_working_dir: str, cfg: config.Config) -> pd.DataFrame:
     """
     Retrieves topographical features for each stake location using the OGGM library and updates the given
     DataFrame with these features.
@@ -29,6 +30,7 @@ def get_topographical_features(df: pd.DataFrame, output_fname: str,
         voi (list of str): A list of variables of interest (e.g., ['slope', 'aspect']) to retrieve from the gridded data.
         rgi_ids (pd.Series): A Series of RGI IDs corresponding to the stake locations in the DataFrame.
         custom_working_dir (str): The path to the custom working directory for OGGM data.
+        cfg (config.Config): Configuration instance.
     Returns:
         pd.DataFrame: The updated DataFrame with topographical features added.
 
@@ -45,7 +47,7 @@ def get_topographical_features(df: pd.DataFrame, output_fname: str,
     _initialize_oggm_config(custom_working_dir)
 
     # Initialize the OGGM Glacier Directory, given the available RGI IDs
-    glacier_directories = _initialize_glacier_directories(rgi_ids_list)
+    glacier_directories = _initialize_glacier_directories(rgi_ids_list, cfg)
 
     # Get all the latitude and longitude positions for all the stakes (with a
     # valid RGI ID)
@@ -78,7 +80,7 @@ def get_topographical_features(df: pd.DataFrame, output_fname: str,
     return data
 
 
-def get_glacier_mask(df: pd.DataFrame, custom_working_dir: str):
+def get_glacier_mask(df: pd.DataFrame, custom_working_dir: str, cfg: config.Config):
     """Gets glacier xarray from OGGM and masks it over the glacier outline."""
 
     # Initialize the OGGM Config
@@ -86,7 +88,7 @@ def get_glacier_mask(df: pd.DataFrame, custom_working_dir: str):
 
     # Initialize the OGGM Glacier Directory, given the available RGI IDs
     rgi_id = df.RGIId.unique()
-    gdirs = _initialize_glacier_directories(rgi_id)
+    gdirs = _initialize_glacier_directories(rgi_id, cfg)
 
     # Get oggm data for that RGI ID
     oggm_rgis = [gdir.rgi_id for gdir in gdirs]
@@ -123,20 +125,20 @@ def _get_unique_rgi_ids(rgi_ids: pd.Series) -> list:
 
 def _initialize_oggm_config(custom_working_dir):
     """Initialize OGGM configuration."""
-    cfg.initialize(logging_level="WARNING")
-    cfg.PARAMS["border"] = 10
-    cfg.PARAMS["use_multiprocessing"] = True
-    cfg.PARAMS["continue_on_error"] = True
+    oggmCfg.initialize(logging_level="WARNING")
+    oggmCfg.PARAMS["border"] = 10
+    oggmCfg.PARAMS["use_multiprocessing"] = True
+    oggmCfg.PARAMS["continue_on_error"] = True
     if len(custom_working_dir) == 0:
         current_path = os.getcwd()
-        cfg.PATHS["working_dir"] = os.path.join(current_path, "OGGM")
+        oggmCfg.PATHS["working_dir"] = os.path.join(current_path, "OGGM")
     else:
-        cfg.PATHS["working_dir"] = custom_working_dir
+        oggmCfg.PATHS["working_dir"] = custom_working_dir
 
 
-def _initialize_glacier_directories(rgi_ids_list: list) -> list:
+def _initialize_glacier_directories(rgi_ids_list: list, cfg: config.Config) -> list:
     """Initialize glacier directories."""
-    base_url = config.BASE_URL
+    base_url = cfg.base_url_w5e5
     glacier_directories = workflow.init_glacier_directories(
         rgi_ids_list,
         reset=False,

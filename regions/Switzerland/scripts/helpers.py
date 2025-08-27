@@ -1,144 +1,43 @@
-import os
-from os.path import isfile, join, isdir
+import torch
 import numpy as np
 import random as rd
-import torch
-import gc
-
-from matplotlib import pyplot as plt
+import os
+import gc 
+import shutil
 from matplotlib.colors import to_hex
-
-# <------------------ GLAMOS DATA: ------------------>
-# Point data
-path_PMB_GLAMOS_raw = '../../../data/GLAMOS/point/point_raw/'
-path_PMB_GLAMOS_w_raw = path_PMB_GLAMOS_raw + 'winter/'
-path_PMB_GLAMOS_a_raw = path_PMB_GLAMOS_raw + 'annual/'
-
-path_PMB_GLAMOS_csv = '../../../data/GLAMOS/point/csv/'
-path_PMB_GLAMOS_csv_w = path_PMB_GLAMOS_csv + 'winter/'
-path_PMB_GLAMOS_csv_w_clean = path_PMB_GLAMOS_csv + 'winter_clean/'
-path_PMB_GLAMOS_csv_a = path_PMB_GLAMOS_csv + 'annual/'
-
-# Glacier wide data
-path_SMB_GLAMOS_raw = '../../../data/GLAMOS/glacier-wide/raw/'
-path_SMB_GLAMOS_csv = '../../../data/GLAMOS/glacier-wide/csv/'
-
-# Gridded data for MBM to use for making predictions over whole grid (SGI or RGI grid)
-path_glacier_grid_rgi = '../../../data/GLAMOS/topo/gridded_topo_inputs/RGI_grid/' # DEMs & topo
-path_glacier_grid_sgi = '../../../data/GLAMOS/topo/gridded_topo_inputs/SGI_grid/' # DEMs & topo 
-path_glacier_grid_glamos = '../../../data/GLAMOS/topo/gridded_topo_inputs/GLAMOS_grid/'
+from matplotlib import pyplot as plt
 
 
-# Topo data
-path_SGI_topo = '../../../data/GLAMOS/topo/SGI2020/' # DEMs & topo from SGI
-path_GLAMOS_topo = '../../../data/GLAMOS/topo/GLAMOS_DEM/lv95/' # yearly DEMs from GLAMOS
-path_pcsr = '../../../data/GLAMOS/topo/pcsr/' # Potential incoming clear sky solar radiation from GLAMOS
+def seed_all(seed=None):
+    """Sets the random seed everywhere for reproducibility.
+    """
+    if seed is None:
+        seed = 10  # Default seed value
 
-path_distributed_MB_glamos = '../../../data/GLAMOS/distributed_MB_grids/'
-path_geodetic_MB_glamos = '../../../data/GLAMOS/geodetic/'
-path_glacier_ids = '../../../data/GLAMOS/CH_glacier_ids_long.csv' # glacier ids for CH glaciers
-
-# <------------------ OTHER PATHS: ------------------>
-path_ERA5_raw = '../../../data/ERA5Land/raw/' # ERA5-Land
-path_S2 = '../../../data/Sentinel/' # Sentinel-2
-path_OGGM = '../../../data/OGGM/'
-path_glogem = '../../../data/GloGEM' # glogem c_prec and t_off factors
-
-
-# <------------------OTHER USEFUL FUNCTIONS & ATTRIBUTES: ------------------>
-vois_climate_long_name = {
-    't2m': 'Temperature',
-    'tp': 'Precipitation',
-    't2m_corr': 'Temperature corr.',
-    'tp_corr': 'Precipitation corr.',
-    'slhf': 'Surf. latent heat flux',
-    'sshf': 'Surf. sensible heat flux',
-    'ssrd': 'Surf. solar rad. down.',
-    'fal': 'Albedo',
-    'str': 'Surf. net thermal rad.',
-    'pcsr': 'Pot. in. clear sky solar rad.',
-    'u10': '10m E wind',
-    'v10': '10m N wind',
-}
-
-vois_units = {
-    't2m': 'C',
-    'tp': 'm w.e.',
-    't2m_corr': 'C',
-    'tp_corr': 'm w.e.',
-    'slhf': 'J m-2',
-    'sshf': 'J m-2',
-    'ssrd': 'J m-2',
-    'fal': '',
-    'str': 'J m-2',
-    'pcsr': 'J m-2',
-    'u10': 'm s-1',
-    'v10': 'm s-1',
-}
-
-month_abbr_hydr_full = {
-    'sep': 1,
-    'oct': 2,
-    'nov': 3,
-    'dec': 4,
-    'jan': 5,
-    'feb': 6,
-    'mar': 7,
-    'apr': 8,
-    'may': 9,
-    'jun': 10,
-    'jul': 11,
-    'aug': 12,
-    'sep_': 13,
-}
-
-loss_units = {'RMSE': '[m w.e.]', 'MSE': '[]'}
-
-
-# sets the same random seed everywhere so that it is reproducible
-def seed_all(seed):
-    if not seed:
-        seed = 10
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    torch.cuda.manual_seed(seed)
-    np.random.seed(seed)
+    # Python built-in random
     rd.seed(seed)
+
+    # NumPy random
+    np.random.seed(seed)
+
+    # PyTorch seed
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)  # If using multiple GPUs
+
+    # Ensuring deterministic behavior in CuDNN
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-def emptyfolder(path):
-    if os.path.exists(path):
-        # Loop through all items in the directory
-        for item in os.listdir(path):
-            item_path = join(path, item)
-            if isfile(item_path):
-                os.remove(item_path)  # Remove file
-            elif isdir(item_path):
-                emptyfolder(item_path)  # Recursively empty the folder
-                os.rmdir(item_path)  # Remove the now-empty folder
-    else:
-        createPath(path)
-
-
-def createPath(path):
-    os.makedirs(path, exist_ok=True)
-
-
-# difference between two lists
-def Diff(li1, li2):
-    li_dif = [i for i in li1 + li2 if i not in li1 or i not in li2]
-    return li_dif
-
-
-# Updates a dictionnary at key with value
-def updateDic(dic, key, value):
-    if key not in dic.keys():
-        dic[key] = [value]
-    else:
-        dic[key].append(value)
-
-    return dic
+    # Setting CUBLAS environment variable (helps in newer versions)
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+    
+    
+def free_up_cuda():
+    """Frees up unused CUDA memory in PyTorch."""
+    gc.collect()  # Run garbage collection
+    torch.cuda.empty_cache()  # Free unused cached memory
+    torch.cuda.ipc_collect()  # Collect inter-process memory
 
 
 def get_cmap_hex(cmap, length):
@@ -159,72 +58,28 @@ def get_cmap_hex(cmap, length):
 
     return hex_codes
 
+def emptyfolder(path):
+    """Removes all files and subdirectories in the given folder."""
+    if os.path.exists(path):
+        for item in os.listdir(path):
+            item_path = os.path.join(path, item)
+            try:
+                if os.path.isfile(item_path):
+                    os.remove(item_path)  # Remove file
+                elif os.path.isdir(item_path):
+                    shutil.rmtree(item_path)  # Remove folder and all contents
+            except Exception as e:
+                print(f"Error removing {item_path}: {e}")
+    else:
+        os.makedirs(path, exist_ok=True)  # Ensure directory exists
 
-def free_up_cuda():
-    gc.collect()
-    torch.cuda.empty_cache()
-
-
-def makeCombNum(combin_clim, combi_topo):
-    topo_primes = {
-        'aspect': 2,
-        'slope': 3,
-        'dis_from_border': 5,
-        'topo': 7,
-    }
-    climate_primes = {
-        't2m': 11,
-        'tp': 13,
-        'slhf': 17,
-        'sshf': 19,
-        'ssrd': 23,
-        'fal': 29,
-        'str': 31,
-    }
-    mult = 1
-    for var in combi_topo:
-        mult *= topo_primes[var]
-    for var in combin_clim:
-        mult *= climate_primes[var]
-    return mult
-
-
-# Get all  combinations of length min 3:
-def powerset(original_list, min_length=3):
-    # The number of subsets is 2^n
-    num_subsets = 2**len(original_list)
-
-    # Create an empty list to hold all the subsets
-    subsets = []
-
-    # Iterate over all possible subsets
-    for subset_index in range(num_subsets):
-        # Create an empty list to hold the current subset
-        subset = []
-        # Iterate over all elements in the original list
-        for index in range(len(original_list)):
-            # Check if index bit is set in subset_index
-            if (subset_index & (1 << index)) != 0:
-                # If the bit is set, add the element at this index to the current subset
-                subset.append(original_list[index])
-        # Add the current subset to the list of all subsets
-        if len(subset) >= min_length:
-            subsets.append(subset)
-    return subsets
-
+# difference between two lists
+def Diff(li1, li2):
+    li_dif = list(set(li1) - set(li2))
+    return li_dif
 
 def format_rgi_code(X):
     # Convert X to a string, and pad with leading zeros if its length is less than 5
     Y = str(X).zfill(5)
     # Return the final formatted string
     return f"RGI60-11.{Y}"
-
-def reformat_SGI_id(input_str):
-    # Split the string by "/"
-    part1, part2 = input_str.split("/")
-
-    # Convert part1 to lowercase for the letter and retain the number
-    part1 = part1[:-1] + part1[-1].lower()
-
-    # Combine part1 and part2 with a hyphen in between
-    return f"{part1}-{part2}"
