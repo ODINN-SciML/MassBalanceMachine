@@ -43,7 +43,7 @@ class Dataset:
         RGIIds (pd.Series): Series of RGI IDs from the data
     """
 
-    def __init__(self, *, cfg: config.Config, data: pd.DataFrame,
+    def __init__(self, cfg: config.Config, data: pd.DataFrame,
                  region_name: str, data_path: str):
         self.cfg = cfg
         self.data = self._clean_data(data=data.copy())
