@@ -53,18 +53,14 @@ def test_data_processing_wgms():
     # Specify the filename of the input file with the raw data
     target_data_fname = './notebooks/example_data/iceland/files/iceland_wgms_dataset.csv'
 
-    # Specify the shape filename of the glaciers outline obtained from RGIv6
-    glacier_outline_fname = './notebooks/example_data/iceland/glacier_outlines/06_rgi60_Iceland.shp'
-
-    # Load the target data and the glacier outlines
+    # Load the target data
     data = pd.read_csv(target_data_fname)
-    glacier_outline = gpd.read_file(glacier_outline_fname)
 
     Nrows = 57
     data_path = tempfile.gettempdir()+"/MBM/"
 
     # Get the RGI ID for each stake measurement for the region of interest
-    data = mbm.data_processing.utils.get_rgi(data=data, glacier_outlines=glacier_outline)
+    data = mbm.data_processing.utils.get_rgi(data=data, region=6)
     assert data.shape == (Nrows, len(_wgms_data_columns)+1)
 
     dataset = mbm.data_processing.Dataset(cfg, data=data, region_name='iceland', region_id=6, data_path=data_path)

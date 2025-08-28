@@ -1,25 +1,10 @@
 import os
 import cdsapi
 import numpy as np
-from oggm import utils
 import zipfile
 import xarray as xr
 
-def get_region_shape_file(region:str):
-    rgi_version = '6'
-    shp_path = utils.get_rgi_region_file(region, version=rgi_version)
-    print(f"Shapefile for region {region}: {shp_path}")
-    return shp_path
-
-def get_region_area_bounds(region):
-    if not isinstance(region, str): region = f'{region:02d}'
-    shp_path = get_region_shape_file(region)
-    outlines = gpd.read_file(shp_path)
-    minlon, minlat, maxlon, maxlat = outlines.total_bounds
-    return {
-        "lon": (minlon, maxlon),
-        "lat": (minlat, maxlat),
-    }
+from data_processing.glacier_utils import get_region_area_bounds
 
 def path_climate_data(region):
     if not isinstance(region, str): region = f'{region:02d}'

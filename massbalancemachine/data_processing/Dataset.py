@@ -23,7 +23,7 @@ from skorch.helper import SliceDataset
 from data_processing.get_climate_data import get_climate_features, retrieve_clear_sky_rad, smooth_era5land_by_mode
 from data_processing.get_topo_data import get_topographical_features, get_glacier_mask
 from data_processing.transform_to_monthly import transform_to_monthly
-from data_processing.create_glacier_grid import create_glacier_grid_RGI
+from data_processing.glacier_utils import create_glacier_grid_RGI
 from data_processing.climate_data_download import download_climate_ERA5, path_climate_data
 
 logging.basicConfig(level=logging.INFO,
