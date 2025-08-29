@@ -9,6 +9,7 @@ massbalancemachine/utils/__pycache__/
 notebooks/OGGM/**
 notebooks/models
 notebooks/.ipynb_checkpoints
+notebooks/example_data/iceland/plots/
 
 docs/_build/
 docs/generated/
