@@ -61,6 +61,83 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         # seed all
         self.seed_all()
 
+    def gridsearch(
+        self,
+        parameters: Dict[str, Union[list, np.ndarray]],
+        splits: Dict[str, Union[list, np.ndarray]],
+        features: pd.DataFrame,
+        targets: np.ndarray,
+    ) -> None:
+        """
+        Perform a grid search for hyperparameter tuning.
+
+        This method uses GridSearchCV to exhaustively search through a specified parameter grid.
+
+        Args:
+            parameters (dict): A dictionary of parameters to search over.
+            splits (tuple[list[tuple[ndarray, ndarray]]]): A dictionary containing cross-validation split information.
+            features (pandas.DataFrame): The input features for training.
+            targets (array-like): The target values for training.
+
+        Sets:
+            self.param_search (GridSearchCV): The fitted GridSearchCV object.
+        """
+
+        clf = GridSearchCV(
+            estimator=self,
+            param_grid=parameters,
+            cv=splits,
+            verbose=1,
+            n_jobs=self.cfg.numJobs,
+            scoring=None,  # Uses default in CustomNeuralNetRegressor()
+            refit=True,
+            error_score="raise",
+            return_train_score=True,
+        )
+
+        clf.fit(features, targets)
+        self.param_search = clf
+
+    def randomsearch(
+        self,
+        parameters: Dict[str, Union[list, np.ndarray]],
+        n_iter: int,
+        splits: Dict[str, Union[list, np.ndarray]],
+        features: pd.DataFrame,
+        targets: np.ndarray,
+    ) -> None:
+        """
+        Perform a randomized search for hyperparameter tuning.
+
+        This method uses RandomizedSearchCV to search a subset of the specified parameter space.
+
+        Args:
+            parameters (dict): A dictionary of parameters and their distributions to sample from.
+            n_iter (int): Number of parameter settings that are sampled.
+            splits (tuple[list[tuple[ndarray, ndarray]]]): A dictionary containing cross-validation split information.
+            features (pandas.DataFrame): The input features for training.
+            targets (array-like): The target values for training.
+
+        Sets:
+            self.param_search (RandomizedSearchCV): The fitted RandomizedSearchCV object.
+        """
+        clf = RandomizedSearchCV(
+            estimator=self,
+            param_distributions=parameters,
+            n_iter=n_iter,
+            cv=splits,
+            verbose=1,
+            n_jobs=self.cfg.numJobs,
+            scoring=None,  # Uses default in CustomNeuralNetRegressor()
+            refit=True,
+            error_score="raise",
+            return_train_score=True,
+            random_state=self.cfg.seed,
+        )
+
+        clf.fit(features, targets)
+        self.param_search = clf
+
     def initialize_module(self):
         super().initialize_module()
         # Now the module instance is available as self.module_

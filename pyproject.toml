@@ -57,6 +57,7 @@ pandoc = "2.4"
 nbconvert = "7.16.6"
 sphinxemoji = "^0.3.0"
 numcodecs = "0.15.1"
+torchsummary = "^1.5"
 
 [tool.poetry.group.docs.dependencies]
 sphinx = "^7.4.6"
