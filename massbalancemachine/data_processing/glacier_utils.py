@@ -79,7 +79,7 @@ def create_glacier_grid_RGI(ds: xr.Dataset, years: list,
 
 
 def get_region_shape_file(region:str):
-    rgi_version = '6'
+    rgi_version = '62'
     shp_path = oggm.utils.get_rgi_region_file(region, version=rgi_version)
     print(f"Shapefile for region {region}: {shp_path}")
     return shp_path
