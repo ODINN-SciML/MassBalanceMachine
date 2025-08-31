@@ -6,14 +6,19 @@ massbalancemachine/__pycache__/
 massbalancemachine/data_processing/__pycache__/
 massbalancemachine/utils/__pycache__/
 
+OGGM/
 notebooks/OGGM/**
 notebooks/models
 notebooks/.ipynb_checkpoints
+notebooks/example_data/iceland/plots/
 
+# Generated content during documentation build
 docs/_build/
 docs/generated/
 docs/notebooks/
 docs/MBM_logo.png
+
+.data/
 
 regions/Switzerland/models/**
 regions/Switzerland/results
