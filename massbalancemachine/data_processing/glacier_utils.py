@@ -38,7 +38,7 @@ def create_glacier_grid_RGI(ds: xr.Dataset, years: list,
 
     # Glacier mask as boolean array:
     gl_mask_bool = ds['glacier_mask'].values.astype(bool)
-    
+
     # Create a DataFrame
     data_grid = {
         'RGIId': [rgi_gl] * len(ds.masked_elev.values[gl_mask_bool]),
@@ -74,5 +74,22 @@ def create_glacier_grid_RGI(ds: xr.Dataset, years: list,
     df_grid['FROM_DATE'] = df_grid['YEAR'].apply(lambda x: str(x) + '1001')
     df_grid['TO_DATE'] = df_grid['YEAR'].apply(lambda x: str(x + 1) + '0930')
     df_grid["PERIOD"] = "annual"
-    
+
     return df_grid
+
+
+def get_region_shape_file(region:str):
+    rgi_version = '62'
+    shp_path = oggm.utils.get_rgi_region_file(region, version=rgi_version)
+    print(f"Shapefile for region {region}: {shp_path}")
+    return shp_path
+
+def get_region_area_bounds(region):
+    if not isinstance(region, str): region = f'{region:02d}'
+    shp_path = get_region_shape_file(region)
+    outlines = gpd.read_file(shp_path)
+    minlon, minlat, maxlon, maxlat = outlines.total_bounds
+    return {
+        "lon": (minlon, maxlon),
+        "lat": (minlat, maxlat),
+    }

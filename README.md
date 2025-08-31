@@ -18,105 +18,9 @@ A bridge between mass balance modelling and observations. Global machine learnin
 > [!IMPORTANT]  
 > This project is in **ongoing development**, and new features will be added over the coming months. Please see the [contribution guidelines](#contribution-guidelines) for more information on contributing to this project.
 
-## Requirements
+## Installation
 
-You can run the MassBalanceMachine core scripts and notebooks with the following software installed:
-
-- Conda Environment (either of the following):
-  - [Anaconda](https://docs.anaconda.com/anaconda/install/)
-  - [Miniconda](https://docs.anaconda.com/miniconda/miniconda-install/)
-  - [Micromamba](https://mamba.readthedocs.io/en/latest/installation/micromamba-installation.html) (recommended)
-
-## Installation (for all users)
-
-To run the Jupyter Notebooks, you'll need to set up a Conda environment. Within this environment, Poetry will handle the installation of all necessary packages and dependencies. Follow these steps to create a new Conda environment named MassBalanceMachine:
-
-**Note:** If you are on **Linux or Windows** and plan to run the MassBalanceMachine on a **GPU machine**:
-
-```
-conda env create -f environment_gpu.yml
-```
-or if you are using micromamba:
-```
-micromamba env create -f environment_gpu.yml
-```
-
-Else **on MacOs** or if you **plan to only use a CPU**: 
-```
-conda env create -f environment_cpu.yml
-```
-or if you are using micromamba:
-```
-micromamba env create -f environment_cpu.yml
-```
-
-
-Activate the MassBalanceMachine environment:
-
-```
-conda activate MassBalanceMachine # for linux and unix users alternatively: source activate MassBalanceMachine
-```
-**If you're on MacOS and plan to use a GPU**, you need to install cupy separately: 
-```conda install -c conda-forge cupy```
-
-
-Install all required packages and dependencies needed in the environment via poetry:
-
-```
-poetry install
-```
-
-All packages and dependencies should now be installed correctly, and you are ready to use the MassBalanceMachine core (```massbalancemachine```). For example, by importing the packing in a Jupyter Notebook by: ```import massbalancemachine as mbm```. Make sure you have selected the right interpreter or kernel before that in your editor of choice.
-
-> [!TIP]
-> If you are working on a remote server running JupyterLab or Jupyter Notebook (e.g. Binder) instead of locally, the virtual environment of the notebook will be different from the Conda environment. As an additional step, you need to create a new kernel that includes the Conda environment in Jupyter Notebook. Here’s how you can do it:
-
-> ```
-> poetry run ipython kernel install --user --name=mbm_env
-> ```
-
-Finally, ensure that your Jupyter kernel is set to use the 'mbm_env' Conda environment. You can select the kernel from the top right corner of the notebook or through the Launcher (you might need to refresh for the changes to take effect). With this setup, you should be ready to use the `massbalancemachine` package in your Jupyter Notebooks.
-
-### Known Installation Issues
-
-- Poetry sometimes identifies duplicate package folders, but it streamlines dependency and version management in Python projects, ensuring smooth library and package integration. Any duplicate packages can usually be resolved by locating and removing the unnecessary versions from your Conda environment folder.
-
-### Additional Installation for Windows Users
-
-> [!NOTE]  
-> Topographical features are retrieved using OGGM in the data processing stage, which, for now, requires a Unix environment. **However, the model training and evaluation are not required to run in a remote environment**. Window users can either choose to work with the MassBalanceMachine for the entire project in a Unix environment or just for the data processing part (this requires two times installing the Conda environment)
-
-If you haven't already, please consult [How to install Linux on Windows with WSL](https://learn.microsoft.com/en-us/windows/wsl/install). A list of steps is provided for Windows users to run this code on their local machine in a remote environment:
-
-1. Please see one of the following links, depending on your editor of choice, how to connect WSL as a remote environment:
-   1. [Visual Studio](https://code.visualstudio.com/docs/remote/wsl)
-   2. [PyCharm](https://www.jetbrains.com/help/pycharm/using-wsl-as-a-remote-interpreter.html#create-wsl-interpreter)
-   3. [Juypyter Notebook](https://matinnuhamunada.github.io/posts/2021/04/jupyter-wsl2/)
-2. Installing Anaconda on Linux:
-   1. [Anaconda Docs](https://docs.anaconda.com/free/anaconda/install/linux/), or
-   2. [Steps to Install Anaconda on Windows Ubuntu Terminal](https://docs.anaconda.com/free/anaconda/install/linux/)
-3. Follow the steps as specified in the section: **Installation**.
-4. Access the remote environment in the terminal, select the right kernel or interpreter and run the Jupyter Notebook or Python scripts.
-
-## Usage & Getting Started
-
-After installing the `massbalancemachine` package and setting up the Conda environment successfully, you can start exploring the example notebooks found in the `notebooks` directory. These notebooks are designed to walk you through using MassBalanceMachine with WGMS data, focusing initially on extracting data from the [Open Global Glacier Model (OGGM)](https://github.com/OGGM/oggm). This data includes comprehensive topographical information for nearly all glaciers worldwide.
-
-Specifically, the example notebooks concentrate on glaciers documented in the WGMS database, particularly those in Iceland. They cover various topics, including:
-
-1. **Data Pre-processing 🌍**: Users have two options for preparing their data. They can choose to follow a notebook that converts their data into the WGMS format (available [here](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/data_preprocessing.ipynb)), or they can start with their data already formatted in the WGMS standard (found [here](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/data_processing_wgms.ipynb)). In both workflows, topographical and climate data are fetched and aligned with the stake measurements. Subsequently, the data is aggregated to a monthly resolution, preparing it for use as training data for the model.
-   - **Note:** If the OGGM cluster is shut down, users will be unable to retrieve topographical features for their region of interest. If you encounter a 403 error in your notebook while trying to retrieve these features, it likely means that the OGGM cluster is down. You can check the status of the cluster on their [Slack channel](https://oggm.org/2022/10/11/Welcome-to-the-OGGM-Slack/).
-2. **Data Exploration 🔍**: Users can gain deeper insights into their data by visualizing the time series of the available stake measurements, which are related to either the region-wide surface mass balance or the point surface mass balance. The example is available [here](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/date_exploration.ipynb).
-3. **Model Training 🚀 & Testing 🎯**: Users can choose from two models. One option is the XGBoost model, with an example available in this [notebook](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/model_training_xgboost.ipynb). The other option is a neural network, which will be released in the future. Both models are customized to handle the monthly resolution of the data. In the notebooks, the models will be trained and tested using the data obtained earlier. Additionally, results are visualised.
-
-## Project Structure
-
-- The ```massbalancemachine``` package contains the core components of MassBalanceMachine, including scripts and classes, that are essential for new users to start a MassBalanceMachine project. This core package, named massbalancemachine, can be imported into scripts and Jupyter Notebooks as needed.
-- ```regions``` contains additional scripts, classes, and Jupyter Notebooks that are tailored for MassBalanceMachine instances that operate in different regions in the world. If the region you are interested in is not on this list, you can, with a pull request, add this to the repository. Please make sure you do not upload any confidential or unpublished data. Regions that are covered so far:
-  - [WIP] ```Iceland```
-  - [WIP] ```Switzerland```
-  - [COMING SOON] ``Norway``
-  - [ADD YOUR OWN REGION]. PRs welcome! Message us if you have questions 🙂
+Please refer to the [installation instructions](https://massbalancemachine.readthedocs.io/en/latest/install.html) of the documentation.
 
 ## Contributors
 
@@ -143,4 +47,4 @@ Specifically, the example notebooks concentrate on glaciers documented in the WG
 
 ## Support
 
-For support and assistance, please refer to the [support](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/SUPPORT.md) file in this repository.
+For support and assistance, please refer to the [support](https://massbalancemachine.readthedocs.io/en/latest/support.html) page of the documentation.

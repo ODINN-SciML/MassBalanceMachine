@@ -88,6 +88,7 @@ extensions = [
     "myst_parser",
     "nbsphinx",
     # "sphinx_autorun",
+    "sphinxemoji.sphinxemoji",
 ]
 
 intersphinx_mapping = {
