@@ -232,3 +232,13 @@ class IcelandConfig(Config):
                          notMetaDataNotFeatures=notMetaDataNotFeatures,
                          numJobs=numJobs,
                          **kwargs)
+
+class ChileConfig(Config):
+    def __init__(
+            self,
+            *args,
+            metaData: List[str] = ["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS","region"],
+            notMetaDataNotFeatures: List[str] = ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON", "ALTITUDE_CLIMATE"],
+            **kwargs,
+        ):
+        super().__init__(*args, **kwargs, metaData=metaData, notMetaDataNotFeatures=notMetaDataNotFeatures)
