@@ -379,7 +379,7 @@ def predVSTruth(ax,
                     style="PERIOD",
                     markers={
                         "annual": "o",
-                        "winter": "s"
+                        "winter": "o"
                     })  # optional custom marker map)
 
     ax.set_ylabel('Modelled PMB [m w.e.]', fontsize=20)

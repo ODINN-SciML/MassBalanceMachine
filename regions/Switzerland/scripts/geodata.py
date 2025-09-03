@@ -521,11 +521,12 @@ def coarsenDS_mercator(ds, target_res_m=50):
     resampling_fac_y = max(1, round(target_res_m / dy_m))
 
     if dx_m < target_res_m or dy_m < target_res_m:
+        list_vars = [var for var in list(ds.data_vars) if 'masked' in var]
+
         # Coarsen non-binary variables with mean
-        ds_non_binary = ds[['masked_slope', 'masked_aspect',
-                            'masked_elev']].coarsen(x=resampling_fac_x,
-                                                    y=resampling_fac_y,
-                                                    boundary="trim").mean()
+        ds_non_binary = ds[list_vars].coarsen(x=resampling_fac_x,
+                                              y=resampling_fac_y,
+                                              boundary="trim").mean()
 
         # Coarsen glacier mask with max
         ds_glacier_mask = ds[['glacier_mask'
