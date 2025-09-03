@@ -1,6 +1,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![GitHub contributors](https://img.shields.io/github/contributors/ODINN-SciML/MassBalanceMachine?style=social)](#contributors)
 [![Build Status](https://github.com/ODINN-SciML/MassBalanceMachine/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/ODINN-SciML/MassBalanceMachine/actions/workflows/CI.yml?query=branch%3Amain)
 [![Coverage](https://codecov.io/gh/ODINN-SciML/MassBalanceMachine/branch/main/graph/badge.svg)](https://app.codecov.io/gh/ODINN-SciML/MassBalanceMachine)
+[![Documentation](https://app.readthedocs.org/projects/massbalancemachine/badge/?version=latest)](https://massbalancemachine.readthedocs.io/en/latest/)
 
 <p align="center">
   <img src="./MBM_logo.png" width="300" title="MBM_Logo">
@@ -17,113 +18,9 @@ A bridge between mass balance modelling and observations. Global machine learnin
 > [!IMPORTANT]  
 > This project is in **ongoing development**, and new features will be added over the coming months. Please see the [contribution guidelines](#contribution-guidelines) for more information on contributing to this project.
 
-## Requirements
+## Installation
 
-You can run the MassBalanceMachine core scripts and notebooks with the following software installed:
-
-- Conda Environment (either of the following):
-  - [Anaconda](https://docs.anaconda.com/anaconda/install/)
-  - [Miniconda](https://docs.anaconda.com/miniconda/miniconda-install/)
-  - [Micromamba](https://mamba.readthedocs.io/en/latest/installation/micromamba-installation.html) (recommended)
-
-## Installation (for all users)
-
-To run the Jupyter Notebooks, you'll need to set up a Conda environment. Within this environment, Poetry will handle the installation of all necessary packages and dependencies. Follow these steps to create a new Conda environment named MassBalanceMachine:
-
-**Note:** If you are on **Linux or Windows** and plan to run the MassBalanceMachine on a **GPU machine**:
-
-```
-conda env create -f environment_gpu.yml
-```
-or if you are using micromamba:
-```
-micromamba env create -f environment_gpu.yml
-```
-
-Else **on MacOs** or if you **plan to only use a CPU**: 
-```
-conda env create -f environment_cpu.yml
-```
-or if you are using micromamba:
-```
-micromamba env create -f environment_cpu.yml
-```
-
-
-Activate the MassBalanceMachine environment:
-
-```
-conda activate MassBalanceMachine # for linux and unix users alternatively: source activate MassBalanceMachine
-```
-**If you're on MacOS and plan to use a GPU**, you need to install cupy separately: 
-```conda install -c conda-forge cupy```
-
-
-Install all required packages and dependencies needed in the environment via poetry:
-
-```
-poetry install
-```
-
-All packages and dependencies should now be installed correctly, and you are ready to use the MassBalanceMachine core (```massbalancemachine```). For example, by importing the packing in a Jupyter Notebook by: ```import massbalancemachine as mbm```. Make sure you have selected the right interpreter or kernel before that in your editor of choice.
-
-> [!TIP]
-> If you are working on a remote server running JupyterLab or Jupyter Notebook (e.g. Binder) instead of locally, the virtual environment of the notebook will be different from the Conda environment. As an additional step, you need to create a new kernel that includes the Conda environment in Jupyter Notebook. Here’s how you can do it:
-
-> ```
-> poetry run ipython kernel install --user --name=mbm_env
-> ```
-
-Finally, ensure that your Jupyter kernel is set to use the 'mbm_env' Conda environment. You can select the kernel from the top right corner of the notebook or through the Launcher (you might need to refresh for the changes to take effect). With this setup, you should be ready to use the `massbalancemachine` package in your Jupyter Notebooks.
-
-### Known Installation Issues
-
-- Poetry sometimes identifies duplicate package folders, but it streamlines dependency and version management in Python projects, ensuring smooth library and package integration. Any duplicate packages can usually be resolved by locating and removing the unnecessary versions from your Conda environment folder.
-
-### Additional Installation for Windows Users
-
-> [!NOTE]  
-> Topographical features are retrieved using OGGM in the data processing stage, which, for now, requires a Unix environment. **However, the model training and evaluation are not required to run in a remote environment**. Window users can either choose to work with the MassBalanceMachine for the entire project in a Unix environment or just for the data processing part (this requires two times installing the Conda environment)
-
-If you haven't already, please consult [How to install Linux on Windows with WSL](https://learn.microsoft.com/en-us/windows/wsl/install). A list of steps is provided for Windows users to run this code on their local machine in a remote environment:
-
-1. Please see one of the following links, depending on your editor of choice, how to connect WSL as a remote environment:
-   1. [Visual Studio](https://code.visualstudio.com/docs/remote/wsl)
-   2. [PyCharm](https://www.jetbrains.com/help/pycharm/using-wsl-as-a-remote-interpreter.html#create-wsl-interpreter)
-   3. [Juypyter Notebook](https://matinnuhamunada.github.io/posts/2021/04/jupyter-wsl2/)
-2. Installing Anaconda on Linux:
-   1. [Anaconda Docs](https://docs.anaconda.com/free/anaconda/install/linux/), or
-   2. [Steps to Install Anaconda on Windows Ubuntu Terminal](https://docs.anaconda.com/free/anaconda/install/linux/)
-3. Follow the steps as specified in the section: **Installation**.
-4. Access the remote environment in the terminal, select the right kernel or interpreter and run the Jupyter Notebook or Python scripts.
-
-## Usage & Getting Started
-
-After installing the `massbalancemachine` package and setting up the Conda environment successfully, you can start exploring the example notebooks found in the `notebooks` directory. These notebooks are designed to walk you through using MassBalanceMachine with WGMS data, focusing initially on extracting data from the [Open Global Glacier Model (OGGM)](https://github.com/OGGM/oggm). This data includes comprehensive topographical information for nearly all glaciers worldwide.
-
-Specifically, the example notebooks concentrate on glaciers documented in the WGMS database, particularly those in Iceland. They cover various topics, including:
-
-1. **Data Pre-processing 🌍**: Users have two options for preparing their data. They can choose to follow a notebook that converts their data into the WGMS format (available [here](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/data_preprocessing.ipynb)), or they can start with their data already formatted in the WGMS standard (found [here](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/data_processing_wgms.ipynb)). In both workflows, topographical and climate data are fetched and aligned with the stake measurements. Subsequently, the data is aggregated to a monthly resolution, preparing it for use as training data for the model.
-   - **Note:** If the OGGM cluster is shut down, users will be unable to retrieve topographical features for their region of interest. If you encounter a 403 error in your notebook while trying to retrieve these features, it likely means that the OGGM cluster is down. You can check the status of the cluster on their [Slack channel](https://oggm.org/2022/10/11/Welcome-to-the-OGGM-Slack/).
-2. **Data Exploration 🔍**: Users can gain deeper insights into their data by visualizing the time series of the available stake measurements, which are related to either the region-wide surface mass balance or the point surface mass balance. The example is available [here](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/date_exploration.ipynb).
-3. **Model Training 🚀 & Testing 🎯**: Users can choose from two models. One option is the XGBoost model, with an example available in this [notebook](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/notebooks/model_training_xgboost.ipynb). The other option is a neural network, which will be released in the future. Both models are customized to handle the monthly resolution of the data. In the notebooks, the models will be trained and tested using the data obtained earlier. Additionally, results are visualised.
-
-## Project Structure
-
-- The ```massbalancemachine``` package contains the core components of MassBalanceMachine, including scripts and classes, that are essential for new users to start a MassBalanceMachine project. This core package, named massbalancemachine, can be imported into scripts and Jupyter Notebooks as needed.
-- ```regions``` contains additional scripts, classes, and Jupyter Notebooks that are tailored for MassBalanceMachine instances that operate in different regions in the world. If the region you are interested in is not on this list, you can, with a pull request, add this to the repository. Please make sure you do not upload any confidential or unpublished data. Regions that are covered so far:
-  - [WIP] ```Iceland```
-  - [WIP] ```Switzerland```
-  - [COMING SOON] ``Norway``
-  - [ADD YOUR OWN REGION]. PRs welcome! Message us if you have questions 🙂
-
-## Project Roadmap
-
-The following features are on the roadmap to be implemented in the coming months:
-
-- 🛰️ MassBalanceMachine uses geodetic mass balance data as an extra target variable on top of glaciological data. This will help calibrate the bias/trend in long simulations where the cumulative mass balance matters.
-- 🔄 MassBalanceMachine can do transfer learning for new regions, reducing the training time and making more accurate predictions.
-- 📊 MassBalanceMachine can incorporate physical constraints to merge physical knowledge with data-driven discovery.
+Please refer to the [installation instructions](https://massbalancemachine.readthedocs.io/en/latest/install.html) of the documentation.
 
 ## Contributors
 
@@ -137,7 +34,7 @@ The following features are on the roadmap to be implemented in the coming months
       <td align="center" valign="top" width="14.28%"><a href="https://jordibolibar.wordpress.com"><img src="https://avatars.githubusercontent.com/u/2025815?v=4?s=100" width="100px;" alt="Jordi Bolibar"/><br /><sub><b>Jordi Bolibar</b></sub></a><br /><a href="#research-JordiBolibar" title="Research">🔬</a> <a href="#projectManagement-JordiBolibar" title="Project Management">📆</a> <a href="#financial-JordiBolibar" title="Financial">💵</a> <a href="#ideas-JordiBolibar" title="Ideas, Planning, & Feedback">🤔</a> <a href="#mentoring-JordiBolibar" title="Mentoring">🧑‍🏫</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/marvande"><img src="https://avatars.githubusercontent.com/u/22401294?v=4?s=100" width="100px;" alt="Marijn  "/><br /><sub><b>Marijn  </b></sub></a><br /><a href="#ideas-marvande" title="Ideas, Planning, & Feedback">🤔</a> <a href="#data-marvande" title="Data">🔣</a> <a href="#research-marvande" title="Research">🔬</a> <a href="#code-marvande" title="Code">💻</a> <a href="#maintenance-marvande" title="Maintenance">🚧</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/zekollari"><img src="https://avatars.githubusercontent.com/u/19975538?v=4?s=100" width="100px;" alt="zekollari"/><br /><sub><b>zekollari</b></sub></a><br /><a href="#research-zekollari" title="Research">🔬</a> <a href="#financial-zekollari" title="Financial">💵</a> <a href="#ideas-zekollari" title="Ideas, Planning, & Feedback">🤔</a> <a href="#mentoring-zekollari" title="Mentoring">🧑‍🏫</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://albangossard.github.io/"><img src="https://avatars.githubusercontent.com/u/24877968?v=4?s=100" width="100px;" alt="Alban Gossard"/><br /><sub><b>Alban Gossard</b></sub></a><br /><a href="#code-albangossard" title="Code">💻</a> <a href="#research-albangossard" title="Research">🔬</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://albangossard.github.io/"><img src="https://avatars.githubusercontent.com/u/24877968?v=4?s=100" width="100px;" alt="Alban Gossard"/><br /><sub><b>Alban Gossard</b></sub></a><br /><a href="#code-albangossard" title="Code">💻</a> <a href="#research-albangossard" title="Research">🔬</a> <a href="#maintenance-albangossard" title="Maintenance">🚧</a> <a href="#doc-albangossard" title="Documentation">📖</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/JulianBiesheuvel"><img src="https://avatars.githubusercontent.com/u/16390017?v=4?s=100" width="100px;" alt="Julian"/><br /><sub><b>Julian</b></sub></a><br /><a href="#code-JulianBiesheuvel" title="Code">💻</a> <a href="#doc-JulianBiesheuvel" title="Documentation">📖</a><a href="#data-JulianBiesheuvel" title="Data">🔣</a> <a href="#research-JulianBiesheuvel" title="Research">🔬</a></td>
     </tr>
   </tbody>
@@ -148,13 +45,6 @@ The following features are on the roadmap to be implemented in the coming months
 
 <!-- ALL-CONTRIBUTORS-LIST:END -->
 
-## Contribution Guidelines
-Here are some basic contribution guidelines outlined below. For a more comprehensive set of instructions, please refer to the [contribution guidelines](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/CONTRIBUTING.md) file in this repository.
-
-- The MassBalanceMachine project is an open-source community initiative that welcomes new users to fork the repository, add new regions, or modify the existing code and submit a [pull request](https://github.com/ODINN-SciML/MassBalanceMachine/pulls).
-- **Currently, uploading data is not allowed unless it is accompanied by a license that explicitly permits open access, allowing it to be shared and used by others.** Pull requests containing data will be rejected. In the future, data sharing will be supported.
-- If you have any questions, please contact one of the contributors listed above. You can also create new Git issues via the [issue tracker](https://github.com/ODINN-SciML/MassBalanceMachine/issues) to propose new features, and changes to existing ones, or report bugs.
-
 ## Support
 
-For support and assistance, please refer to the [support](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/SUPPORT.md) file in this repository.
+For support and assistance, please refer to the [support](https://massbalancemachine.readthedocs.io/en/latest/support.html) page of the documentation.

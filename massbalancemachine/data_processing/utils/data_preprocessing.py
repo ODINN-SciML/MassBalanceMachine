@@ -17,6 +17,8 @@ from shapely.geometry import Point
 from pyproj import CRS, Transformer
 import hashlib
 
+from data_processing.glacier_utils import get_region_shape_file
+
 
 def convert_to_wgs84(*, data: pd.DataFrame,
                      from_crs: str | int) -> pd.DataFrame:
@@ -142,8 +144,11 @@ def convert_to_wgms(
         pandas.DataFrame: DataFrame in WGMS-like format with individual records for each measurement period.
     """
 
-    df_combined = _reshape_dataset(data, date_columns, smb_columns,
-                                   list(wgms_data_columns.keys())[:-3])
+    ids = list(wgms_data_columns.keys())
+    ids.remove("TO_DATE")
+    ids.remove("FROM_DATE")
+    ids.remove("POINT_BALANCE")
+    df_combined = _reshape_dataset(data, date_columns, smb_columns, ids)
 
     df_combined = df_combined[list(
         wgms_data_columns.keys())].rename(columns=wgms_data_columns)
@@ -165,18 +170,31 @@ def convert_to_wgms(
     return df_combined
 
 
-def get_rgi(*, data: pd.DataFrame,
-            glacier_outlines: gpd.GeoDataFrame) -> pd.DataFrame:
+def get_rgi(
+    data: pd.DataFrame,
+    glacier_outlines: gpd.GeoDataFrame = None,
+    region: int = None,
+) -> pd.DataFrame:
     """
     Assign RGI IDs to stake measurements based on their spatial location within glacier outlines.
 
     Args:
         data (pandas.DataFrame): DataFrame containing stake measurements with 'POINT_LON' and 'POINT_LAT' columns.
-        glacier_outlines (geopandas.GeoDataFrame): GeoDataFrame containing glacier outlines with 'RGIId' column.
+        glacier_outlines (geopandas.GeoDataFrame): Optional GeoDataFrame containing glacier outlines with 'RGIId' column. Defaults to `None` which assumes `region` is provided and automatically uses the shape file from OGGM.
+        region (int): Optional region ID parameter. Defaults to `None` which assumes `glacier_outlines` is provided.
+
+    Note: Either `glacier_outlines` or `region` must be provided but not both at the same time.
 
     Returns:
         geopandas.GeoDataFrame: DataFrame with original data and added 'RGIId' column for each stake measurement.
     """
+
+    assert (glacier_outlines is None) ^ (region is None), "Either `glacier_outlines` or `region_id` must be provided but not both at the same time."
+
+    if glacier_outlines is None:
+        if not isinstance(region, str): region = f'{region:02d}'
+        shp_path = get_region_shape_file(region)
+        glacier_outlines = gpd.read_file(shp_path)
 
     # Convert the stake measurement points (given in longitude and latitude) in the DataFrame to GeoDataFrame,
     # using the column names for longitude and latitude similar as the WGMS
@@ -185,9 +203,10 @@ def get_rgi(*, data: pd.DataFrame,
         Point(lon, lat)
         for lon, lat in zip(data["POINT_LON"], data["POINT_LAT"])
     ]
-    points_gdf = gpd.GeoDataFrame(data,
-                                  geometry=geometry,
-                                  crs=glacier_outlines.crs)
+    points_gdf = gpd.GeoDataFrame(
+        data,
+        geometry=geometry,
+        crs=glacier_outlines.crs)
 
     # Perform a spatial joint for all the stake measurements that are within a section of the icecap that is
     # associated with a RGIId.

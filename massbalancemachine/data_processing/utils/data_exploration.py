@@ -9,7 +9,7 @@ Date Created: 21/07/2024
 """
 
 import itertools
-
+import os
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -126,6 +126,7 @@ def plot_stake_timeseries(df: pd.DataFrame, save_img=None, stakeIDs=None) -> Non
 
     # Save the plot if desired
     if save_img is not None:
+        os.makedirs(save_img[1], exist_ok=True)
         plt.savefig(
             save_img[1] + f"timeseries_stakes.{save_img[0]}",
             dpi=600,
@@ -176,6 +177,7 @@ def plot_cumulative_smb(df: pd.DataFrame, save_img=None) -> None:
 
     # Save the plot if desired
     if save_img is not None:
+        os.makedirs(save_img[1], exist_ok=True)
         plt.savefig(
             save_img[1] + f"timeseries_cumsum_smb.{save_img[0]}",
             dpi=600,

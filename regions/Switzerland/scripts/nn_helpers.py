@@ -151,7 +151,7 @@ def PlotPredictions_NN(grouped_ids):
 def evaluate_model_and_group_predictions(custom_NN_model, df_X_subset, y, cfg,
                                          mbm):
     # Create features and metadata
-    features, metadata = custom_NN_model._create_features_metadata(df_X_subset)
+    features, metadata = mbm.data_processing.utils.create_features_metadata(cfg, df_X_subset)
 
     # Ensure features and targets are on CPU
     if hasattr(features, 'cpu'):

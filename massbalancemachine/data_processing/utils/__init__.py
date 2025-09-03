@@ -1,2 +1,3 @@
 from data_processing.utils.data_preprocessing import convert_to_wgms, get_rgi, convert_to_wgs84, get_hash
 from data_processing.utils.data_exploration import plot_stake_timeseries, plot_cumulative_smb
+from data_processing.utils.features_metadata_manipulation import create_features_metadata

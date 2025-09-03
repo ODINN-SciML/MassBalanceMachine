@@ -211,7 +211,20 @@ class DataLoader:
     def _prepare_data_for_cv(
         train_data: pd.DataFrame, meta_data_columns: list
     ) -> Tuple[pd.DataFrame, pd.Series, np.ndarray, np.array]:
-        """Prepare the training data for cross-validation."""
+        """
+        Prepare the training data for cross-validation by retrieving the input features, the target and the group IDs.
+        For internal use only.
+
+        Args:
+            - train_data (pd.DataFrame): Training data as a pandas DataFrame.
+            - meta_data_columns (list): List of columns to be used as metadata.
+
+        Returns:
+            - X (pd.DataFrame): Input features (without metadata).
+            - y (pd.Series): Target MB values.
+            - glacier_ids (numpy.ndarray): Glacier ID of each entry of X.
+            - stake_meas_id (numpy.ndarray): Point measurement ID of each entry of X.
+        """
         X = train_data.drop(meta_data_columns, axis=1)
         y = train_data["POINT_BALANCE"]
         glacier_ids = train_data["RGIId"].values
@@ -226,7 +239,22 @@ class DataLoader:
         stake_meas_id: np.ndarray,
         type_fold: str,
     ) -> List[Tuple[np.ndarray, np.ndarray]]:
-        """Create KFold splits based on the specified fold type."""
+        """
+        Create KFold splits based on the specified fold type.
+
+        Args:
+            - X (pd.DataFrame): Input features.
+            - y (pd.Series): Target MB values.
+            - glacier_ids (numpy.ndarray): Glacier ID of each entry of X.
+            - stake_meas_id (numpy.ndarray): Point measurement ID of each entry of X.
+            - type_fold (str): Type of KFold to use. Either "group-rgi" or "group-meas-id".
+
+        Returns:
+            A list of tuple with 2 elements, each being a numpy array.
+            The length of the list corresponds to the number of cross validation group.
+            The numpy arrays provide the index of the training data.
+            The first numpy array is for training and the second one is for validation.
+        """
         fold_types = {
             "group-rgi": (GroupKFold, glacier_ids),
             "group-meas-id": (GroupKFold, stake_meas_id),
@@ -238,5 +266,3 @@ class DataLoader:
 
         split_args = [X, y, groups] if groups is not None else [X, y]
         return list(kf.split(*split_args))
-    
-    
