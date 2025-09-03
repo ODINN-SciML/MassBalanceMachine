@@ -488,7 +488,7 @@ def PlotIndividualGlacierPredVsTruth(grouped_ids,
             style="PERIOD",  # markers
             markers={
                 "annual": "o",
-                "winter": "s"
+                "winter": "o"
             },
             ax=ax1,
             hue_order=['annual', 'winter'],
