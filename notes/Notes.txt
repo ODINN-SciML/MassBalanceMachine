@@ -203,7 +203,7 @@ XGBoost geht das nicht so, also wir können nicht 2 mal trainieren einmal uf SCh
 
 ------------------------
 FR
-no deleted points due to topographic variables
+about 90 hugonnet dhdt stakes are NaN and 1 conensus icethinkess is NaN
 ICE
 600 out of 6'000 datapoints deleted from Iceland due to hugonnet_dhdt
 IT_AT
@@ -311,3 +311,110 @@ hurst the model as it relies too much on it, where fine tuning will adapt better
 ----------------
 So far all my NN testing has been done on 80/20 train/val split, maybe it could also be interesting to use glacier based splits, even for Swiss model
 in my limited testing so far, it also works well, the validation is a lot worse, but the test ends up being almost as good
+
+
+------
+
+"Point Mass Balance Regression using Deep Neural Networks: A Transfer Learning Approach" paper
+These guys also did transfer learning on NN but to fill in temporal gaps. but i have no access, try
+and make a login on cpernicus.org i guess
+
+"Modelling point mass balance for the glaciers of the Central European Alps using machine learning techniques"
+very similar NN paper to what MBM does (no transfer stuff but still itneresting)
+
+----
+ICE i did 50% and 8%, I still have to do north/south, baseline, and glacier split i guess just like norway (after grid search)
+
+----
+
+I did a new swiss  model trained with the same ERA5Land file as norway instead of "central_alps" and its a bit better on cross regional but a bit worse
+on transfer learning, I think it's just randomness (the assumption that it would be some sort of extra domain shift due to all the climate variables being
+a bit shifted due is not really true)
+
+I did glacier val split on swiss, it is generally worse for cross-regional, need to run a grid search I think, model needs to be different compared to
+80/20 val split
+
+Iceland 50% just fine tuning is slightly better than batchnorm unfrozen, but both are the same as just baseline, for 5-10% though both are way better 
+than baseline (just fine tuning again a tiny bit better than batchnorm frozen)
+
+u10, v10, sshf, hugonnet_dhdt, consnsu, asped, millan
+aber permtation ist einfach 
+
+Zuerst frankreich noch machen, dann permutation für verschiedene regionen, welche variabeln sind schweiz und norwegen unwichtig, wenn beide in beiden regionen fehlen, dann könnten wir die rausnehmen und mal testen ohne.
+Flexible network nehmen.
+
+-----
+
+East/west baseline gemacht, jetzt austesten fine tuning, (baseline extrem gut, wieso?)
+
+------
+
+I should maybe include in the whole XGBoost thing a test where i try fine-tuning wiht XGBoost, and show that it is way worse than the NN (assuming it is)
+Generell Reicht dass, dass es allgemein bekannt ist das XGBoost nichtwirklich gut ist für Transfer/Cross-region
+und falls wir es doch nochr brauchen dann halt machen.
+
+Ich mach mal Weiter mit einfahc dem Flexible network, ohne die Permutation stuff und topo rausnmehen, sonst würde marijn
+noch ebshceid geben.
+
+Ich kann mal testen mit Grid search, wegen besserem glacier basiertem Model. der Grid_search im moment hat aber verschiedene
+optimizier drin und verschieden anzal hidden layer etc. das muss ishc alles nicht unbedingt testen, ich muss ja nur weniger kompliziert
+
+
+Ich könnte einfach Marijns neuest Test set als Glacier basiertes val set nehmen!!!!
+
+Marijn macht pull request für neuen branch (dev-geodetic ist weg) und schickt mir den, 
+ich kann dann meinen pull request darauf machen.
+
+
+Wir können ja schon sagen, Frankreich geht es einfach mit einem gemeinsame model trainieren, braucht kein fine tuning etc.
+unser NN kann simpel Frankreich modellieren.
+
+
+Skelet von resultate von meiner MAsterarbeit präsentieren.(Miro boards programm, kann ich auch mir Marijn teilen.)
+Also Untertitel etc. mit wie viele Figures pro untertitel. 
+
+
+Paper von Marijn wahrscheinlich noch nicht raus bis dann, aber man kann zitieren mit "in progress" oder so.
+Ich muss in MEthod nicht voll ins detail gehen zu aufbau von MBM, ist ja alles nicht von mir, aber ich kann schon schema
+vorstellen mit aRchitektur von NN und XGBoost.
+
+--------
+
+DANN implementation:
+DAN_lambda higher than usual (from what i can tell usuall values are between 0.01-0.1), thy is likely due to unbalanced appearance of CH and transfer region
+which makes the domain signal weak, so if target domain has only a few measurements then increase lambda
+
+
+ATTENTION: I have to rerun all of BASELINE (i did 4 glacier norway so far and it imporoved RMSE by 0.03) and validate only on target domain, so the epoch selection
+is based on target domain val_loss not CH and target domain. I also ahve to implement this in DANN. batch split between domain_loss has best result how it is now, with
+mean domain loss and even domain loss 0.05 lambda, but i might have to make sure that every batch contains enough target domain data when i do the val split thing
+or the tiny nor subset, as i might not have enough train data anymore for good results.
+
+I could also try some scheduler with lambda, maybe that would work
+
+ALSO try even lower lambda like 0.01-0.04 or something
+
+--------13.08 weekly meeting------------
+
+Wasserstein Difference between distributions, could use this to show difference between climate variable,
+maybe manifold so i can compare all climate variables at once, just would have to normilze of course cause different ranges
+
+
+MAl für eine reagion den mena yearly plot machen
+
+PLots mal machen so generell wie sie aussehen werden bis in 2 woche, Rest aknn ich mit scheriben beginnen.
+
+
+IT SEEMS THAT IF BATCHNORM LR IS SET NOT HIGH THEN IT WILL NOT IMPROVE PER EPOCH, like in FR 5-10% case with lr set at 0.001 it doesnt improve at all
+
+Check Pull Request from Alban regarding Installing environment on windows.
+
+
+For Tomorrow, Do the NN modelling for regional with the same as the XGBoost and make the same plot as is in data_overview, then also do the cross-regional plot
+
+find a good geographical split for Iceland that is not representative.
+
+do DANN cross-regional for iceland
+
+
+Marijn Bullet point paragraph schreiben, also schon paragraphen aber mit kurz was schreibt ich hier etc. steht alles im Kalender

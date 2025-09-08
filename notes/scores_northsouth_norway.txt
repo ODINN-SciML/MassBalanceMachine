@@ -1,0 +1,7 @@
+train_glaciers = ['Austre Memurubreen', 'Blabreen', 'Blomstoelskardsbreen', 'Bondhusbrea', 
+                    'Breidablikkbrea', 'Graafjellsbrea', 'Graasubreen', 'Hellstugubreen', 
+                    'Moesevassbrea', 'Rembesdalskaaka', 'Ruklebreen', 'Svelgjabreen', 
+                    'Tunsbergdalsbreen', 'Vestre Memurubreen', 'Vetlefjordbreen']
+
+'length train set'13698
+'length test set'43267                   

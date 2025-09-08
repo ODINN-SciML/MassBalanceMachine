@@ -3,8 +3,30 @@ import os
 import seaborn as sns
 from sklearn.metrics import mean_squared_error, mean_absolute_error, root_mean_squared_error
 from skorch.helper import SliceDataset
+from skorch.callbacks import Callback
+import torch
 
 from scripts.plots import *
+
+
+class SaveBestAtEpochs(Callback):
+    def __init__(self, epochs, prefix="nn_model_best_epoch"):
+        self.epochs = set(epochs)
+        self.prefix = prefix
+        self.best_score = float('inf')
+        self.best_state = None
+
+    def on_epoch_end(self, net, **kwargs):
+        epoch = net.history[-1]['epoch']
+        valid_loss = net.history[-1]['valid_loss']
+        if valid_loss < self.best_score:
+            self.best_score = valid_loss
+            self.best_state = {k: v.cpu().clone() for k, v in net.module_.state_dict().items()}
+        if epoch in self.epochs and self.best_state is not None:
+            filename = f"{self.prefix}_{epoch}.pt"
+            torch.save(self.best_state, filename)
+            print(f"Best model up to epoch {epoch} saved as {filename}")
+
 
 def plot_training_history(custom_nn, skip_first_n=0):
     history = custom_nn.history
@@ -193,3 +215,85 @@ def evaluate_model_and_group_predictions(custom_NN_model, df_X_subset, y, cfg, m
     grouped_ids = grouped_ids.merge(years_per_ids, on='ID')
     
     return grouped_ids, scores, ids, y_pred
+
+
+def PlotPredictionsCombined_NN(grouped_ids, region_name="", include_summer=False, axis_limits=None, tick_step=None):
+    import math
+    fig = plt.figure(figsize=(12, 10))
+    period_colors = {'annual': '#e31a1c', 'winter': '#1f78b4', 'summer': '#33a02c'}
+
+    # Compute metrics for each period
+    metrics = {}
+    for period in ['annual', 'winter', 'summer']:
+        if period == 'summer' and not include_summer:
+            continue
+        subset = grouped_ids[grouped_ids.PERIOD == period]
+        if len(subset) > 0:
+            rmse = np.sqrt(mean_squared_error(subset.target, subset.pred))
+            rho = np.corrcoef(subset.target, subset.pred)[0, 1] if len(subset) > 1 else np.nan
+            metrics[period] = (rmse, rho)
+
+    # Combined metrics
+    rmse_all = np.sqrt(mean_squared_error(grouped_ids.target, grouped_ids.pred))
+    rho_all = np.corrcoef(grouped_ids.target, grouped_ids.pred)[0, 1] if len(grouped_ids) > 1 else np.nan
+    metrics['combined'] = (rmse_all, rho_all)
+
+    ax = plt.subplot(1, 1, 1)
+    for period in grouped_ids.PERIOD.unique():
+        if period == 'summer' and not include_summer:
+            continue
+        subset = grouped_ids[grouped_ids.PERIOD == period]
+        if len(subset) > 0:
+            ax.scatter(subset.target, subset.pred,
+                       color=period_colors.get(period, 'gray'),
+                       alpha=0.7, s=80, label=f"{period}")
+
+    # Determine axis limits (use provided axis_limits if given)
+    if axis_limits is None:
+        min_val = min(grouped_ids.target.min(), grouped_ids.pred.min())
+        max_val = max(grouped_ids.target.max(), grouped_ids.pred.max())
+        margin = 0.5
+        min_val -= margin
+        max_val += margin
+    else:
+        min_val, max_val = axis_limits
+
+    # 1:1 line and fixed limits
+    ax.plot([min_val, max_val], [min_val, max_val], 'k--', alpha=0.5, linewidth=2)
+    ax.set_xlim(min_val, max_val)
+    ax.set_ylim(min_val, max_val)
+
+    # Ticks: keep them inside [min_val, max_val]
+    if tick_step is not None:
+        # choose tick_start as smallest multiple >= min_val, tick_end as largest multiple <= max_val
+        tick_start = math.ceil(min_val / float(tick_step)) * float(tick_step)
+        tick_end = math.floor(max_val / float(tick_step)) * float(tick_step)
+        if tick_start <= tick_end:
+            ticks = np.arange(tick_start, tick_end + 1e-8, tick_step)
+            ax.set_xticks(ticks)
+            ax.set_yticks(ticks)
+        else:
+            # fallback: do nothing if no multiples fit inside limits
+            pass
+
+    # Build metrics text
+    metrics_text = f"Combined: RMSE: {metrics['combined'][0]:.2f} m w.e., ρ: {metrics['combined'][1]:.2f}\n"
+    if 'annual' in metrics:
+        metrics_text += f"Annual: RMSE: {metrics['annual'][0]:.2f} m w.e., ρ: {metrics['annual'][1]:.2f}\n"
+    if 'winter' in metrics:
+        metrics_text += f"Winter: RMSE: {metrics['winter'][0]:.2f} m w.e., ρ: {metrics['winter'][1]:.2f}\n"
+    if include_summer and 'summer' in metrics:
+        metrics_text += f"Summer: RMSE: {metrics['summer'][0]:.2f} m w.e., ρ: {metrics['summer'][1]:.2f}"
+
+    ax.text(0.05, 0.95, metrics_text, transform=ax.transAxes,
+            verticalalignment='top', horizontalalignment='left',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8),
+            fontsize=20)
+
+    ax.legend(fontsize=24, loc='lower right')
+    ax.set_xlabel('Observed PMB [m w.e.]', fontsize=27)
+    ax.set_ylabel('Predicted PMB [m w.e.]', fontsize=27)
+    ax.set_title(f'PMB - Pred vs. Obs ({region_name})', fontsize=30)
+    ax.tick_params(axis='both', which='major', labelsize=21)
+    plt.tight_layout()
+

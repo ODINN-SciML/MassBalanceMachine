@@ -1,0 +1,188 @@
+everything with "nn_model_2025-07-14_CH_flexible.pt"
+
+train_glaciers = ['Bruarjoekull', 'Skeidararjoekull', 'Koeldukvislarjoekull', 
+                'Slettjoekull West', 'RGI60-06.00238', 'Hagafellsjoekull West']
+
+'length train set'26443
+'length test set'29766
+
+Unique POINT_IDs: 2778
+
+==================ICE Flexible 50% fine tuning=======================
+=================All linear frozen all batchnorm unfrozen====================
+
+lr=0.1,
+max_epochs=200, stopped at 52
+{'score': -1.1381460200785036,
+ 'mse': 1.1381460284157072,
+ 'rmse': 1.0668392701882075,        BEST
+ 'mae': 0.7546476986458156,
+ 'pearson': 0.9271946420306315}
+
+lr=0.05,
+max_epochs=200, stopped at 53
+{'score': -1.1745665805686767,
+ 'mse': 1.1745665747204757,
+ 'rmse': 1.0837742268205475,
+ 'mae': 0.7717906366814961,
+ 'pearson': 0.9227350734834909}
+
+lr=0.01,
+max_epochs=200, stopped at 53
+{'score': -1.242066677987005,
+ 'mse': 1.242066697788973,
+ 'rmse': 1.1144804609274104,
+ 'mae': 0.7873605125555576,
+ 'pearson': 0.9188760394705244}
+
+lr=0.5,
+max_epochs=200, stopped at 88
+{'score': -1.3026310392429912,
+ 'mse': 1.3026310441070148,
+ 'rmse': 1.1413286310730204,
+ 'mae': 0.8402849220685795,
+ 'pearson': 0.9183959832881002}
+
+=================nothing frozen just fine tuning====================
+lr=0.005,
+max_epochs=15,
+{'score': -1.0703501931844588,
+ 'mse': 1.0703501907567912,
+ 'rmse': 1.0345773005226777,        BEST OVERALL
+ 'mae': 0.720800464122871,
+ 'pearson': 0.930763993222632}
+
+lr=0.005,
+max_epochs=20,
+{'score': -1.0892299863102053,
+ 'mse': 1.089229976204709,
+ 'rmse': 1.0436618112227298,
+ 'mae': 0.7360419022223704,
+ 'pearson': 0.9261321640861605}
+
+lr=0.005,
+max_epochs=10,
+{'score': -1.1829751888621398,
+ 'mse': 1.1829751782513187,
+ 'rmse': 1.0876466237943823,
+ 'mae': 0.7612378076830159,
+ 'pearson': 0.9266081450397373}
+
+ -------
+
+lr=0.001,
+max_epochs=10,
+{'score': -1.3195598735014022,
+ 'mse': 1.3195598762707828,
+ 'rmse': 1.1487209740710678,
+ 'mae': 0.7972255302955581,
+ 'pearson': 0.9182823539419862}
+
+lr=0.001,
+max_epochs=15,
+{'score': -1.2686552019974358,
+ 'mse': 1.2686552015414772,
+ 'rmse': 1.12634595109206,
+ 'mae': 0.7547879239532397,
+ 'pearson': 0.9213719172191397}
+
+lr=0.001,
+max_epochs=20,
+{'score': -1.1677624626762695,
+ 'mse': 1.167762471158347,
+ 'rmse': 1.0806305895903312,
+ 'mae': 0.7372850299348119,
+ 'pearson': 0.9252161113863442}
+
+lr=0.001,
+max_epochs=30,
+{'score': -1.1680508457065117,
+ 'mse': 1.1680508453023493,
+ 'rmse': 1.0807640099958682,
+ 'mae': 0.7392825849574586,
+ 'pearson': 0.923405912464646}
+
+lr=0.001,
+max_epochs=40,
+{'score': -1.1520430621762983,
+ 'mse': 1.1520430624154852,
+ 'rmse': 1.07333268953083,          BEST
+ 'mae': 0.7414509918542282,
+ 'pearson': 0.9244081907796592}
+
+lr=0.001,
+max_epochs=100,
+same as above, stopped at 38
+
+---------
+
+lr=0.0005
+
+    score	mse	rmse	mae	pearson
+Epoch					
+10	-1.3124	1.3124	1.1456	0.8043	0.9147
+15	-1.3536	1.3536	1.1634	0.7791	0.9178
+20	-1.2672	1.2672	1.1257	0.7616	0.9200
+30	-1.1977	1.1977	1.0944	0.7430	0.9229
+50	-1.1254	1.1254	1.0608	0.7376	0.9246
+
+
+------
+
+lr=0.0001
+
+score	mse	rmse	mae	pearson
+Epoch					
+10	-1.4699	1.4699	1.2124	0.8545	0.9037
+15	-1.5041	1.5041	1.2264	0.8527	0.9018
+20	-1.5026	1.5026	1.2258	0.8541	0.9005
+30	-1.4309	1.4309	1.1962	0.8244	0.9077
+50	-1.3680	1.3680	1.1696	0.8070	0.9109
+
+
+=================progressively unfreezing, first batchnorm all trained then progr, unfreeze linear====================
+
+layer_groups = [
+        (
+        [
+            'model.1.weight', 'model.1.bias',
+            'model.5.weight', 'model.5.bias',
+            'model.9.weight', 'model.9.bias',
+            'model.13.weight', 'model.13.bias'
+        ],200,  0.1
+    ),
+        (['model.16.weight', 'model.16.bias'], 200, 0.001), 
+        (['model.12.weight', 'model.12.bias'], 200, 0.001), 
+        (['model.8.weight', 'model.8.bias'], 200, 0.001) 
+    ]
+{'score': -1.1638411028492857,
+ 'mse': 1.1638410872631577,
+ 'rmse': 1.0788146677085726,
+ 'mae': 0.7612437726943777,
+ 'pearson': 0.9257405641318384}
+
+----> The "improvements" are from the early stopping being reset, so each new unfrozen layer
+counts as a new best valid loss, so it actually makes the model worse than just batchnorm train
+
+=================progressively unfreezing==================
+
+(['model.16.weight', 'model.16.bias'], 10, 0.001),
+(['model.12.weight', 'model.12.bias'], 10, 0.001),
+(['model.8.weight', 'model.8.bias'], 10, 0.001)
+
+{'score': -1.6136072619338204,
+ 'mse': 1.6136072663981085,
+ 'rmse': 1.2702784208188804,
+ 'mae': 0.8722896873815207,
+ 'pearson': 0.9000139342742763}
+
+(['model.16.weight', 'model.16.bias'], 30, 0.01),
+(['model.12.weight', 'model.12.bias'], 20, 0.005),
+(['model.8.weight', 'model.8.bias'], 10, 0.001)
+{'score': -1.6324862015866477,
+ 'mse': 1.6324862009024073,
+ 'rmse': 1.2776878339024784,
+ 'mae': 0.8908425755935849,
+ 'pearson': 0.8961593241031366}
+
+

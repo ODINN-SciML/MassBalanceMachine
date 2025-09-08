@@ -1,0 +1,123 @@
+Split Summary:
+   Train glaciers: (22) ['Aalfotbreen' 'Hansebreen' 'Nigardsbreen' 'Austdalsbreen' 'Juvfonne'
+ 'Hellstugubreen' 'Rembesdalskaaka' 'Svelgjabreen' 'Blomstoelskardsbreen'
+ 'Moesevassbrea' 'Vetlefjordbreen' 'Harbardsbreen' 'Graafjellsbrea'
+ 'Breidablikkbrea' 'Graasubreen' 'Blabreen' 'Ruklebreen'
+ 'Tunsbergdalsbreen' 'Vesledalsbreen' 'Austre Memurubreen'
+ 'Vestre Memurubreen' 'Bondhusbrea']
+   Test glaciers: (9) ['Rundvassbreen' 'Engabreen' 'Storsteinsfjellbreen' 'Svartisheibreen'
+ 'Trollbergdalsbreen' 'Storglombreen N' 'Blaaisen' 'Cainhavarre'
+ 'Hoegtuvbreen']
+   Train samples: 43321
+   Test samples: 13644
+
+Unique POINT_IDs: 4599
+
+==================NOR Flexible 63 lat fine tuning=======================
+================batchnorm unfrozen====================
+
+lr=0.1,              
+max_epochs=200,
+{'score': -1.1341834516199083,
+ 'mse': 1.1341834660210515,
+ 'rmse': 1.0649805003008512,
+ 'mae': 0.8225091807184851,
+ 'pearson': 0.8733781400129758}
+
+lr=0.05,              
+max_epochs=200,
+{'score': -1.1224268681851008,
+ 'mse': 1.1224268620368314,
+ 'rmse': 1.0594464885197512,      BEST OVERALL
+ 'mae': 0.8147997861811342,
+ 'pearson': 0.8754628473127224}
+
+lr=0.01,              
+max_epochs=200,
+{'score': -1.1952423045411678,
+ 'mse': 1.1952422924779422,
+ 'rmse': 1.0932713718368108,
+ 'mae': 0.8340229612612257,
+ 'pearson': 0.8683787082382491}
+
+lr=0.005,              
+max_epochs=200,
+{'score': -1.2110686712846486,
+ 'mse': 1.211068650397974,
+ 'rmse': 1.1004856429767604,
+ 'mae': 0.8339714023126108,
+ 'pearson': 0.8597601276612039}
+
+=================Nothing frozen just fine tuning==============
+
+------------------lr=0.005------------------------
+epoch stooped at 84
+{'score': -1.1250705532560765,
+ 'mse': 1.125070545906939,
+ 'rmse': 1.0606934269179473,
+ 'mae': 0.8008216741090897,
+ 'pearson': 0.8549362693626099}
+
+    score	mse	rmse	mae	pearson
+Epoch					
+10	-1.0187	1.0187	1.0093	0.7863	0.8697
+15	-1.0420	1.0420	1.0208	0.7777	0.8735
+20	-0.9873	0.9873	0.9936	0.7566	0.8734
+30	-0.9696	0.9696	0.9847	0.7444	0.8739        BEST OVERALL
+50	-1.0753	1.0753	1.0370	0.7842	0.8595
+
+------------------lr=0.001------------------------
+
+epoch stopped at 74
+{'score': -1.1023412522477096,
+ 'mse': 1.1023412974695852,
+ 'rmse': 1.0499244246466435,
+ 'mae': 0.7820759747229956,
+ 'pearson': 0.858083190520341}
+
+ 
+      score	mse	rmse	mae	pearson
+Epoch					
+10	-1.1226	1.1226	1.0595	0.8062	0.8685
+15	-1.1493	1.1493	1.0721	0.8146	0.8553
+20	-1.0342	1.0342	1.0170	0.7718	0.8717
+30	-1.0345	1.0345	1.0171	0.7762	0.8649
+50	-1.0911	1.0911	1.0446	0.7807	0.8593
+
+
+------------------lr=0.0005------------------------
+
+epoch stopped at 84
+{'score': -1.1049915030230353,
+ 'mse': 1.1049915075032055,
+ 'rmse': 1.051185762604881,
+ 'mae': 0.7844082350730898,
+ 'pearson': 0.8606822145279411}
+
+
+      score	mse	rmse	mae	pearson
+Epoch					
+10	-1.2076	1.2076	1.0989	0.8356	0.8554
+15	-1.0857	1.0857	1.0420	0.7875	0.8636
+20	-1.0668	1.0668	1.0328	0.7841	0.8671
+30	-1.1508	1.1508	1.0727	0.8005	0.8615
+50	-1.0932	1.0932	1.0456	0.7811	0.8628
+
+
+------------------lr=0.0001------------------------
+
+epoch stopped at 84
+{'score': -1.141454782885144,
+ 'mse': 1.141454797770657,
+ 'rmse': 1.0683888794678915,
+ 'mae': 0.8087252097813522,
+ 'pearson': 0.8555566547682697}
+
+
+        score	mse	rmse	mae	pearson
+Epoch					
+10	-1.2671	1.2671	1.1257	0.8478	0.8400
+15	-1.2935	1.2935	1.1373	0.8578	0.8429
+20	-1.2778	1.2778	1.1304	0.8529	0.8439
+30	-1.2186	1.2186	1.1039	0.8379	0.8514
+50	-1.1421	1.1421	1.0687	0.8077	0.8550

@@ -6,7 +6,7 @@ class Config:
 
     def __init__(
         self,
-        numJobs: int = 14,
+        numJobs: int = 12,
         testSize: float = 0.3,
         nSplits: int = 5,
         seed: int = 20,
@@ -95,6 +95,7 @@ class Config:
                 'u10': (-10, 10),
                 'v10': (-10, 10),
                 'PERIOD_INDICATOR': (0, 1),  # For seasonal branching: 0=annual, 1=winter
+                'DOMAIN': (0, 1),  # For DANN: 0=CH, 1=transfer domain
             }
         else:
             self.bnds = bnds
@@ -120,7 +121,7 @@ class SwitzerlandConfig(Config):
             "ALTITUDE_CLIMATE", "POINT_ELEVATION"
         ],
         dataPath: str = None,
-        numJobs: int = 28,
+        numJobs: int = 12,
         **kwargs,
     ):
         if dataPath is None:

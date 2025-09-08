@@ -1,3 +1,12 @@
+train_glaciers= ['Engabreen' 'Aalfotbreen' 'Nigardsbreen' 'Graasubreen']
+
+'length train set'26776
+'length test set'30189
+
+Unique POINT_IDs: 2849
+
+
+
 ==================NOR Flexible Period Indicator 4 Glaciers 50% fine tuning=======================
 =================Nothing fozen just fine tuning==============
 lr=0.00005,
@@ -224,7 +233,7 @@ lr=0.00005,
 max_epochs=20,
 {'score': -0.817206942771399,
  'mse': 0.8172069378378143,
- 'rmse': 0.9039949877282585,
+ 'rmse': 0.9039949877282585,            BEST
  'mae': 0.686712331718315,
  'pearson': 0.8817269024532204}
 
