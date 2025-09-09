@@ -365,10 +365,6 @@ def predVSTruth(ax,
                 ax_xlim=(-8, 6),
                 ax_ylim=(-8, 6)):
 
-    legend_xgb = "\n".join(
-        ((r"$\mathrm{RMSE}=%.3f$," % (scores["rmse"], )),
-         (r"$\mathrm{\rho}=%.3f$" % (scores["pearson_corr"], ))))
-
     sns.scatterplot(grouped_ids,
                     x="target",
                     y="pred",
@@ -386,6 +382,9 @@ def predVSTruth(ax,
     ax.set_xlabel('Observed PMB [m w.e.]', fontsize=20)
 
     if add_legend:
+        legend_xgb = "\n".join(
+            ((r"$\mathrm{RMSE}=%.3f$," % (scores["rmse"], )),
+             (r"$\mathrm{\rho}=%.3f$" % (scores["pearson_corr"], ))))
         ax.text(0.03,
                 0.98,
                 legend_xgb,
