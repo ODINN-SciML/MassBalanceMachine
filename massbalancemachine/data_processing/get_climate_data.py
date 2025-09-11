@@ -15,14 +15,16 @@ from calendar import month_abbr
 import xarray as xr
 import numpy as np
 import pandas as pd
+import config
 
 
-def get_climate_features(
+def get_climate_features_(
     df: pd.DataFrame,
     output_fname: str,
     climate_data: str,
     geopotential_data: str,
     change_units: bool,
+    cfg: config.Config,
     vois_climate: list = None,
     vois_other: list = None,
 ) -> pd.DataFrame:
@@ -92,7 +94,7 @@ def get_climate_features(
         lambda rng: [d.strftime("%b").lower() for d in rng]
         if rng is not None else [])
 
-    climate_df = _process_climate_data(ds_climate, df)
+    climate_df = _process_climate_data(ds_climate, df, cfg)
 
     # Get the geopotential height for the latitudes and longitudes as specified,
     # for the locations of the stake measurements.
@@ -243,18 +245,18 @@ def _crop_geopotential(ds: xr.Dataset, lat: xr.DataArray,
     return ds.sel(longitude=lon, latitude=lat, method="nearest")
 
 
-def _generate_climate_variable_names(ds_climate: xr.Dataset, df: pd.DataFrame) -> list:
-    
+def _generate_climate_variable_names(ds_climate: xr.Dataset,
+                                     cfg: config.Config) -> list:
     """Generate list of climate variable names for one hydrological year."""
     climate_variables = list(ds_climate.keys())
     months_names = [
         f"_{month.lower()}" for month in month_abbr[10:] + month_abbr[1:10]
     ]
-    
-    # extend months on both sides for longer periods:
-    months_names = ['_aug_', '_sep_']+months_names+['_oct_']
 
-    
+    # extend months on both sides for longer periods:
+    months_names = [
+        f"_{month.lower()}" for month in cfg.months_tail_pad
+    ] + months_names + [f"_{month.lower()}" for month in cfg.months_head_pad]
     return [
         f"{climate_var}{month_name}" for climate_var in climate_variables
         for month_name in months_names
@@ -277,8 +279,8 @@ def _add_date_range(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def _process_climate_data(ds_climate: xr.Dataset,
-                          df: pd.DataFrame) -> pd.DataFrame:
+def _process_climate_data(ds_climate: xr.Dataset, df: pd.DataFrame,
+                          cfg: config.Config) -> pd.DataFrame:
     """Process climate data for all points and times."""
 
     # Create DataArrays for latitude and longitude
@@ -325,7 +327,7 @@ def _process_climate_data(ds_climate: xr.Dataset,
     result_df = pd.DataFrame(result_array)
     # Set the new column names for the dataframe (climate variables X months
     # of the hydrological year)
-    result_df.columns = _generate_climate_variable_names(ds_climate, df)
+    result_df.columns = _generate_climate_variable_names(ds_climate, cfg)
     return result_df
 
 
