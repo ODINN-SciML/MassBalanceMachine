@@ -41,7 +41,7 @@ def transform_to_monthly(
 
     # Add a unique ID column to the dataframe to identify columns of the same data range
     df = _add_id_column(df)
-
+    
     # Explode the dataframe based on the date range
     df_exploded = _explode_dataframe(df)
 
@@ -89,7 +89,7 @@ def _generate_monthly_ranges(df: pd.DataFrame) -> pd.DataFrame:
         tolist(),
         axis=1,
     )
-    
+
     # extend months on both sides for longer periods:
     def tag_hydro_year(months):
         # hydrological year runs Oct → Sep

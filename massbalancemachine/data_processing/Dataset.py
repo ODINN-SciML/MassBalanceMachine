@@ -21,6 +21,7 @@ import torch
 from skorch.helper import SliceDataset
 from torch.utils.data import DataLoader, Subset
 from torch.utils.data import WeightedRandomSampler, SubsetRandomSampler
+import config
 
 from typing import Dict, List, Optional, Tuple
 from collections import Counter
@@ -28,7 +29,7 @@ from tqdm import tqdm
 import numpy as np
 from torch.utils.data import Dataset
 
-from data_processing.get_climate_data import get_climate_features, retrieve_clear_sky_rad, smooth_era5land_by_mode
+from data_processing.get_climate_data import get_climate_features_, retrieve_clear_sky_rad, smooth_era5land_by_mode
 from data_processing.get_topo_data import get_topographical_features, get_glacier_mask
 from data_processing.transform_to_monthly import transform_to_monthly
 from data_processing.glacier_utils import create_glacier_grid_RGI
@@ -110,11 +111,12 @@ class Dataset:
             geopotential_data = local_path + "era5_geopotential_pressure.nc"
             if not (os.path.isfile(climate_data)
                     and os.path.isfile(geopotential_data)):
-                download_climate_ERA5(region)
+                download_climate_ERA5(self.region_id)
 
-        self.data = get_climate_features(self.data, output_fname, climate_data,
-                                         geopotential_data, change_units,
-                                         vois_climate, vois_other)
+        self.data = get_climate_features_(self.data, output_fname,
+                                          climate_data, geopotential_data,
+                                          change_units, self.cfg, vois_climate,
+                                          vois_other)
 
     def get_potential_rad(self, path_to_direct):
         """Fetches monthly clear sky radiation data for each glacier in the dataset.
@@ -359,7 +361,7 @@ class AggregatedDataset(torch.utils.data.Dataset):
     def _getInd(self, index):
         ind = np.argwhere(self.ID == self.uniqueID[index])[:, 0]
         months = self.metadata[ind][:, self.metadataColumns.index('MONTHS')]
-        numMonths = [self.cfg.month_abbr_hydr[m] for m in months]
+        numMonths = [self.cfg.month_pos1[m] for m in months]
         ind = ind[np.argsort(
             numMonths)]  # Sort ind to get monthly data in chronological order
         return ind
@@ -506,8 +508,8 @@ class MBSequenceDataset(Dataset):
         df: pd.DataFrame,
         monthly_cols: List[str],
         static_cols: List[str],
-        hydro_pos: Dict[str, int],
         *,
+        cfg: config.Config,
         show_progress: bool = True,
         expect_target: bool = True,
     ) -> "MBSequenceDataset":
@@ -518,11 +520,16 @@ class MBSequenceDataset(Dataset):
         Required columns: GLACIER, YEAR, ID, PERIOD, MONTHS, monthly_cols, static_cols,
         and POINT_BALANCE if expect_target=True.
         """
+
+        pos_map = dict(cfg.month_pos0)  # token -> 0-based index
+        T = int(cfg.max_T)  # max sequence length
+
         data_dict = cls._build_sequences(
             df=df,
             monthly_cols=monthly_cols,
             static_cols=static_cols,
-            hydro_pos=hydro_pos,
+            pos_map=pos_map,
+            T=T,
             show_progress=show_progress,
             expect_target=expect_target,
         )
@@ -645,17 +652,131 @@ class MBSequenceDataset(Dataset):
     def _stack(a: List[np.ndarray]) -> np.ndarray:
         return np.stack(a, axis=0) if len(a) else np.empty((0, ))
 
+    # @staticmethod
+    # def _build_sequences(
+    #     df: pd.DataFrame,
+    #     monthly_cols: List[str],
+    #     static_cols: List[str],
+    #     pos_map: Dict[str, int],  # <-- 0-based month indices
+    #     T: int,  # <-- total timeline length from cfg.max_T (or len(pos_map))
+    #     *,
+    #     show_progress: bool = True,
+    #     expect_target: bool = True,
+    # ) -> Dict[str, np.ndarray]:
+    #     # --- checks ---
+    #     req = {
+    #         'GLACIER', 'YEAR', 'ID', 'PERIOD', 'MONTHS', *monthly_cols,
+    #         *static_cols
+    #     }
+    #     if expect_target:
+    #         req |= {'POINT_BALANCE'}
+    #     missing = req - set(df.columns)
+    #     if missing:
+    #         raise KeyError(f"Missing required columns: {sorted(missing)}")
+
+    #     # normalize PERIOD just in case
+    #     df = df.copy()
+    #     df['PERIOD'] = df['PERIOD'].str.strip().str.lower()
+
+    #     # masks
+    #     mask_a_template = np.ones(
+    #         T, dtype=np.float32)  # annual = all months valid
+
+    #     X_monthly, X_static = [], []
+    #     mask_valid, mask_w, mask_a = [], [], []
+    #     y, is_winter, is_annual, keys = [], [], [], []
+
+    #     groups = list(df.groupby(['GLACIER', 'YEAR', 'ID', 'PERIOD']))
+    #     iterator = tqdm(groups,
+    #                     desc="Building sequences") if show_progress else groups
+
+    #     agg_cols = monthly_cols + static_cols + (['POINT_BALANCE']
+    #                                              if expect_target else [])
+
+    #     # Mask winter (a bit more complicated)
+    #     mask_w_template = np.zeros(T, dtype=np.float32)
+    #     # mask_w_template[:9] = 1.0
+    #     # # [
+    #     # #         'aug_', 'sep_', 'oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr', 'may',
+    #     # #         'jun', 'jul', 'aug', 'sep', 'oct_'
+    #     # #     ]
+
+    #     for (g, yr, mid, per), sub in iterator:
+    #         # average duplicates within the same month if any
+    #         subm = (sub.groupby(
+    #             'MONTHS', as_index=False)[agg_cols].mean(numeric_only=True))
+
+    #         # T × Fm monthly matrix + valid mask
+    #         mat = np.zeros((T, len(monthly_cols)), dtype=np.float32)
+    #         mv = np.zeros(T, dtype=np.float32)
+
+    #         for _, r in subm.iterrows():
+    #             m = r['MONTHS']
+    #             if m not in pos_map:
+    #                 raise ValueError(
+    #                     f"Unexpected month token '{m}'. Expected one of {list(pos_map.keys())}."
+    #                 )
+    #             pos = pos_map[m]
+    #             mat[pos, :] = r[monthly_cols].to_numpy(np.float32)
+    #             mv[pos] = 1.0
+
+    #             if per == 'winter':
+    #                 mask_w_template[
+    #                     pos] = 1.0  # winter = only months with data valid
+
+    #         # # check if mask_w_template is 0 everywhere
+    #         # if per == 'annual' and mask_w_template.sum() == 0:
+    #         #     mask_w_template[:9] = 1.0
+
+    #         # static features from first row
+    #         s = subm.iloc[0][static_cols].to_numpy(np.float32)
+
+    #         # target
+    #         target = float(
+    #             subm['POINT_BALANCE'].mean()) if expect_target else np.nan
+
+    #         # append (once per group)
+    #         X_monthly.append(mat)
+    #         X_static.append(s)
+    #         mask_valid.append(mv)
+    #         mask_w.append(mask_w_template.copy())
+    #         mask_a.append(mask_a_template.copy())
+    #         y.append(target)
+    #         is_winter.append(per == 'winter')
+    #         is_annual.append(per == 'annual')
+    #         keys.append((g, int(yr), int(mid), per))
+
+    #     data_dict = dict(
+    #         X_monthly=MBSequenceDataset._stack(X_monthly),
+    #         X_static=MBSequenceDataset._stack(X_static),
+    #         mask_valid=MBSequenceDataset._stack(mask_valid),
+    #         mask_w=MBSequenceDataset._stack(mask_w),
+    #         mask_a=MBSequenceDataset._stack(mask_a),
+    #         y=np.asarray(y, dtype=np.float32),
+    #         is_winter=np.asarray(is_winter, dtype=bool),
+    #         is_annual=np.asarray(is_annual, dtype=bool),
+    #         keys=keys,
+    #     )
+
+    #     if len(keys) != len(set(keys)):
+    #         dupes = [k for k, c in Counter(keys).items() if c > 1]
+    #         raise ValueError(
+    #             f"Found {len(dupes)} duplicate keys, e.g. {dupes[:5]}")
+
+    #     return data_dict
+
     @staticmethod
     def _build_sequences(
         df: pd.DataFrame,
         monthly_cols: List[str],
         static_cols: List[str],
-        hydro_pos: Dict[str, int],
+        pos_map: Dict[str, int],  # token -> 0-based index
+        T: int,  # total timeline length (e.g., cfg.max_T)
         *,
         show_progress: bool = True,
         expect_target: bool = True,
     ) -> Dict[str, np.ndarray]:
-        # --- checks ---
+        # --- required columns ---
         req = {
             'GLACIER', 'YEAR', 'ID', 'PERIOD', 'MONTHS', *monthly_cols,
             *static_cols
@@ -666,91 +787,88 @@ class MBSequenceDataset(Dataset):
         if missing:
             raise KeyError(f"Missing required columns: {sorted(missing)}")
 
-        # normalize PERIOD just in case
         df = df.copy()
-        df['PERIOD'] = df['PERIOD'].str.strip().str.lower()
-
-        # masks
-        mask_a_template = np.ones(
-            15, dtype=np.float32)  # annual = all months valid
+        df['PERIOD'] = df['PERIOD'].astype(str).str.strip().str.lower()
+        df['MONTHS'] = df['MONTHS'].astype(str).str.strip().str.lower()
 
         X_monthly, X_static = [], []
         mask_valid, mask_w, mask_a = [], [], []
         y, is_winter, is_annual, keys = [], [], [], []
 
-        groups = list(df.groupby(['GLACIER', 'YEAR', 'ID', 'PERIOD']))
+        groups = list(
+            df.groupby(['GLACIER', 'YEAR', 'ID', 'PERIOD'], sort=False))
         iterator = tqdm(groups,
                         desc="Building sequences") if show_progress else groups
 
         agg_cols = monthly_cols + static_cols + (['POINT_BALANCE']
                                                  if expect_target else [])
 
-        # Mask winter (a bit more complicated)
-        mask_w_template = np.zeros(15, dtype=np.float32)
-        # mask_w_template[:9] = 1.0
-        # # [
-        # #         'aug_', 'sep_', 'oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr', 'may',
-        # #         'jun', 'jul', 'aug', 'sep', 'oct_'
-        # #     ]
-
         for (g, yr, mid, per), sub in iterator:
-            # average duplicates within the same month if any
+            # average duplicates within the same month token
             subm = (sub.groupby(
                 'MONTHS', as_index=False)[agg_cols].mean(numeric_only=True))
 
-            # 15 × Fm monthly matrix + valid mask
-            mat = np.zeros((15, len(monthly_cols)), dtype=np.float32)
-            mv = np.zeros(15, dtype=np.float32)
+            # (T, Fm) matrix + valid mask
+            mat = np.zeros((T, len(monthly_cols)), dtype=np.float32)
+            mv = np.zeros(T, dtype=np.float32)
 
             for _, r in subm.iterrows():
-                m = r['MONTHS']
-                if m not in hydro_pos:
+                m = str(r['MONTHS']).strip().lower()
+                if m not in pos_map:
                     raise ValueError(
-                        f"Unexpected month token '{m}'. Expected one of {list(hydro_pos.keys())}."
+                        f"Unexpected month token '{m}'. Expected one of {list(pos_map.keys())}."
                     )
-                pos = hydro_pos[m]
+                pos = int(pos_map[m])  # 0-based
                 mat[pos, :] = r[monthly_cols].to_numpy(np.float32)
                 mv[pos] = 1.0
 
-                if per == 'winter':
-                    mask_w_template[
-                        pos] = 1.0  # winter = only months with data valid
-
-            # # check if mask_w_template is 0 everywhere
-            # if per == 'annual' and mask_w_template.sum() == 0:
-            #     mask_w_template[:9] = 1.0
-
-            # static features from first row
+            # static features
             s = subm.iloc[0][static_cols].to_numpy(np.float32)
 
             # target
             target = float(
                 subm['POINT_BALANCE'].mean()) if expect_target else np.nan
 
-            # append (once per group)
+            # ---- per-sample seasonal masks (flexible windows) ----
+            per_l = str(per).strip().lower()
+            if per_l == 'winter':
+                mw_sample = mv.copy()
+                ma_sample = np.zeros(T, dtype=np.float32)
+            elif per_l == 'annual':
+                mw_sample = np.zeros(T, dtype=np.float32)
+                ma_sample = mv.copy()
+            else:
+                raise ValueError(f"Unexpected PERIOD: {per}")
+
+            # append once per group
             X_monthly.append(mat)
             X_static.append(s)
             mask_valid.append(mv)
-            mask_w.append(mask_w_template.copy())
-            mask_a.append(mask_a_template.copy())
+            mask_w.append(mw_sample)
+            mask_a.append(ma_sample)
             y.append(target)
-            is_winter.append(per == 'winter')
-            is_annual.append(per == 'annual')
-            keys.append((g, int(yr), int(mid), per))
+            is_winter.append(per_l == 'winter')
+            is_annual.append(per_l == 'annual')
+            keys.append((g, int(yr), int(mid), per_l))
+
+        def stack(a):
+            return np.stack(a, axis=0) if len(a) else np.empty((0, ))
 
         data_dict = dict(
-            X_monthly=MBSequenceDataset._stack(X_monthly),
-            X_static=MBSequenceDataset._stack(X_static),
-            mask_valid=MBSequenceDataset._stack(mask_valid),
-            mask_w=MBSequenceDataset._stack(mask_w),
-            mask_a=MBSequenceDataset._stack(mask_a),
+            X_monthly=stack(X_monthly),  # (B, T, Fm)
+            X_static=stack(X_static),  # (B, Fs)
+            mask_valid=stack(mask_valid),  # (B, T)
+            mask_w=stack(mask_w),  # (B, T)
+            mask_a=stack(mask_a),  # (B, T)
             y=np.asarray(y, dtype=np.float32),
             is_winter=np.asarray(is_winter, dtype=bool),
             is_annual=np.asarray(is_annual, dtype=bool),
             keys=keys,
         )
 
+        # Key uniqueness check
         if len(keys) != len(set(keys)):
+            from collections import Counter
             dupes = [k for k, c in Counter(keys).items() if c > 1]
             raise ValueError(
                 f"Found {len(dupes)} duplicate keys, e.g. {dupes[:5]}")
@@ -761,11 +879,11 @@ class MBSequenceDataset(Dataset):
 
     def __init__(self, data_dict: Dict[str, np.ndarray]):
         # raw numpy -> tensors
-        self.Xm = torch.from_numpy(data_dict['X_monthly']).float()  # (B,15,Fm)
+        self.Xm = torch.from_numpy(data_dict['X_monthly']).float()  # (B,T,Fm)
         self.Xs = torch.from_numpy(data_dict['X_static']).float()  # (B,Fs)
-        self.mv = torch.from_numpy(data_dict['mask_valid']).float()  # (B,15)
-        self.mw = torch.from_numpy(data_dict['mask_w']).float()  # (B,15)
-        self.ma = torch.from_numpy(data_dict['mask_a']).float()  # (B,15)
+        self.mv = torch.from_numpy(data_dict['mask_valid']).float()  # (B,T)
+        self.mw = torch.from_numpy(data_dict['mask_w']).float()  # (B,T)
+        self.ma = torch.from_numpy(data_dict['mask_a']).float()  # (B,T)
         self.y = torch.from_numpy(data_dict['y']).float()  # (B,)
         self.iw = torch.from_numpy(data_dict['is_winter']).bool()  # (B,)
         self.ia = torch.from_numpy(data_dict['is_annual']).bool()  # (B,)
@@ -799,9 +917,9 @@ class MBSequenceDataset(Dataset):
     def fit_scalers(self, idx_train: np.ndarray) -> None:
         """Fit scalers on TRAIN subset only."""
         # monthly features: mean/std over valid months
-        Xm = self.Xm[idx_train].numpy()  # (N,15,Fm)
-        Mv = self.mv[idx_train].numpy()  # (N,15)
-        mask3 = Mv[..., None]  # (N,15,1)
+        Xm = self.Xm[idx_train].numpy()  # (N,T,Fm)
+        Mv = self.mv[idx_train].numpy()  # (N,T)
+        mask3 = Mv[..., None]  # (N,T,1)
         num = (Xm * mask3).sum(axis=(0, 1))  # (Fm,)
         den = mask3.sum(axis=(0, 1))  # (Fm,) effectively
         month_mean = num / np.maximum(den, 1e-8)
@@ -834,7 +952,7 @@ class MBSequenceDataset(Dataset):
         assert self.y_mean is not None and self.y_std is not None, "Call fit_scalers or set_scalers_from first."
 
         self.Xm = (self.Xm - self.month_mean
-                   ) / self.month_std  # (B,15,Fm) broadcasts over B and 15
+                   ) / self.month_std  # (B,T,Fm) broadcasts over B and T
         self.Xs = (self.Xs - self.static_mean) / self.static_std
         self.y = (self.y - self.y_mean) / self.y_std
 
