@@ -58,19 +58,21 @@ class Config:
         # Constant attributes
         self.base_url_w5e5 = "https://cluster.klima.uni-bremen.de/~oggm/gdirs/oggm_v1.6/L3-L5_files/2023.1/elev_bands/W5E5_w_data/"
         self.month_abbr_hydr = {
-            'sep': 1,
-            'oct': 2,
-            'nov': 3,
-            'dec': 4,
-            'jan': 5,
-            'feb': 6,
-            'mar': 7,
-            'apr': 8,
-            'may': 9,
-            'jun': 10,
-            'jul': 11,
-            'aug': 12,
-            #'sep_': 13,
+            'aug_': 1,
+            'sep_': 2,
+            'oct': 3,
+            'nov': 4,
+            'dec': 5,
+            'jan': 6,
+            'feb': 7,
+            'mar': 8,
+            'apr': 9,
+            'may': 10,
+            'jun': 11,
+            'jul': 12,
+            'aug': 13,
+            'sep': 14,
+            'oct_': 15
         }
 
         # Scaling bounds
@@ -120,8 +122,7 @@ class SwitzerlandConfig(Config):
         ],
         notMetaDataNotFeatures: List[str] = [
             "POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON",
-            "ALTITUDE_CLIMATE",
-            "POINT_ELEVATION"
+            "ALTITUDE_CLIMATE", "POINT_ELEVATION"
         ],
         dataPath: str = None,
         numJobs: int = 28,
