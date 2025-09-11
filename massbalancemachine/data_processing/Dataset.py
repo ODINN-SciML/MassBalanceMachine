@@ -133,12 +133,12 @@ class Dataset:
 
         # reset index
         df_concat.reset_index(drop=True, inplace=True)
-        
-        # double columns for extended months: 
+
+        # double columns for extended months:
         df_concat['pcsr_sep_'] = df_concat['pcsr_sep']
         df_concat['pcsr_aug_'] = df_concat['pcsr_aug']
         df_concat['pcsr_oct_'] = df_concat['pcsr_oct']
-        
+
         self.data = df_concat
 
     def remove_climate_artifacts(self, vois_climate: str,
@@ -533,7 +533,7 @@ class MBSequenceDataset(Dataset):
         *,
         val_ratio: float = 0.2,
         batch_size_train: int = 64,
-        batch_size_val: int = 128,
+        batch_size_val: int = 158,
         seed: int = 42,
         fit_and_transform: bool = True,
         shuffle_train: bool = True,
@@ -622,7 +622,7 @@ class MBSequenceDataset(Dataset):
         ds_test: "MBSequenceDataset",
         ds_train: "MBSequenceDataset",
         *,
-        batch_size: int = 128,
+        batch_size: int = 158,
         num_workers: int = 0,
         pin_memory: bool = False,
     ):
@@ -671,9 +671,8 @@ class MBSequenceDataset(Dataset):
         df['PERIOD'] = df['PERIOD'].str.strip().str.lower()
 
         # masks
-        mask_w_template = np.zeros(12, dtype=np.float32)
-        mask_w_template[:7] = 1.0  # Oct..Apr
-        mask_a_template = np.ones(12, dtype=np.float32)
+        mask_a_template = np.ones(
+            15, dtype=np.float32)  # annual = all months valid
 
         X_monthly, X_static = [], []
         mask_valid, mask_w, mask_a = [], [], []
@@ -685,14 +684,23 @@ class MBSequenceDataset(Dataset):
 
         agg_cols = monthly_cols + static_cols + (['POINT_BALANCE']
                                                  if expect_target else [])
+
+        # Mask winter (a bit more complicated)
+        mask_w_template = np.zeros(15, dtype=np.float32)
+        # mask_w_template[:9] = 1.0
+        # # [
+        # #         'aug_', 'sep_', 'oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr', 'may',
+        # #         'jun', 'jul', 'aug', 'sep', 'oct_'
+        # #     ]
+
         for (g, yr, mid, per), sub in iterator:
             # average duplicates within the same month if any
             subm = (sub.groupby(
                 'MONTHS', as_index=False)[agg_cols].mean(numeric_only=True))
 
-            # 12 × Fm monthly matrix + valid mask
-            mat = np.zeros((12, len(monthly_cols)), dtype=np.float32)
-            mv = np.zeros(12, dtype=np.float32)
+            # 15 × Fm monthly matrix + valid mask
+            mat = np.zeros((15, len(monthly_cols)), dtype=np.float32)
+            mv = np.zeros(15, dtype=np.float32)
 
             for _, r in subm.iterrows():
                 m = r['MONTHS']
@@ -703,6 +711,14 @@ class MBSequenceDataset(Dataset):
                 pos = hydro_pos[m]
                 mat[pos, :] = r[monthly_cols].to_numpy(np.float32)
                 mv[pos] = 1.0
+
+                if per == 'winter':
+                    mask_w_template[
+                        pos] = 1.0  # winter = only months with data valid
+
+            # # check if mask_w_template is 0 everywhere
+            # if per == 'annual' and mask_w_template.sum() == 0:
+            #     mask_w_template[:9] = 1.0
 
             # static features from first row
             s = subm.iloc[0][static_cols].to_numpy(np.float32)
@@ -745,11 +761,11 @@ class MBSequenceDataset(Dataset):
 
     def __init__(self, data_dict: Dict[str, np.ndarray]):
         # raw numpy -> tensors
-        self.Xm = torch.from_numpy(data_dict['X_monthly']).float()  # (B,12,Fm)
+        self.Xm = torch.from_numpy(data_dict['X_monthly']).float()  # (B,15,Fm)
         self.Xs = torch.from_numpy(data_dict['X_static']).float()  # (B,Fs)
-        self.mv = torch.from_numpy(data_dict['mask_valid']).float()  # (B,12)
-        self.mw = torch.from_numpy(data_dict['mask_w']).float()  # (B,12)
-        self.ma = torch.from_numpy(data_dict['mask_a']).float()  # (B,12)
+        self.mv = torch.from_numpy(data_dict['mask_valid']).float()  # (B,15)
+        self.mw = torch.from_numpy(data_dict['mask_w']).float()  # (B,15)
+        self.ma = torch.from_numpy(data_dict['mask_a']).float()  # (B,15)
         self.y = torch.from_numpy(data_dict['y']).float()  # (B,)
         self.iw = torch.from_numpy(data_dict['is_winter']).bool()  # (B,)
         self.ia = torch.from_numpy(data_dict['is_annual']).bool()  # (B,)
@@ -783,9 +799,9 @@ class MBSequenceDataset(Dataset):
     def fit_scalers(self, idx_train: np.ndarray) -> None:
         """Fit scalers on TRAIN subset only."""
         # monthly features: mean/std over valid months
-        Xm = self.Xm[idx_train].numpy()  # (N,12,Fm)
-        Mv = self.mv[idx_train].numpy()  # (N,12)
-        mask3 = Mv[..., None]  # (N,12,1)
+        Xm = self.Xm[idx_train].numpy()  # (N,15,Fm)
+        Mv = self.mv[idx_train].numpy()  # (N,15)
+        mask3 = Mv[..., None]  # (N,15,1)
         num = (Xm * mask3).sum(axis=(0, 1))  # (Fm,)
         den = mask3.sum(axis=(0, 1))  # (Fm,) effectively
         month_mean = num / np.maximum(den, 1e-8)
@@ -818,7 +834,7 @@ class MBSequenceDataset(Dataset):
         assert self.y_mean is not None and self.y_std is not None, "Call fit_scalers or set_scalers_from first."
 
         self.Xm = (self.Xm - self.month_mean
-                   ) / self.month_std  # (B,12,Fm) broadcasts over B and 12
+                   ) / self.month_std  # (B,15,Fm) broadcasts over B and 15
         self.Xs = (self.Xs - self.static_mean) / self.static_std
         self.y = (self.y - self.y_mean) / self.y_std
 
