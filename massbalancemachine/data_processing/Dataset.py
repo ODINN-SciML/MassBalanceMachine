@@ -133,6 +133,12 @@ class Dataset:
 
         # reset index
         df_concat.reset_index(drop=True, inplace=True)
+        
+        # double columns for extended months: 
+        df_concat['pcsr_sep_'] = df_concat['pcsr_sep']
+        df_concat['pcsr_aug_'] = df_concat['pcsr_aug']
+        df_concat['pcsr_oct_'] = df_concat['pcsr_oct']
+        
         self.data = df_concat
 
     def remove_climate_artifacts(self, vois_climate: str,

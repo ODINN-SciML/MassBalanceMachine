@@ -88,6 +88,10 @@ def get_climate_features(
 
     # Get the climate data for the latitudes and longitudes and date ranges as
     # specified
+    df['months_in_range'] = df['range_date'].apply(
+        lambda rng: [d.strftime("%b").lower() for d in rng]
+        if rng is not None else [])
+
     climate_df = _process_climate_data(ds_climate, df)
 
     # Get the geopotential height for the latitudes and longitudes as specified,
@@ -167,7 +171,7 @@ def retrieve_clear_sky_rad(df, path_to_file):
 
         result_df = pd.DataFrame(np.array(reshaped_).transpose(),
                                  columns=[f'Month_{i+1}' for i in range(12)])
-    else:   
+    else:
         raise ValueError("No points found in the radiation dataset.")
 
     # Set the new column names for the dataframe (normal year not hydrological)
@@ -239,12 +243,18 @@ def _crop_geopotential(ds: xr.Dataset, lat: xr.DataArray,
     return ds.sel(longitude=lon, latitude=lat, method="nearest")
 
 
-def _generate_climate_variable_names(ds_climate: xr.Dataset) -> list:
+def _generate_climate_variable_names(ds_climate: xr.Dataset, df: pd.DataFrame) -> list:
+    
     """Generate list of climate variable names for one hydrological year."""
     climate_variables = list(ds_climate.keys())
     months_names = [
         f"_{month.lower()}" for month in month_abbr[10:] + month_abbr[1:10]
     ]
+    
+    # extend months on both sides for longer periods:
+    months_names = ['_aug_', '_sep_']+months_names+['_oct_']
+
+    
     return [
         f"{climate_var}{month_name}" for climate_var in climate_variables
         for month_name in months_names
@@ -256,8 +266,8 @@ def _create_date_range(year: int):
     if pd.isna(year):
         return None
     year = int(year)
-    return pd.date_range(start=f"{year - 1}-09-01",
-                         end=f"{year}-09-01",
+    return pd.date_range(start=f"{year - 1}-08-01",
+                         end=f"{year}-11-01",
                          freq="ME")
 
 
@@ -304,16 +314,18 @@ def _process_climate_data(ds_climate: xr.Dataset,
     num_rows, num_cols = climate_df.shape
 
     # Reshape the DataFrame to a 3D array (groups, 12, columns)
-    reshaped_array = climate_df.to_numpy().reshape(-1, 12, num_cols)
+    N_MONTHS = date_array.shape[1]
+    reshaped_array = climate_df.to_numpy().reshape(-1, N_MONTHS, num_cols)
 
     # Transpose and reshape to get the desired flattening effect
-    result_array = reshaped_array.transpose(0, 2, 1).reshape(-1, 12 * num_cols)
+    result_array = reshaped_array.transpose(0, 2,
+                                            1).reshape(-1, N_MONTHS * num_cols)
 
     # Convert back to a DataFrame if needed
     result_df = pd.DataFrame(result_array)
     # Set the new column names for the dataframe (climate variables X months
     # of the hydrological year)
-    result_df.columns = _generate_climate_variable_names(ds_climate)
+    result_df.columns = _generate_climate_variable_names(ds_climate, df)
     return result_df
 
 
