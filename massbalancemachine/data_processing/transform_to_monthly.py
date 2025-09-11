@@ -9,7 +9,7 @@ Date Created: 21/07/2024
 
 import pandas as pd
 import numpy as np
-
+from typing import Dict, List, Optional, Tuple
 
 def transform_to_monthly(
     df: pd.DataFrame,
@@ -90,30 +90,38 @@ def _generate_monthly_ranges(df: pd.DataFrame) -> pd.DataFrame:
         axis=1,
     )
 
-    # extend months on both sides for longer periods:
-    def tag_hydro_year(months):
-        # hydrological year runs Oct → Sep
-        # hydro_months = [
-        #     'oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul',
-        #     'aug', 'sep'
-        # ]
+    def tag_hydro_year(months: List[str]) -> List[str]:
+        """
+        Flexibly tag month tokens to disambiguate duplicates when the 
+        hydrological window is extended with tail/head padding.
 
-        # Check beginning:
+        Rules:
+        - Canonical hydro year is Oct..Sep (untagged).
+        - If 'aug' or 'sep' occur BEFORE Oct, they are tagged as 'aug_'/'sep_'.
+        - If 'oct' or 'nov' occur AFTER Sep, they are tagged as 'oct_'/'nov_'.
+        - Works for any variable-length window (>= 12 months).
+        """
+        # canonical order
+        hydro_core = ['oct','nov','dec','jan','feb','mar','apr','may','jun','jul','aug','sep']
+
         tagged = []
-        if months[0] == 'aug':
-            tagged = ['aug_', 'sep_'] + months[2:]
-        elif months[0] == 'sep':
-            tagged = ['sep_'] + months[1:]
-        else:
-            tagged = months
+        seen_oct = False
+        for i, m in enumerate(months):
+            m = m.strip().lower()
 
-        if tagged[-1] == 'oct':
-            tagged[-1] = 'oct_'
-            
-        if tagged[-2] == 'nov':
-            tagged[-1] = 'oct_'
-            tagged[-2] = 'nov_'
-
+            if not seen_oct:
+                if m == 'oct':
+                    seen_oct = True
+                    tagged.append('oct')
+                elif m in ('july', 'aug','sep'):  # before Oct
+                    tagged.append(m + '_')
+                else:
+                    tagged.append(m)  # e.g. nov, dec if starting late
+            else:
+                if m in ('oct','nov', 'dec') and i > len(hydro_core):  # after Sep
+                    tagged.append(m + '_')
+                else:
+                    tagged.append(m)
         return tagged
     
     # Apply the tagging function to the MONTHS column   
