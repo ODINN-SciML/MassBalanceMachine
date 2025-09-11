@@ -6,22 +6,21 @@ import pandas as pd
 import numpy as np
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from functools import partial  # put at top of file if not already
-import json, math               # put at top of file if not already
+import json, math  # put at top of file if not already
 import pandas as pd
-
-
 """
 Model diagram:
-    Monthly inputs (B×12×Fm) ──► LSTM ──────────┐
+    Monthly inputs (B×15×Fm) ──► LSTM ──────────┐
                                                 │
     Static inputs (B×Fs) ──► Static MLP ──► repeat ─► concat ─► Dropout ─► [Head(s)]
                                                 │
                                                 ▼
-                                    Per-month MB predictions (B×12)
+                                    Per-month MB predictions (B×15)
 
             ▼ masks mv, mw, ma
     Winter MB (B)    Annual MB (B)
 """
+
 
 class LSTM_MB(nn.Module):
     """
@@ -30,19 +29,19 @@ class LSTM_MB(nn.Module):
     """
 
     def __init__(
-            self,
-            Fm: int,
-            Fs: int,
-            hidden_size: int = 128,
-            num_layers: int = 1,
-            bidirectional: bool = True,
-            dropout: float = 0.1,
-            static_hidden: Union[int, List[int]] = 64,
-            static_layers: int = 2,
-            static_dropout: Optional[float] = None,
-            *,
-            two_heads: bool = False,  
-            head_dropout: float = 0.0,  
+        self,
+        Fm: int,
+        Fs: int,
+        hidden_size: int = 158,
+        num_layers: int = 1,
+        bidirectional: bool = True,
+        dropout: float = 0.1,
+        static_hidden: Union[int, List[int]] = 64,
+        static_layers: int = 2,
+        static_dropout: Optional[float] = None,
+        *,
+        two_heads: bool = False,
+        head_dropout: float = 0.0,
     ):
         super().__init__()
         self.two_heads = two_heads
@@ -59,7 +58,7 @@ class LSTM_MB(nn.Module):
             if num_layers > 1 else 0.0,  # applied between LSTM layers
         )
 
-        # Output shape of LSTM block: (B, 12, H) where H = hidden_size × (2 if bidirectional else 1)
+        # Output shape of LSTM block: (B, 15, H) where H = hidden_size × (2 if bidirectional else 1)
         H = hidden_size * (2 if bidirectional else 1)
 
         if static_dropout is None:
@@ -107,42 +106,49 @@ class LSTM_MB(nn.Module):
     # ----------------
     def forward(self, x_m, x_s, mv, mw, ma):
         """
-        x_m: (B,12,Fm) | x_s: (B,Fs) | mv,mw,ma: (B,12)
+        x_m: (B,15,Fm) | x_s: (B,Fs) | mv,mw,ma: (B,15)
         Returns: y_month, y_w, y_a
         """
-        out, _ = self.lstm(x_m)  # (B,12,H or 2H)
+        out, _ = self.lstm(x_m)  # (B,15,H or 2H)
         s = self.static_mlp(x_s)  # (B,static_out_dim)
 
         # ---- Fusion layer ----
         s_rep = s.unsqueeze(1).expand(-1, out.size(1),
                                       -1)  # repeat static along time dimension
         z = torch.cat([out, s_rep], dim=-1)  # concat dynamic + static
-        # Output shape: (B, 12, H + static_out_dim)
+        # Output shape: (B, 15, H + static_out_dim)
         z = self.head_pre_dropout(z)
 
         if self.two_heads:
-            y_month_w = self.head_w(z).squeeze(-1)  # (B,12)
-            y_month_a = self.head_a(z).squeeze(-1)  # (B,12)
+            y_month_w = self.head_w(z).squeeze(-1)  # (B,15)
+            y_month_a = self.head_a(z).squeeze(-1)  # (B,15)
 
             # mask valid months
-            y_month_w = y_month_w * mv 
+            y_month_w = y_month_w * mv
             y_month_a = y_month_a * mv
 
             # Then it computes seasonal sums (y_w, y_a) depending on which months matter.
+            # For a winter meas, this is the sum of the months in mw (e.g. Nov-Apr),
+            # And y_a will also be over just winter  months
+            # but does not matter because not taken into account in loss
             y_w = (y_month_w * mw).sum(dim=1)  # (B,)
+
+            # For an annual meas, this is the sum of the months in ma (e.g. Oct-Sep).
+            # and mw will just be 0 everywhere but again does not matter
+            # just ignored in loss
             y_a = (y_month_a * ma).sum(dim=1)  # (B,)
 
             # keep API: return one per-month series (use annual one for convenience)
             return y_month_a, y_w, y_a
         else:
-            y_month = self.head(z).squeeze(-1)  # (B,12)
-            y_month = y_month * mv
+            y_month = self.head(z).squeeze(-1)  # (B,15)
+            y_month = y_month * mv  # mask valid months
             y_w = (y_month * mw).sum(dim=1)  # (B,)
             y_a = (y_month * ma).sum(dim=1)  # (B,)
             return y_month, y_w, y_a
 
     # ----------------
-    #  Train loop / losses 
+    #  Train loop / losses
     # ----------------
     def train_loop(self,
                    device,
@@ -399,7 +405,7 @@ class LSTM_MB(nn.Module):
                     "YEAR": yr
                 })
         return pd.DataFrame(rows)
-    
+
     @staticmethod
     def _is_na(x):
         # Treat None / '' / NaN (float or numpy/pandas) as missing
@@ -473,11 +479,11 @@ class LSTM_MB(nn.Module):
         Also normalizes the static-MLP identity case.
         """
         # Normalize identity static block:
-        static_layers  = int(params.get('static_layers', 0) or 0)
-        static_hidden  = params.get('static_hidden', None)
+        static_layers = int(params.get('static_layers', 0) or 0)
+        static_hidden = params.get('static_hidden', None)
         static_dropout = params.get('static_dropout', None)
         if static_layers == 0:
-            static_hidden  = None
+            static_hidden = None
             static_dropout = None
 
         return cls(
