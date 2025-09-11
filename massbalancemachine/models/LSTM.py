@@ -5,6 +5,9 @@ import torch.nn as nn
 import pandas as pd
 import numpy as np
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+from functools import partial  # put at top of file if not already
+import json, math               # put at top of file if not already
+import pandas as pd
 
 
 """
@@ -396,3 +399,97 @@ class LSTM_MB(nn.Module):
                     "YEAR": yr
                 })
         return pd.DataFrame(rows)
+    
+    @staticmethod
+    def _is_na(x):
+        # Treat None / '' / NaN (float or numpy/pandas) as missing
+        if x is None:
+            return True
+        if isinstance(x, str) and x.strip() == "":
+            return True
+        try:
+            # works for float('nan'), np.nan, pd.NA, etc.
+            return bool(pd.isna(x))
+        except Exception:
+            return False
+
+    @classmethod
+    def _coerce_loss_spec(cls, val):
+        """
+        Accepts:
+        - None / NaN / ''  -> returns None
+        - '["weighted", {"w_winter":1.0,"w_annual":2.5}]' (JSON string)
+        - ("weighted", {"w_winter":1.0,"w_annual":2.5})
+        - ["weighted", {"w_winter":1.0,"w_annual":2.5}]
+        Returns:
+        - None  or  (kind, kwargs_dict)
+        """
+        if cls._is_na(val):
+            return None
+
+        # If it's a non-empty string, try JSON
+        if isinstance(val, str):
+            s = val.strip()
+            if not s:
+                return None
+            try:
+                val = json.loads(s)
+            except Exception:
+                return None
+
+        # If it's list/tuple of length 2, (kind, kwargs)
+        if isinstance(val, (list, tuple)) and len(val) == 2:
+            kind, kw = val
+            # kw can be a JSON string as well
+            if isinstance(kw, str):
+                try:
+                    kw = json.loads(kw)
+                except Exception:
+                    kw = {}
+            if kw is None:
+                kw = {}
+            return (kind, kw)
+
+        return None
+
+    @classmethod
+    def resolve_loss_fn(cls, params):
+        """
+        Returns a callable loss function based on params['loss_spec'].
+        Fallback is cls.custom_loss.
+        """
+        spec = cls._coerce_loss_spec(params.get('loss_spec'))
+        if spec is None:
+            return cls.custom_loss
+        kind, kw = spec
+        if kind == "weighted":
+            return partial(cls.seasonal_mse_weighted, **kw)
+        return cls.custom_loss
+
+    @classmethod
+    def build_model_from_params(cls, params, device):
+        """
+        Construct LSTM_MB from a flat params dict.
+        Also normalizes the static-MLP identity case.
+        """
+        # Normalize identity static block:
+        static_layers  = int(params.get('static_layers', 0) or 0)
+        static_hidden  = params.get('static_hidden', None)
+        static_dropout = params.get('static_dropout', None)
+        if static_layers == 0:
+            static_hidden  = None
+            static_dropout = None
+
+        return cls(
+            Fm=int(params['Fm']),
+            Fs=int(params['Fs']),
+            hidden_size=int(params['hidden_size']),
+            num_layers=int(params['num_layers']),
+            bidirectional=bool(params['bidirectional']),
+            dropout=float(params.get('dropout', 0.0)),
+            static_hidden=static_hidden,
+            static_layers=static_layers,
+            static_dropout=static_dropout,
+            two_heads=bool(params.get('two_heads', True)),
+            head_dropout=float(params.get('head_dropout', 0.0)),
+        ).to(device)

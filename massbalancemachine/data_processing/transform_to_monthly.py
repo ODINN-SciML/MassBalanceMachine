@@ -49,7 +49,8 @@ def transform_to_monthly(
     column_names = _get_column_names(meta_data_columns, vois_topographical)
 
     # Create the final dataframe with the new exploded climate data
-    result_df = _create_result_dataframe(df_exploded, column_names, vois_climate)
+    result_df = _create_result_dataframe(df_exploded, column_names,
+                                         vois_climate)
 
     result_df.to_csv(output_fname, index=False)
 
@@ -62,6 +63,7 @@ def _convert_dates_to_datetime(df: pd.DataFrame) -> pd.DataFrame:
     df["TO_DATE"] = pd.to_datetime(df["TO_DATE"], format="%Y%m%d")
     return df
 
+
 def _round_to_start_of_month(date):
     """
     Round date to the nearest start of the month.
@@ -73,19 +75,51 @@ def _round_to_start_of_month(date):
     else:
         return date + pd.offsets.MonthBegin()
 
+
 def _generate_monthly_ranges(df: pd.DataFrame) -> pd.DataFrame:
-    """Generate monthly ranges and convert to month names.""" 
+    """Generate monthly ranges and convert to month names."""
     df["FROM_DATE_RND"] = df["FROM_DATE"].apply(_round_to_start_of_month)
-    df["TO_DATE_RND"] = df["TO_DATE"].apply(_round_to_start_of_month)   
+    df["TO_DATE_RND"] = df["TO_DATE"].apply(_round_to_start_of_month)
+
     df["MONTHS"] = df.apply(
-        lambda row: pd.date_range(start=row["FROM_DATE_RND"], end=row["TO_DATE_RND"], freq="MS", inclusive='left')
-        .strftime("%b")
-        .str.lower()
-        .tolist(),
+        lambda row: pd.date_range(start=row["FROM_DATE_RND"],
+                                  end=row["TO_DATE_RND"],
+                                  freq="MS",
+                                  inclusive='left').strftime("%b").str.lower().
+        tolist(),
         axis=1,
     )
+    
+    # extend months on both sides for longer periods:
+    def tag_hydro_year(months):
+        # hydrological year runs Oct → Sep
+        # hydro_months = [
+        #     'oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul',
+        #     'aug', 'sep'
+        # ]
+
+        # Check beginning:
+        tagged = []
+        if months[0] == 'aug':
+            tagged = ['aug_', 'sep_'] + months[2:]
+        elif months[0] == 'sep':
+            tagged = ['sep_'] + months[1:]
+        else:
+            tagged = months
+
+        if tagged[-1] == 'oct':
+            tagged[-1] = 'oct_'
+            
+        if tagged[-2] == 'nov':
+            tagged[-1] = 'oct_'
+            tagged[-2] = 'nov_'
+
+        return tagged
+    
+    # Apply the tagging function to the MONTHS column   
+    df["MONTHS"] = df["MONTHS"].apply(tag_hydro_year)
     df["N_MONTHS"] = df["MONTHS"].apply(len) - 1
-    df = df.drop(columns=["FROM_DATE_RND","TO_DATE_RND"])
+    df = df.drop(columns=["FROM_DATE_RND", "TO_DATE_RND"])
     return df
 
 
@@ -101,9 +135,8 @@ def _explode_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     return df_exploded.reset_index(drop=True)
 
 
-def _get_column_names(
-    meta_data_columns: "list[str]", vois_topographical: "list[str]"
-) -> "list[str]":
+def _get_column_names(meta_data_columns: "list[str]",
+                      vois_topographical: "list[str]") -> "list[str]":
     """Get the list of column names to keep in the final DataFrame."""
     column_names = [
         "YEAR",
@@ -119,9 +152,8 @@ def _get_column_names(
     return column_names
 
 
-def _get_climate_values(
-    row: pd.Series, vois_climate: "list[str]", column_names: "list[str]"
-) -> np.ndarray:
+def _get_climate_values(row: pd.Series, vois_climate: "list[str]",
+                        column_names: "list[str]") -> np.ndarray:
     """Get climate values for a specific row and month."""
     cols = [f'{voi}_{row["MONTHS"]}' for voi in vois_climate]
     all_cols = column_names + cols
@@ -132,11 +164,12 @@ def _create_result_dataframe(
     df_exploded: pd.DataFrame,
     column_names: "list[str]",
     vois_climate: "list[str]",
-    chunk_size = 10000,
+    chunk_size=10000,
 ) -> pd.DataFrame:
     """Create the final result DataFrame."""
-    apply_func = lambda row: _get_climate_values(row, vois_climate, column_names)
-    if chunk_size>0:
+    apply_func = lambda row: _get_climate_values(row, vois_climate,
+                                                 column_names)
+    if chunk_size > 0:
         # Split call to apply in chunks
         # This is useful when working with large dataframes to avoid having OOM errors
         climate_records = []
