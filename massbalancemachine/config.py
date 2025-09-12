@@ -32,7 +32,7 @@ class Config:
         self.months_head_pad: List[str] = ['oct_']           # after 'sep'
         
         # self.months_tail_pad: List[str] = []  # before 'oct'
-        # self.months_head_pad: List[str] =  []         # after 'sep'
+        # self.months_head_pad: List[str] =  [] # after 'sep'
         
         # Constant attributes
         self.base_url_w5e5 = (
@@ -101,7 +101,7 @@ class Config:
 
         # convenience
         self.max_T: int = len(self.month_list)
-
+        
     def make_month_abbr_hydr(self, months_tail_pad: Optional[List[str]] = None,
                              months_head_pad: Optional[List[str]] = None) -> List[str]:
         """

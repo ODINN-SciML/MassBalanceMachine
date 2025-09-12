@@ -223,7 +223,7 @@ class GeoDataLoader:
                 if col == 'MONTHS':
                     string_to_index = {
                         s: i-1 # index starts at 0
-                            for s, i in self.cfg.month_abbr_hydr.items()
+                            for s, i in self.cfg.month_pos1.items()
                         }
                     col_int = metadata[col].map(string_to_index)
                 elif col == 'PERIOD':
