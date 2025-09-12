@@ -452,12 +452,6 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         df_months_nn = df_months_nn.dropna(axis=1, how='all')
         df_months_nn['ID'] = df_pred_months['ID']
         df_months_nn['PERIOD'] = type_pred
-        # df_months_nn['y_agg'] = y_pred_agg
-        # if type_pred == 'winter':
-        #     months = winter_months
-        # else:
-        #     months = months_extended
-        # df_months_nn['sum'] = df_months_nn[months].sum(axis=1)
 
         return grouped_ids, df_months_nn
 
