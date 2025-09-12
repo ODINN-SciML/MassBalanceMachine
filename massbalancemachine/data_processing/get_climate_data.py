@@ -15,14 +15,16 @@ from calendar import month_abbr
 import xarray as xr
 import numpy as np
 import pandas as pd
+import config
 
 
-def get_climate_features(
+def get_climate_features_(
     df: pd.DataFrame,
     output_fname: str,
     climate_data: str,
     geopotential_data: str,
     change_units: bool,
+    cfg: config.Config,
     vois_climate: list = None,
     vois_other: list = None,
 ) -> pd.DataFrame:
@@ -83,12 +85,16 @@ def get_climate_features(
         # Reduce expver dimension
         ds_climate = ds_climate.reduce(np.nansum, "expver")
 
-    # Create a date range for one hydrological year
-    df = _add_date_range(df)
+    # Create a date range for one hydrological year    
+    df = _add_date_range(df, cfg)
 
     # Get the climate data for the latitudes and longitudes and date ranges as
     # specified
-    climate_df = _process_climate_data(ds_climate, df)
+    df['months_in_range'] = df['range_date'].apply(
+        lambda rng: [d.strftime("%b").lower() for d in rng]
+        if rng is not None else [])
+
+    climate_df = _process_climate_data(ds_climate, df, cfg)
 
     # Get the geopotential height for the latitudes and longitudes as specified,
     # for the locations of the stake measurements.
@@ -108,6 +114,24 @@ def get_climate_features(
 
     return df
 
+def get_first_last_month(df):
+    df["FROM_DATE"] = pd.to_datetime(df["FROM_DATE"].astype(str), format="%Y%m%d")
+    df["TO_DATE"] = pd.to_datetime(df["TO_DATE"].astype(str), format="%Y%m%d")
+
+    # Extract first and last months as numbers (1–12)
+    df["FIRST_MONTH_NUM"] = df[["FROM_DATE"]].min(axis=1).dt.month
+    df["LAST_MONTH_NUM"]  = df[["TO_DATE"]].max(axis=1).dt.month
+
+    # Compute min of all FIRST and max of all LAST
+    global_first = df["FIRST_MONTH_NUM"].min()
+    global_last  = df["LAST_MONTH_NUM"].max()
+
+    # Convert back to abbreviations if needed
+    month_abbr = {i: pd.to_datetime(str(i), format="%m").strftime("%b").lower() for i in range(1, 13)}
+    global_first_abbr = month_abbr[global_first]
+    global_last_abbr = month_abbr[global_last]
+    
+    return global_first_abbr, global_last_abbr
 
 def retrieve_clear_sky_rad(df, path_to_file):
     """Takes as input monthly clear sky potential radiation data (pre-processed), and matches this with the locations
@@ -167,7 +191,7 @@ def retrieve_clear_sky_rad(df, path_to_file):
 
         result_df = pd.DataFrame(np.array(reshaped_).transpose(),
                                  columns=[f'Month_{i+1}' for i in range(12)])
-    else:   
+    else:
         raise ValueError("No points found in the radiation dataset.")
 
     # Set the new column names for the dataframe (normal year not hydrological)
@@ -239,36 +263,61 @@ def _crop_geopotential(ds: xr.Dataset, lat: xr.DataArray,
     return ds.sel(longitude=lon, latitude=lat, method="nearest")
 
 
-def _generate_climate_variable_names(ds_climate: xr.Dataset) -> list:
+def _generate_climate_variable_names(ds_climate: xr.Dataset,
+                                     cfg: config.Config) -> list:
     """Generate list of climate variable names for one hydrological year."""
     climate_variables = list(ds_climate.keys())
     months_names = [
         f"_{month.lower()}" for month in month_abbr[10:] + month_abbr[1:10]
     ]
+
+    # extend months on both sides for longer periods:
+    months_names = [
+        f"_{month.lower()}" for month in cfg.months_tail_pad
+    ] + months_names + [f"_{month.lower()}" for month in cfg.months_head_pad]
     return [
         f"{climate_var}{month_name}" for climate_var in climate_variables
         for month_name in months_names
     ]
 
 
-def _create_date_range(year: int):
-    """Create a date range for a given year."""
+def _create_date_range(year: int, cfg: config.Config) -> pd.DatetimeIndex:
+    """Create a date range for a given hydrological year based on cfg.month_list."""
     if pd.isna(year):
         return None
     year = int(year)
-    return pd.date_range(start=f"{year - 1}-09-01",
-                         end=f"{year}-09-01",
-                         freq="ME")
+
+    # mapping 'jan' -> '01', ..., 'dec' -> '12'
+    abbr_to_num = {month_abbr[i].lower(): f"{i:02d}" for i in range(1, 13)}
+
+    def token_to_num(token: str) -> str:
+        clean = token.strip('_')  # remove leading/trailing underscores
+        if clean in abbr_to_num:
+            return abbr_to_num[clean]
+        raise ValueError(f"Unknown month token: {token}")
+
+    month_list = cfg.month_list
+    start_token, end_token = month_list[0], month_list[-1]
+
+    start_month = token_to_num(start_token)
+    end_month = token_to_num(end_token)
+
+    # start month is always in the PREVIOUS year
+    start = f"{year - 1}-{start_month}-01"
+    # end month is always in the CURRENT year
+    end = f"{year}-{end_month}-01"
+
+    return pd.date_range(start=start, end=end, freq="MS")
 
 
-def _add_date_range(df: pd.DataFrame) -> pd.DataFrame:
-    """Add date range to DataFrame."""
-    df["range_date"] = df["YEAR"].apply(_create_date_range)
+def _add_date_range(df: pd.DataFrame, cfg: config.Config) -> pd.DataFrame:
+    df = df.copy()
+    df["range_date"] = df["YEAR"].map(lambda y: _create_date_range(y, cfg))
     return df
 
 
-def _process_climate_data(ds_climate: xr.Dataset,
-                          df: pd.DataFrame) -> pd.DataFrame:
+def _process_climate_data(ds_climate: xr.Dataset, df: pd.DataFrame,
+                          cfg: config.Config) -> pd.DataFrame:
     """Process climate data for all points and times."""
 
     # Create DataArrays for latitude and longitude
@@ -304,16 +353,18 @@ def _process_climate_data(ds_climate: xr.Dataset,
     num_rows, num_cols = climate_df.shape
 
     # Reshape the DataFrame to a 3D array (groups, 12, columns)
-    reshaped_array = climate_df.to_numpy().reshape(-1, 12, num_cols)
+    N_MONTHS = date_array.shape[1]
+    reshaped_array = climate_df.to_numpy().reshape(-1, N_MONTHS, num_cols)
 
     # Transpose and reshape to get the desired flattening effect
-    result_array = reshaped_array.transpose(0, 2, 1).reshape(-1, 12 * num_cols)
+    result_array = reshaped_array.transpose(0, 2,
+                                            1).reshape(-1, N_MONTHS * num_cols)
 
     # Convert back to a DataFrame if needed
     result_df = pd.DataFrame(result_array)
     # Set the new column names for the dataframe (climate variables X months
     # of the hydrological year)
-    result_df.columns = _generate_climate_variable_names(ds_climate)
+    result_df.columns = _generate_climate_variable_names(ds_climate, cfg)
     return result_df
 
 

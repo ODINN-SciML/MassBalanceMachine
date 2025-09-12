@@ -19,8 +19,17 @@ import logging
 import pandas as pd
 import torch
 from skorch.helper import SliceDataset
+from torch.utils.data import DataLoader, Subset
+from torch.utils.data import WeightedRandomSampler, SubsetRandomSampler
+import config
 
-from data_processing.get_climate_data import get_climate_features, retrieve_clear_sky_rad, smooth_era5land_by_mode
+from typing import Dict, List, Optional, Tuple
+from collections import Counter
+from tqdm import tqdm
+import numpy as np
+from torch.utils.data import Dataset
+
+from data_processing.get_climate_data import get_climate_features_, retrieve_clear_sky_rad, smooth_era5land_by_mode
 from data_processing.get_topo_data import get_topographical_features, get_glacier_mask
 from data_processing.transform_to_monthly import transform_to_monthly
 from data_processing.glacier_utils import create_glacier_grid_RGI
@@ -94,34 +103,53 @@ class Dataset:
         vois_other = smoothing_vois.get('vois_other')
 
         local_path = path_climate_data(self.region_id)
-        assert (climate_data is None) == (geopotential_data is None), "When climate_data is provided, geopotential_data should also be provided."
+        assert (climate_data is None) == (
+            geopotential_data is None
+        ), "When climate_data is provided, geopotential_data should also be provided."
         if climate_data is None:
-            climate_data = local_path+"era5_monthly_averaged_data.nc"
-            geopotential_data = local_path+"era5_geopotential_pressure.nc"
-            if not (os.path.isfile(climate_data) and os.path.isfile(geopotential_data)):
-                download_climate_ERA5(region)
+            climate_data = local_path + "era5_monthly_averaged_data.nc"
+            geopotential_data = local_path + "era5_geopotential_pressure.nc"
+            if not (os.path.isfile(climate_data)
+                    and os.path.isfile(geopotential_data)):
+                download_climate_ERA5(self.region_id)
 
-        self.data = get_climate_features(self.data, output_fname, climate_data,
-                                         geopotential_data, change_units,
-                                         vois_climate, vois_other)
+        self.data = get_climate_features_(self.data, output_fname,
+                                          climate_data, geopotential_data,
+                                          change_units, self.cfg, vois_climate,
+                                          vois_other)
 
-    def get_potential_rad(self, path_to_direct):
-        """Fetches monthly clear sky radiation data for each glacier in the dataset.
-        Args:
-            path_to_direct (str): path to the directory containing the direct radiation data
+    def get_potential_rad(self, path_to_direct: str, cfg) -> None:
+        """
+        Fetch monthly clear-sky radiation for each glacier and add padded-month
+        columns according to cfg.months_tail_pad / cfg.months_head_pad.
+
+        Parameters
+        ----------
+        path_to_direct : str
+            Directory containing 'xr_direct_{GLACIER}.zarr' files.
+        cfg : Config
+            Your config instance with flexible month padding.
         """
         df = self.data.copy()
-        glaciers = df['GLACIER'].unique()
-        df_concat = pd.DataFrame()
+        glaciers = df["GLACIER"].unique()
+        chunks = []
 
-        for glacierName in glaciers:
-            df_glacier = df[df['GLACIER'] == glacierName]
-            path_to_file = path_to_direct + f'xr_direct_{glacierName}.zarr'
-            df_glacier = retrieve_clear_sky_rad(df_glacier, path_to_file)
-            df_concat = pd.concat([df_concat, df_glacier], axis=0)
+        for glacier in glaciers:
+            sub = df[df["GLACIER"] == glacier].copy()
+            zarr_path = os.path.join(path_to_direct,
+                                     f"xr_direct_{glacier}.zarr")
+            # User-provided function that merges clear-sky rad into sub:
+            sub = retrieve_clear_sky_rad(sub, zarr_path)
+            chunks.append(sub)
 
-        # reset index
-        df_concat.reset_index(drop=True, inplace=True)
+        df_concat = pd.concat(chunks, axis=0, ignore_index=True)
+
+        # Create padded month columns for potential radiation (pcsr)
+        df_concat = self._copy_padded_month_columns(df_concat,
+                                                    cfg,
+                                                    prefixes=("pcsr", ))
+
+        # Save back
         self.data = df_concat
 
     def remove_climate_artifacts(self, vois_climate: str,
@@ -211,6 +239,37 @@ class Dataset:
             str: The full path to the output file
         """
         return os.path.join(self.data_dir, f"{self.region}_{feature_type}.csv")
+
+    @staticmethod
+    def _copy_padded_month_columns(
+        df: pd.DataFrame,
+        cfg,
+        prefixes=("pcsr",),
+        overwrite: bool = False
+    ) -> pd.DataFrame:
+        """
+        For each padding token in cfg (e.g. '_aug_', '_sep_', 'oct_'),
+        create a new column like 'pcsr__aug_' by copying from the base column
+        'pcsr_aug'. Works for any variable names given in `prefixes`.
+        """
+        df = df.copy()
+        padded_tokens = list(cfg.months_tail_pad) + list(cfg.months_head_pad)
+
+        if not padded_tokens:
+            return df  # nothing to do
+
+        for token in padded_tokens:
+            base = token.strip("_")  # e.g. '_aug_' -> 'aug', 'oct_' -> 'oct'
+            for pref in prefixes:
+                src = f"{pref}_{base}"
+                dst = f"{pref}_{token}"
+                if (dst in df.columns) and not overwrite:
+                    continue
+                if src in df.columns:
+                    df[dst] = df[src].values
+                else:
+                    df[dst] = np.nan
+        return df
 
     @staticmethod
     def _clean_data(data: pd.DataFrame) -> pd.DataFrame:
@@ -342,7 +401,7 @@ class AggregatedDataset(torch.utils.data.Dataset):
     def _getInd(self, index):
         ind = np.argwhere(self.ID == self.uniqueID[index])[:, 0]
         months = self.metadata[ind][:, self.metadataColumns.index('MONTHS')]
-        numMonths = [self.cfg.month_abbr_hydr[m] for m in months]
+        numMonths = [self.cfg.month_pos1[m] for m in months]
         ind = ind[np.argsort(
             numMonths)]  # Sort ind to get monthly data in chronological order
         return ind
@@ -351,7 +410,7 @@ class AggregatedDataset(torch.utils.data.Dataset):
         ind = self._getInd(index)
         f = self.features[ind][:, :]
         f = self.norm.normalize(f)
-        fpad = np.empty((self.maxConcatNb, self.nbFeatures)) # Features padded
+        fpad = np.empty((self.maxConcatNb, self.nbFeatures))  # Features padded
         fpad.fill(np.nan)
         fpad[:f.shape[0], :] = f
         fpad = fpad.reshape(-1)
@@ -359,11 +418,12 @@ class AggregatedDataset(torch.utils.data.Dataset):
             return (fpad, )
         else:
             t = self.targets[ind][:]
-            tpad = np.empty(self.maxConcatNb) # Target padded
+            tpad = np.empty(self.maxConcatNb)  # Target padded
             tpad.fill(np.nan)
             tpad[:t.shape[0]] = t
             m = self.metadata[ind][:, :]
-            mpad = np.empty((self.maxConcatNb, self.nbMetadata), dtype=self.metadata.dtype) # Metadata padded
+            mpad = np.empty((self.maxConcatNb, self.nbMetadata),
+                            dtype=self.metadata.dtype)  # Metadata padded
             mpad.fill(np.nan)
             mpad[:m.shape[0], :] = m
             mpad = mpad.reshape(-1)
@@ -405,7 +465,9 @@ class Normalizer:
                 z[k] = fct(x[k], self.bnds[k][0], self.bnds[k][1])
             return z
         elif isinstance(x, (torch.Tensor, np.ndarray)):
-            assert x.shape[-1] == len(self.bnds), f"Size of the input to normalize is {x.shape} and it doesn't match the number of bounds defined in the Normalizer object which is {len(self.bnds)}"
+            assert x.shape[-1] == len(
+                self.bnds
+            ), f"Size of the input to normalize is {x.shape} and it doesn't match the number of bounds defined in the Normalizer object which is {len(self.bnds)}"
             z = torch.zeros_like(x) if isinstance(
                 x, torch.Tensor) else np.zeros_like(x)
             for i, k in enumerate(self.bnds):
@@ -428,7 +490,12 @@ class Normalizer:
 
 
 class SliceDatasetBinding(Dataset):
-    def __init__(self, X:SliceDataset, y:SliceDataset=None, M:SliceDataset=None, metadataColumns:list[str] = None) -> None:
+
+    def __init__(self,
+                 X: SliceDataset,
+                 y: SliceDataset = None,
+                 M: SliceDataset = None,
+                 metadataColumns: list[str] = None) -> None:
         """
         Binding to a SliceDataset that allows providing training and validation
         datasets through the train_split argument of CustomNeuralNetRegressor.
@@ -439,18 +506,513 @@ class SliceDatasetBinding(Dataset):
             M (SliceDataset): Metadata defined through a SliceDataset.
         """
         assert isinstance(X, SliceDataset), "X must be a SliceDataset instance"
-        assert y is None or isinstance(y, SliceDataset), "y must be a SliceDataset instance"
-        assert M is None or isinstance(M, SliceDataset), "M must be a SliceDataset instance"
-        assert (M is None) == (metadataColumns is None), "If M or metadataColumns is provided, the other variable must be provided too."
+        assert y is None or isinstance(
+            y, SliceDataset), "y must be a SliceDataset instance"
+        assert M is None or isinstance(
+            M, SliceDataset), "M must be a SliceDataset instance"
+        assert (M is None) == (
+            metadataColumns is None
+        ), "If M or metadataColumns is provided, the other variable must be provided too."
         self.X = X
         self.y = y
         self.M = M
         self.metadataColumns = metadataColumns
+
     def __len__(self):
         return len(self.X)
+
     def __getitem__(self, idx):
         if self.y is None:
             return self.X[idx]
         return self.X[idx], self.y[idx]
+
     def getMetadata(self, idx):
         return self.M[idx]
+
+
+# ---------- LSTM Dataset ----------
+class MBSequenceDataset(Dataset):
+    """
+    Dataset for glacier mass-balance sequences.
+    Provides:
+      - MBSequenceDataset.from_dataframe(...) -> builds sequences from a tidy monthly table
+      - Scaling helpers (fit_scalers / transform_inplace / set_scalers_from)
+      - Access to .keys [(GLACIER, YEAR, ID, PERIOD)] aligned with row order
+    """
+
+    # ---------- Constructors ----------
+
+    @classmethod
+    def from_dataframe(
+        cls,
+        df: pd.DataFrame,
+        monthly_cols: List[str],
+        static_cols: List[str],
+        *,
+        cfg: config.Config,
+        show_progress: bool = True,
+        expect_target: bool = True,
+    ) -> "MBSequenceDataset":
+        """
+        Build a dataset directly from a monthly table.
+
+        Assumes MONTHS are already normalized to {'oct','nov','dec','jan','feb','mar','apr','may','jun','jul','aug','sep'}.
+        Required columns: GLACIER, YEAR, ID, PERIOD, MONTHS, monthly_cols, static_cols,
+        and POINT_BALANCE if expect_target=True.
+        """
+
+        pos_map = dict(cfg.month_pos0)  # token -> 0-based index
+        T = int(cfg.max_T)  # max sequence length
+
+        data_dict = cls._build_sequences(
+            df=df,
+            monthly_cols=monthly_cols,
+            static_cols=static_cols,
+            pos_map=pos_map,
+            T=T,
+            show_progress=show_progress,
+            expect_target=expect_target,
+        )
+        return cls(data_dict)
+
+    def make_loaders(
+        self,
+        *,
+        val_ratio: float = 0.2,
+        batch_size_train: int = 64,
+        batch_size_val: int = 158,
+        seed: int = 42,
+        fit_and_transform: bool = True,
+        shuffle_train: bool = True,
+        drop_last_train: bool = False,
+        num_workers: int = 0,
+        pin_memory: bool = False,
+        use_weighted_sampler: bool = False,
+    ):
+        """
+        Split this dataset into train/val, (optionally) fit+apply scalers on TRAIN,
+        and return DataLoaders plus the split indices.
+
+        Parameters
+        ----------
+        use_weighted_sampler : bool, default False
+            If True, uses WeightedRandomSampler for the training DataLoader to
+            balance winter/annual samples.
+
+        Returns
+        -------
+        train_dl, val_dl, train_idx, val_idx
+        """
+        train_idx, val_idx = self.split_indices(len(self),
+                                                val_ratio=val_ratio,
+                                                seed=seed)
+
+        if fit_and_transform:
+            self.fit_scalers(train_idx)
+            self.transform_inplace()
+
+        train_ds = Subset(self, train_idx)
+        val_ds = Subset(self, val_idx)
+
+        if use_weighted_sampler:
+            # Compute weights: higher for minority class (annual)
+            iw = self.iw[train_idx].numpy()
+            ia = self.ia[train_idx].numpy()
+            n_w, n_a = iw.sum(), ia.sum()
+            w_w, w_a = 1.0, (n_w / max(n_a, 1)
+                             )  # annual weight = ratio of counts
+
+            sample_weights = np.where(ia, w_a, w_w).astype(np.float32)
+            sample_weights = torch.from_numpy(sample_weights)
+            sampler = WeightedRandomSampler(sample_weights,
+                                            num_samples=len(sample_weights),
+                                            replacement=True)
+
+            train_dl = DataLoader(
+                train_ds,
+                batch_size=batch_size_train,
+                sampler=sampler,
+                drop_last=drop_last_train,
+                num_workers=num_workers,
+                pin_memory=pin_memory,
+            )
+        else:
+            train_dl = DataLoader(
+                train_ds,
+                batch_size=batch_size_train,
+                shuffle=shuffle_train,
+                drop_last=drop_last_train,
+                num_workers=num_workers,
+                pin_memory=pin_memory,
+            )
+
+        val_dl = DataLoader(
+            val_ds,
+            batch_size=batch_size_val,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+        )
+
+        # ---- Sanity check printout ----
+        n_w_tr, n_a_tr = int(self.iw[train_idx].sum()), int(
+            self.ia[train_idx].sum())
+        n_w_va, n_a_va = int(self.iw[val_idx].sum()), int(
+            self.ia[val_idx].sum())
+        print(f"Train counts: {n_w_tr} winter | {n_a_tr} annual")
+        print(f"Val   counts: {n_w_va} winter | {n_a_va} annual")
+
+        return train_dl, val_dl, train_idx, val_idx
+
+    @staticmethod
+    def make_test_loader(
+        ds_test: "MBSequenceDataset",
+        ds_train: "MBSequenceDataset",
+        *,
+        batch_size: int = 158,
+        num_workers: int = 0,
+        pin_memory: bool = False,
+    ):
+        """
+        Copy TRAIN scalers to TEST, transform TEST in-place, and return a DataLoader.
+        """
+        ds_test.set_scalers_from(ds_train)
+        ds_test.transform_inplace()
+
+        test_dl = DataLoader(
+            ds_test,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+        )
+        return test_dl
+
+    @staticmethod
+    def _stack(a: List[np.ndarray]) -> np.ndarray:
+        return np.stack(a, axis=0) if len(a) else np.empty((0, ))
+
+    # @staticmethod
+    # def _build_sequences(
+    #     df: pd.DataFrame,
+    #     monthly_cols: List[str],
+    #     static_cols: List[str],
+    #     pos_map: Dict[str, int],  # <-- 0-based month indices
+    #     T: int,  # <-- total timeline length from cfg.max_T (or len(pos_map))
+    #     *,
+    #     show_progress: bool = True,
+    #     expect_target: bool = True,
+    # ) -> Dict[str, np.ndarray]:
+    #     # --- checks ---
+    #     req = {
+    #         'GLACIER', 'YEAR', 'ID', 'PERIOD', 'MONTHS', *monthly_cols,
+    #         *static_cols
+    #     }
+    #     if expect_target:
+    #         req |= {'POINT_BALANCE'}
+    #     missing = req - set(df.columns)
+    #     if missing:
+    #         raise KeyError(f"Missing required columns: {sorted(missing)}")
+
+    #     # normalize PERIOD just in case
+    #     df = df.copy()
+    #     df['PERIOD'] = df['PERIOD'].str.strip().str.lower()
+
+    #     # masks
+    #     mask_a_template = np.ones(
+    #         T, dtype=np.float32)  # annual = all months valid
+
+    #     X_monthly, X_static = [], []
+    #     mask_valid, mask_w, mask_a = [], [], []
+    #     y, is_winter, is_annual, keys = [], [], [], []
+
+    #     groups = list(df.groupby(['GLACIER', 'YEAR', 'ID', 'PERIOD']))
+    #     iterator = tqdm(groups,
+    #                     desc="Building sequences") if show_progress else groups
+
+    #     agg_cols = monthly_cols + static_cols + (['POINT_BALANCE']
+    #                                              if expect_target else [])
+
+    #     # Mask winter (a bit more complicated)
+    #     mask_w_template = np.zeros(T, dtype=np.float32)
+    #     # mask_w_template[:9] = 1.0
+    #     # # [
+    #     # #         'aug_', 'sep_', 'oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr', 'may',
+    #     # #         'jun', 'jul', 'aug', 'sep', 'oct_'
+    #     # #     ]
+
+    #     for (g, yr, mid, per), sub in iterator:
+    #         # average duplicates within the same month if any
+    #         subm = (sub.groupby(
+    #             'MONTHS', as_index=False)[agg_cols].mean(numeric_only=True))
+
+    #         # T × Fm monthly matrix + valid mask
+    #         mat = np.zeros((T, len(monthly_cols)), dtype=np.float32)
+    #         mv = np.zeros(T, dtype=np.float32)
+
+    #         for _, r in subm.iterrows():
+    #             m = r['MONTHS']
+    #             if m not in pos_map:
+    #                 raise ValueError(
+    #                     f"Unexpected month token '{m}'. Expected one of {list(pos_map.keys())}."
+    #                 )
+    #             pos = pos_map[m]
+    #             mat[pos, :] = r[monthly_cols].to_numpy(np.float32)
+    #             mv[pos] = 1.0
+
+    #             if per == 'winter':
+    #                 mask_w_template[
+    #                     pos] = 1.0  # winter = only months with data valid
+
+    #         # # check if mask_w_template is 0 everywhere
+    #         # if per == 'annual' and mask_w_template.sum() == 0:
+    #         #     mask_w_template[:9] = 1.0
+
+    #         # static features from first row
+    #         s = subm.iloc[0][static_cols].to_numpy(np.float32)
+
+    #         # target
+    #         target = float(
+    #             subm['POINT_BALANCE'].mean()) if expect_target else np.nan
+
+    #         # append (once per group)
+    #         X_monthly.append(mat)
+    #         X_static.append(s)
+    #         mask_valid.append(mv)
+    #         mask_w.append(mask_w_template.copy())
+    #         mask_a.append(mask_a_template.copy())
+    #         y.append(target)
+    #         is_winter.append(per == 'winter')
+    #         is_annual.append(per == 'annual')
+    #         keys.append((g, int(yr), int(mid), per))
+
+    #     data_dict = dict(
+    #         X_monthly=MBSequenceDataset._stack(X_monthly),
+    #         X_static=MBSequenceDataset._stack(X_static),
+    #         mask_valid=MBSequenceDataset._stack(mask_valid),
+    #         mask_w=MBSequenceDataset._stack(mask_w),
+    #         mask_a=MBSequenceDataset._stack(mask_a),
+    #         y=np.asarray(y, dtype=np.float32),
+    #         is_winter=np.asarray(is_winter, dtype=bool),
+    #         is_annual=np.asarray(is_annual, dtype=bool),
+    #         keys=keys,
+    #     )
+
+    #     if len(keys) != len(set(keys)):
+    #         dupes = [k for k, c in Counter(keys).items() if c > 1]
+    #         raise ValueError(
+    #             f"Found {len(dupes)} duplicate keys, e.g. {dupes[:5]}")
+
+    #     return data_dict
+
+    @staticmethod
+    def _build_sequences(
+        df: pd.DataFrame,
+        monthly_cols: List[str],
+        static_cols: List[str],
+        pos_map: Dict[str, int],  # token -> 0-based index
+        T: int,  # total timeline length (e.g., cfg.max_T)
+        *,
+        show_progress: bool = True,
+        expect_target: bool = True,
+    ) -> Dict[str, np.ndarray]:
+        # --- required columns ---
+        req = {
+            'GLACIER', 'YEAR', 'ID', 'PERIOD', 'MONTHS', *monthly_cols,
+            *static_cols
+        }
+        if expect_target:
+            req |= {'POINT_BALANCE'}
+        missing = req - set(df.columns)
+        if missing:
+            raise KeyError(f"Missing required columns: {sorted(missing)}")
+
+        df = df.copy()
+        df['PERIOD'] = df['PERIOD'].astype(str).str.strip().str.lower()
+        df['MONTHS'] = df['MONTHS'].astype(str).str.strip().str.lower()
+
+        X_monthly, X_static = [], []
+        mask_valid, mask_w, mask_a = [], [], []
+        y, is_winter, is_annual, keys = [], [], [], []
+
+        groups = list(
+            df.groupby(['GLACIER', 'YEAR', 'ID', 'PERIOD'], sort=False))
+        iterator = tqdm(groups,
+                        desc="Building sequences") if show_progress else groups
+
+        agg_cols = monthly_cols + static_cols + (['POINT_BALANCE']
+                                                 if expect_target else [])
+
+        for (g, yr, mid, per), sub in iterator:
+            # average duplicates within the same month token
+            subm = (sub.groupby(
+                'MONTHS', as_index=False)[agg_cols].mean(numeric_only=True))
+
+            # (T, Fm) matrix + valid mask
+            mat = np.zeros((T, len(monthly_cols)), dtype=np.float32)
+            mv = np.zeros(T, dtype=np.float32)
+
+            for _, r in subm.iterrows():
+                m = str(r['MONTHS']).strip().lower()
+                if m not in pos_map:
+                    raise ValueError(
+                        f"Unexpected month token '{m}'. Expected one of {list(pos_map.keys())}."
+                    )
+                pos = int(pos_map[m])  # 0-based
+                mat[pos, :] = r[monthly_cols].to_numpy(np.float32)
+                mv[pos] = 1.0
+
+            # static features
+            s = subm.iloc[0][static_cols].to_numpy(np.float32)
+
+            # target
+            target = float(
+                subm['POINT_BALANCE'].mean()) if expect_target else np.nan
+
+            # ---- per-sample seasonal masks (flexible windows) ----
+            per_l = str(per).strip().lower()
+            if per_l == 'winter':
+                mw_sample = mv.copy()
+                ma_sample = np.zeros(T, dtype=np.float32)
+            elif per_l == 'annual':
+                mw_sample = np.zeros(T, dtype=np.float32)
+                ma_sample = mv.copy()
+            else:
+                raise ValueError(f"Unexpected PERIOD: {per}")
+
+            # append once per group
+            X_monthly.append(mat)
+            X_static.append(s)
+            mask_valid.append(mv)
+            mask_w.append(mw_sample)
+            mask_a.append(ma_sample)
+            y.append(target)
+            is_winter.append(per_l == 'winter')
+            is_annual.append(per_l == 'annual')
+            keys.append((g, int(yr), int(mid), per_l))
+
+        def stack(a):
+            return np.stack(a, axis=0) if len(a) else np.empty((0, ))
+
+        data_dict = dict(
+            X_monthly=stack(X_monthly),  # (B, T, Fm)
+            X_static=stack(X_static),  # (B, Fs)
+            mask_valid=stack(mask_valid),  # (B, T)
+            mask_w=stack(mask_w),  # (B, T)
+            mask_a=stack(mask_a),  # (B, T)
+            y=np.asarray(y, dtype=np.float32),
+            is_winter=np.asarray(is_winter, dtype=bool),
+            is_annual=np.asarray(is_annual, dtype=bool),
+            keys=keys,
+        )
+
+        # Key uniqueness check
+        if len(keys) != len(set(keys)):
+            from collections import Counter
+            dupes = [k for k, c in Counter(keys).items() if c > 1]
+            raise ValueError(
+                f"Found {len(dupes)} duplicate keys, e.g. {dupes[:5]}")
+
+        return data_dict
+
+    # ---------- Torch Dataset API ----------
+
+    def __init__(self, data_dict: Dict[str, np.ndarray]):
+        # raw numpy -> tensors
+        self.Xm = torch.from_numpy(data_dict['X_monthly']).float()  # (B,T,Fm)
+        self.Xs = torch.from_numpy(data_dict['X_static']).float()  # (B,Fs)
+        self.mv = torch.from_numpy(data_dict['mask_valid']).float()  # (B,T)
+        self.mw = torch.from_numpy(data_dict['mask_w']).float()  # (B,T)
+        self.ma = torch.from_numpy(data_dict['mask_a']).float()  # (B,T)
+        self.y = torch.from_numpy(data_dict['y']).float()  # (B,)
+        self.iw = torch.from_numpy(data_dict['is_winter']).bool()  # (B,)
+        self.ia = torch.from_numpy(data_dict['is_annual']).bool()  # (B,)
+        self.keys = data_dict.get('keys', [])
+
+        # scalers (set by fit_scalers or set_scalers_from)
+        self.month_mean: Optional[torch.Tensor] = None
+        self.month_std: Optional[torch.Tensor] = None
+        self.static_mean: Optional[torch.Tensor] = None
+        self.static_std: Optional[torch.Tensor] = None
+        self.y_mean: Optional[torch.Tensor] = None
+        self.y_std: Optional[torch.Tensor] = None
+
+    def __len__(self) -> int:
+        return self.Xm.shape[0]
+
+    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+        return {
+            "x_m": self.Xm[idx],
+            "x_s": self.Xs[idx],
+            "mv": self.mv[idx],
+            "mw": self.mw[idx],
+            "ma": self.ma[idx],
+            "y": self.y[idx],
+            "iw": self.iw[idx],
+            "ia": self.ia[idx],
+        }
+
+    # ---------- Scaling helpers ----------
+
+    def fit_scalers(self, idx_train: np.ndarray) -> None:
+        """Fit scalers on TRAIN subset only."""
+        # monthly features: mean/std over valid months
+        Xm = self.Xm[idx_train].numpy()  # (N,T,Fm)
+        Mv = self.mv[idx_train].numpy()  # (N,T)
+        mask3 = Mv[..., None]  # (N,T,1)
+        num = (Xm * mask3).sum(axis=(0, 1))  # (Fm,)
+        den = mask3.sum(axis=(0, 1))  # (Fm,) effectively
+        month_mean = num / np.maximum(den, 1e-8)
+        var = (((Xm - month_mean) * mask3)**2).sum(axis=(0, 1)) / np.maximum(
+            den, 1e-8)
+        month_std = np.sqrt(np.maximum(var, 1e-8))
+
+        # static features: simple mean/std per feature
+        Xs = self.Xs[idx_train].numpy()
+        static_mean = Xs.mean(axis=0)
+        static_std = np.sqrt(np.maximum(Xs.var(axis=0), 1e-8))
+
+        # target scaler
+        y = self.y[idx_train].numpy()
+        y_mean = float(np.mean(y))
+        y_std = float(np.sqrt(max(np.var(y), 1e-8)))
+
+        # store as tensors
+        self.month_mean = torch.from_numpy(month_mean).float()
+        self.month_std = torch.from_numpy(month_std).float()
+        self.static_mean = torch.from_numpy(static_mean).float()
+        self.static_std = torch.from_numpy(static_std).float()
+        self.y_mean = torch.tensor(y_mean, dtype=torch.float32)
+        self.y_std = torch.tensor(y_std, dtype=torch.float32)
+
+    def transform_inplace(self) -> None:
+        """Apply standardization to Xm, Xs, y using fitted scalers."""
+        assert self.month_mean is not None and self.month_std is not None, "Call fit_scalers or set_scalers_from first."
+        assert self.static_mean is not None and self.static_std is not None, "Call fit_scalers or set_scalers_from first."
+        assert self.y_mean is not None and self.y_std is not None, "Call fit_scalers or set_scalers_from first."
+
+        self.Xm = (self.Xm - self.month_mean
+                   ) / self.month_std  # (B,T,Fm) broadcasts over B and T
+        self.Xs = (self.Xs - self.static_mean) / self.static_std
+        self.y = (self.y - self.y_mean) / self.y_std
+
+    def set_scalers_from(self, other: "MBSequenceDataset") -> None:
+        """Copy fitted scalers from another dataset (usually the train dataset)."""
+        self.month_mean = other.month_mean.clone()
+        self.month_std = other.month_std.clone()
+        self.static_mean = other.static_mean.clone()
+        self.static_std = other.static_std.clone()
+        self.y_mean = other.y_mean.clone()
+        self.y_std = other.y_std.clone()
+
+    # ---------- Utilities ----------
+
+    @staticmethod
+    def split_indices(n: int,
+                      val_ratio: float = 0.2,
+                      seed: int = 42) -> Tuple[np.ndarray, np.ndarray]:
+        rng = np.random.default_rng(seed)
+        idx = np.arange(n)
+        rng.shuffle(idx)
+        cut = max(1, int(n * (1 - val_ratio)))
+        return idx[:cut], idx[cut:]
