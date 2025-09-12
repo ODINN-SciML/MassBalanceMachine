@@ -60,8 +60,6 @@ def process_or_load_data(run_flag,
                 change_units=True)
             
             df = dataset_gl.data
-            # print all columns with t2m in their name
-            print(df.columns[df.columns.str.contains('t2m')])
             
         except Exception as e:
             logging.error("Failed to add climate features: %s", e)
@@ -72,7 +70,7 @@ def process_or_load_data(run_flag,
             logging.info("Adding potential clear sky radiation...")
             logging.info("Shape before adding radiation: %s",
                          dataset_gl.data.shape)
-            dataset_gl.get_potential_rad(paths['radiation_save_path'])
+            dataset_gl.get_potential_rad(paths['radiation_save_path'], cfg)
             logging.info("Shape after adding radiation: %s",
                          dataset_gl.data.shape)
 

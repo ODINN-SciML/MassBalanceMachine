@@ -86,7 +86,7 @@ def get_climate_features_(
         ds_climate = ds_climate.reduce(np.nansum, "expver")
 
     # Create a date range for one hydrological year
-    df = _add_date_range(df)
+    df = _add_date_range(df, cfg)
 
     # Get the climate data for the latitudes and longitudes and date ranges as
     # specified
@@ -263,19 +263,48 @@ def _generate_climate_variable_names(ds_climate: xr.Dataset,
     ]
 
 
-def _create_date_range(year: int):
-    """Create a date range for a given year."""
+# def _create_date_range(year: int, cfg: config.Config):
+#     """Create a date range for a given year."""
+#     if pd.isna(year):
+#         return None
+#     year = int(year)
+#     # return pd.date_range(start=f"{year - 1}-08-01",
+#     #                      end=f"{year}-11-01",
+#     #                      freq="ME")
+
+
+def _create_date_range(year: int, cfg: config.Config) -> pd.DatetimeIndex:
+    """Create a date range for a given hydrological year based on cfg.month_list."""
     if pd.isna(year):
         return None
     year = int(year)
-    return pd.date_range(start=f"{year - 1}-08-01",
-                         end=f"{year}-11-01",
-                         freq="ME")
+
+    # mapping 'jan' -> '01', ..., 'dec' -> '12'
+    abbr_to_num = {month_abbr[i].lower(): f"{i:02d}" for i in range(1, 13)}
+
+    def token_to_num(token: str) -> str:
+        clean = token.strip('_')  # remove leading/trailing underscores
+        if clean in abbr_to_num:
+            return abbr_to_num[clean]
+        raise ValueError(f"Unknown month token: {token}")
+
+    month_list = cfg.month_list
+    start_token, end_token = month_list[0], month_list[-1]
+
+    start_month = token_to_num(start_token)
+    end_month = token_to_num(end_token)
+
+    # start month is always in the PREVIOUS year
+    start = f"{year - 1}-{start_month}-01"
+    # end month is always in the CURRENT year
+    end = f"{year}-{end_month}-01"
+
+    return pd.date_range(start=start, end=end, freq="MS")
 
 
-def _add_date_range(df: pd.DataFrame) -> pd.DataFrame:
-    """Add date range to DataFrame."""
-    df["range_date"] = df["YEAR"].apply(_create_date_range)
+def _add_date_range(df: pd.DataFrame, cfg: config.Config) -> pd.DataFrame:
+    df = df.copy()
+    df["range_date"] = df["YEAR"].map(lambda y: _create_date_range(y, cfg))
     return df
 
 

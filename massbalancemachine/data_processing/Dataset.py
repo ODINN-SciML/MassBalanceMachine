@@ -118,29 +118,38 @@ class Dataset:
                                           change_units, self.cfg, vois_climate,
                                           vois_other)
 
-    def get_potential_rad(self, path_to_direct):
-        """Fetches monthly clear sky radiation data for each glacier in the dataset.
-        Args:
-            path_to_direct (str): path to the directory containing the direct radiation data
+    def get_potential_rad(self, path_to_direct: str, cfg) -> None:
+        """
+        Fetch monthly clear-sky radiation for each glacier and add padded-month
+        columns according to cfg.months_tail_pad / cfg.months_head_pad.
+
+        Parameters
+        ----------
+        path_to_direct : str
+            Directory containing 'xr_direct_{GLACIER}.zarr' files.
+        cfg : Config
+            Your config instance with flexible month padding.
         """
         df = self.data.copy()
-        glaciers = df['GLACIER'].unique()
-        df_concat = pd.DataFrame()
+        glaciers = df["GLACIER"].unique()
+        chunks = []
 
-        for glacierName in glaciers:
-            df_glacier = df[df['GLACIER'] == glacierName]
-            path_to_file = path_to_direct + f'xr_direct_{glacierName}.zarr'
-            df_glacier = retrieve_clear_sky_rad(df_glacier, path_to_file)
-            df_concat = pd.concat([df_concat, df_glacier], axis=0)
+        for glacier in glaciers:
+            sub = df[df["GLACIER"] == glacier].copy()
+            zarr_path = os.path.join(path_to_direct,
+                                     f"xr_direct_{glacier}.zarr")
+            # User-provided function that merges clear-sky rad into sub:
+            sub = retrieve_clear_sky_rad(sub, zarr_path)
+            chunks.append(sub)
 
-        # reset index
-        df_concat.reset_index(drop=True, inplace=True)
+        df_concat = pd.concat(chunks, axis=0, ignore_index=True)
 
-        # double columns for extended months:
-        df_concat['pcsr_sep_'] = df_concat['pcsr_sep']
-        df_concat['pcsr_aug_'] = df_concat['pcsr_aug']
-        df_concat['pcsr_oct_'] = df_concat['pcsr_oct']
+        # Create padded month columns for potential radiation (pcsr)
+        df_concat = self._copy_padded_month_columns(df_concat,
+                                                    cfg,
+                                                    prefixes=("pcsr", ))
 
+        # Save back
         self.data = df_concat
 
     def remove_climate_artifacts(self, vois_climate: str,
@@ -230,6 +239,37 @@ class Dataset:
             str: The full path to the output file
         """
         return os.path.join(self.data_dir, f"{self.region}_{feature_type}.csv")
+
+    @staticmethod
+    def _copy_padded_month_columns(
+        df: pd.DataFrame,
+        cfg,
+        prefixes=("pcsr",),
+        overwrite: bool = False
+    ) -> pd.DataFrame:
+        """
+        For each padding token in cfg (e.g. '_aug_', '_sep_', 'oct_'),
+        create a new column like 'pcsr__aug_' by copying from the base column
+        'pcsr_aug'. Works for any variable names given in `prefixes`.
+        """
+        df = df.copy()
+        padded_tokens = list(cfg.months_tail_pad) + list(cfg.months_head_pad)
+
+        if not padded_tokens:
+            return df  # nothing to do
+
+        for token in padded_tokens:
+            base = token.strip("_")  # e.g. '_aug_' -> 'aug', 'oct_' -> 'oct'
+            for pref in prefixes:
+                src = f"{pref}_{base}"
+                dst = f"{pref}_{token}"
+                if (dst in df.columns) and not overwrite:
+                    continue
+                if src in df.columns:
+                    df[dst] = df[src].values
+                else:
+                    df[dst] = np.nan
+        return df
 
     @staticmethod
     def _clean_data(data: pd.DataFrame) -> pd.DataFrame:
