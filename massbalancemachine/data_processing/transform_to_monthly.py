@@ -11,6 +11,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Tuple
 
+
 def transform_to_monthly(
     df: pd.DataFrame,
     meta_data_columns: "list[str]",
@@ -41,7 +42,7 @@ def transform_to_monthly(
 
     # Add a unique ID column to the dataframe to identify columns of the same data range
     df = _add_id_column(df)
-    
+
     # Explode the dataframe based on the date range
     df_exploded = _explode_dataframe(df)
 
@@ -54,7 +55,7 @@ def transform_to_monthly(
 
     result_df.to_csv(output_fname, index=False)
 
-    return result_df
+    return df_exploded
 
 
 def _convert_dates_to_datetime(df: pd.DataFrame) -> pd.DataFrame:
@@ -70,7 +71,7 @@ def _round_to_start_of_month(date):
     If day < 15, round down to start of current month.
     If day >= 15, round up to start of next month.
     """
-    if date.day < 15:
+    if date.day < 15 & date.day > 1:
         return date - pd.offsets.MonthBegin()
     else:
         return date + pd.offsets.MonthBegin()
@@ -92,39 +93,50 @@ def _generate_monthly_ranges(df: pd.DataFrame) -> pd.DataFrame:
 
     def tag_hydro_year(months: List[str]) -> List[str]:
         """
-        Flexibly tag month tokens to disambiguate duplicates when the 
-        hydrological window is extended with tail/head padding.
+        Tag month tokens to disambiguate padding around the Oct→Sep hydrological core.
 
         Rules:
-        - Canonical hydro year is Oct..Sep (untagged).
-        - If 'aug' or 'sep' occur BEFORE Oct, they are tagged as 'aug_'/'sep_'.
-        - If 'oct' or 'nov' occur AFTER Sep, they are tagged as 'oct_'/'nov_'.
-        - Works for any variable-length window (>= 12 months).
+        - Leading (tail) padding: starting 'aug'/'sep' should be tagged 'aug_'/'sep_' 
+        if they appear before the first 'oct' (or if no 'oct' exists, they are still tagged if at the start).
+        - Trailing (head) padding: ending 'oct'/'nov' should be tagged 'oct_'/'nov_'
+        if they appear after the last 'sep' (or if no 'sep' exists, they are still tagged if at the end).
+        - Middle months are untouched.
         """
-        # canonical order
-        hydro_core = ['oct','nov','dec','jan','feb','mar','apr','may','jun','jul','aug','sep']
+        base = [str(m).strip().lower() for m in months]
+        n = len(base)
+        if n == 0:
+            return base
 
-        tagged = []
-        seen_oct = False
-        for i, m in enumerate(months):
-            m = m.strip().lower()
+        # Find anchors (may be missing)
+        try:
+            first_oct = base.index('oct')
+        except ValueError:
+            first_oct = None
 
-            if not seen_oct:
-                if m == 'oct':
-                    seen_oct = True
-                    tagged.append('oct')
-                elif m in ('july', 'aug','sep'):  # before Oct
-                    tagged.append(m + '_')
-                else:
-                    tagged.append(m)  # e.g. nov, dec if starting late
-            else:
-                if m in ('oct','nov', 'dec') and i > len(hydro_core):  # after Sep
-                    tagged.append(m + '_')
-                else:
-                    tagged.append(m)
+        try:
+            last_sep = n - 1 - base[::-1].index('sep')
+        except ValueError:
+            last_sep = None
+
+        tagged = base[:]  # copy
+
+        # --- Tag leading tail padding: starting run of aug/sep before first oct (or if no oct, still at start) ---
+        i = 0
+        while i < n and base[i] in ('aug', 'sep') and (first_oct is None
+                                                       or i < first_oct):
+            tagged[i] = base[i] + '_'
+            i += 1
+
+        # --- Tag trailing head padding: ending run of oct/nov after last sep (or if no sep, still at end) ---
+        j = n - 1
+        while j >= 0 and base[j] in ('oct', 'nov') and (last_sep is None
+                                                        or j > last_sep):
+            tagged[j] = base[j] + '_'
+            j -= 1
+
         return tagged
-    
-    # Apply the tagging function to the MONTHS column   
+
+    # Apply the tagging function to the MONTHS column
     df["MONTHS"] = df["MONTHS"].apply(tag_hydro_year)
     df["N_MONTHS"] = df["MONTHS"].apply(len) - 1
     df = df.drop(columns=["FROM_DATE_RND", "TO_DATE_RND"])
@@ -163,7 +175,9 @@ def _get_column_names(meta_data_columns: "list[str]",
 def _get_climate_values(row: pd.Series, vois_climate: "list[str]",
                         column_names: "list[str]") -> np.ndarray:
     """Get climate values for a specific row and month."""
+
     cols = [f'{voi}_{row["MONTHS"]}' for voi in vois_climate]
+
     all_cols = column_names + cols
     return row[all_cols].values
 
