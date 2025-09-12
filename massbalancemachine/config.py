@@ -2,6 +2,24 @@ from typing import List, Dict, Tuple, Optional
 import os
 
 class Config:
+    """
+        Configuration class that defines the variables related to processing resources and the features to use.
+        Attributes:
+            - numJobs: Number of jobs to run in parallel for XGBoost. If not provided,
+                the value used is equal to the number of logical cores minus 2 clamped
+                between 1 and 25.
+            - testSize: Proportion of the dataset to include in the test split.
+            - nSplits: Number of splits for cross-validation.
+            - seed (int): Seed for random operations to ensure reproducibility.
+            - metaData (list of str): Metadata fields.
+            - notMetaDataNotFeatures (list of str): Fields that are neither metadata nor
+                features.
+            - loss (str): Type of loss to use
+            - bnds (dict of float tuple): Upper and lower bounds of each variable to
+                scale them (useful for the neural network). These bounds don't clip
+                the data and if a variable exceeds the bounds, its normalized
+                counterpart will simply be outside of [0, 1].
+    """
 
     def __init__(
         self,
