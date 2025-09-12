@@ -58,9 +58,7 @@ def process_or_load_data(run_flag,
                 climate_data=paths['era5_climate_data'],
                 geopotential_data=paths['geopotential_data'],
                 change_units=True)
-            
-            df = dataset_gl.data
-            
+                        
         except Exception as e:
             logging.error("Failed to add climate features: %s", e)
             return None

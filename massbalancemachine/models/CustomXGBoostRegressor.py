@@ -344,7 +344,7 @@ class CustomXGBoostRegressor(XGBRegressor):
         df = df.assign(pred=y_pred)
 
         # Vectorized operation for month abbreviation
-        df['MONTH_NB'] = df['MONTHS'].map(self.cfg.month_abbr_hydr)
+        df['MONTH_NB'] = df['MONTHS'].map(self.cfg.month_pos1)
 
         # Cumulative monthly sums using groupby
         df.sort_values(by=['ID', 'MONTH_NB'], inplace=True)

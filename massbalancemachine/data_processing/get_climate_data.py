@@ -85,7 +85,7 @@ def get_climate_features_(
         # Reduce expver dimension
         ds_climate = ds_climate.reduce(np.nansum, "expver")
 
-    # Create a date range for one hydrological year
+    # Create a date range for one hydrological year    
     df = _add_date_range(df, cfg)
 
     # Get the climate data for the latitudes and longitudes and date ranges as
@@ -114,6 +114,24 @@ def get_climate_features_(
 
     return df
 
+def get_first_last_month(df):
+    df["FROM_DATE"] = pd.to_datetime(df["FROM_DATE"].astype(str), format="%Y%m%d")
+    df["TO_DATE"] = pd.to_datetime(df["TO_DATE"].astype(str), format="%Y%m%d")
+
+    # Extract first and last months as numbers (1–12)
+    df["FIRST_MONTH_NUM"] = df[["FROM_DATE"]].min(axis=1).dt.month
+    df["LAST_MONTH_NUM"]  = df[["TO_DATE"]].max(axis=1).dt.month
+
+    # Compute min of all FIRST and max of all LAST
+    global_first = df["FIRST_MONTH_NUM"].min()
+    global_last  = df["LAST_MONTH_NUM"].max()
+
+    # Convert back to abbreviations if needed
+    month_abbr = {i: pd.to_datetime(str(i), format="%m").strftime("%b").lower() for i in range(1, 13)}
+    global_first_abbr = month_abbr[global_first]
+    global_last_abbr = month_abbr[global_last]
+    
+    return global_first_abbr, global_last_abbr
 
 def retrieve_clear_sky_rad(df, path_to_file):
     """Takes as input monthly clear sky potential radiation data (pre-processed), and matches this with the locations
@@ -261,16 +279,6 @@ def _generate_climate_variable_names(ds_climate: xr.Dataset,
         f"{climate_var}{month_name}" for climate_var in climate_variables
         for month_name in months_names
     ]
-
-
-# def _create_date_range(year: int, cfg: config.Config):
-#     """Create a date range for a given year."""
-#     if pd.isna(year):
-#         return None
-#     year = int(year)
-#     # return pd.date_range(start=f"{year - 1}-08-01",
-#     #                      end=f"{year}-11-01",
-#     #                      freq="ME")
 
 
 def _create_date_range(year: int, cfg: config.Config) -> pd.DatetimeIndex:
