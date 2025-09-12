@@ -55,7 +55,7 @@ def transform_to_monthly(
 
     result_df.to_csv(output_fname, index=False)
 
-    return df_exploded
+    return result_df
 
 
 def _convert_dates_to_datetime(df: pd.DataFrame) -> pd.DataFrame:
