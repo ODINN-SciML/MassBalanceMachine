@@ -326,15 +326,15 @@ class CustomXGBoostRegressor(XGBRegressor):
 
         return y_pred_agg
 
-    def cumulative_pred(self, df):
+    def cumulative_pred(self, df, month_pos):
         """Make cumulative monthly predictions for each stake measurement.
 
         Args:
             df pd.DataFrame: monthly input dataframe
-            custom_model (_type_): _description_
+            month_pos: dict that provides the position of each month relative to each other
 
         Returns:
-            _type_: _description_
+            df: the same dataframe as input filled with the cumulative prediction
         """
         features, metadata = data_processing.utils.create_features_metadata(self.cfg, df)
 
@@ -344,7 +344,7 @@ class CustomXGBoostRegressor(XGBRegressor):
         df = df.assign(pred=y_pred)
 
         # Vectorized operation for month abbreviation
-        df['MONTH_NB'] = df['MONTHS'].map(self.cfg.month_pos1)
+        df['MONTH_NB'] = df['MONTHS'].map(month_pos)
 
         # Cumulative monthly sums using groupby
         df.sort_values(by=['ID', 'MONTH_NB'], inplace=True)

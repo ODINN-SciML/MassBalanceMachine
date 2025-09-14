@@ -47,20 +47,10 @@ class Config:
         self.featureColumns: List[str] = []
         self.loss = loss
 
-        # Padding to allow for flexible month ranges (customize freely)
-        self.months_tail_pad: List[str] = ['aug_', 'sep_']  # before 'oct'
-        self.months_head_pad: List[str] = ['oct_']           # after 'sep'
-        
-        # self.months_tail_pad: List[str] = []  # before 'oct'
-        # self.months_head_pad: List[str] =  [] # after 'sep'
-        
         # Constant attributes
         self.base_url_w5e5 = (
             "https://cluster.klima.uni-bremen.de/~oggm/gdirs/oggm_v1.6/L3-L5_files/2023.1/elev_bands/W5E5_w_data/"
         )
-
-        # Build flexible month indices/mappings
-        self._rebuild_month_index()
 
         # Scaling bounds (unchanged)
         self.bnds = bnds or {
@@ -92,56 +82,6 @@ class Config:
 
     def setFeatures(self, featureColumns: List[str]) -> None:
         self.featureColumns = featureColumns
-
-    def set_month_padding(self, months_tail_pad: Optional[List[str]] = None,
-                          months_head_pad: Optional[List[str]] = None) -> None:
-        """
-        Update padding tokens and rebuild month indexing.
-        """
-        if months_tail_pad is not None:
-            self.months_tail_pad = list(months_tail_pad)
-        if months_head_pad is not None:
-            self.months_head_pad = list(months_head_pad)
-        self._rebuild_month_index()
-
-    # ---------------- Flexible month mapping ----------------
-
-    def _rebuild_month_index(self) -> None:
-        """
-        Recompute month list and index mappings given current tail/head pads.
-        """
-        self.month_list = self.make_month_abbr_hydr(
-            self.months_tail_pad, self.months_head_pad
-        )  # returns ordered list of tokens
-
-        # 0-based positions for array indexing
-        self.month_pos0: Dict[str, int] = {m: i for i, m in enumerate(self.month_list)}
-        # 1-based positions (if needed for display)
-        self.month_pos1: Dict[str, int] = {m: i + 1 for i, m in enumerate(self.month_list)}
-
-        # convenience
-        self.max_T: int = len(self.month_list)
-        
-    def make_month_abbr_hydr(self, months_tail_pad: Optional[List[str]] = None,
-                             months_head_pad: Optional[List[str]] = None) -> List[str]:
-        """
-        Create a flexible hydrological month token list depending on tail/head padding.
-
-        Returns
-        -------
-        list[str] : ordered tokens, e.g.
-            ['aug_', 'sep_', 'oct','nov','dec','jan','feb','mar','apr','may','jun','jul','aug','sep','oct_']
-        """
-        # use provided args; fall back to current attributes if None
-        tail = list(months_tail_pad) if months_tail_pad is not None else list(self.months_tail_pad)
-        head = list(months_head_pad) if months_head_pad is not None else list(self.months_head_pad)
-
-        # Standard hydro year (oct..sep)
-        hydro = ['oct', 'nov', 'dec', 'jan', 'feb', 'mar',
-                 'apr', 'may', 'jun', 'jul', 'aug', 'sep']
-
-        full = tail + hydro + head
-        return full
 
 
 class SwitzerlandConfig(Config):

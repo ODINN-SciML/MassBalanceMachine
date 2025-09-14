@@ -1,5 +1,4 @@
 import pandas as pd
-import config
 import xarray as xr
 import numpy as np
 import salem
@@ -11,6 +10,9 @@ from shapely.geometry import Point, box
 import geopandas as gpd
 from scipy.spatial import cKDTree
 import matplotlib.pyplot as plt
+
+import config
+from data_processing.utils import _rebuild_month_index, build_head_tail_pads_from_monthly_df
 
 
 class GeoData:
@@ -31,6 +33,8 @@ class GeoData:
         self.ds_latlon = None
         self.ds_xy = None
         self.gdf = None
+        months_head_pad, months_tail_pad = build_head_tail_pads_from_monthly_df(data)
+        _, self.month_pos = _rebuild_month_index(months_head_pad, months_tail_pad)
 
     def set_gdf(self, gdf):
         """Set the gdf attribute to a geopandas dataframe."""
@@ -287,7 +291,7 @@ class GeoData:
 
         if type_model == 'XGBoost':
             # Compute cumulative SMB predictions
-            df_grid_monthly = custom_model.cumulative_pred(self.data)
+            df_grid_monthly = custom_model.cumulative_pred(self.data, self.month_pos)
             self.data = df_grid_monthly
 
         # Generate annual and winter predictions
@@ -335,7 +339,7 @@ class GeoData:
     def get_mean_SMB(self, custom_model, all_columns):
         """Computes the mean surface mass balance (SMB) for a glacier using the MassBalanceMachine model."""
         # Compute cumulative SMB predictions
-        df_grid_monthly = custom_model.cumulative_pred(self.data[all_columns])
+        df_grid_monthly = custom_model.cumulative_pred(self.data[all_columns], self.month_pos)
 
         # Generate annual and winter predictions
         pred_annual, df_pred_months = custom_model.glacier_wide_pred(
