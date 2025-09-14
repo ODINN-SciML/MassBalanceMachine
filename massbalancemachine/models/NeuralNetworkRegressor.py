@@ -342,16 +342,19 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         return cum_pred
 
     def glacier_wide_pred(self, df_grid_monthly, type_pred='annual'):
-        """    
-        Generate predictions for an entire glacier grid 
+        """
+        Generate predictions for an entire glacier grid
         and return them aggregated by measurement point ID.
-        
+
         Args:
             df_grid_monthly (pd.DataFrame): The input features of whole glacier grid including metadata columns.
             type_pred (str): The type of seasonal prediction to perform.
         Returns:
             pd.DataFrame: The aggregated predictions for each measurement point ID.
         """
+
+        # Determine hydrological year based on the data
+        months_head_pad, months_tail_pad = data_processing._compute_head_tail_pads_from_df(df_grid_monthly)
 
         if type_pred == 'winter':
             # winter months from October to April
@@ -378,7 +381,10 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
             self.cfg,
             features=features_grid,
             metadata=metadata_grid,
-            targets=targets_grid)
+            months_head_pad=months_head_pad,
+            months_tail_pad=months_tail_pad,
+            targets=targets_grid,
+        )
 
         dataset_grid = [
             SliceDataset(dataset_grid, idx=0),
