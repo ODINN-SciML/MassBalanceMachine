@@ -13,6 +13,8 @@ def test_iceland_train():
     data = pd.read_csv('./notebooks/example_data/iceland/files/iceland_monthly_dataset.csv')
     print('Number of winter and annual samples:', len(data))
 
+    months_head_pad, months_tail_pad = mbm.data_processing.utils.build_head_tail_pads_from_monthly_df(data)
+
     cfg = mbm.Config()
 
     # Create a new DataLoader object with the monthly stake data measurements.
@@ -73,6 +75,8 @@ def test_iceland_train():
         cfg,
         features=features,
         metadata=metadata,
+        months_head_pad=months_head_pad,
+        months_tail_pad=months_tail_pad,
         targets=y_train
     )
     splits = dataset.mapSplitsToDataset(splits)

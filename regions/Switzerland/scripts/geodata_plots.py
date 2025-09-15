@@ -559,7 +559,7 @@ def plot_snow_cover_scatter_combined(df):
 
 def plot_snow_cover_geoplots(raster_res,
                              path_S2,
-                             month_pos1,
+                             month_pos,
                              add_snowline=False,
                              band_size=50,
                              percentage_threshold=50):
@@ -570,7 +570,7 @@ def plot_snow_cover_geoplots(raster_res,
     - raster_res (str): The name of the raster file to process.
     - path_S2 (str): Path to the directory containing the satellite rasters.
     - get_hydro_year_and_month (function): Function to determine the hydrological year and month from a date.
-    - month_pos1 (dict): Mapping of hydrological months to their abbreviated names.
+    - month_pos (dict): Mapping of hydrological months to their abbreviated names.
     - IceSnowCover (function): Function to calculate snow and ice cover from a GeoDataFrame.
     - snowCover (function): Function to load mass-balance predictions and calculate snow cover corrections.
     - plotClasses (function): Function to create the plots.
@@ -589,7 +589,7 @@ def plot_snow_cover_geoplots(raster_res,
 
     # Find closest hydrological year and month
     closest_month, hydro_year = get_hydro_year_and_month(raster_date)
-    monthNb = month_pos1[closest_month]
+    monthNb = month_pos[closest_month]
 
     # Skip if the hydrological year is out of range
     if hydro_year > 2021:
