@@ -22,7 +22,15 @@ def test_aggregatedDataset():
 
     cfg.setFeatures(['COL1', 'COL2'])
 
-    dataset = mbm.data_processing.AggregatedDataset(cfg, features=features, metadata=metadata, metadataColumns=meta_data_columns, targets=targets)
+    dataset = mbm.data_processing.AggregatedDataset(
+        cfg,
+        features=features,
+        metadata=metadata,
+        months_head_pad=[],
+        months_tail_pad=[],
+        metadataColumns=meta_data_columns,
+        targets=targets,
+    )
     assert len(dataset)==2
 
     splits = dataset.mapSplitsToDataset(splits)
@@ -30,13 +38,14 @@ def test_aggregatedDataset():
 
     features0 = dataset[0][0]
     target0 = dataset[0][1]
-    check_vector_equality(features0, np.array([0.1,1.5,0.3,2.5]), "features0")
-    check_vector_equality(target0, np.array([10.,11.]), "target0")
+    # Corresponds to 'oct' and then 'sep' data since hydrological year by default ranges from october to september
+    check_vector_equality(features0, np.array([0.3,2.5,0.1,1.5]), "features0")
+    check_vector_equality(target0, np.array([11.,10.]), "target0")
     features1 = dataset[1][0]
     target1 = dataset[1][1]
     check_vector_equality(features1, np.array([0.5,3.5,np.nan,np.nan]), "features1")
     check_vector_equality(target1, np.array([12.,np.nan]), "target1")
-    assert (dataset.indexToMetadata(0)==[['1', 'sep'], ['1', 'oct']]).all()
+    assert (dataset.indexToMetadata(0)==[['1', 'oct'], ['1', 'sep']]).all()
 
 
 if __name__=="__main__":

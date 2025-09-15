@@ -77,7 +77,7 @@ def test_data_processing_wgms():
     vois_climate = ['t2m', 'tp', 'slhf', 'sshf', 'ssrd', 'fal', 'str']
     dataset.convert_to_monthly(vois_climate=vois_climate, vois_topographical=voi_topographical)
 
-    assert dataset.data.shape == (442, 21)
+    assert dataset.data.shape == (445, 21)
 
 
 if __name__=="__main__":

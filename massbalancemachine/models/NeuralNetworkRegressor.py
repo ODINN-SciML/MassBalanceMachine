@@ -341,11 +341,11 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
             cum_pred[i][ind] = np.cumsum(y_pred[i][ind])
         return cum_pred
 
-    def glacier_wide_pred(self, df_grid_monthly, type_pred='annual'):
-        """    
-        Generate predictions for an entire glacier grid 
+    def glacier_wide_pred(self, df_grid_monthly, months_head_pad, months_tail_pad, type_pred='annual'):
+        """
+        Generate predictions for an entire glacier grid
         and return them aggregated by measurement point ID.
-        
+
         Args:
             df_grid_monthly (pd.DataFrame): The input features of whole glacier grid including metadata columns.
             type_pred (str): The type of seasonal prediction to perform.
@@ -378,7 +378,10 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
             self.cfg,
             features=features_grid,
             metadata=metadata_grid,
-            targets=targets_grid)
+            months_head_pad=months_head_pad,
+            months_tail_pad=months_tail_pad,
+            targets=targets_grid,
+        )
 
         dataset_grid = [
             SliceDataset(dataset_grid, idx=0),
@@ -452,12 +455,6 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         df_months_nn = df_months_nn.dropna(axis=1, how='all')
         df_months_nn['ID'] = df_pred_months['ID']
         df_months_nn['PERIOD'] = type_pred
-        # df_months_nn['y_agg'] = y_pred_agg
-        # if type_pred == 'winter':
-        #     months = winter_months
-        # else:
-        #     months = months_extended
-        # df_months_nn['sum'] = df_months_nn[months].sum(axis=1)
 
         return grouped_ids, df_months_nn
 

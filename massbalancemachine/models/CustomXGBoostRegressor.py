@@ -326,15 +326,15 @@ class CustomXGBoostRegressor(XGBRegressor):
 
         return y_pred_agg
 
-    def cumulative_pred(self, df):
+    def cumulative_pred(self, df, month_pos):
         """Make cumulative monthly predictions for each stake measurement.
 
         Args:
             df pd.DataFrame: monthly input dataframe
-            custom_model (_type_): _description_
+            month_pos: dict that provides the position of each month relative to each other
 
         Returns:
-            _type_: _description_
+            df: the same dataframe as input filled with the cumulative prediction
         """
         features, metadata = data_processing.utils.create_features_metadata(self.cfg, df)
 
@@ -344,7 +344,7 @@ class CustomXGBoostRegressor(XGBRegressor):
         df = df.assign(pred=y_pred)
 
         # Vectorized operation for month abbreviation
-        df['MONTH_NB'] = df['MONTHS'].map(self.cfg.month_abbr_hydr)
+        df['MONTH_NB'] = df['MONTHS'].map(month_pos)
 
         # Cumulative monthly sums using groupby
         df.sort_values(by=['ID', 'MONTH_NB'], inplace=True)
@@ -352,14 +352,15 @@ class CustomXGBoostRegressor(XGBRegressor):
 
         return df
 
-    def glacier_wide_pred(self, df_grid, type_pred='annual'):
-        """    
-        Generate predictions for an entire glacier grid 
+    def glacier_wide_pred(self, df_grid, months_head_pad, months_tail_pad, type_pred='annual'):
+        """
+        Generate predictions for an entire glacier grid
         and return them aggregated by measurement point ID.
-        
+
         Args:
             df_grid (pd.DataFrame): The input features of whole glacier grid including metadata columns.
             type_pred (str): The type of seasonal prediction to perform.
+            months_head_pad, months_tail_pad: Unused variables which are here only to have the same interface between XGBoost and the Neural Network
         Returns:
             pd.DataFrame: The aggregated predictions for each measurement point ID.
         """
