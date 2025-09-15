@@ -590,7 +590,7 @@ class MBSequenceDataset(Dataset):
             if months_head_pad is None and months_tail_pad is None:
                 months_head_pad, months_tail_pad = _compute_head_tail_pads_from_df(
                     df)
-        except Exception as e:
+        except AttributeError as e:
             raise ValueError(
                 "Could not compute months_head_pad / months_tail_pad from dataframe. Please provide them explicitly as arguments in function from_dataframe."
             ) from e

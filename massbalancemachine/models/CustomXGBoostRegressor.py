@@ -352,14 +352,15 @@ class CustomXGBoostRegressor(XGBRegressor):
 
         return df
 
-    def glacier_wide_pred(self, df_grid, type_pred='annual'):
-        """    
-        Generate predictions for an entire glacier grid 
+    def glacier_wide_pred(self, df_grid, months_head_pad, months_tail_pad, type_pred='annual'):
+        """
+        Generate predictions for an entire glacier grid
         and return them aggregated by measurement point ID.
-        
+
         Args:
             df_grid (pd.DataFrame): The input features of whole glacier grid including metadata columns.
             type_pred (str): The type of seasonal prediction to perform.
+            months_head_pad, months_tail_pad: Unused variables which are here only to have the same interface between XGBoost and the Neural Network
         Returns:
             pd.DataFrame: The aggregated predictions for each measurement point ID.
         """
