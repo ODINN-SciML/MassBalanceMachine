@@ -9,7 +9,6 @@ Date Created: 21/07/2024
 """
 
 import os
-from typing import Union, Callable
 
 import numpy as np
 import xarray as xr
@@ -21,20 +20,19 @@ import torch
 from skorch.helper import SliceDataset
 from torch.utils.data import DataLoader, Subset
 from torch.utils.data import WeightedRandomSampler, SubsetRandomSampler
-import config
-import random as rd
 
-from typing import Dict, List, Optional, Tuple
+import random as rd
+from typing import Union, Callable, Dict, List, Optional, Tuple
 from collections import Counter
 from tqdm import tqdm
-import numpy as np
-from torch.utils.data import Dataset
 
 from data_processing.get_climate_data import get_climate_features_, retrieve_clear_sky_rad, smooth_era5land_by_mode
 from data_processing.get_topo_data import get_topographical_features, get_glacier_mask
 from data_processing.transform_to_monthly import transform_to_monthly
 from data_processing.glacier_utils import create_glacier_grid_RGI
 from data_processing.climate_data_download import download_climate_ERA5, path_climate_data
+from data_processing.utils import _rebuild_month_index, _compute_head_tail_pads_from_df
+import config
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s - %(levelname)s - %(message)s")
@@ -53,10 +51,20 @@ class Dataset:
         region_id (str): The region ID, for saving the files accordingly and eventually downloading them if needed
         data_dir (str): Path to the directory containing the raw data, and save intermediate results
         RGIIds (pd.Series): Series of RGI IDs from the data
+        months_tail_pad (list of str): Months to pad the start of the hydrological year
+        months_head_pad (list of str): Months to pad the end of the hydrological year
     """
 
-    def __init__(self, cfg: config.Config, data: pd.DataFrame,
-                 region_name: str, region_id: int, data_path: str):
+    def __init__(
+            self,
+            cfg: config.Config,
+            data: pd.DataFrame,
+            region_name: str,
+            region_id: int,
+            data_path: str,
+            months_tail_pad = None, #: List[str] = ['aug_', 'sep_'], # before 'oct'
+            months_head_pad = None, #: List[str] = ['oct_'], # after 'sep'
+        ):
         self.cfg = cfg
         self.data = self._clean_data(data=data.copy())
         self.region = region_name
@@ -65,6 +73,13 @@ class Dataset:
         self.RGIIds = self.data["RGIId"]
         if not os.path.isdir(self.data_dir):
             os.makedirs(self.data_dir, exist_ok=True)
+
+        # Padding to allow for flexible month ranges (customize freely)
+        assert (months_head_pad is None) == (months_tail_pad is None), "If any of months_head_pad or months_tail_pad is provided, the other variable must also be provided."
+        if months_head_pad is None and months_tail_pad is None:
+            months_head_pad, months_tail_pad = _compute_head_tail_pads_from_df(data)
+        self.months_head_pad = months_head_pad
+        self.months_tail_pad = months_tail_pad
 
     def get_topo_features(self,
                           vois: list[str],
@@ -116,20 +131,18 @@ class Dataset:
 
         self.data = get_climate_features_(self.data, output_fname,
                                           climate_data, geopotential_data,
-                                          change_units, self.cfg, vois_climate,
+                                          change_units, self.months_tail_pad, self.months_head_pad, vois_climate,
                                           vois_other)
 
-    def get_potential_rad(self, path_to_direct: str, cfg) -> None:
+    def get_potential_rad(self, path_to_direct: str) -> None:
         """
         Fetch monthly clear-sky radiation for each glacier and add padded-month
-        columns according to cfg.months_tail_pad / cfg.months_head_pad.
+        columns according to self.months_tail_pad / self.months_head_pad.
 
         Parameters
         ----------
         path_to_direct : str
             Directory containing 'xr_direct_{GLACIER}.zarr' files.
-        cfg : Config
-            Your config instance with flexible month padding.
         """
         df = self.data.copy()
         glaciers = df["GLACIER"].unique()
@@ -147,7 +160,6 @@ class Dataset:
 
         # Create padded month columns for potential radiation (pcsr)
         df_concat = self._copy_padded_month_columns(df_concat,
-                                                    cfg,
                                                     prefixes=("pcsr", ))
 
         # Save back
@@ -240,6 +252,36 @@ class Dataset:
             str: The full path to the output file
         """
         return os.path.join(self.data_dir, f"{self.region}_{feature_type}.csv")
+
+    def _copy_padded_month_columns(
+        self,
+        df: pd.DataFrame,
+        prefixes=("pcsr",),
+        overwrite: bool = False
+    ) -> pd.DataFrame:
+        """
+        For each padding token (e.g. '_aug_', '_sep_', 'oct_'),
+        create a new column like 'pcsr__aug_' by copying from the base column
+        'pcsr_aug'. Works for any variable names given in `prefixes`.
+        """
+        df = df.copy()
+        padded_tokens = list(self.months_tail_pad) + list(self.months_head_pad)
+
+        if not padded_tokens:
+            return df  # nothing to do
+
+        for token in padded_tokens:
+            base = token.strip("_")  # e.g. '_aug_' -> 'aug', 'oct_' -> 'oct'
+            for pref in prefixes:
+                src = f"{pref}_{base}"
+                dst = f"{pref}_{token}"
+                if (dst in df.columns) and not overwrite:
+                    continue
+                if src in df.columns:
+                    df[dst] = df[src].values
+                else:
+                    df[dst] = np.nan
+        return df
 
     @staticmethod
     def _copy_padded_month_columns(df: pd.DataFrame,
@@ -342,17 +384,23 @@ class AggregatedDataset(torch.utils.data.Dataset):
         targets (np.ndarray, optional): A numpy like array containing the targets.
     """
 
-    def __init__(self,
-                 cfg: config.Config,
-                 features: np.ndarray,
-                 metadata: np.ndarray,
-                 metadataColumns: list[str] = None,
-                 targets: np.ndarray = None) -> None:
+    def __init__(
+            self,
+            cfg: config.Config,
+            features: np.ndarray,
+            metadata: np.ndarray,
+            months_head_pad: list[str],
+            months_tail_pad: list[str],
+            metadataColumns: list[str] = None,
+            targets: np.ndarray = None,
+        ) -> None:
         self.cfg = cfg
         self.features = features
         self.metadata = metadata
         self.metadataColumns = metadataColumns or self.cfg.metaData
         self.targets = targets
+
+        _, self.month_pos = _rebuild_month_index(months_head_pad, months_tail_pad)
 
         self.ID = np.array([
             self.metadata[i][self.metadataColumns.index('ID')]
@@ -400,7 +448,7 @@ class AggregatedDataset(torch.utils.data.Dataset):
     def _getInd(self, index):
         ind = np.argwhere(self.ID == self.uniqueID[index])[:, 0]
         months = self.metadata[ind][:, self.metadataColumns.index('MONTHS')]
-        numMonths = [self.cfg.month_pos1[m] for m in months]
+        numMonths = [self.month_pos[m] for m in months]
         ind = ind[np.argsort(
             numMonths)]  # Sort ind to get monthly data in chronological order
         return ind
@@ -540,17 +588,17 @@ class MBSequenceDataset(Dataset):
     """
 
     # ---------- Constructors ----------
-    # init
     @classmethod
     def from_dataframe(
         cls,
         df: pd.DataFrame,
         monthly_cols: List[str],
         static_cols: List[str],
-        *,
         cfg: config.Config,
         show_progress: bool = True,
         expect_target: bool = True,
+        months_tail_pad = None,
+        months_head_pad = None,
     ) -> "MBSequenceDataset":
         """
         Build a dataset directly from a monthly table.
@@ -560,8 +608,14 @@ class MBSequenceDataset(Dataset):
         and POINT_BALANCE if expect_target=True.
         """
 
-        pos_map = dict(cfg.month_pos0)  # token -> 0-based index
-        T = int(cfg.max_T)  # max sequence length
+        # Padding to allow for flexible month ranges (customize freely)
+        assert (months_head_pad is None) == (months_tail_pad is None), "If any of months_head_pad or months_tail_pad is provided, the other variable must also be provided."
+        if months_head_pad is None and months_tail_pad is None:
+            months_head_pad, months_tail_pad = _compute_head_tail_pads_from_df(data)
+        month_list, month_pos = _rebuild_month_index(months_head_pad, months_tail_pad)
+
+        pos_map = {k:v-1 for k,v in month_pos.items()} # token -> 0-based index
+        T = int(len(month_list))  # max sequence length
 
         data_dict = cls._build_sequences(
             df=df,
@@ -576,11 +630,10 @@ class MBSequenceDataset(Dataset):
 
     def make_loaders(
         self,
-        *,
-        seed,
         val_ratio: float = 0.2,
         batch_size_train: int = 64,
         batch_size_val: int = 158,
+        seed: int = 42,
         fit_and_transform: bool = True,
         shuffle_train: bool = True,
         drop_last_train: bool = False,
@@ -717,8 +770,7 @@ class MBSequenceDataset(Dataset):
         monthly_cols: List[str],
         static_cols: List[str],
         pos_map: Dict[str, int],  # token -> 0-based index
-        T: int,  # total timeline length (e.g., cfg.max_T)
-        *,
+        T: int,  # total timeline length
         show_progress: bool = True,
         expect_target: bool = True,
     ) -> Dict[str, np.ndarray]:

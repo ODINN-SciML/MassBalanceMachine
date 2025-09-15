@@ -17,6 +17,8 @@ import numpy as np
 import pandas as pd
 import config
 
+import config
+import data_processing.utils
 
 def get_climate_features_(
     df: pd.DataFrame,
@@ -24,7 +26,8 @@ def get_climate_features_(
     climate_data: str,
     geopotential_data: str,
     change_units: bool,
-    cfg: config.Config,
+    months_tail_pad, # before 'oct'
+    months_head_pad, # after 'sep'
     vois_climate: list = None,
     vois_other: list = None,
 ) -> pd.DataFrame:
@@ -85,8 +88,8 @@ def get_climate_features_(
         # Reduce expver dimension
         ds_climate = ds_climate.reduce(np.nansum, "expver")
 
-    # Create a date range for one hydrological year    
-    df = _add_date_range(df, cfg)
+    # Create a date range for one hydrological year
+    df = _add_date_range(df, months_tail_pad, months_head_pad)
 
     # Get the climate data for the latitudes and longitudes and date ranges as
     # specified
@@ -94,7 +97,7 @@ def get_climate_features_(
         lambda rng: [d.strftime("%b").lower() for d in rng]
         if rng is not None else [])
 
-    climate_df = _process_climate_data(ds_climate, df, cfg)
+    climate_df = _process_climate_data(ds_climate, df, months_tail_pad, months_head_pad)
 
     # Get the geopotential height for the latitudes and longitudes as specified,
     # for the locations of the stake measurements.
@@ -130,7 +133,6 @@ def get_first_last_month(df):
     month_abbr = {i: pd.to_datetime(str(i), format="%m").strftime("%b").lower() for i in range(1, 13)}
     global_first_abbr = month_abbr[global_first]
     global_last_abbr = month_abbr[global_last]
-    
     return global_first_abbr, global_last_abbr
 
 def retrieve_clear_sky_rad(df, path_to_file):
@@ -263,8 +265,11 @@ def _crop_geopotential(ds: xr.Dataset, lat: xr.DataArray,
     return ds.sel(longitude=lon, latitude=lat, method="nearest")
 
 
-def _generate_climate_variable_names(ds_climate: xr.Dataset,
-                                     cfg: config.Config) -> list:
+def _generate_climate_variable_names(
+    ds_climate: xr.Dataset,
+    months_tail_pad,
+    months_head_pad,
+) -> list:
     """Generate list of climate variable names for one hydrological year."""
     climate_variables = list(ds_climate.keys())
     months_names = [
@@ -273,16 +278,20 @@ def _generate_climate_variable_names(ds_climate: xr.Dataset,
 
     # extend months on both sides for longer periods:
     months_names = [
-        f"_{month.lower()}" for month in cfg.months_tail_pad
-    ] + months_names + [f"_{month.lower()}" for month in cfg.months_head_pad]
+        f"_{month.lower()}" for month in months_tail_pad
+    ] + months_names + [f"_{month.lower()}" for month in months_head_pad]
     return [
         f"{climate_var}{month_name}" for climate_var in climate_variables
         for month_name in months_names
     ]
 
 
-def _create_date_range(year: int, cfg: config.Config) -> pd.DatetimeIndex:
-    """Create a date range for a given hydrological year based on cfg.month_list."""
+def _create_date_range(
+    year: int,
+    months_tail_pad,
+    months_head_pad,
+) -> pd.DatetimeIndex:
+    """Create a date range for a given hydrological year based on months_tail_pad and months_head_pad."""
     if pd.isna(year):
         return None
     year = int(year)
@@ -296,7 +305,7 @@ def _create_date_range(year: int, cfg: config.Config) -> pd.DatetimeIndex:
             return abbr_to_num[clean]
         raise ValueError(f"Unknown month token: {token}")
 
-    month_list = cfg.month_list
+    month_list, _ = data_processing.utils._rebuild_month_index(months_head_pad, months_tail_pad)
     start_token, end_token = month_list[0], month_list[-1]
 
     start_month = token_to_num(start_token)
@@ -310,14 +319,18 @@ def _create_date_range(year: int, cfg: config.Config) -> pd.DatetimeIndex:
     return pd.date_range(start=start, end=end, freq="MS")
 
 
-def _add_date_range(df: pd.DataFrame, cfg: config.Config) -> pd.DataFrame:
+def _add_date_range(df: pd.DataFrame, months_tail_pad, months_head_pad) -> pd.DataFrame:
     df = df.copy()
-    df["range_date"] = df["YEAR"].map(lambda y: _create_date_range(y, cfg))
+    df["range_date"] = df["YEAR"].map(lambda y: _create_date_range(y, months_tail_pad, months_head_pad))
     return df
 
 
-def _process_climate_data(ds_climate: xr.Dataset, df: pd.DataFrame,
-                          cfg: config.Config) -> pd.DataFrame:
+def _process_climate_data(
+    ds_climate: xr.Dataset,
+    df: pd.DataFrame,
+    months_tail_pad,
+    months_head_pad,
+) -> pd.DataFrame:
     """Process climate data for all points and times."""
 
     # Create DataArrays for latitude and longitude
@@ -364,7 +377,7 @@ def _process_climate_data(ds_climate: xr.Dataset, df: pd.DataFrame,
     result_df = pd.DataFrame(result_array)
     # Set the new column names for the dataframe (climate variables X months
     # of the hydrological year)
-    result_df.columns = _generate_climate_variable_names(ds_climate, cfg)
+    result_df.columns = _generate_climate_variable_names(ds_climate, months_tail_pad, months_head_pad)
     return result_df
 
 

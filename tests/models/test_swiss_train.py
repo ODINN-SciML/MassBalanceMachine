@@ -66,6 +66,7 @@ def test_swiss_train_geo():
         output_file='CH_wgms_dataset_monthly_all.csv')
 
     data_monthly = dataloader_gl.data
+    months_head_pad, months_tail_pad = mbm.data_processing.utils.build_head_tail_pads_from_monthly_df(data_monthly)
 
     data_monthly['GLWD_ID'] = data_monthly.apply(
         lambda x: mbm.data_processing.utils.get_hash(f"{x.GLACIER}_{x.YEAR}"),
@@ -102,7 +103,11 @@ def test_swiss_train_geo():
 
     geodetic_mb = get_geodetic_MB(cfg)
 
-    gdl = mbm.dataloader.GeoDataLoader(cfg, ['silvretta'], train_set['df_X'])
+    gdl = mbm.dataloader.GeoDataLoader(
+        cfg, ['silvretta'], train_set['df_X'],
+        months_head_pad=months_head_pad,
+        months_tail_pad=months_tail_pad,
+    )
 
     nInp = len(feature_columns)
     network = nn.Sequential(

@@ -204,7 +204,6 @@ class LSTM_MB(nn.Module):
                    verbose: bool = True,
                    return_best_state: bool = True,
                    save_best_path: Optional[str] = None):
-
         if optimizer is None:
             optimizer = torch.optim.AdamW(self.parameters(),
                                           lr=lr,

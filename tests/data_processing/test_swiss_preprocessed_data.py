@@ -54,7 +54,14 @@ def test_process_or_load_data():
         vois_topographical=vois_topographical,
         output_file='CH_wgms_dataset_monthly_silvretta.csv'
     )
-    assert dataloader_gl.data.shape == (42841, 30)
+    months_head_pad, months_tail_pad = mbm.data_processing.utils.build_head_tail_pads_from_monthly_df(dataloader_gl.data)
+    month_list, month_pos = mbm.data_processing.utils._rebuild_month_index(months_head_pad, months_tail_pad)
+    assert months_head_pad == ['oct_']
+    assert months_tail_pad == ['sep_'] # Not ['aug_', 'sep_'] because we are using only Silvretta data
+    assert len(month_list)==14
+    assert len(month_pos)==14
+    print(dataloader_gl.data.shape)
+    assert dataloader_gl.data.shape == (37763, 30)
 
 @pytest.mark.order2
 def test_geodataloader():
@@ -94,6 +101,7 @@ def test_geodataloader():
     )
 
     data_monthly = dataloader_gl.data
+    months_head_pad, months_tail_pad = mbm.data_processing.utils.build_head_tail_pads_from_monthly_df(data_monthly)
 
     data_monthly['GLWD_ID'] = data_monthly.apply(
         lambda x: mbm.data_processing.utils.get_hash(f"{x.GLACIER}_{x.YEAR}"), axis=1)
@@ -113,12 +121,15 @@ def test_geodataloader():
     feature_columns = list(data_monthly.columns.difference(cfg.metaData).drop(cfg.notMetaDataNotFeatures))
     cfg.setFeatures(feature_columns)
 
-    gdl = mbm.dataloader.GeoDataLoader(cfg, ['silvretta'], train_set['df_X'])
+    gdl = mbm.dataloader.GeoDataLoader(
+        cfg, ['silvretta'], train_set['df_X'],
+        months_head_pad=months_head_pad, months_tail_pad=months_tail_pad,
+    )
     for g in gdl.glaciers():
         print(f"Glacier {g}")
     g = 'silvretta'
     s, m, gt = gdl.stakes(g)
-    nRows = 38540
+    nRows = 33981
     assert s.shape == (nRows, 16)
     assert m.shape == (nRows, 8)
     assert gt.shape == (nRows, )

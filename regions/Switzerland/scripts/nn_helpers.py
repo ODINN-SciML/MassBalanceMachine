@@ -148,8 +148,14 @@ def PlotPredictions_NN(grouped_ids):
     plt.tight_layout()
 
 
-def evaluate_model_and_group_predictions(custom_NN_model, df_X_subset, y, cfg,
-                                         mbm):
+def evaluate_model_and_group_predictions(
+    custom_NN_model,
+    df_X_subset,
+    y,
+    cfg,
+    months_head_pad,
+    months_tail_pad,
+):
     # Create features and metadata
     features, metadata = mbm.data_processing.utils.create_features_metadata(cfg, df_X_subset)
 
@@ -160,10 +166,13 @@ def evaluate_model_and_group_predictions(custom_NN_model, df_X_subset, y, cfg,
         y = y.cpu()
 
     # Define the dataset for the NN
-    dataset = mbm.data_processing.AggregatedDataset(cfg,
-                                                    features=features,
-                                                    metadata=metadata,
-                                                    targets=y)
+    dataset = mbm.data_processing.AggregatedDataset(
+        cfg,
+        features=features,
+        metadata=metadata,
+        months_head_pad=months_head_pad,
+        months_tail_pad=months_tail_pad,
+        targets=y)
     dataset = [SliceDataset(dataset, idx=0), SliceDataset(dataset, idx=1)]
 
     # Make predictions

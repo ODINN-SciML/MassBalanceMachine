@@ -59,9 +59,6 @@ class Config:
             "https://cluster.klima.uni-bremen.de/~oggm/gdirs/oggm_v1.6/L3-L5_files/2023.1/elev_bands/W5E5_w_data/"
         )
 
-        # Build flexible month indices/mappings
-        self._rebuild_month_index()
-
         # Scaling bounds (unchanged)
         self.bnds = bnds or {
             'ALTITUDE_CLIMATE': (1500, 3000),
