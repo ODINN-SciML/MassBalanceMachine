@@ -23,6 +23,7 @@ docs/MBM_logo.png
 regions/Switzerland/models/**
 regions/Switzerland/results
 regions/Switzerland/figures
+regions/Switzerland/logs
 regions/Switzerland/.ipynb_checkpoints
 
 regions/French_Alps/models
