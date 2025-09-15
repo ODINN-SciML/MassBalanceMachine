@@ -67,7 +67,7 @@ def process_or_load_data(run_flag,
             logging.info("Adding potential clear sky radiation...")
             logging.info("Shape before adding radiation: %s",
                          dataset_gl.data.shape)
-            dataset_gl.get_potential_rad(paths['radiation_save_path'], cfg)
+            dataset_gl.get_potential_rad(paths['radiation_save_path'])
             logging.info("Shape after adding radiation: %s",
                          dataset_gl.data.shape)
 
