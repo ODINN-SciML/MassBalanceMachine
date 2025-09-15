@@ -62,9 +62,9 @@ class Dataset:
             region_name: str,
             region_id: int,
             data_path: str,
-            months_tail_pad = None, #: List[str] = ['aug_', 'sep_'], # before 'oct'
-            months_head_pad = None, #: List[str] = ['oct_'], # after 'sep'
-        ):
+            months_tail_pad=[],  #: List[str] = ['aug_', 'sep_'], # before 'oct'
+            months_head_pad=[],  #: List[str] = ['oct_'], # after 'sep'
+    ):
         self.cfg = cfg
         self.data = self._clean_data(data=data.copy())
         self.region = region_name
@@ -75,9 +75,12 @@ class Dataset:
             os.makedirs(self.data_dir, exist_ok=True)
 
         # Padding to allow for flexible month ranges (customize freely)
-        assert (months_head_pad is None) == (months_tail_pad is None), "If any of months_head_pad or months_tail_pad is provided, the other variable must also be provided."
+        assert (months_head_pad is None) == (
+            months_tail_pad is None
+        ), "If any of months_head_pad or months_tail_pad is provided, the other variable must also be provided."
         if months_head_pad is None and months_tail_pad is None:
-            months_head_pad, months_tail_pad = _compute_head_tail_pads_from_df(data)
+            months_head_pad, months_tail_pad = _compute_head_tail_pads_from_df(
+                self.data)
         self.months_head_pad = months_head_pad
         self.months_tail_pad = months_tail_pad
 
@@ -131,7 +134,8 @@ class Dataset:
 
         self.data = get_climate_features_(self.data, output_fname,
                                           climate_data, geopotential_data,
-                                          change_units, self.months_tail_pad, self.months_head_pad, vois_climate,
+                                          change_units, self.months_tail_pad,
+                                          self.months_head_pad, vois_climate,
                                           vois_other)
 
     def get_potential_rad(self, path_to_direct: str) -> None:
@@ -253,12 +257,10 @@ class Dataset:
         """
         return os.path.join(self.data_dir, f"{self.region}_{feature_type}.csv")
 
-    def _copy_padded_month_columns(
-        self,
-        df: pd.DataFrame,
-        prefixes=("pcsr",),
-        overwrite: bool = False
-    ) -> pd.DataFrame:
+    def _copy_padded_month_columns(self,
+                                   df: pd.DataFrame,
+                                   prefixes=("pcsr", ),
+                                   overwrite: bool = False) -> pd.DataFrame:
         """
         For each padding token (e.g. '_aug_', '_sep_', 'oct_'),
         create a new column like 'pcsr__aug_' by copying from the base column
@@ -266,35 +268,6 @@ class Dataset:
         """
         df = df.copy()
         padded_tokens = list(self.months_tail_pad) + list(self.months_head_pad)
-
-        if not padded_tokens:
-            return df  # nothing to do
-
-        for token in padded_tokens:
-            base = token.strip("_")  # e.g. '_aug_' -> 'aug', 'oct_' -> 'oct'
-            for pref in prefixes:
-                src = f"{pref}_{base}"
-                dst = f"{pref}_{token}"
-                if (dst in df.columns) and not overwrite:
-                    continue
-                if src in df.columns:
-                    df[dst] = df[src].values
-                else:
-                    df[dst] = np.nan
-        return df
-
-    @staticmethod
-    def _copy_padded_month_columns(df: pd.DataFrame,
-                                   cfg,
-                                   prefixes=("pcsr", ),
-                                   overwrite: bool = False) -> pd.DataFrame:
-        """
-        For each padding token in cfg (e.g. '_aug_', '_sep_', 'oct_'),
-        create a new column like 'pcsr__aug_' by copying from the base column
-        'pcsr_aug'. Works for any variable names given in `prefixes`.
-        """
-        df = df.copy()
-        padded_tokens = list(cfg.months_tail_pad) + list(cfg.months_head_pad)
 
         if not padded_tokens:
             return df  # nothing to do
@@ -385,22 +358,23 @@ class AggregatedDataset(torch.utils.data.Dataset):
     """
 
     def __init__(
-            self,
-            cfg: config.Config,
-            features: np.ndarray,
-            metadata: np.ndarray,
-            months_head_pad: list[str],
-            months_tail_pad: list[str],
-            metadataColumns: list[str] = None,
-            targets: np.ndarray = None,
-        ) -> None:
+        self,
+        cfg: config.Config,
+        features: np.ndarray,
+        metadata: np.ndarray,
+        months_head_pad: list[str],
+        months_tail_pad: list[str],
+        metadataColumns: list[str] = None,
+        targets: np.ndarray = None,
+    ) -> None:
         self.cfg = cfg
         self.features = features
         self.metadata = metadata
         self.metadataColumns = metadataColumns or self.cfg.metaData
         self.targets = targets
 
-        _, self.month_pos = _rebuild_month_index(months_head_pad, months_tail_pad)
+        _, self.month_pos = _rebuild_month_index(months_head_pad,
+                                                 months_tail_pad)
 
         self.ID = np.array([
             self.metadata[i][self.metadataColumns.index('ID')]
@@ -594,11 +568,10 @@ class MBSequenceDataset(Dataset):
         df: pd.DataFrame,
         monthly_cols: List[str],
         static_cols: List[str],
-        cfg: config.Config,
         show_progress: bool = True,
         expect_target: bool = True,
-        months_tail_pad = None,
-        months_head_pad = None,
+        months_tail_pad=[],
+        months_head_pad=[],
     ) -> "MBSequenceDataset":
         """
         Build a dataset directly from a monthly table.
@@ -609,12 +582,21 @@ class MBSequenceDataset(Dataset):
         """
 
         # Padding to allow for flexible month ranges (customize freely)
-        assert (months_head_pad is None) == (months_tail_pad is None), "If any of months_head_pad or months_tail_pad is provided, the other variable must also be provided."
+        assert (months_head_pad is None) == (
+            months_tail_pad is None
+        ), "If any of months_head_pad or months_tail_pad is provided, the other variable must also be provided."
+        
         if months_head_pad is None and months_tail_pad is None:
-            months_head_pad, months_tail_pad = _compute_head_tail_pads_from_df(data)
-        month_list, month_pos = _rebuild_month_index(months_head_pad, months_tail_pad)
+            months_head_pad, months_tail_pad = _compute_head_tail_pads_from_df(
+                df)
+        
+        month_list, month_pos = _rebuild_month_index(months_head_pad,
+                                                     months_tail_pad)
 
-        pos_map = {k:v-1 for k,v in month_pos.items()} # token -> 0-based index
+        pos_map = {
+            k: v - 1
+            for k, v in month_pos.items()
+        }  # token -> 0-based index
         T = int(len(month_list))  # max sequence length
 
         data_dict = cls._build_sequences(

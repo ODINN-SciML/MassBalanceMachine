@@ -33,8 +33,10 @@ class GeoData:
         self.ds_latlon = None
         self.ds_xy = None
         self.gdf = None
-        months_head_pad, months_tail_pad = build_head_tail_pads_from_monthly_df(data)
-        _, self.month_pos = _rebuild_month_index(months_head_pad, months_tail_pad)
+        months_head_pad, months_tail_pad = build_head_tail_pads_from_monthly_df(
+            data)
+        _, self.month_pos = _rebuild_month_index(months_head_pad,
+                                                 months_tail_pad)
 
     def set_gdf(self, gdf):
         """Set the gdf attribute to a geopandas dataframe."""
@@ -256,6 +258,8 @@ class GeoData:
                         path_save_glw,
                         save_monthly_pred=True,
                         save_seasonal_pred=True,
+                        months_head_pad=None,
+                        months_tail_pad=None,
                         type_model='XGBoost'):
         """
         Computes and saves gridded mass balance (MB) predictions for a given glacier and year.
@@ -291,14 +295,21 @@ class GeoData:
 
         if type_model == 'XGBoost':
             # Compute cumulative SMB predictions
-            df_grid_monthly = custom_model.cumulative_pred(self.data, self.month_pos)
+            df_grid_monthly = custom_model.cumulative_pred(
+                self.data, self.month_pos)
             self.data = df_grid_monthly
 
         # Generate annual and winter predictions
         pred_winter, df_pred_months_winter = custom_model.glacier_wide_pred(
-            self.data[all_columns], type_pred='winter')
+            self.data[all_columns],
+            months_head_pad,
+            months_tail_pad,
+            type_pred='winter')
         pred_annual, df_pred_months_annual = custom_model.glacier_wide_pred(
-            self.data[all_columns], type_pred='annual')
+            self.data[all_columns],
+            months_head_pad,
+            months_tail_pad,
+            type_pred='annual')
 
         # Filter results for the current year
         pred_y_annual = pred_annual.drop(columns=['YEAR'], errors='ignore')
@@ -336,14 +347,15 @@ class GeoData:
 
         return df_pred_months_annual
 
-    def get_mean_SMB(self, custom_model, all_columns):
+    def get_mean_SMB(self, custom_model, all_columns, months_head_pad=None, months_tail_pad=None):
         """Computes the mean surface mass balance (SMB) for a glacier using the MassBalanceMachine model."""
         # Compute cumulative SMB predictions
-        df_grid_monthly = custom_model.cumulative_pred(self.data[all_columns], self.month_pos)
+        df_grid_monthly = custom_model.cumulative_pred(self.data[all_columns],
+                                                       self.month_pos)
 
         # Generate annual and winter predictions
         pred_annual, df_pred_months = custom_model.glacier_wide_pred(
-            custom_model, df_grid_monthly[all_columns], type_pred='annual')
+            custom_model, df_grid_monthly[all_columns], months_head_pad, months_tail_pad, type_pred='annual')
 
         # Drop year column
         pred_y_annual = pred_annual.drop(columns=['YEAR'], errors='ignore')
