@@ -12,7 +12,7 @@ from scipy.spatial import cKDTree
 import matplotlib.pyplot as plt
 
 import config
-from data_processing.utils import _rebuild_month_index, build_head_tail_pads_from_monthly_df
+from data_processing.utils import _rebuild_month_index, build_head_tail_pads_from_monthly_df, _compute_head_tail_pads_from_df
 
 
 class GeoData:
@@ -25,16 +25,33 @@ class GeoData:
        - gdf (gpd.GeoDataFrame): Geopandas dataframe with the predictions in WGS84 coordinates.
     """
 
-    def __init__(
-        self,
-        data: pd.DataFrame,
-    ):
+    def __init__(self,
+                 data: pd.DataFrame,
+                 months_head_pad=None,
+                 months_tail_pad=None):
         self.data = data
         self.ds_latlon = None
         self.ds_xy = None
         self.gdf = None
-        months_head_pad, months_tail_pad = build_head_tail_pads_from_monthly_df(
-            data)
+
+        self.months_tail_pad = months_tail_pad
+        self.months_head_pad = months_head_pad
+
+        assert (months_head_pad is None) == (
+            months_tail_pad is None
+        ), "If any of months_head_pad or months_tail_pad is provided, the other variable must also be provided."
+
+        try:
+            if months_head_pad is None and months_tail_pad is None:
+                months_head_pad, months_tail_pad = _compute_head_tail_pads_from_df(
+                    self.data)
+                self.months_tail_pad = months_tail_pad
+                self.months_head_pad = months_head_pad
+        except Exception as e:
+            raise ValueError(
+                "Could not compute months_head_pad / months_tail_pad from dataframe. Please provide them explicitly as arguments in constructor."
+            ) from e
+
         _, self.month_pos = _rebuild_month_index(months_head_pad,
                                                  months_tail_pad)
 
@@ -258,8 +275,6 @@ class GeoData:
                         path_save_glw,
                         save_monthly_pred=True,
                         save_seasonal_pred=True,
-                        months_head_pad=None,
-                        months_tail_pad=None,
                         type_model='XGBoost'):
         """
         Computes and saves gridded mass balance (MB) predictions for a given glacier and year.
@@ -302,13 +317,13 @@ class GeoData:
         # Generate annual and winter predictions
         pred_winter, df_pred_months_winter = custom_model.glacier_wide_pred(
             self.data[all_columns],
-            months_head_pad,
-            months_tail_pad,
+            self.months_head_pad,
+            self.months_tail_pad,
             type_pred='winter')
         pred_annual, df_pred_months_annual = custom_model.glacier_wide_pred(
             self.data[all_columns],
-            months_head_pad,
-            months_tail_pad,
+            self.months_head_pad,
+            self.months_tail_pad,
             type_pred='annual')
 
         # Filter results for the current year
@@ -347,7 +362,11 @@ class GeoData:
 
         return df_pred_months_annual
 
-    def get_mean_SMB(self, custom_model, all_columns, months_head_pad=None, months_tail_pad=None):
+    def get_mean_SMB(self,
+                     custom_model,
+                     all_columns,
+                     months_head_pad=None,
+                     months_tail_pad=None):
         """Computes the mean surface mass balance (SMB) for a glacier using the MassBalanceMachine model."""
         # Compute cumulative SMB predictions
         df_grid_monthly = custom_model.cumulative_pred(self.data[all_columns],
@@ -355,7 +374,11 @@ class GeoData:
 
         # Generate annual and winter predictions
         pred_annual, df_pred_months = custom_model.glacier_wide_pred(
-            custom_model, df_grid_monthly[all_columns], months_head_pad, months_tail_pad, type_pred='annual')
+            custom_model,
+            df_grid_monthly[all_columns],
+            months_head_pad,
+            months_tail_pad,
+            type_pred='annual')
 
         # Drop year column
         pred_y_annual = pred_annual.drop(columns=['YEAR'], errors='ignore')
