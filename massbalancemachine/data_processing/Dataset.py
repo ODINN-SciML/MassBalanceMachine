@@ -62,8 +62,8 @@ class Dataset:
             region_name: str,
             region_id: int,
             data_path: str,
-            months_tail_pad=[],  #: List[str] = ['aug_', 'sep_'], # before 'oct'
-            months_head_pad=[],  #: List[str] = ['oct_'], # after 'sep'
+            months_tail_pad=None,  #: List[str] = ['aug_', 'sep_'], # before 'oct'
+            months_head_pad=None,  #: List[str] = ['oct_'], # after 'sep'
     ):
         self.cfg = cfg
         self.data = self._clean_data(data=data.copy())
@@ -570,8 +570,8 @@ class MBSequenceDataset(Dataset):
         static_cols: List[str],
         show_progress: bool = True,
         expect_target: bool = True,
-        months_tail_pad=[],
-        months_head_pad=[],
+        months_tail_pad=None,
+        months_head_pad=None,
     ) -> "MBSequenceDataset":
         """
         Build a dataset directly from a monthly table.
@@ -585,11 +585,16 @@ class MBSequenceDataset(Dataset):
         assert (months_head_pad is None) == (
             months_tail_pad is None
         ), "If any of months_head_pad or months_tail_pad is provided, the other variable must also be provided."
-        
-        if months_head_pad is None and months_tail_pad is None:
-            months_head_pad, months_tail_pad = _compute_head_tail_pads_from_df(
-                df)
-        
+
+        try:
+            if months_head_pad is None and months_tail_pad is None:
+                months_head_pad, months_tail_pad = _compute_head_tail_pads_from_df(
+                    df)
+        except Exception as e:
+            raise ValueError(
+                "Could not compute months_head_pad / months_tail_pad from dataframe. Please provide them explicitly as arguments in function from_dataframe."
+            ) from e
+
         month_list, month_pos = _rebuild_month_index(months_head_pad,
                                                      months_tail_pad)
 
