@@ -5,22 +5,12 @@ import seaborn as sns
 import matplotlib.colors as mcolors
 import massbalancemachine as mbm
 import matplotlib.patches as mpatches
+from cmcrameri import cm
 
 from regions.Switzerland.scripts.geodata import *
 
 
 def plot_geodetic_MB(df, glacier_name, color_xgb='blue', color_tim='red'):
-    # # Convert lists to NumPy arrays for filtering NaNs
-    # geodetic_mb = np.array(geodetic_mb)
-    # mbm_mb_mean = np.array(mbm_mb_mean)
-    # glamos_mb_mean = np.array(glamos_mb_mean)
-
-    # # Remove NaN values to avoid plotting errors
-    # valid_idx = ~np.isnan(geodetic_mb) & ~np.isnan(mbm_mb_mean) & ~np.isnan(
-    #     glamos_mb_mean)
-    # geodetic_mb, mbm_mb_mean, glamos_mb_mean = geodetic_mb[
-    #     valid_idx], mbm_mb_mean[valid_idx], glamos_mb_mean[valid_idx]
-
     df = df.dropna(subset=['geodetic_mb', 'mbm_mb_mean', 'glamos_mb_mean'])
 
     # Ensure data exists before plotting
@@ -114,43 +104,6 @@ def scatter_geodetic_MB(df_all, hue='GLACIER', size=False):
 
     plt.tight_layout()
     plt.show()
-
-
-def plot_scatter(df_all, hue, size, ax, y_col, rmse, corr):
-    """ Helper function to plot a scatter plot with annotations """
-    sns.scatterplot(data=df_all,
-                    x="Geodetic MB",
-                    y=y_col,
-                    hue=hue,
-                    size="Area" if size else None,
-                    sizes=(10, 1000),
-                    alpha=0.7,
-                    ax=ax)
-
-    # Identity line (diagonal y=x)
-    # diagonal line
-    pt = (0, 0)
-    ax.axline(pt, slope=1, color="grey", linestyle="--", linewidth=1)
-
-    # Grid and axis labels
-    ax.axvline(0, color="grey", linestyle="--", linewidth=1)
-    ax.axhline(0, color="grey", linestyle="--", linewidth=1)
-    ax.grid(True, linestyle="--", linewidth=0.5)
-    ax.set_xlabel("Geodetic MB [m w.e.]")
-    ax.set_ylabel(f"{y_col} [m w.e.]")
-
-    # RMSE and correlation annotation
-    legend_text = "\n".join(
-        (r"$\mathrm{RMSE}=%.3f$" % rmse, r"$\mathrm{\rho}=%.3f$" % corr))
-    props = dict(boxstyle="round", facecolor="white", alpha=0.5)
-    ax.text(0.03,
-            0.94,
-            legend_text,
-            transform=ax.transAxes,
-            verticalalignment="top",
-            fontsize=18,
-            bbox=props)
-    ax.legend([], [], frameon=False)
 
 
 def get_color_maps(vmin_ann, vmax_ann, vmin_win, vmax_win):
@@ -606,7 +559,7 @@ def plot_snow_cover_scatter_combined(df):
 
 def plot_snow_cover_geoplots(raster_res,
                              path_S2,
-                             month_abbr_hydr,
+                             month_pos,
                              add_snowline=False,
                              band_size=50,
                              percentage_threshold=50):
@@ -617,7 +570,7 @@ def plot_snow_cover_geoplots(raster_res,
     - raster_res (str): The name of the raster file to process.
     - path_S2 (str): Path to the directory containing the satellite rasters.
     - get_hydro_year_and_month (function): Function to determine the hydrological year and month from a date.
-    - month_abbr_hydr (dict): Mapping of hydrological months to their abbreviated names.
+    - month_pos (dict): Mapping of hydrological months to their abbreviated names.
     - IceSnowCover (function): Function to calculate snow and ice cover from a GeoDataFrame.
     - snowCover (function): Function to load mass-balance predictions and calculate snow cover corrections.
     - plotClasses (function): Function to create the plots.
@@ -636,7 +589,7 @@ def plot_snow_cover_geoplots(raster_res,
 
     # Find closest hydrological year and month
     closest_month, hydro_year = get_hydro_year_and_month(raster_date)
-    monthNb = month_abbr_hydr[closest_month]
+    monthNb = month_pos[closest_month]
 
     # Skip if the hydrological year is out of range
     if hydro_year > 2021:
@@ -919,20 +872,22 @@ def plot_mass_balance_comparison_annual(glacier_name, year, cfg, df_stakes,
     lon_name = "lon" if "lon" in ds_mbm_xgb.coords else "longitude"
     lat_name = "lat" if "lat" in ds_mbm_xgb.coords else "latitude"
 
-    # Add model predictions to stake data
-    stakes_data_ann["Predicted_MB_XGB"] = stakes_data_ann.apply(
-        lambda row: get_pred_func(lon_name, lat_name, row, ds_mbm_xgb), axis=1)
-    stakes_data_ann.dropna(subset=["Predicted_MB_XGB"], inplace=True)
+    # Add model predictions to stake data if available
+    if not stakes_data_ann.empty:
+        stakes_data_ann["Predicted_MB_XGB"] = stakes_data_ann.apply(
+            lambda row: get_pred_func(lon_name, lat_name, row, ds_mbm_xgb),
+            axis=1)
+        stakes_data_ann["Predicted_MB_NN"] = stakes_data_ann.apply(
+            lambda row: get_pred_func(lon_name, lat_name, row, ds_mbm_nn),
+            axis=1)
+        stakes_data_ann["GLAMOS_MB"] = stakes_data_ann.apply(
+            lambda row: get_glamos_pred_func(lon_name, lat_name, row,
+                                             ds_glamos_wgs84_ann),
+            axis=1)
 
-    stakes_data_ann["Predicted_MB_NN"] = stakes_data_ann.apply(
-        lambda row: get_pred_func(lon_name, lat_name, row, ds_mbm_nn), axis=1)
-    stakes_data_ann.dropna(subset=["Predicted_MB_NN"], inplace=True)
-
-    stakes_data_ann["GLAMOS_MB"] = stakes_data_ann.apply(
-        lambda row: get_glamos_pred_func(lon_name, lat_name, row,
-                                         ds_glamos_wgs84_ann),
-        axis=1)
-    stakes_data_ann.dropna(subset=["GLAMOS_MB"], inplace=True)
+        stakes_data_ann.dropna(
+            subset=["Predicted_MB_XGB", "Predicted_MB_NN", "GLAMOS_MB"],
+            inplace=True)
 
     # Color scale limits
     vmin = min(ds_glamos_wgs84_ann.min().item(),
@@ -945,7 +900,7 @@ def plot_mass_balance_comparison_annual(glacier_name, year, cfg, df_stakes,
     cmap_ann, norm_ann, _, _ = get_colormaps_func(vmin, vmax, 0, 0)
 
     # Plot setup
-    fig, axes = plt.subplots(1, 3, figsize=(20, 8), sharex=True, sharey=True)
+    fig, axes = plt.subplots(1, 3, figsize=(20, 8), sharex=False, sharey=False)
 
     # GLAMOS plot
     ds_glamos_wgs84_ann.plot.imshow(
@@ -954,7 +909,9 @@ def plot_mass_balance_comparison_annual(glacier_name, year, cfg, df_stakes,
         norm=norm_ann,
         cbar_kwargs={"label": "Mass Balance [m w.e.]"})
     axes[0].set_title("GLAMOS (Annual)")
-    if len(stakes_data_ann) > 0:
+
+    var_glamos = ds_glamos_wgs84_ann.var().item()
+    if not stakes_data_ann.empty:
         sns.scatterplot(data=stakes_data_ann,
                         x="POINT_LON",
                         y="POINT_LAT",
@@ -967,14 +924,17 @@ def plot_mass_balance_comparison_annual(glacier_name, year, cfg, df_stakes,
         rmse_glamos = mean_squared_error(stakes_data_ann.POINT_BALANCE,
                                          stakes_data_ann.GLAMOS_MB,
                                          squared=False)
-        mean_mb = ds_glamos_wgs84_ann.mean().item()
-        axes[0].text(0.05,
-                     0.1,
-                     f"RMSE: {rmse_glamos:.2f},\nmean MB: {mean_mb:.2f}",
-                     transform=axes[0].transAxes,
-                     ha='left',
-                     va='top',
-                     fontsize=18)
+        text_glamos = f"RMSE: {rmse_glamos:.2f},\nmean MB: {ds_glamos_wgs84_ann.mean().item():.2f},\nvar: {var_glamos:.2f}"
+    else:
+        text_glamos = f"mean MB: {ds_glamos_wgs84_ann.mean().item():.2f},\nvar: {var_glamos:.2f}"
+
+    axes[0].text(0.05,
+                 0.15,
+                 text_glamos,
+                 transform=axes[0].transAxes,
+                 ha='left',
+                 va='top',
+                 fontsize=18)
 
     # XGB plot
     ds_mbm_xgb.pred_masked.plot.imshow(
@@ -983,27 +943,36 @@ def plot_mass_balance_comparison_annual(glacier_name, year, cfg, df_stakes,
         norm=norm_ann,
         cbar_kwargs={"label": "Mass Balance [m w.e.]"})
     axes[1].set_title("MBM XGBoost (Annual)")
-    if len(stakes_data_ann) > 0:
+    var_xgb = ds_mbm_xgb.pred_masked.var().item()
+
+    if not stakes_data_ann.empty:
         sns.scatterplot(data=stakes_data_ann,
-                    x="POINT_LON",
-                    y="POINT_LAT",
-                    hue="POINT_BALANCE",
-                    palette=cmap_ann,
-                    hue_norm=norm_ann,
-                    ax=axes[1],
-                    s=25,
-                    legend=False)
+                        x="POINT_LON",
+                        y="POINT_LAT",
+                        hue="POINT_BALANCE",
+                        palette=cmap_ann,
+                        hue_norm=norm_ann,
+                        ax=axes[1],
+                        s=25,
+                        legend=False)
         rmse_xgb = mean_squared_error(stakes_data_ann.POINT_BALANCE,
-                                    stakes_data_ann.Predicted_MB_XGB,
-                                    squared=False)
-        mean_mb = ds_mbm_xgb.pred_masked.mean().item()
-        axes[1].text(0.05,
-                    0.1,
-                    f"RMSE: {rmse_xgb:.2f},\nmean MB: {mean_mb:.2f}",
-                    transform=axes[1].transAxes,
-                    ha='left',
-                    va='top',
-                    fontsize=18)
+                                      stakes_data_ann.Predicted_MB_XGB,
+                                      squared=False)
+
+        text_xgb = (f"RMSE: {rmse_xgb:.2f},\n"
+                    f"mean MB: {ds_mbm_xgb.pred_masked.mean().item():.2f},\n"
+                    f"var: {var_xgb:.2f}")
+    else:
+        text_xgb = (f"mean MB: {ds_mbm_xgb.pred_masked.mean().item():.2f},\n"
+                    f"var: {var_xgb:.2f}")
+
+    axes[1].text(0.05,
+                 0.15,
+                 text_xgb,
+                 transform=axes[1].transAxes,
+                 ha='left',
+                 va='top',
+                 fontsize=18)
 
     # NN plot
     ds_mbm_nn.pred_masked.plot.imshow(
@@ -1012,27 +981,34 @@ def plot_mass_balance_comparison_annual(glacier_name, year, cfg, df_stakes,
         norm=norm_ann,
         cbar_kwargs={"label": "Mass Balance [m w.e.]"})
     axes[2].set_title("MBM NN (Annual)")
-    if len(stakes_data_ann) > 0:
+    var_nn = ds_mbm_nn.pred_masked.var().item()
+
+    if not stakes_data_ann.empty:
         sns.scatterplot(data=stakes_data_ann,
-                    x="POINT_LON",
-                    y="POINT_LAT",
-                    hue="POINT_BALANCE",
-                    palette=cmap_ann,
-                    hue_norm=norm_ann,
-                    ax=axes[2],
-                    s=25,
-                    legend=False)
+                        x="POINT_LON",
+                        y="POINT_LAT",
+                        hue="POINT_BALANCE",
+                        palette=cmap_ann,
+                        hue_norm=norm_ann,
+                        ax=axes[2],
+                        s=25,
+                        legend=False)
         rmse_nn = mean_squared_error(stakes_data_ann.POINT_BALANCE,
-                                    stakes_data_ann.Predicted_MB_NN,
-                                    squared=False)
-        mean_mb = ds_mbm_nn.pred_masked.mean().item()
-        axes[2].text(0.05,
-                    0.1,
-                    f"RMSE: {rmse_nn:.2f},\nmean MB: {mean_mb:.2f}",
-                    transform=axes[2].transAxes,
-                    ha='left',
-                    va='top',
-                    fontsize=18)
+                                     stakes_data_ann.Predicted_MB_NN,
+                                     squared=False)
+        text_nn = (f"RMSE: {rmse_nn:.2f},\n"
+                   f"mean MB: {ds_mbm_nn.pred_masked.mean().item():.2f},\n"
+                   f"var: {var_nn:.2f}")
+    else:
+        text_nn = (f"mean MB: {ds_mbm_nn.pred_masked.mean().item():.2f},\n"
+                   f"var: {var_nn:.2f}")
+    axes[2].text(0.05,
+                 0.15,
+                 text_nn,
+                 transform=axes[2].transAxes,
+                 ha='left',
+                 va='top',
+                 fontsize=18)
 
     plt.suptitle(
         f"{glacier_name.capitalize()} Glacier – Annual MB Comparison ({year})",
@@ -1075,6 +1051,7 @@ def plot_scatter_comparison(ax,
                  fontsize=14)
     ax.legend(loc="upper left", fontsize=10)
 
+
 def mbm_glwd_pred(PATH_PREDICTIONS, GLACIER_NAME):
     # Define the path to model predictions
     path_results = os.path.join(PATH_PREDICTIONS, GLACIER_NAME)
@@ -1089,7 +1066,7 @@ def mbm_glwd_pred(PATH_PREDICTIONS, GLACIER_NAME):
     pred_gl = []
     for year in years:
         file_path = os.path.join(path_results,
-                                f"{GLACIER_NAME}_{year}_annual.zarr")
+                                 f"{GLACIER_NAME}_{year}_annual.zarr")
         if not os.path.exists(file_path):
             print(
                 f"Warning: Missing MBM file for {GLACIER_NAME} ({year}). Skipping..."
@@ -1103,3 +1080,271 @@ def mbm_glwd_pred(PATH_PREDICTIONS, GLACIER_NAME):
     # Create DataFrame
     MBM_glwmb = pd.DataFrame(pred_gl, index=years, columns=["MBM Balance"])
     return MBM_glwmb
+
+
+def plot_mbm_vs_geodetic_by_area_bin(
+        df,
+        bins=[0, 1, 5, 10, 100, np.inf],
+        labels=['<1', '1–5', '5–10', '10–100', '>100'],
+        max_bins=4,
+        figsize=(20, 6),
+        title='',
+        annotate_rmse=True,
+        rmse_box=True):
+    """
+    Plot MBM vs. Geodetic mass balance grouped by glacier area bins,
+    and annotate per-bin RMSE between observed (Geodetic MB) and predicted (MBM MB).
+    """
+
+    df = df.copy()
+    df = df.replace([np.inf, -np.inf], np.nan)
+
+    # Ordered categorical bins, keep only those that are present
+    df['Area_bin'] = pd.cut(df['Area'],
+                            bins=bins,
+                            labels=labels,
+                            right=False,
+                            include_lowest=True,
+                            ordered=True)
+    categories = list(df['Area_bin'].cat.categories)
+    bins_in_use = [b for b in categories if (df['Area_bin'] == b).any()]
+    if not bins_in_use:
+        raise ValueError("No data fall into the specified area bins.")
+
+    n_plots = min(max_bins, len(bins_in_use))
+    fig, axs = plt.subplots(1,
+                            n_plots,
+                            figsize=figsize,
+                            sharex=True,
+                            sharey=True)
+    if n_plots == 1:
+        axs = np.array([axs])
+
+    # For global equal & symmetric limits
+    mask_bins = df['Area_bin'].isin(bins_in_use[:n_plots])
+    all_x = df.loc[mask_bins, 'Geodetic MB']
+    all_y = df.loc[mask_bins, 'MBM MB']
+    valid = ~(all_x.isna() | all_y.isna())
+    if valid.any():
+        vmin = float(min(all_x[valid].min(), all_y[valid].min())) - 0.25
+        vmax = float(max(all_x[valid].max(), all_y[valid].max())) + 0.25
+    else:
+        vmin, vmax = -1.0, 1.0  # fallback
+
+    for i, area_bin in enumerate(bins_in_use[:n_plots]):
+        ax = axs[i]
+        df_bin = df[df['Area_bin'] == area_bin].dropna(
+            subset=['Geodetic MB', 'MBM MB'])
+
+        df_bin['GLACIER'] = df_bin['GLACIER'].apply(lambda x: x.capitalize())
+
+        # Scatter
+        hue_kw = {}
+        if 'GLACIER' in df_bin.columns:
+            hue_kw = dict(hue='GLACIER', style='GLACIER')
+        try:
+            sns.scatterplot(
+                data=df_bin,
+                x='Geodetic MB',
+                y='MBM MB',
+                alpha=0.8,
+                ax=ax,
+                s=250,
+                palette=sns.color_palette(
+                    get_cmap_hex(
+                        cm.batlow,
+                        1 + df_bin.get('GLACIER', pd.Series()).nunique())),
+                **hue_kw,
+            )
+        except Exception:
+            # Fallback if custom palette/util not available
+            sns.scatterplot(data=df_bin,
+                            x='Geodetic MB',
+                            y='MBM MB',
+                            alpha=0.8,
+                            ax=ax,
+                            s=250,
+                            **hue_kw)
+
+        # Axes & identity
+        ax.grid(True, linestyle="--", linewidth=0.5)
+        ax.axvline(0, color="grey", linestyle="--", linewidth=1)
+        ax.axhline(0, color="grey", linestyle="--", linewidth=1)
+        ax.axline((0, 0), slope=1, color="grey", linestyle="--", linewidth=1)
+        ax.set_xlim(vmin, vmax)
+        ax.set_ylim(vmin, vmax)
+
+        # Titles & labels
+        ax.set_xlabel("Observed geodetic MB [m w.e.]", fontsize=20)
+        ax.set_ylabel("Modelled MB [m w.e.]", fontsize=20)
+        ax.set_title(f"Area: {area_bin} km²", fontsize=24)
+
+        # RMSE annotation
+        if annotate_rmse:
+            n = len(df_bin)
+            if n > 0:
+                resid = (df_bin['MBM MB'].to_numpy() -
+                         df_bin['Geodetic MB'].to_numpy())
+                rmse = float(np.sqrt(np.nanmean(resid**2)))
+                box = dict(facecolor="white", alpha=0.7,
+                           edgecolor="none") if rmse_box else None
+                ax.text(0.02,
+                        0.98,
+                        f"RMSE = {rmse:.2f}\nN = {n}",
+                        transform=ax.transAxes,
+                        ha='left',
+                        va='top',
+                        fontsize=20,
+                        bbox=box)
+            else:
+                ax.text(
+                    0.02,
+                    0.98,
+                    "No data",
+                    transform=ax.transAxes,
+                    ha='left',
+                    va='top',
+                    fontsize=20,
+                    bbox=dict(facecolor="white", alpha=0.7, edgecolor="none")
+                    if rmse_box else None)
+
+        # Legend per-axes (if GLACIER exists)
+        if 'GLACIER' in df_bin.columns:
+            ax.legend(loc="lower center",
+                      borderaxespad=0.5,
+                      fontsize=12,
+                      bbox_to_anchor=(0.5, -0.3),
+                      ncol=2)
+        else:
+            ax.legend_.remove() if ax.legend_ else None
+
+    plt.suptitle(title)
+    plt.tight_layout()
+    plt.subplots_adjust(bottom=-0.15)  # space for legends
+    plt.show()
+
+
+def plot_mass_balance_comparison_annual_glamos_nn(
+        glacier_name, year, cfg, df_stakes, path_distributed_mb, path_pred_nn,
+        get_glamos_func, get_pred_func, get_glamos_pred_func, load_grid_func,
+        to_wgs84_func, apply_filter_func, get_colormaps_func):
+    """Plot annual MB comparison (GLAMOS vs NN) for a glacier and year."""
+
+    # Stake data
+    stakes_data = df_stakes[(df_stakes.GLACIER == glacier_name)
+                            & (df_stakes.YEAR == year)]
+    stakes_data_ann = stakes_data[stakes_data.PERIOD == "annual"].copy()
+
+    # GLAMOS grid path and loading
+    file_ann = f"{year}_ann_fix_lv95.grid"
+    grid_path_ann = os.path.join(cfg.dataPath, path_distributed_mb, 'GLAMOS',
+                                 glacier_name, file_ann)
+    metadata_ann, grid_data_ann = load_grid_func(grid_path_ann)
+    ds_glamos_ann = convert_to_xarray_geodata(grid_data_ann, metadata_ann)
+    ds_glamos_wgs84_ann = to_wgs84_func(ds_glamos_ann)
+
+    # Load NN predictions
+    mbm_file_nn = os.path.join(path_pred_nn, glacier_name,
+                               f"{glacier_name}_{year}_annual.zarr")
+    ds_mbm_nn = apply_filter_func(xr.open_dataset(mbm_file_nn))
+
+    # Coordinate names
+    lon_name = "lon" if "lon" in ds_mbm_nn.coords else "longitude"
+    lat_name = "lat" if "lat" in ds_mbm_nn.coords else "latitude"
+
+    # Add predictions to stake data
+    if not stakes_data_ann.empty:
+        stakes_data_ann["Predicted_MB_NN"] = stakes_data_ann.apply(
+            lambda row: get_pred_func(lon_name, lat_name, row, ds_mbm_nn),
+            axis=1)
+        stakes_data_ann["GLAMOS_MB"] = stakes_data_ann.apply(
+            lambda row: get_glamos_pred_func(lon_name, lat_name, row,
+                                             ds_glamos_wgs84_ann),
+            axis=1)
+        stakes_data_ann.dropna(subset=["Predicted_MB_NN", "GLAMOS_MB"],
+                               inplace=True)
+
+    # Color scale
+    vmin = min(ds_glamos_wgs84_ann.min().item(),
+               ds_mbm_nn.pred_masked.min().item())
+    vmax = max(ds_glamos_wgs84_ann.max().item(),
+               ds_mbm_nn.pred_masked.max().item())
+    cmap_ann, norm_ann, _, _ = get_colormaps_func(vmin, vmax, 0, 0)
+
+    # Plot setup
+    fig, axes = plt.subplots(1, 2, figsize=(14, 8), sharex=False, sharey=False)
+
+    # GLAMOS plot
+    ds_glamos_wgs84_ann.plot.imshow(
+        ax=axes[0],
+        cmap=cmap_ann,
+        norm=norm_ann,
+        cbar_kwargs={"label": "Mass Balance [m w.e.]"})
+    axes[0].set_title("GLAMOS (Annual)")
+
+    var_glamos = ds_glamos_wgs84_ann.var().item()
+    if not stakes_data_ann.empty:
+        sns.scatterplot(data=stakes_data_ann,
+                        x="POINT_LON",
+                        y="POINT_LAT",
+                        hue="POINT_BALANCE",
+                        palette=cmap_ann,
+                        hue_norm=norm_ann,
+                        ax=axes[0],
+                        s=25,
+                        legend=False)
+        rmse_glamos = mean_squared_error(stakes_data_ann.POINT_BALANCE,
+                                         stakes_data_ann.GLAMOS_MB,
+                                         squared=False)
+        text_glamos = f"RMSE: {rmse_glamos:.2f},\nmean MB: {ds_glamos_wgs84_ann.mean().item():.2f},\nvar: {var_glamos:.2f}"
+    else:
+        text_glamos = f"mean MB: {ds_glamos_wgs84_ann.mean().item():.2f},\nvar: {var_glamos:.2f}"
+    axes[0].text(0.05,
+                 0.15,
+                 text_glamos,
+                 transform=axes[0].transAxes,
+                 ha='left',
+                 va='top',
+                 fontsize=18)
+
+    # NN plot
+    ds_mbm_nn.pred_masked.plot.imshow(
+        ax=axes[1],
+        cmap=cmap_ann,
+        norm=norm_ann,
+        cbar_kwargs={"label": "Mass Balance [m w.e.]"})
+    axes[1].set_title("MBM NN (Annual)")
+
+    var_nn = ds_mbm_nn.pred_masked.var().item()
+    if not stakes_data_ann.empty:
+        sns.scatterplot(data=stakes_data_ann,
+                        x="POINT_LON",
+                        y="POINT_LAT",
+                        hue="POINT_BALANCE",
+                        palette=cmap_ann,
+                        hue_norm=norm_ann,
+                        ax=axes[1],
+                        s=25,
+                        legend=False)
+        rmse_nn = mean_squared_error(stakes_data_ann.POINT_BALANCE,
+                                     stakes_data_ann.Predicted_MB_NN,
+                                     squared=False)
+        text_nn = (f"RMSE: {rmse_nn:.2f},\n"
+                   f"mean MB: {ds_mbm_nn.pred_masked.mean().item():.2f},\n"
+                   f"var: {var_nn:.2f}")
+    else:
+        text_nn = (f"mean MB: {ds_mbm_nn.pred_masked.mean().item():.2f},\n"
+                   f"var: {var_nn:.2f}")
+    axes[1].text(0.05,
+                 0.15,
+                 text_nn,
+                 transform=axes[1].transAxes,
+                 ha='left',
+                 va='top',
+                 fontsize=18)
+
+    plt.suptitle(
+        f"{glacier_name.capitalize()} Glacier – Annual MB (GLAMOS vs NN, {year})",
+        fontsize=20)
+    plt.tight_layout()
+    plt.show()

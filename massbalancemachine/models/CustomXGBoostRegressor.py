@@ -20,6 +20,7 @@ from xgboost import XGBRegressor
 from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 from sklearn.utils.validation import check_is_fitted
 from sklearn.metrics import mean_squared_error, mean_absolute_error, root_mean_squared_error, r2_score
+import data_processing
 
 try:
     import cupy as cp
@@ -145,7 +146,7 @@ class CustomXGBoostRegressor(XGBRegressor):
         """
 
         # Separate the features from the metadata provided in the dataset
-        features, metadata = self._create_features_metadata(X)
+        features, metadata = data_processing.utils.create_features_metadata(self.cfg, X)
 
         # If running on GPU need to be converted to cupy
         if "cuda" in self.get_params()["device"]:
@@ -179,7 +180,7 @@ class CustomXGBoostRegressor(XGBRegressor):
         """
 
         # Separate the features from the metadata provided in the dataset
-        features, metadata = self._create_features_metadata(X)
+        features, metadata = data_processing.utils.create_features_metadata(self.cfg, X)
 
         # If running on GPU need to be converted to cupy
         if "cuda" in self.get_params()["device"]:
@@ -214,7 +215,7 @@ class CustomXGBoostRegressor(XGBRegressor):
         """
 
         # Separate the features from the metadata provided in the dataset
-        features_grid, metadata_grid = self._create_features_metadata(X)
+        features_grid, metadata_grid = data_processing.utils.create_features_metadata(self.cfg, X)
 
         # If running on GPU need to be converted to cupy
         if "cuda" in self.get_params()["device"]:
@@ -325,17 +326,17 @@ class CustomXGBoostRegressor(XGBRegressor):
 
         return y_pred_agg
 
-    def cumulative_pred(self, df):
+    def cumulative_pred(self, df, month_pos):
         """Make cumulative monthly predictions for each stake measurement.
 
         Args:
             df pd.DataFrame: monthly input dataframe
-            custom_model (_type_): _description_
+            month_pos: dict that provides the position of each month relative to each other
 
         Returns:
-            _type_: _description_
+            df: the same dataframe as input filled with the cumulative prediction
         """
-        features, metadata = self._create_features_metadata(df)
+        features, metadata = data_processing.utils.create_features_metadata(self.cfg, df)
 
         # Predictions in monthly format
         y_pred = super().predict(features)
@@ -343,7 +344,7 @@ class CustomXGBoostRegressor(XGBRegressor):
         df = df.assign(pred=y_pred)
 
         # Vectorized operation for month abbreviation
-        df['MONTH_NB'] = df['MONTHS'].map(self.cfg.month_abbr_hydr)
+        df['MONTH_NB'] = df['MONTHS'].map(month_pos)
 
         # Cumulative monthly sums using groupby
         df.sort_values(by=['ID', 'MONTH_NB'], inplace=True)
@@ -351,14 +352,15 @@ class CustomXGBoostRegressor(XGBRegressor):
 
         return df
 
-    def glacier_wide_pred(self, df_grid, type_pred='annual'):
-        """    
-        Generate predictions for an entire glacier grid 
+    def glacier_wide_pred(self, df_grid, months_head_pad, months_tail_pad, type_pred='annual'):
+        """
+        Generate predictions for an entire glacier grid
         and return them aggregated by measurement point ID.
-        
+
         Args:
             df_grid (pd.DataFrame): The input features of whole glacier grid including metadata columns.
             type_pred (str): The type of seasonal prediction to perform.
+            months_head_pad, months_tail_pad: Unused variables which are here only to have the same interface between XGBoost and the Neural Network
         Returns:
             pd.DataFrame: The aggregated predictions for each measurement point ID.
         """
@@ -370,7 +372,7 @@ class CustomXGBoostRegressor(XGBRegressor):
             df_grid = df_grid[df_grid.MONTHS.isin(winter_months)]
 
         # Make predictions on whole glacier grid
-        features_grid, metadata_grid = self._create_features_metadata(df_grid)
+        features_grid, metadata_grid = data_processing.utils.create_features_metadata(self.cfg, df_grid)
 
         # Make predictions aggregated to measurement ID:
         y_pred_grid_agg = self.aggrPredict(metadata_grid, features_grid)
@@ -409,40 +411,6 @@ class CustomXGBoostRegressor(XGBRegressor):
         except IOError:
             print(f"Error accessing file: {file_path}")
             raise
-
-    def _create_features_metadata(
-            self,
-            X: pd.DataFrame,
-            meta_data_columns: list = None) -> Tuple[np.array, np.ndarray]:
-        """
-        Split the input DataFrame into features and metadata.
-
-        Args:
-            X (pd.DataFrame): The input DataFrame containing both features and metadata.
-            meta_data_columns (list): The metadata columns to be extracted. If not
-                specified, metadata fields of the configuration instance will be used.
-
-        Returns:
-            tuple: A tuple containing:
-                - features (array-like): The feature values.
-                - metadata (array-like): The metadata values.
-        """
-        meta_data_columns = meta_data_columns or self.cfg.metaData
-
-        # Split features from metadata
-        # Get feature columns by subtracting metadata columns from all columns
-        feature_columns = X.columns.difference(meta_data_columns)
-
-        # remove columns that are not used in metadata or features
-        feature_columns = feature_columns.drop(self.cfg.notMetaDataNotFeatures)
-        # Convert feature_columns to a list (if needed)
-        feature_columns = list(feature_columns)
-
-        # Extract metadata and features
-        metadata = X[meta_data_columns].values
-        features = X[feature_columns].values
-
-        return features, metadata
 
     def _custom_mse_metadata(
         self,

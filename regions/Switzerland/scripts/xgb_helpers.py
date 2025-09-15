@@ -42,6 +42,7 @@ def process_or_load_data(run_flag,
         dataset_gl = mbm.data_processing.Dataset(cfg=cfg,
                                  data=data_glamos,
                                  region_name='CH',
+                                 region_id=11,
                                  data_path=paths['csv_path'])
         logging.info("Number of winter and annual samples: %d",
                      len(data_glamos))
@@ -69,7 +70,7 @@ def process_or_load_data(run_flag,
             dataset_gl.get_potential_rad(paths['radiation_save_path'])
             logging.info("Shape after adding radiation: %s",
                          dataset_gl.data.shape)
-
+        
         # Convert to monthly resolution
         logging.info("Converting to monthly resolution...")
         if add_pcsr:

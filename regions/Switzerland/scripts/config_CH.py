@@ -38,10 +38,8 @@ path_rgi_outlines = 'GLAMOS/RGI/nsidc0770_11.rgi60.CentralEurope/11_rgi60_Centra
 
 # <------------------OTHER USEFUL FUNCTIONS & ATTRIBUTES: ------------------>
 vois_climate_long_name = {
-    't2m': 'Temperature',
-    'tp': 'Precipitation',
-    't2m_corr': 'Temperature corr.',
-    'tp_corr': 'Precipitation corr.',
+    't2m': 'Temp.',
+    'tp': 'Precip.',
     'slhf': 'Surf. latent heat flux',
     'sshf': 'Surf. sensible heat flux',
     'ssrd': 'Surf. solar rad. down.',
@@ -50,6 +48,12 @@ vois_climate_long_name = {
     'pcsr': 'Pot. in. clear sky solar rad.',
     'u10': '10m E wind',
     'v10': '10m N wind',
+    'ELEVATION_DIFFERENCE': 'Elev. difference',
+    'hugonnet_dhdt': 'Hugonnet dH/dt',
+    'consensus_ice_thickness': 'Cons. ice thickness',
+    'millan_v': 'Millan ice velocity',
+    'aspect_sgi': 'Aspect',
+    'slope_sgi': 'Slope',
 }
 
 vois_units = {
@@ -66,3 +70,8 @@ vois_units = {
     'u10': 'm s-1',
     'v10': 'm s-1',
 }
+
+TEST_GLACIERS = [
+    'tortin', 'plattalva', 'albigna','schwarzberg', 'hohlaub', 'sanktanna',
+    'corvatsch', 'tsanfleuron', 'forno'
+]

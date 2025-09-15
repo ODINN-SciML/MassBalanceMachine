@@ -61,6 +61,83 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         # seed all
         self.seed_all()
 
+    def gridsearch(
+        self,
+        parameters: Dict[str, Union[list, np.ndarray]],
+        splits: Dict[str, Union[list, np.ndarray]],
+        features: pd.DataFrame,
+        targets: np.ndarray,
+    ) -> None:
+        """
+        Perform a grid search for hyperparameter tuning.
+
+        This method uses GridSearchCV to exhaustively search through a specified parameter grid.
+
+        Args:
+            parameters (dict): A dictionary of parameters to search over.
+            splits (tuple[list[tuple[ndarray, ndarray]]]): A dictionary containing cross-validation split information.
+            features (pandas.DataFrame): The input features for training.
+            targets (array-like): The target values for training.
+
+        Sets:
+            self.param_search (GridSearchCV): The fitted GridSearchCV object.
+        """
+
+        clf = GridSearchCV(
+            estimator=self,
+            param_grid=parameters,
+            cv=splits,
+            verbose=1,
+            n_jobs=self.cfg.numJobs,
+            scoring=None,  # Uses default in CustomNeuralNetRegressor()
+            refit=True,
+            error_score="raise",
+            return_train_score=True,
+        )
+
+        clf.fit(features, targets)
+        self.param_search = clf
+
+    def randomsearch(
+        self,
+        parameters: Dict[str, Union[list, np.ndarray]],
+        n_iter: int,
+        splits: Dict[str, Union[list, np.ndarray]],
+        features: pd.DataFrame,
+        targets: np.ndarray,
+    ) -> None:
+        """
+        Perform a randomized search for hyperparameter tuning.
+
+        This method uses RandomizedSearchCV to search a subset of the specified parameter space.
+
+        Args:
+            parameters (dict): A dictionary of parameters and their distributions to sample from.
+            n_iter (int): Number of parameter settings that are sampled.
+            splits (tuple[list[tuple[ndarray, ndarray]]]): A dictionary containing cross-validation split information.
+            features (pandas.DataFrame): The input features for training.
+            targets (array-like): The target values for training.
+
+        Sets:
+            self.param_search (RandomizedSearchCV): The fitted RandomizedSearchCV object.
+        """
+        clf = RandomizedSearchCV(
+            estimator=self,
+            param_distributions=parameters,
+            n_iter=n_iter,
+            cv=splits,
+            verbose=1,
+            n_jobs=self.cfg.numJobs,
+            scoring=None,  # Uses default in CustomNeuralNetRegressor()
+            refit=True,
+            error_score="raise",
+            return_train_score=True,
+            random_state=self.cfg.seed,
+        )
+
+        clf.fit(features, targets)
+        self.param_search = clf
+
     def initialize_module(self):
         super().initialize_module()
         # Now the module instance is available as self.module_
@@ -264,11 +341,11 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
             cum_pred[i][ind] = np.cumsum(y_pred[i][ind])
         return cum_pred
 
-    def glacier_wide_pred(self, df_grid_monthly, type_pred='annual'):
-        """    
-        Generate predictions for an entire glacier grid 
+    def glacier_wide_pred(self, df_grid_monthly, months_head_pad, months_tail_pad, type_pred='annual'):
+        """
+        Generate predictions for an entire glacier grid
         and return them aggregated by measurement point ID.
-        
+
         Args:
             df_grid_monthly (pd.DataFrame): The input features of whole glacier grid including metadata columns.
             type_pred (str): The type of seasonal prediction to perform.
@@ -285,8 +362,7 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
                 winter_months)]
 
         # Create features and metadata
-        features_grid, metadata_grid = self._create_features_metadata(
-            df_grid_monthly)
+        features_grid, metadata_grid = data_processing.utils.create_features_metadata(self.cfg, df_grid_monthly)
 
         # Ensure all tensors are on CPU if they are torch tensors
         if hasattr(features_grid, 'cpu'):
@@ -302,7 +378,10 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
             self.cfg,
             features=features_grid,
             metadata=metadata_grid,
-            targets=targets_grid)
+            months_head_pad=months_head_pad,
+            months_tail_pad=months_tail_pad,
+            targets=targets_grid,
+        )
 
         dataset_grid = [
             SliceDataset(dataset_grid, idx=0),
@@ -376,12 +455,6 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         df_months_nn = df_months_nn.dropna(axis=1, how='all')
         df_months_nn['ID'] = df_pred_months['ID']
         df_months_nn['PERIOD'] = type_pred
-        # df_months_nn['y_agg'] = y_pred_agg
-        # if type_pred == 'winter':
-        #     months = winter_months
-        # else:
-        #     months = months_extended
-        # df_months_nn['sum'] = df_months_nn[months].sum(axis=1)
 
         return grouped_ids, df_months_nn
 
@@ -414,43 +487,6 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
             self.some_tensor_attribute = self.some_tensor_attribute.to(device)
 
         return self
-
-    def _create_features_metadata(
-            self,
-            X: pd.DataFrame,
-            meta_data_columns: list = None) -> Tuple[np.array, np.ndarray]:
-        """
-        Split the input DataFrame into features and metadata.
-
-        Args:
-            X (pd.DataFrame): The input DataFrame containing both features and metadata.
-            meta_data_columns (list): The metadata columns to be extracted. If not
-                specified, metadata fields of the configuration instance will be used.
-
-        Returns:
-            tuple: A tuple containing:
-                - features (array-like): The feature values.
-                - metadata (array-like): The metadata values.
-        """
-        meta_data_columns = meta_data_columns or self.cfg.metaData
-
-        # # Split features from metadata
-        # # Get feature columns by subtracting metadata columns from all columns
-        # feature_columns = X.columns.difference(meta_data_columns)
-
-        # # remove columns that are not used in metadata or features
-        # feature_columns = feature_columns.drop(self.cfg.notMetaDataNotFeatures)
-        # # Convert feature_columns to a list (if needed)
-        # feature_columns = list(feature_columns)
-        # print(feature_columns, len(feature_columns))
-
-        feature_columns = self.cfg.featureColumns
-
-        # Extract metadata and features
-        metadata = X[meta_data_columns].values
-        features = X[feature_columns].values
-
-        return features, metadata
 
     def seed_all(self):
         """Sets the random seed everywhere for reproducibility.

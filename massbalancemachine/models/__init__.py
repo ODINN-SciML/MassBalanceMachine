@@ -1,3 +1,4 @@
 from models.CustomXGBoostRegressor import CustomXGBoostRegressor
 from models.NeuralNetworkRegressor import CustomNeuralNetRegressor
 from models.TorchNeuralNetworkRegressor import CustomTorchNeuralNetRegressor, buildModel
+from models.LSTM import LSTM_MB

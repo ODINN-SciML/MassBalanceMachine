@@ -195,3 +195,5 @@ def _retrieve_topo_features(
             method="nearest")[voi].to_dataframe().reset_index(drop=True))
 
         df.loc[df["RGIId"] == gdir.rgi_id, voi] = topo_data[voi]
+
+

@@ -17,7 +17,7 @@
 
 ## Asking Questions
 
-See our [Support Guide](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/SUPPORT.md). In short, GitHub issues are not the appropriate place to debug your specific project, but should be reserved for filing bugs and feature requests.
+See our [Support Guide](https://massbalancemachine.readthedocs.io/en/latest/support.html). In short, GitHub issues are not the appropriate place to debug your specific project, but should be reserved for filing bugs and feature requests.
 
 ## Opening an Issue
 
@@ -29,7 +29,7 @@ A great way to contribute to the project is to send a detailed issue when you en
 
 In short, since you are most likely a developer, **provide a ticket that you would like to receive**.
 
-- **Review the documentation and [Support Guide](https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/SUPPORT.md)** before opening a new issue.
+- **Review the documentation and [Support Guide](https://massbalancemachine.readthedocs.io/en/latest/support.html)** before opening a new issue.
 
 - **Do not open a duplicate issue!** Search through existing issues to see if your issue has previously been reported. If your issue exists, comment with any additional information you have. You may simply note "I have this problem too", which helps prioritize the most common problems and requests. 
 
