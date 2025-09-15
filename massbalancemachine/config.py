@@ -15,8 +15,6 @@ class Config:
             - notMetaDataNotFeatures (list of str): Fields that are neither metadata nor
                 features.
             - loss (str): Type of loss to use
-            - months_tail_pad (list of str): Months to pad the start of the hydrological year.
-            - months_head_pad (list of str): Months to pad the end of the hydrological year.
             - bnds (dict of float tuple): Upper and lower bounds of each variable to
                 scale them (useful for the neural network). These bounds don't clip
                 the data and if a variable exceeds the bounds, its normalized
