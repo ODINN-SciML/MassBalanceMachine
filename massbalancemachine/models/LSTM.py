@@ -8,6 +8,10 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from functools import partial  # put at top of file if not already
 import json, math  # put at top of file if not already
 import pandas as pd
+import config
+import random as rd
+import os
+
 """
 Model diagram:
     Monthly inputs (B×15×Fm) ──► LSTM ──────────┐
@@ -30,6 +34,7 @@ class LSTM_MB(nn.Module):
 
     def __init__(
         self,
+        cfg: config.Config,
         Fm: int,
         Fs: int,
         hidden_size: int = 158,
@@ -58,6 +63,10 @@ class LSTM_MB(nn.Module):
             if num_layers > 1 else 0.0,  # applied between LSTM layers
         )
 
+        self.cfg = cfg
+        # seed all
+        self.seed_all()
+        
         # Output shape of LSTM block: (B, 15, H) where H = hidden_size × (2 if bidirectional else 1)
         H = hidden_size * (2 if bidirectional else 1)
 
@@ -101,6 +110,28 @@ class LSTM_MB(nn.Module):
             # Produces one per-month MB prediction
             self.head = nn.Linear(fused_dim, 1)  # shared per-month
 
+    
+    def seed_all(self):
+        """Sets the random seed everywhere for reproducibility.
+        """
+        # Python built-in random
+        rd.seed(self.cfg.seed)
+
+        # NumPy random
+        np.random.seed(self.cfg.seed)
+
+        # PyTorch seed
+        torch.manual_seed(self.cfg.seed)
+        torch.cuda.manual_seed(self.cfg.seed)
+        torch.cuda.manual_seed_all(self.cfg.seed)  # If using multiple GPUs
+
+        # Ensuring deterministic behavior in CuDNN
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
+        # Setting CUBLAS environment variable (helps in newer versions)
+        os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+    
     # ----------------
     #  Forward
     # ----------------
@@ -173,6 +204,7 @@ class LSTM_MB(nn.Module):
                    verbose: bool = True,
                    return_best_state: bool = True,
                    save_best_path: Optional[str] = None):
+
         if optimizer is None:
             optimizer = torch.optim.AdamW(self.parameters(),
                                           lr=lr,
@@ -473,7 +505,7 @@ class LSTM_MB(nn.Module):
         return cls.custom_loss
 
     @classmethod
-    def build_model_from_params(cls, params, device):
+    def build_model_from_params(cls, cfg, params, device):
         """
         Construct LSTM_MB from a flat params dict.
         Also normalizes the static-MLP identity case.
@@ -487,6 +519,7 @@ class LSTM_MB(nn.Module):
             static_dropout = None
 
         return cls(
+            cfg = cfg,
             Fm=int(params['Fm']),
             Fs=int(params['Fs']),
             hidden_size=int(params['hidden_size']),
