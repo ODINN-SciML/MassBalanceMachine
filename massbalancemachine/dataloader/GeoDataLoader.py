@@ -2,7 +2,10 @@ import random
 from typing import List
 import pandas as pd
 
-from regions.Switzerland.scripts.geodata import prepareGeoTargets, build_periods_per_glacier
+from regions.Switzerland.scripts.geodata import (
+    prepareGeoTargets,
+    build_periods_per_glacier,
+)
 from regions.Switzerland.scripts.glamos_preprocess import get_geodetic_MB
 from regions.Switzerland.scripts.xgb_helpers import (
     create_geodetic_input,
@@ -28,7 +31,17 @@ class GeoDataLoader:
         ignoreStakesWithoutGeo (bool): Whether to discard stake measurements whose glacier
             don't have geodetic data.
     """
-    def __init__(self, cfg, glacierList: List[str], trainStakesDf: pd.DataFrame, months_head_pad: list[str], months_tail_pad: list[str], valStakesDf: pd.DataFrame=None, ignoreStakesWithoutGeo: bool=False) -> None:
+
+    def __init__(
+        self,
+        cfg,
+        glacierList: List[str],
+        trainStakesDf: pd.DataFrame,
+        months_head_pad: list[str],
+        months_tail_pad: list[str],
+        valStakesDf: pd.DataFrame = None,
+        ignoreStakesWithoutGeo: bool = False,
+    ) -> None:
         self.cfg = cfg
         self.glacierList = glacierList.copy()  # Copy for shuffling
         random.shuffle(self.glacierList)
@@ -237,9 +250,8 @@ class GeoDataLoader:
                 colToRemove.append(col)
                 if col == "MONTHS":
                     string_to_index = {
-                        s: i-1 # index starts at 0
-                            for s, i in self.month_pos.items()
-                        }
+                        s: i - 1 for s, i in self.month_pos.items()  # index starts at 0
+                    }
                     col_int = metadata[col].map(string_to_index)
                 elif col == "PERIOD":
                     # Ensure always the same convention
