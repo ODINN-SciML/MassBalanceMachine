@@ -6,32 +6,23 @@ import gc
 import shutil
 from matplotlib.colors import to_hex
 from matplotlib import pyplot as plt
-
+import random
 
 def seed_all(seed=None):
-    """Sets the random seed everywhere for reproducibility.
-    """
-    if seed is None:
-        seed = 10  # Default seed value
-
-    # Python built-in random
-    rd.seed(seed)
-
-    # NumPy random
+    # Python
+    random.seed(seed)
+    # NumPy
     np.random.seed(seed)
-
-    # PyTorch seed
+    # PyTorch
     torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)  # If using multiple GPUs
+    torch.cuda.manual_seed_all(seed)
 
-    # Ensuring deterministic behavior in CuDNN
+    # cuDNN deterministic kernels
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-    # Setting CUBLAS environment variable (helps in newer versions)
-    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
-    
+    # Forbid nondeterministic ops (warn if an op has no deterministic impl)
+    torch.use_deterministic_algorithms(True, warn_only=True)
     
 def free_up_cuda():
     """Frees up unused CUDA memory in PyTorch."""

@@ -22,6 +22,7 @@ from skorch.helper import SliceDataset
 from torch.utils.data import DataLoader, Subset
 from torch.utils.data import WeightedRandomSampler, SubsetRandomSampler
 import config
+import random as rd
 
 from typing import Dict, List, Optional, Tuple
 from collections import Counter
@@ -241,12 +242,10 @@ class Dataset:
         return os.path.join(self.data_dir, f"{self.region}_{feature_type}.csv")
 
     @staticmethod
-    def _copy_padded_month_columns(
-        df: pd.DataFrame,
-        cfg,
-        prefixes=("pcsr",),
-        overwrite: bool = False
-    ) -> pd.DataFrame:
+    def _copy_padded_month_columns(df: pd.DataFrame,
+                                   cfg,
+                                   prefixes=("pcsr", ),
+                                   overwrite: bool = False) -> pd.DataFrame:
         """
         For each padding token in cfg (e.g. '_aug_', '_sep_', 'oct_'),
         create a new column like 'pcsr__aug_' by copying from the base column
@@ -541,7 +540,7 @@ class MBSequenceDataset(Dataset):
     """
 
     # ---------- Constructors ----------
-
+    # init
     @classmethod
     def from_dataframe(
         cls,
@@ -578,10 +577,10 @@ class MBSequenceDataset(Dataset):
     def make_loaders(
         self,
         *,
+        seed,
         val_ratio: float = 0.2,
         batch_size_train: int = 64,
         batch_size_val: int = 158,
-        seed: int = 42,
         fit_and_transform: bool = True,
         shuffle_train: bool = True,
         drop_last_train: bool = False,
@@ -614,6 +613,15 @@ class MBSequenceDataset(Dataset):
         train_ds = Subset(self, train_idx)
         val_ds = Subset(self, val_idx)
 
+        # Reproducible sampling
+        g = torch.Generator()
+        g.manual_seed(seed)
+
+        def _seed_worker(worker_id):
+            worker_seed = seed + worker_id
+            np.random.seed(worker_seed)
+            rd.seed(worker_seed)
+
         if use_weighted_sampler:
             # Compute weights: higher for minority class (annual)
             iw = self.iw[train_idx].numpy()
@@ -624,35 +632,37 @@ class MBSequenceDataset(Dataset):
 
             sample_weights = np.where(ia, w_a, w_w).astype(np.float32)
             sample_weights = torch.from_numpy(sample_weights)
+
             sampler = WeightedRandomSampler(sample_weights,
                                             num_samples=len(sample_weights),
-                                            replacement=True)
+                                            replacement=True,
+                                            generator=g)
 
-            train_dl = DataLoader(
-                train_ds,
-                batch_size=batch_size_train,
-                sampler=sampler,
-                drop_last=drop_last_train,
-                num_workers=num_workers,
-                pin_memory=pin_memory,
-            )
+            train_dl = DataLoader(train_ds,
+                                  batch_size=batch_size_train,
+                                  sampler=sampler,
+                                  drop_last=drop_last_train,
+                                  num_workers=num_workers,
+                                  pin_memory=pin_memory,
+                                  worker_init_fn=_seed_worker,
+                                  generator=g)
         else:
-            train_dl = DataLoader(
-                train_ds,
-                batch_size=batch_size_train,
-                shuffle=shuffle_train,
-                drop_last=drop_last_train,
-                num_workers=num_workers,
-                pin_memory=pin_memory,
-            )
+            train_dl = DataLoader(train_ds,
+                                  batch_size=batch_size_train,
+                                  shuffle=shuffle_train,
+                                  drop_last=drop_last_train,
+                                  num_workers=num_workers,
+                                  pin_memory=pin_memory,
+                                  worker_init_fn=_seed_worker,
+                                  generator=g)
 
-        val_dl = DataLoader(
-            val_ds,
-            batch_size=batch_size_val,
-            shuffle=False,
-            num_workers=num_workers,
-            pin_memory=pin_memory,
-        )
+        val_dl = DataLoader(val_ds,
+                            batch_size=batch_size_val,
+                            shuffle=False,
+                            num_workers=num_workers,
+                            pin_memory=pin_memory,
+                            worker_init_fn=_seed_worker,
+                            generator=g)
 
         # ---- Sanity check printout ----
         n_w_tr, n_a_tr = int(self.iw[train_idx].sum()), int(
@@ -669,6 +679,7 @@ class MBSequenceDataset(Dataset):
         ds_test: "MBSequenceDataset",
         ds_train: "MBSequenceDataset",
         *,
+        seed,
         batch_size: int = 158,
         num_workers: int = 0,
         pin_memory: bool = False,
@@ -676,134 +687,29 @@ class MBSequenceDataset(Dataset):
         """
         Copy TRAIN scalers to TEST, transform TEST in-place, and return a DataLoader.
         """
+        g = torch.Generator()
+        g.manual_seed(seed)
+
         ds_test.set_scalers_from(ds_train)
         ds_test.transform_inplace()
 
-        test_dl = DataLoader(
-            ds_test,
-            batch_size=batch_size,
-            shuffle=False,
-            num_workers=num_workers,
-            pin_memory=pin_memory,
-        )
+        def _seed_worker(worker_id):
+            worker_seed = seed + worker_id
+            np.random.seed(worker_seed)
+            rd.seed(worker_seed)
+
+        test_dl = DataLoader(ds_test,
+                             batch_size=batch_size,
+                             shuffle=False,
+                             num_workers=num_workers,
+                             pin_memory=pin_memory,
+                             worker_init_fn=_seed_worker,
+                             generator=g)
         return test_dl
 
     @staticmethod
     def _stack(a: List[np.ndarray]) -> np.ndarray:
         return np.stack(a, axis=0) if len(a) else np.empty((0, ))
-
-    # @staticmethod
-    # def _build_sequences(
-    #     df: pd.DataFrame,
-    #     monthly_cols: List[str],
-    #     static_cols: List[str],
-    #     pos_map: Dict[str, int],  # <-- 0-based month indices
-    #     T: int,  # <-- total timeline length from cfg.max_T (or len(pos_map))
-    #     *,
-    #     show_progress: bool = True,
-    #     expect_target: bool = True,
-    # ) -> Dict[str, np.ndarray]:
-    #     # --- checks ---
-    #     req = {
-    #         'GLACIER', 'YEAR', 'ID', 'PERIOD', 'MONTHS', *monthly_cols,
-    #         *static_cols
-    #     }
-    #     if expect_target:
-    #         req |= {'POINT_BALANCE'}
-    #     missing = req - set(df.columns)
-    #     if missing:
-    #         raise KeyError(f"Missing required columns: {sorted(missing)}")
-
-    #     # normalize PERIOD just in case
-    #     df = df.copy()
-    #     df['PERIOD'] = df['PERIOD'].str.strip().str.lower()
-
-    #     # masks
-    #     mask_a_template = np.ones(
-    #         T, dtype=np.float32)  # annual = all months valid
-
-    #     X_monthly, X_static = [], []
-    #     mask_valid, mask_w, mask_a = [], [], []
-    #     y, is_winter, is_annual, keys = [], [], [], []
-
-    #     groups = list(df.groupby(['GLACIER', 'YEAR', 'ID', 'PERIOD']))
-    #     iterator = tqdm(groups,
-    #                     desc="Building sequences") if show_progress else groups
-
-    #     agg_cols = monthly_cols + static_cols + (['POINT_BALANCE']
-    #                                              if expect_target else [])
-
-    #     # Mask winter (a bit more complicated)
-    #     mask_w_template = np.zeros(T, dtype=np.float32)
-    #     # mask_w_template[:9] = 1.0
-    #     # # [
-    #     # #         'aug_', 'sep_', 'oct', 'nov', 'dec', 'jan', 'feb', 'mar', 'apr', 'may',
-    #     # #         'jun', 'jul', 'aug', 'sep', 'oct_'
-    #     # #     ]
-
-    #     for (g, yr, mid, per), sub in iterator:
-    #         # average duplicates within the same month if any
-    #         subm = (sub.groupby(
-    #             'MONTHS', as_index=False)[agg_cols].mean(numeric_only=True))
-
-    #         # T × Fm monthly matrix + valid mask
-    #         mat = np.zeros((T, len(monthly_cols)), dtype=np.float32)
-    #         mv = np.zeros(T, dtype=np.float32)
-
-    #         for _, r in subm.iterrows():
-    #             m = r['MONTHS']
-    #             if m not in pos_map:
-    #                 raise ValueError(
-    #                     f"Unexpected month token '{m}'. Expected one of {list(pos_map.keys())}."
-    #                 )
-    #             pos = pos_map[m]
-    #             mat[pos, :] = r[monthly_cols].to_numpy(np.float32)
-    #             mv[pos] = 1.0
-
-    #             if per == 'winter':
-    #                 mask_w_template[
-    #                     pos] = 1.0  # winter = only months with data valid
-
-    #         # # check if mask_w_template is 0 everywhere
-    #         # if per == 'annual' and mask_w_template.sum() == 0:
-    #         #     mask_w_template[:9] = 1.0
-
-    #         # static features from first row
-    #         s = subm.iloc[0][static_cols].to_numpy(np.float32)
-
-    #         # target
-    #         target = float(
-    #             subm['POINT_BALANCE'].mean()) if expect_target else np.nan
-
-    #         # append (once per group)
-    #         X_monthly.append(mat)
-    #         X_static.append(s)
-    #         mask_valid.append(mv)
-    #         mask_w.append(mask_w_template.copy())
-    #         mask_a.append(mask_a_template.copy())
-    #         y.append(target)
-    #         is_winter.append(per == 'winter')
-    #         is_annual.append(per == 'annual')
-    #         keys.append((g, int(yr), int(mid), per))
-
-    #     data_dict = dict(
-    #         X_monthly=MBSequenceDataset._stack(X_monthly),
-    #         X_static=MBSequenceDataset._stack(X_static),
-    #         mask_valid=MBSequenceDataset._stack(mask_valid),
-    #         mask_w=MBSequenceDataset._stack(mask_w),
-    #         mask_a=MBSequenceDataset._stack(mask_a),
-    #         y=np.asarray(y, dtype=np.float32),
-    #         is_winter=np.asarray(is_winter, dtype=bool),
-    #         is_annual=np.asarray(is_annual, dtype=bool),
-    #         keys=keys,
-    #     )
-
-    #     if len(keys) != len(set(keys)):
-    #         dupes = [k for k, c in Counter(keys).items() if c > 1]
-    #         raise ValueError(
-    #             f"Found {len(dupes)} duplicate keys, e.g. {dupes[:5]}")
-
-    #     return data_dict
 
     @staticmethod
     def _build_sequences(
