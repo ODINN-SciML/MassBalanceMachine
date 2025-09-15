@@ -50,6 +50,8 @@ class Dataset:
         region_id (str): The region ID, for saving the files accordingly and eventually downloading them if needed
         data_dir (str): Path to the directory containing the raw data, and save intermediate results
         RGIIds (pd.Series): Series of RGI IDs from the data
+        months_tail_pad (list of str): Months to pad the start of the hydrological year
+        months_head_pad (list of str): Months to pad the end of the hydrological year
     """
 
     def __init__(
