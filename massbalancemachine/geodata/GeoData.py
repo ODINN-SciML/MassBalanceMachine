@@ -47,7 +47,7 @@ class GeoData:
                     self.data)
                 self.months_tail_pad = months_tail_pad
                 self.months_head_pad = months_head_pad
-        except Exception as e:
+        except AttributeError as e:
             raise ValueError(
                 "Could not compute months_head_pad / months_tail_pad from dataframe. Please provide them explicitly as arguments in constructor."
             ) from e

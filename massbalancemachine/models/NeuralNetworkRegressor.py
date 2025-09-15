@@ -353,9 +353,6 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
             pd.DataFrame: The aggregated predictions for each measurement point ID.
         """
 
-        # # Determine hydrological year based on the data
-        # months_head_pad, months_tail_pad = data_processing.utils._compute_head_tail_pads_from_df(df_grid_monthly)
-
         if type_pred == 'winter':
             # winter months from October to April
             winter_months = [
