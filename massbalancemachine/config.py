@@ -60,16 +60,16 @@ class Config:
             'fal': (0, 1),
             'hugonnet_dhdt': (-5, 5),
             'millan_v': (0, 300),
-            'pcsr': (0, 500),
-            'slhf': (-10e6, 10e6),
+            'pcsr': (0, 500),      # Potential incoming clear sky solar radiation
+            'slhf': (-10e6, 10e6), # Surface latent heat flux
             'slope': (0, 90),
-            'sshf': (-10e6, 10e6),
-            'ssrd': (-10e6, 10e6),
-            'str': (-10e6, 10e6),
-            't2m': (-20, 15),
-            'tp': (0, 0.1),
-            'u10': (-10, 10),
-            'v10': (-10, 10),
+            'sshf': (-10e6, 10e6), # Surface sensible heat flux
+            'ssrd': (-10e6, 10e6), # Surface solar radiation downwards
+            'str': (-10e6, 10e6),  # Surface net thermal radiation
+            't2m': (-20, 15),      # Temperature
+            'tp': (0, 0.1),        # Precipitation
+            'u10': (-10, 10),      # Horizontal wind component
+            'v10': (-10, 10),      # Vertical wind component
         }
 
     # ---------------- Properties / setters ----------------

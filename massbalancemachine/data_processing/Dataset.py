@@ -511,7 +511,6 @@ class Normalizer:
 
 
 class SliceDatasetBinding(Dataset):
-
     def __init__(self,
                  X: SliceDataset,
                  y: SliceDataset = None,
@@ -527,13 +526,9 @@ class SliceDatasetBinding(Dataset):
             M (SliceDataset): Metadata defined through a SliceDataset.
         """
         assert isinstance(X, SliceDataset), "X must be a SliceDataset instance"
-        assert y is None or isinstance(
-            y, SliceDataset), "y must be a SliceDataset instance"
-        assert M is None or isinstance(
-            M, SliceDataset), "M must be a SliceDataset instance"
-        assert (M is None) == (
-            metadataColumns is None
-        ), "If M or metadataColumns is provided, the other variable must be provided too."
+        assert y is None or isinstance(y, SliceDataset), "y must be a SliceDataset instance"
+        assert M is None or isinstance(M, SliceDataset), "M must be a SliceDataset instance"
+        assert (M is None) == (metadataColumns is None), "If M or metadataColumns is provided, the other variable must be provided too."
         self.X = X
         self.y = y
         self.M = M
