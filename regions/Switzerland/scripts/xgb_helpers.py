@@ -1,5 +1,8 @@
 import os, sys
-sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)), '../../../')) # Add root of repo to import MBM
+
+sys.path.append(
+    os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                 '../../../'))  # Add root of repo to import MBM
 
 import logging
 import pandas as pd
@@ -11,174 +14,6 @@ import numpy as np
 from tqdm.notebook import tqdm
 
 from regions.Switzerland.scripts.config_CH import *
-
-
-def process_or_load_data(run_flag,
-                         data_glamos,
-                         paths,
-                         cfg,
-                         vois_climate,
-                         vois_topographical,
-                         add_pcsr=True,
-                         output_file='CH_wgms_dataset_monthly_full.csv'):
-    """
-    Process or load the data based on the RUN flag.
-    """
-    if run_flag:
-        logging.info("Number of annual and seasonal samples: %d",
-                     len(data_glamos))
-
-        # Filter data
-        logging.info("Running on %d glaciers:\n%s",
-                     len(data_glamos.GLACIER.unique()),
-                     data_glamos.GLACIER.unique())
-
-        # Add a glacier-wide ID (used for geodetic MB)
-        data_glamos['GLWD_ID'] = data_glamos.apply(
-            lambda x: mbm.data_processing.utils.get_hash(f"{x.GLACIER}_{x.YEAR}"), axis=1)
-        data_glamos['GLWD_ID'] = data_glamos['GLWD_ID'].astype(str)
-
-        # Create dataset
-        dataset_gl = mbm.data_processing.Dataset(cfg=cfg,
-                                 data=data_glamos,
-                                 region_name='CH',
-                                 region_id=11,
-                                 data_path=paths['csv_path'])
-        logging.info("Number of winter and annual samples: %d",
-                     len(data_glamos))
-        logging.info("Number of annual samples: %d",
-                     len(data_glamos[data_glamos.PERIOD == 'annual']))
-        logging.info("Number of winter samples: %d",
-                     len(data_glamos[data_glamos.PERIOD == 'winter']))
-
-        # Add climate data
-        logging.info("Adding climate features...")
-        try:
-            dataset_gl.get_climate_features(
-                climate_data=paths['era5_climate_data'],
-                geopotential_data=paths['geopotential_data'],
-                change_units=True)
-        except Exception as e:
-            logging.error("Failed to add climate features: %s", e)
-            return None
-
-        if add_pcsr:
-            # Add radiation data
-            logging.info("Adding potential clear sky radiation...")
-            logging.info("Shape before adding radiation: %s",
-                         dataset_gl.data.shape)
-            dataset_gl.get_potential_rad(paths['radiation_save_path'])
-            logging.info("Shape after adding radiation: %s",
-                         dataset_gl.data.shape)
-        
-        # Convert to monthly resolution
-        logging.info("Converting to monthly resolution...")
-        if add_pcsr:
-            dataset_gl.convert_to_monthly(
-                meta_data_columns=cfg.metaData,
-                vois_climate=vois_climate + ['pcsr'],
-                vois_topographical=vois_topographical)
-        else:
-            dataset_gl.convert_to_monthly(
-                meta_data_columns=cfg.metaData,
-                vois_climate=vois_climate,
-                vois_topographical=vois_topographical)
-
-        # Create DataLoader
-        dataloader_gl = mbm.dataloader.DataLoader(cfg,
-                                       data=dataset_gl.data,
-                                       random_seed=cfg.seed,
-                                       meta_data_columns=cfg.metaData)
-        logging.info("Number of monthly rows: %d", len(dataloader_gl.data))
-        logging.info("Columns in the dataset: %s", dataloader_gl.data.columns)
-
-        # Save processed data
-        output_file = os.path.join(paths['csv_path'], output_file)
-        dataloader_gl.data.to_csv(output_file, index=False)
-        logging.info("Processed data saved to: %s", output_file)
-
-        return dataloader_gl
-    else:
-        # Load preprocessed data
-        try:
-            input_file = os.path.join(paths['csv_path'], output_file)
-            data_monthly = pd.read_csv(input_file)
-            filt = data_monthly.filter(['YEAR.1','POINT_LAT.1','POINT_LON.1'])
-            data_monthly.drop(filt, inplace=True, axis=1)
-            dataloader_gl = mbm.dataloader.DataLoader(cfg,
-                                           data=data_monthly,
-                                           random_seed=cfg.seed,
-                                           meta_data_columns=cfg.metaData)
-            logging.info("Loaded preprocessed data.")
-            logging.info("Number of monthly rows: %d", len(dataloader_gl.data))
-            logging.info(
-                "Number of annual rows: %d",
-                len(dataloader_gl.data[dataloader_gl.data.PERIOD == 'annual']))
-            logging.info(
-                "Number of winter rows: %d",
-                len(dataloader_gl.data[dataloader_gl.data.PERIOD == 'winter']))
-
-            return dataloader_gl
-        except FileNotFoundError as e:
-            logging.error("Preprocessed data file not found: %s", e)
-            return None
-
-
-def get_CV_splits(dataloader_gl,
-                  test_split_on='YEAR',
-                  test_splits=None,
-                  random_state=0,
-                  test_size=0.2):
-    # Split into training and test splits with train_test_split
-    if test_splits is None:
-        train_splits, test_splits = train_test_split(
-            dataloader_gl.data[test_split_on].unique(),
-            test_size=test_size,
-            random_state=random_state)
-    else:
-        split_data = dataloader_gl.data[test_split_on].unique()
-        train_splits = [x for x in split_data if x not in test_splits]
-        
-    train_indices = dataloader_gl.data[dataloader_gl.data[test_split_on].isin(
-        train_splits)].index
-    test_indices = dataloader_gl.data[dataloader_gl.data[test_split_on].isin(
-        test_splits)].index
-
-    dataloader_gl.set_custom_train_test_indices(train_indices, test_indices)
-
-    # Get the features and targets of the training data for the indices as defined above, that will be used during the cross validation.
-    df_X_train = dataloader_gl.data.iloc[train_indices]
-    y_train = df_X_train['POINT_BALANCE'].values
-    train_meas_id = df_X_train['ID'].unique()
-
-    # Get test set
-    df_X_test = dataloader_gl.data.iloc[test_indices]
-    y_test = df_X_test['POINT_BALANCE'].values
-    test_meas_id = df_X_test['ID'].unique()
-
-    # Values split in training and test set
-    train_splits = df_X_train[test_split_on].unique()
-    test_splits = df_X_test[test_split_on].unique()
-
-    # Create the CV splits based on the training dataset. The default value for the number of splits is 5.
-    cv_splits = dataloader_gl.get_cv_split(n_splits=5,
-                                           type_fold='group-meas-id')
-
-    test_set = {
-        'df_X': df_X_test,
-        'y': y_test,
-        'meas_id': test_meas_id,
-        'splits_vals': test_splits
-    }
-    train_set = {
-        'df_X': df_X_train,
-        'y': y_train,
-        'splits_vals': train_splits,
-        'meas_id': train_meas_id,
-    }
-
-    return cv_splits, test_set, train_set
-
 
 def getDfAggregatePred(test_set, y_pred_agg, all_columns):
     # Aggregate predictions to annual or winter:
@@ -272,15 +107,16 @@ def has_geodetic_input(cfg, glacier_name, periods_per_glacier):
     for year in range(min_geod_y, max_geod_y + 1):
         # Check that the glacier grid file exists
         file_name = f"{glacier_name}_grid_{year}.parquet"
-        file_path = os.path.join(cfg.dataPath, path_glacier_grid_glamos, glacier_name,
-                                 file_name)
+        file_path = os.path.join(cfg.dataPath, path_glacier_grid_glamos,
+                                 glacier_name, file_name)
 
         if not os.path.exists(file_path):
             return False
     return True
 
 
-def create_geodetic_input(cfg, glacier_name,
+def create_geodetic_input(cfg,
+                          glacier_name,
                           periods_per_glacier,
                           to_seasonal=False):
     """
@@ -304,8 +140,8 @@ def create_geodetic_input(cfg, glacier_name,
     for year in range(min_geod_y, max_geod_y + 1):
         # Read the glacier grid file (monthly)
         file_name = f"{glacier_name}_grid_{year}.parquet"
-        file_path = os.path.join(cfg.dataPath, path_glacier_grid_glamos, glacier_name,
-                                 file_name)
+        file_path = os.path.join(cfg.dataPath, path_glacier_grid_glamos,
+                                 glacier_name, file_name)
 
         if not os.path.exists(file_path):
             print(f"Warning: File {file_path} not found, skipping...")
@@ -323,13 +159,15 @@ def create_geodetic_input(cfg, glacier_name,
             df_grid = df_grid_monthly
 
         # Add GLWD_ID (unique glacier-wide ID corresponding to the year)
-        df_grid['GLWD_ID'] = mbm.data_processing.utils.get_hash(f"{glacier_name}_{year}")
+        df_grid['GLWD_ID'] = mbm.data_processing.utils.get_hash(
+            f"{glacier_name}_{year}")
 
         # ID is not unique anymore (because of the way the monthly grids were pre-processed),
         # so recompute them:
         if 'ID' in df_grid.columns:
-            df_grid['ID'] = df_grid.apply(
-                lambda x: mbm.data_processing.utils.get_hash(f"{x.ID}_{x.YEAR}"), axis=1)
+            df_grid['ID'] = df_grid.apply(lambda x: mbm.data_processing.utils.
+                                          get_hash(f"{x.ID}_{x.YEAR}"),
+                                          axis=1)
         else:
             print(
                 f"Warning: 'ID' column missing in {file_name}, skipping ID modification."
