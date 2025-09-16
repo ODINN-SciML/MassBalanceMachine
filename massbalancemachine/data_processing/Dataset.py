@@ -511,7 +511,6 @@ class Normalizer:
 
 
 class SliceDatasetBinding(Dataset):
-
     def __init__(self,
                  X: SliceDataset,
                  y: SliceDataset = None,
@@ -527,13 +526,9 @@ class SliceDatasetBinding(Dataset):
             M (SliceDataset): Metadata defined through a SliceDataset.
         """
         assert isinstance(X, SliceDataset), "X must be a SliceDataset instance"
-        assert y is None or isinstance(
-            y, SliceDataset), "y must be a SliceDataset instance"
-        assert M is None or isinstance(
-            M, SliceDataset), "M must be a SliceDataset instance"
-        assert (M is None) == (
-            metadataColumns is None
-        ), "If M or metadataColumns is provided, the other variable must be provided too."
+        assert y is None or isinstance(y, SliceDataset), "y must be a SliceDataset instance"
+        assert M is None or isinstance(M, SliceDataset), "M must be a SliceDataset instance"
+        assert (M is None) == (metadataColumns is None), "If M or metadataColumns is provided, the other variable must be provided too."
         self.X = X
         self.y = y
         self.M = M
@@ -590,7 +585,7 @@ class MBSequenceDataset(Dataset):
             if months_head_pad is None and months_tail_pad is None:
                 months_head_pad, months_tail_pad = _compute_head_tail_pads_from_df(
                     df)
-        except Exception as e:
+        except AttributeError as e:
             raise ValueError(
                 "Could not compute months_head_pad / months_tail_pad from dataframe. Please provide them explicitly as arguments in function from_dataframe."
             ) from e

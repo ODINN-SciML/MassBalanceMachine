@@ -1,0 +1,11 @@
+model:
+    type: sequential
+    layers: [12, 4]
+    inputs: null
+training:
+    test_glaciers: null
+    train_glaciers: null
+    optim: ADAM
+    scheduler: null
+    lr: 1e-3
+    Nepochs: 1000
