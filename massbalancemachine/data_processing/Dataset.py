@@ -617,7 +617,9 @@ class MBSequenceDataset(Dataset):
 
     def make_loaders(
         self,
-        val_ratio: float = 0.2,
+        # val_ratio: float = 0.2,
+        train_idx,
+        val_idx,
         batch_size_train: int = 64,
         batch_size_val: int = 158,
         seed: int = 42,
@@ -642,9 +644,22 @@ class MBSequenceDataset(Dataset):
         -------
         train_dl, val_dl, train_idx, val_idx
         """
-        train_idx, val_idx = self.split_indices(len(self),
-                                                val_ratio=val_ratio,
-                                                seed=seed)
+
+        # Reproducible sampling
+        g = torch.Generator()
+        g.manual_seed(seed)
+        self.seed_all(seed)
+        
+        def _seed_worker(worker_id):
+            # Set seed for Python and NumPy in each worker
+            worker_seed = torch.initial_seed() % 2**32
+            np.random.seed(worker_seed)
+            rd.seed(worker_seed)
+            torch.manual_seed(worker_seed)
+
+        # train_idx, val_idx = self.split_indices(len(self),
+        #                                         val_ratio=val_ratio,
+        #                                         seed=seed)
 
         if fit_and_transform:
             self.fit_scalers(train_idx)
@@ -652,15 +667,6 @@ class MBSequenceDataset(Dataset):
 
         train_ds = Subset(self, train_idx)
         val_ds = Subset(self, val_idx)
-
-        # Reproducible sampling
-        g = torch.Generator()
-        g.manual_seed(seed)
-
-        def _seed_worker(worker_id):
-            worker_seed = seed + worker_id
-            np.random.seed(worker_seed)
-            rd.seed(worker_seed)
 
         if use_weighted_sampler:
             # Compute weights: higher for minority class (annual)
@@ -712,7 +718,49 @@ class MBSequenceDataset(Dataset):
         print(f"Train counts: {n_w_tr} winter | {n_a_tr} annual")
         print(f"Val   counts: {n_w_va} winter | {n_a_va} annual")
 
-        return train_dl, val_dl, train_idx, val_idx
+        return train_dl, val_dl
+
+    @staticmethod
+    # def seed_all(seed):
+    #     """Sets the random seed everywhere for reproducibility.
+    #     """
+    #     # Python built-in random
+    #     rd.seed(seed)
+
+    #     # NumPy random
+    #     np.random.seed(seed)
+
+    #     # PyTorch seed
+    #     torch.manual_seed(seed)
+    #     torch.cuda.manual_seed(seed)
+    #     torch.cuda.manual_seed_all(seed)  # If using multiple GPUs
+
+    #     # Ensuring deterministic behavior in CuDNN
+    #     torch.backends.cudnn.deterministic = True
+    #     torch.backends.cudnn.benchmark = False
+
+    #     # Setting CUBLAS environment variable (helps in newer versions)
+    #     os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:2"
+    
+    @staticmethod
+    def seed_all(seed=None):
+        # Python
+        rd.seed(seed)
+        # NumPy
+        np.random.seed(seed)
+        # PyTorch
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+
+        # cuDNN deterministic kernels
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
+        # Forbid nondeterministic ops (warn if an op has no deterministic impl)
+        torch.use_deterministic_algorithms(True, warn_only=True)
+        
+        # Setting CUBLAS environment variable (helps in newer versions)
+        os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:2"   
 
     @staticmethod
     def make_test_loader(
@@ -949,6 +997,28 @@ class MBSequenceDataset(Dataset):
         self.static_std = other.static_std.clone()
         self.y_mean = other.y_mean.clone()
         self.y_std = other.y_std.clone()
+
+    def _clone_untransformed_dataset(
+            ds_src: "MBSequenceDataset") -> "MBSequenceDataset":
+        # Require the source to be pristine (not standardized yet)
+        if any(x is not None for x in (ds_src.month_mean, ds_src.static_mean,
+                                       ds_src.y_mean)):
+            raise ValueError(
+                "ds_pristine was already transformed. Build a fresh pristine dataset once and keep it read-only."
+            )
+
+        data_dict = dict(
+            X_monthly=ds_src.Xm.detach().cpu().numpy().copy(),
+            X_static=ds_src.Xs.detach().cpu().numpy().copy(),
+            mask_valid=ds_src.mv.detach().cpu().numpy().copy(),
+            mask_w=ds_src.mw.detach().cpu().numpy().copy(),
+            mask_a=ds_src.ma.detach().cpu().numpy().copy(),
+            y=ds_src.y.detach().cpu().numpy().copy(),
+            is_winter=ds_src.iw.detach().cpu().numpy().copy(),
+            is_annual=ds_src.ia.detach().cpu().numpy().copy(),
+            keys=list(ds_src.keys),
+        )
+        return MBSequenceDataset(data_dict)
 
     # ---------- Utilities ----------
 

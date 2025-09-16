@@ -11,7 +11,6 @@ import pandas as pd
 import config
 import random as rd
 import os
-
 """
 Model diagram:
     Monthly inputs (B×15×Fm) ──► LSTM ──────────┐
@@ -50,6 +49,8 @@ class LSTM_MB(nn.Module):
     ):
         super().__init__()
         self.two_heads = two_heads
+        self.cfg = cfg
+        self.seed_all()
 
         # ---- LSTM block ----
         self.lstm = nn.LSTM(
@@ -63,10 +64,6 @@ class LSTM_MB(nn.Module):
             if num_layers > 1 else 0.0,  # applied between LSTM layers
         )
 
-        self.cfg = cfg
-        # seed all
-        self.seed_all()
-        
         # Output shape of LSTM block: (B, 15, H) where H = hidden_size × (2 if bidirectional else 1)
         H = hidden_size * (2 if bidirectional else 1)
 
@@ -110,7 +107,6 @@ class LSTM_MB(nn.Module):
             # Produces one per-month MB prediction
             self.head = nn.Linear(fused_dim, 1)  # shared per-month
 
-    
     def seed_all(self):
         """Sets the random seed everywhere for reproducibility.
         """
@@ -129,9 +125,11 @@ class LSTM_MB(nn.Module):
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
+        torch.use_deterministic_algorithms(True, warn_only=True)
+        
         # Setting CUBLAS environment variable (helps in newer versions)
-        os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
-    
+        os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:2"
+
     # ----------------
     #  Forward
     # ----------------
@@ -290,7 +288,7 @@ class LSTM_MB(nn.Module):
             0.0, device=y_true.device) if terms == 0 else loss / terms
 
     @staticmethod
-    def seasonal_mse_weighted(outputs, batch, w_winter=1.0, w_annual=2.2):
+    def seasonal_mse_weighted(outputs, batch, w_winter=1.0, w_annual=3.33):
         _, y_w_pred, y_a_pred = outputs
         y_true = batch['y']
         iw, ia = batch['iw'], batch['ia']
@@ -518,7 +516,7 @@ class LSTM_MB(nn.Module):
             static_dropout = None
 
         return cls(
-            cfg = cfg,
+            cfg=cfg,
             Fm=int(params['Fm']),
             Fs=int(params['Fs']),
             hidden_size=int(params['hidden_size']),
