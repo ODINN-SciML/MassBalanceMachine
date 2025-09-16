@@ -88,7 +88,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 
 train_glaciers, test_glaciers = trainTestGlaciers(params)
 
-train_set, test_set, data_glamos = getTrainTestSets(
+train_set, test_set, data_glamos, months_head_pad, months_tail_pad = getTrainTestSets(
     train_glaciers,
     test_glaciers,
     params,
@@ -134,7 +134,12 @@ loaded_model = loaded_model.to("cpu")
 
 
 grouped_ids, scores_NN, ids_NN, y_pred_NN = evaluate_model_and_group_predictions(
-    loaded_model, df_X_test_subset, test_set["y"], cfg, mbm
+    loaded_model,
+    df_X_test_subset,
+    test_set["y"],
+    cfg,
+    months_head_pad,
+    months_tail_pad,
 )
 scores_annual, scores_winter = compute_seasonal_scores(
     grouped_ids, target_col="target", pred_col="pred"
@@ -145,8 +150,6 @@ fig = plot_predictions_summary(
     scores_winter=scores_winter,
     predVSTruth=predVSTruth,
     plotMeanPred=plotMeanPred,
-    color_annual=color_dark_blue,
-    color_winter=color_pink,
     ax_xlim=(-8, 6),
     ax_ylim=(-8, 6),
 )
@@ -203,7 +206,8 @@ grouped_ids_NN_train, scores_NN_train, ids_train, y_pred_train = (
         data_train,
         data_train["POINT_BALANCE"].values,
         cfg,
-        mbm,
+        months_head_pad,
+        months_tail_pad,
     )
 )
 scores_annual_NN, scores_winter_NN = compute_seasonal_scores(
@@ -215,8 +219,6 @@ fig = plot_predictions_summary(
     scores_winter=scores_winter_NN,
     predVSTruth=predVSTruth,
     plotMeanPred=plotMeanPred,
-    color_annual=color_dark_blue,
-    color_winter=color_pink,
     ax_xlim=(-14, 8),
     ax_ylim=(-14, 8),
 )

@@ -55,14 +55,33 @@ def setFeatures(cfg, data_train, featuresInpModel):
     return feature_columns
 
 
-def getDatasets(cfg, df_X_train, y_train, df_X_val, y_val, df_test, custom_nn):
-    features, metadata = custom_nn._create_features_metadata(df_X_train)
+def getDatasets(
+    cfg,
+    df_X_train,
+    y_train,
+    df_X_val,
+    y_val,
+    df_test,
+    custom_nn,
+    months_head_pad,
+    months_tail_pad,
+):
+    features, metadata = mbm.data_processing.utils.create_features_metadata(
+        cfg, df_X_train
+    )
 
-    features_val, metadata_val = custom_nn._create_features_metadata(df_X_val)
+    features_val, metadata_val = mbm.data_processing.utils.create_features_metadata(
+        cfg, df_X_val
+    )
 
     # Define the dataset for the NN
     dataset = mbm.data_processing.AggregatedDataset(
-        cfg, features=features, metadata=metadata, targets=y_train
+        cfg,
+        features=features,
+        metadata=metadata,
+        months_head_pad=months_head_pad,
+        months_tail_pad=months_tail_pad,
+        targets=y_train,
     )
     dataset = mbm.data_processing.SliceDatasetBinding(
         SliceDataset(dataset, idx=0),
@@ -73,7 +92,12 @@ def getDatasets(cfg, df_X_train, y_train, df_X_val, y_val, df_test, custom_nn):
     print("train:", dataset.X.shape, dataset.y.shape)
 
     dataset_val = mbm.data_processing.AggregatedDataset(
-        cfg, features=features_val, metadata=metadata_val, targets=y_val
+        cfg,
+        features=features_val,
+        metadata=metadata_val,
+        months_head_pad=months_head_pad,
+        months_tail_pad=months_tail_pad,
+        targets=y_val,
     )
     dataset_val = mbm.data_processing.SliceDatasetBinding(
         SliceDataset(dataset_val, idx=0),

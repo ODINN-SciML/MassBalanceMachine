@@ -92,7 +92,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 print(params)
 train_glaciers, test_glaciers = trainTestGlaciers(params)
 
-train_set, test_set, data_glamos = getTrainTestSets(
+train_set, test_set, data_glamos, months_head_pad, months_tail_pad = getTrainTestSets(
     train_glaciers,
     test_glaciers,
     params,
@@ -279,7 +279,15 @@ custom_nn = mbm.models.CustomNeuralNetRegressor(cfg, **args, **param_init)
 
 
 dataset, dataset_val = getDatasets(
-    cfg, df_X_train, y_train, df_X_val, y_val, test_set["df_X"], custom_nn
+    cfg,
+    df_X_train,
+    y_train,
+    df_X_val,
+    y_val,
+    test_set["df_X"],
+    custom_nn,
+    months_head_pad,
+    months_tail_pad,
 )
 
 

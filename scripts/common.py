@@ -274,6 +274,7 @@ def getTrainTestSets(
     )
 
     data_monthly = dataloader_gl.data
+    months_head_pad, months_tail_pad = mbm.data_processing.utils.build_head_tail_pads_from_monthly_df(data_monthly)
 
     data_monthly["GLWD_ID"] = data_monthly.apply(
         lambda x: mbm.data_processing.utils.get_hash(f"{x.GLACIER}_{x.YEAR}"), axis=1
@@ -384,4 +385,4 @@ def getTrainTestSets(
     )
     print("Size of train set:", len(train_set["df_X"]))
 
-    return train_set, test_set, data_glamos
+    return train_set, test_set, data_glamos, months_head_pad, months_tail_pad
