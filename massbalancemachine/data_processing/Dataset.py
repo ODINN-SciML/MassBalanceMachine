@@ -612,7 +612,6 @@ class MBSequenceDataset(Dataset):
 
     def make_loaders(
         self,
-        # val_ratio: float = 0.2,
         train_idx,
         val_idx,
         batch_size_train: int = 64,
