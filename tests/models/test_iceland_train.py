@@ -10,10 +10,14 @@ import massbalancemachine as mbm
 
 @pytest.mark.order3
 def test_iceland_train():
-    data = pd.read_csv('./notebooks/example_data/iceland/files/iceland_monthly_dataset.csv')
-    print('Number of winter and annual samples:', len(data))
+    data = pd.read_csv(
+        "./notebooks/example_data/iceland/files/iceland_monthly_dataset.csv"
+    )
+    print("Number of winter and annual samples:", len(data))
 
-    months_head_pad, months_tail_pad = mbm.data_processing.utils.build_head_tail_pads_from_monthly_df(data)
+    months_head_pad, months_tail_pad = (
+        mbm.data_processing.utils.build_head_tail_pads_from_monthly_df(data)
+    )
 
     cfg = mbm.Config()
 
@@ -27,14 +31,14 @@ def test_iceland_train():
 
     # Get the features and targets of the training data for the indices as defined above, that will be used during the cross validation.
     df_X_train = data.iloc[train_indices]
-    y_train = df_X_train['POINT_BALANCE'].values
+    y_train = df_X_train["POINT_BALANCE"].values
 
     # Get test set
     df_X_test = data.iloc[test_indices]
-    y_test = df_X_test['POINT_BALANCE'].values
+    y_test = df_X_test["POINT_BALANCE"].values
 
     # Create the cross validation splits based on the training dataset. The default value for the number of splits is 5.
-    type_fold = 'group-meas-id'  # 'group-rgi' # or 'group-meas-id'
+    type_fold = "group-meas-id"  # 'group-rgi' # or 'group-meas-id'
     splits = dataloader.get_cv_split(n_splits=5, type_fold=type_fold)
 
     # Print size of train and test
@@ -65,10 +69,12 @@ def test_iceland_train():
         train_split=False,  # train_split is disabled since cross validation is handled by the splits variable hereafter
         batch_size=16,
         iterator_train__shuffle=True,
-        **params_init
+        **params_init,
     )
 
-    features, metadata = mbm.data_processing.utils.create_features_metadata(cfg, df_X_train)
+    features, metadata = mbm.data_processing.utils.create_features_metadata(
+        cfg, df_X_train
+    )
 
     # Define the dataset for the NN
     dataset = mbm.data_processing.AggregatedDataset(
@@ -77,14 +83,13 @@ def test_iceland_train():
         metadata=metadata,
         months_head_pad=months_head_pad,
         months_tail_pad=months_tail_pad,
-        targets=y_train
+        targets=y_train,
     )
     splits = dataset.mapSplitsToDataset(splits)
 
     # Use SliceDataset to make the dataset accessible as a numpy array for scikit learn
     dataset = [SliceDataset(dataset, idx=0), SliceDataset(dataset, idx=1)]
     print(dataset[0].shape, dataset[1].shape)
-
 
     custom_nn.set_params(lr=0.01, max_epochs=8)
     custom_nn.fit(dataset[0], dataset[1])

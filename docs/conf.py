@@ -27,7 +27,9 @@ import sphinx_rtd_theme  # noqa
 # - Copy over notebooks folder to docs/source
 # This makes it so that nbsphinx properly loads the notebook images
 
-examples_source = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "notebooks"))
+examples_source = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "notebooks")
+)
 examples_dest = os.path.abspath(os.path.join(os.path.dirname(__file__), "notebooks"))
 
 if os.path.exists(examples_dest):
@@ -36,7 +38,7 @@ os.mkdir(examples_dest)
 
 logo_file_name = "MBM_logo.png"
 # Copy logo file
-shutil.copyfile("../"+logo_file_name, logo_file_name)
+shutil.copyfile("../" + logo_file_name, logo_file_name)
 
 # Include examples in documentation
 # This adds a lot of time to the doc buiod; to bypass use the environment variable SKIP_EXAMPLES=true
@@ -45,7 +47,17 @@ for root, dirs, files in os.walk(examples_source):
         os.mkdir(os.path.join(root.replace(examples_source, examples_dest), dr))
     for fil in files:
         ext = os.path.splitext(fil)[1]
-        if ext in [".ipynb", ".md", ".rst", ".csv", ".dbf", ".prj", ".shp", ".shx", ".nc"]:
+        if ext in [
+            ".ipynb",
+            ".md",
+            ".rst",
+            ".csv",
+            ".dbf",
+            ".prj",
+            ".shp",
+            ".shx",
+            ".nc",
+        ]:
             if "example_data" in root and ext == ".md":
                 # Do not copy the tutorials inside the example_data/ folder
                 continue
@@ -116,9 +128,9 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 html_theme = "sphinx_rtd_theme"
 
 html_theme_options = {
-    "collapse_navigation": False, # keep sidebar sections expanded
-    "navigation_depth": 4,        # how deep to show headings
-    "titles_only": False,         # if True, only show top-level page titles
+    "collapse_navigation": False,  # keep sidebar sections expanded
+    "navigation_depth": 4,  # how deep to show headings
+    "titles_only": False,  # if True, only show top-level page titles
     "logo_only": False,
     "display_version": True,
 }
@@ -131,13 +143,13 @@ language = "en"
 html_static_path = []
 
 html_context = {
-    "display_github": True, # Integrate GitHub
-    "github_user": "ODINN-SciML", # Username
-    "github_repo": "MassBalanceMachine", # Repo name
-    "github_version": "main", # Version
-    "conf_py_path": "/docs/", # Path in the checkout to the docs root
+    "display_github": True,  # Integrate GitHub
+    "github_user": "ODINN-SciML",  # Username
+    "github_repo": "MassBalanceMachine",  # Repo name
+    "github_version": "main",  # Version
+    "conf_py_path": "/docs/",  # Path in the checkout to the docs root
 }
 
 html_logo = logo_file_name
 
-html_favicon = 'favicon.ico'
+html_favicon = "favicon.ico"
