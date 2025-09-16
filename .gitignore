@@ -1,6 +1,8 @@
 *.idea/
 *.idea
 
+poetry.lock
+
 __pycache__/
 massbalancemachine/__pycache__/
 massbalancemachine/data_processing/__pycache__/
