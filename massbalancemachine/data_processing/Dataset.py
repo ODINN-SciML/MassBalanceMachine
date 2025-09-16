@@ -652,10 +652,6 @@ class MBSequenceDataset(Dataset):
             rd.seed(worker_seed)
             torch.manual_seed(worker_seed)
 
-        # train_idx, val_idx = self.split_indices(len(self),
-        #                                         val_ratio=val_ratio,
-        #                                         seed=seed)
-
         if fit_and_transform:
             self.fit_scalers(train_idx)
             self.transform_inplace()
@@ -714,28 +710,6 @@ class MBSequenceDataset(Dataset):
         print(f"Val   counts: {n_w_va} winter | {n_a_va} annual")
 
         return train_dl, val_dl
-
-    @staticmethod
-    # def seed_all(seed):
-    #     """Sets the random seed everywhere for reproducibility.
-    #     """
-    #     # Python built-in random
-    #     rd.seed(seed)
-
-    #     # NumPy random
-    #     np.random.seed(seed)
-
-    #     # PyTorch seed
-    #     torch.manual_seed(seed)
-    #     torch.cuda.manual_seed(seed)
-    #     torch.cuda.manual_seed_all(seed)  # If using multiple GPUs
-
-    #     # Ensuring deterministic behavior in CuDNN
-    #     torch.backends.cudnn.deterministic = True
-    #     torch.backends.cudnn.benchmark = False
-
-    #     # Setting CUBLAS environment variable (helps in newer versions)
-    #     os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:2"
     
     @staticmethod
     def seed_all(seed=None):
