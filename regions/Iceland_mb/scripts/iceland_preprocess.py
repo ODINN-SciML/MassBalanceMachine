@@ -13,40 +13,42 @@ from scripts.config_ICE import *
 from scripts.helpers import *
 
 # Setup logging
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 log = logging.getLogger(__name__)
 
 
 # --- Preprocess --- #
 
+
 def split_stake_measurements(df_stakes):
     """
     Split stake measurements into separate annual and winter records.
     Only includes measurements where the mass balance value is not NaN.
-    
+
     Args:
         df_stakes: DataFrame with combined stake measurement data
-        
+
     Returns:
         DataFrame with separate rows for annual and winter measurements
     """
-    
+
     # Create annual measurements dataframe - only where ba is not NaN
-    annual_df = df_stakes[df_stakes['ba_floating_date'].notna()].copy()
-    annual_df['FROM_DATE'] = annual_df['d1']
-    annual_df['TO_DATE'] = annual_df['d3']
-    annual_df['POINT_BALANCE'] = annual_df['ba_floating_date']
-    annual_df['PERIOD'] = 'annual'
-    annual_df['YEAR'] = annual_df['yr']
-    
+    annual_df = df_stakes[df_stakes["ba_floating_date"].notna()].copy()
+    annual_df["FROM_DATE"] = annual_df["d1"]
+    annual_df["TO_DATE"] = annual_df["d3"]
+    annual_df["POINT_BALANCE"] = annual_df["ba_floating_date"]
+    annual_df["PERIOD"] = "annual"
+    annual_df["YEAR"] = annual_df["yr"]
+
     # Create winter measurements dataframe - only where bw is not NaN
-    winter_df = df_stakes[df_stakes['bw_floating_date'].notna()].copy()
-    winter_df['FROM_DATE'] = winter_df['d1']
-    winter_df['TO_DATE'] = winter_df['d2']
-    winter_df['POINT_BALANCE'] = winter_df['bw_floating_date']
-    winter_df['PERIOD'] = 'winter'
-    winter_df['YEAR'] = annual_df['yr']
+    winter_df = df_stakes[df_stakes["bw_floating_date"].notna()].copy()
+    winter_df["FROM_DATE"] = winter_df["d1"]
+    winter_df["TO_DATE"] = winter_df["d2"]
+    winter_df["POINT_BALANCE"] = winter_df["bw_floating_date"]
+    winter_df["PERIOD"] = "winter"
+    winter_df["YEAR"] = annual_df["yr"]
     """
     # Create summer measurements dataframe - only where bs is not NaN
     summer_df = df_stakes[df_stakes['bs_floating_date'].notna()].copy()
@@ -57,15 +59,38 @@ def split_stake_measurements(df_stakes):
     summer_df['YEAR'] = annual_df['yr']
     """
     # Combine both dataframes
-    combined_df = pd.concat([annual_df, winter_df], ignore_index=True) # Add ", summer_df" if needed
-    
+    combined_df = pd.concat(
+        [annual_df, winter_df], ignore_index=True
+    )  # Add ", summer_df" if needed
+
     # Select only necessary columns
-    columns_to_drop = ['ba_floating_date', 'ba_stratigraphic', 'bs_floating_date', 'bs_stratigraphic', 'bw_floating_date', 'bw_stratigraphic',
-                        'd1', 'd2', 'd3', 'ds', 'dw', 'fall_elevation', 'ice_melt_fall', 'ice_melt_spring', 'snow_melt_fall', 
-                        'rhos', 'rhow', 'yr', 'nswe_fall', 'swes', 'swew']
+    columns_to_drop = [
+        "ba_floating_date",
+        "ba_stratigraphic",
+        "bs_floating_date",
+        "bs_stratigraphic",
+        "bw_floating_date",
+        "bw_stratigraphic",
+        "d1",
+        "d2",
+        "d3",
+        "ds",
+        "dw",
+        "fall_elevation",
+        "ice_melt_fall",
+        "ice_melt_spring",
+        "snow_melt_fall",
+        "rhos",
+        "rhow",
+        "yr",
+        "nswe_fall",
+        "swes",
+        "swew",
+    ]
     result_df = combined_df.drop(columns=columns_to_drop)
-    
+
     return result_df
+
 
 def check_period_consistency(df):
     """
@@ -74,55 +99,66 @@ def check_period_consistency(df):
     """
 
     df_check = df.copy()
-    
+
     # Convert dates to datetime objects
-    df_check['FROM_DATE_DT'] = pd.to_datetime(df_check['FROM_DATE'], format='%Y%m%d')
-    df_check['TO_DATE_DT'] = pd.to_datetime(df_check['TO_DATE'], format='%Y%m%d')
-    
+    df_check["FROM_DATE_DT"] = pd.to_datetime(df_check["FROM_DATE"], format="%Y%m%d")
+    df_check["TO_DATE_DT"] = pd.to_datetime(df_check["TO_DATE"], format="%Y%m%d")
+
     # Calculate month difference
-    df_check['MONTH_DIFF'] = ((df_check['TO_DATE_DT'].dt.year - df_check['FROM_DATE_DT'].dt.year) * 12 + 
-                             df_check['TO_DATE_DT'].dt.month - df_check['FROM_DATE_DT'].dt.month)
-    
+    df_check["MONTH_DIFF"] = (
+        (df_check["TO_DATE_DT"].dt.year - df_check["FROM_DATE_DT"].dt.year) * 12
+        + df_check["TO_DATE_DT"].dt.month
+        - df_check["FROM_DATE_DT"].dt.month
+    )
+
     # Identify inconsistent periods
     ## 9-15 and 4-9 excludes the normal varying range
-    annual_inconsistent = df_check[(df_check['PERIOD'] == 'annual') & 
-                                 ((df_check['MONTH_DIFF'] < 9) | (df_check['MONTH_DIFF'] > 15))]
-    
-    winter_inconsistent = df_check[(df_check['PERIOD'] == 'winter') & 
-                                 ((df_check['MONTH_DIFF'] < 4) | (df_check['MONTH_DIFF'] > 9))]
-    
-    total_annual = len(df_check[df_check['PERIOD'] == 'annual'])
-    total_winter = len(df_check[df_check['PERIOD'] == 'winter'])
-    
-    print(f"Annual periods: {len(annual_inconsistent)} out of {total_annual} ({len(annual_inconsistent)/total_annual*100:.1f}%) are inconsistent")
-    print(f"Winter periods: {len(winter_inconsistent)} out of {total_winter} ({len(winter_inconsistent)/total_winter*100:.1f}%) are inconsistent")
-    
-    return annual_inconsistent, winter_inconsistent
+    annual_inconsistent = df_check[
+        (df_check["PERIOD"] == "annual")
+        & ((df_check["MONTH_DIFF"] < 9) | (df_check["MONTH_DIFF"] > 15))
+    ]
 
+    winter_inconsistent = df_check[
+        (df_check["PERIOD"] == "winter")
+        & ((df_check["MONTH_DIFF"] < 4) | (df_check["MONTH_DIFF"] > 9))
+    ]
+
+    total_annual = len(df_check[df_check["PERIOD"] == "annual"])
+    total_winter = len(df_check[df_check["PERIOD"] == "winter"])
+
+    print(
+        f"Annual periods: {len(annual_inconsistent)} out of {total_annual} ({len(annual_inconsistent)/total_annual*100:.1f}%) are inconsistent"
+    )
+    print(
+        f"Winter periods: {len(winter_inconsistent)} out of {total_winter} ({len(winter_inconsistent)/total_winter*100:.1f}%) are inconsistent"
+    )
+
+    return annual_inconsistent, winter_inconsistent
 
 
 # --- OGGM --- #
 
+
 def initialize_oggm_glacier_directories(
-    working_dir= None,
-    rgi_region="06", # Iceland
+    working_dir=None,
+    rgi_region="06",  # Iceland
     rgi_version="6",
     base_url="https://cluster.klima.uni-bremen.de/~oggm/gdirs/oggm_v1.6/L3-L5_files/2023.1/elev_bands/W5E5_w_data/",
-    log_level='WARNING',
+    log_level="WARNING",
     task_list=None,
 ):
     # Initialize OGGM config
     oggmCfg.initialize(logging_level=log_level)
-    oggmCfg.PARAMS['border'] = 10
-    oggmCfg.PARAMS['use_multiprocessing'] = True
-    oggmCfg.PARAMS['continue_on_error'] = True
+    oggmCfg.PARAMS["border"] = 10
+    oggmCfg.PARAMS["use_multiprocessing"] = True
+    oggmCfg.PARAMS["continue_on_error"] = True
 
     # Module logger
-    log = logging.getLogger('.'.join(__name__.split('.')[:-1]))
+    log = logging.getLogger(".".join(__name__.split(".")[:-1]))
     log.setLevel(log_level)
 
     # Set working directory
-    oggmCfg.PATHS['working_dir'] = working_dir
+    oggmCfg.PATHS["working_dir"] = working_dir
 
     # Get RGI file
     rgi_dir = utils.get_rgi_dir(version=rgi_version)
@@ -154,9 +190,7 @@ def initialize_oggm_glacier_directories(
     return gdirs, rgidf
 
 
-def export_oggm_grids(gdirs,
-                      subset_rgis=None,
-                      output_path = None):
+def export_oggm_grids(gdirs, subset_rgis=None, output_path=None):
 
     # Save OGGM xr for all needed glaciers:
     emptyfolder(output_path)
@@ -171,21 +205,23 @@ def export_oggm_grids(gdirs,
         with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
             ds = ds.load()
         # save ds
-        ds.to_zarr(os.path.join(output_path, f'{RGIId}.zarr'))
+        ds.to_zarr(os.path.join(output_path, f"{RGIId}.zarr"))
 
 
-def merge_pmb_with_oggm_data(df_pmb,
-                             gdirs,
-                             rgi_region="06",
-                             rgi_version="6",
-                             variables_of_interest=None,
-                             verbose=True):
+def merge_pmb_with_oggm_data(
+    df_pmb,
+    gdirs,
+    rgi_region="06",
+    rgi_version="6",
+    variables_of_interest=None,
+    verbose=True,
+):
     if variables_of_interest is None:
         variables_of_interest = [
             "aspect",
             "slope",
             "topo",
-            #"hugonnet_dhdt",
+            # "hugonnet_dhdt",
             "consensus_ice_thickness",
             "millan_v",
         ]
@@ -198,7 +234,7 @@ def merge_pmb_with_oggm_data(df_pmb,
     # Initialize empty columns
     for var in variables_of_interest:
         df_pmb[var] = np.nan
-    df_pmb['within_glacier_shape'] = False
+    df_pmb["within_glacier_shape"] = False
 
     grouped = df_pmb.groupby("RGIId")
 
@@ -219,54 +255,53 @@ def merge_pmb_with_oggm_data(df_pmb,
         glacier_shape = rgidf[rgidf["RGIId"] == rgi_id]
         if glacier_shape.empty:
             if verbose:
-                log.error(
-                    f"Warning: No shape found for RGIId {rgi_id}, skipping...")
+                log.error(f"Warning: No shape found for RGIId {rgi_id}, skipping...")
             continue
 
         # Coordinate transformation from WGS84 to the projection of OGGM data
         transf = pyproj.Transformer.from_proj(
             pyproj.CRS.from_user_input("EPSG:4326"),
             pyproj.CRS.from_user_input(ds.pyproj_srs),
-            always_xy=True)
+            always_xy=True,
+        )
         lon, lat = group["POINT_LON"].values, group["POINT_LAT"].values
         x_stake, y_stake = transf.transform(lon, lat)
 
         # Create GeoDataFrame of points
         geometry = [Point(xy) for xy in zip(lon, lat)]
-        points_rgi = gpd.GeoDataFrame(group,
-                                      geometry=geometry,
-                                      crs="EPSG:4326")
+        points_rgi = gpd.GeoDataFrame(group, geometry=geometry, crs="EPSG:4326")
 
         # Intersect with glacier shape
         glacier_shape = glacier_shape.to_crs(points_rgi.crs)
-        points_in_glacier = gpd.sjoin(points_rgi.loc[group.index],
-                                      glacier_shape,
-                                      predicate="within",
-                                      how="inner")
+        points_in_glacier = gpd.sjoin(
+            points_rgi.loc[group.index], glacier_shape, predicate="within", how="inner"
+        )
 
         # Get nearest OGGM grid data for points
-        stake = ds.sel(x=xr.DataArray(x_stake, dims="points"),
-                       y=xr.DataArray(y_stake, dims="points"),
-                       method="nearest")
+        stake = ds.sel(
+            x=xr.DataArray(x_stake, dims="points"),
+            y=xr.DataArray(y_stake, dims="points"),
+            method="nearest",
+        )
         stake_var_df = stake[variables_of_interest].to_dataframe()
 
         # Assign to original DataFrame
         for var in variables_of_interest:
             df_pmb.loc[group.index, var] = stake_var_df[var].values
 
-        df_pmb.loc[points_in_glacier.index, 'within_glacier_shape'] = True
+        df_pmb.loc[points_in_glacier.index, "within_glacier_shape"] = True
 
     # Convert radians to degrees
-    df_pmb['aspect'] = df_pmb['aspect'].apply(lambda x: math.degrees(x)
-                                              if not pd.isna(x) else x)
-    df_pmb['slope'] = df_pmb['slope'].apply(lambda x: math.degrees(x)
-                                            if not pd.isna(x) else x)
+    df_pmb["aspect"] = df_pmb["aspect"].apply(
+        lambda x: math.degrees(x) if not pd.isna(x) else x
+    )
+    df_pmb["slope"] = df_pmb["slope"].apply(
+        lambda x: math.degrees(x) if not pd.isna(x) else x
+    )
 
     if verbose:
-        log.info('-- Number of winter and annual samples:', len(df_pmb))
-        log.info('-- Number of annual samples:',
-                 len(df_pmb[df_pmb.PERIOD == 'annual']))
-        log.info('-- Number of winter samples:',
-                 len(df_pmb[df_pmb.PERIOD == 'winter']))
+        log.info("-- Number of winter and annual samples:", len(df_pmb))
+        log.info("-- Number of annual samples:", len(df_pmb[df_pmb.PERIOD == "annual"]))
+        log.info("-- Number of winter samples:", len(df_pmb[df_pmb.PERIOD == "winter"]))
 
     return df_pmb

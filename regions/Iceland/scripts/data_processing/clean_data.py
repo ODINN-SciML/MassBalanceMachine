@@ -15,29 +15,35 @@ from argparse import ArgumentParser
 
 # Columns that are parsed as arguments and will be dropped from the dataset
 parser = ArgumentParser()
-parser.add_argument('-l', '--list', required=False, help='Provide the columns that are redundant', type=str, default=[])
+parser.add_argument(
+    "-l",
+    "--list",
+    required=False,
+    help="Provide the columns that are redundant",
+    type=str,
+    default=[],
+)
 
 args = parser.parse_args()
-columns_to_drop = [item for item in args.list.split(',')]
+columns_to_drop = [item for item in args.list.split(",")]
 
 # Define the file directory and the input and output file names
-file_dir = '.././data/files/'
-file_name_in = 'region_stake_data_climate.csv'
-file_name_out = 'region_stake_data_cleaned.csv'
+file_dir = ".././data/files/"
+file_name_in = "region_stake_data_climate.csv"
+file_name_out = "region_stake_data_cleaned.csv"
 
 full_path = os.path.join(file_dir, file_name_in)
 
 # Check if the input file exists
 if not os.path.exists(full_path):
-    raise FileNotFoundError(f'{full_path} does not exist')
+    raise FileNotFoundError(f"{full_path} does not exist")
 
 df = pd.read_csv(full_path)
 
 # Drop records that do not have any geopotential height available
-df.dropna(subset=['altitude_climate'], inplace=True)
+df.dropna(subset=["altitude_climate"], inplace=True)
 
 # Drop other redundant columns
-df.drop(columns=columns_to_drop, inplace=True, errors='ignore')
+df.drop(columns=columns_to_drop, inplace=True, errors="ignore")
 
 df.to_csv(os.path.join(file_dir, file_name_out), index=False)
-
