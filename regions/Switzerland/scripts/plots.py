@@ -447,8 +447,7 @@ def plotMeanPred(grouped_ids, ax, color_pred=color_annual, color_obs='orange'):
         grouped_ids.groupby('YEAR')['pred'].mean().values,
         mean), mean_squared_error(
             grouped_ids.groupby('YEAR')['pred'].mean().values,
-            mean,
-            squared=False), np.corrcoef(
+            mean)**0.5, np.corrcoef(
                 grouped_ids.groupby('YEAR')['pred'].mean().values, mean)[0, 1]
     legend_xgb = "\n".join((r"$\mathrm{RMSE}=%.3f$ " % (rmse, ), ))
     ax.text(0.03,
@@ -518,14 +517,10 @@ def PlotIndividualGlacierPredVsTruth(grouped_ids,
         # Text:
         df_gl_annual = df_gl[df_gl['PERIOD'] == 'annual']
         if not df_gl_annual.empty:
+            mse = mean_squared_error(df_gl_annual['target'], df_gl_annual['pred'])
             scores_annual = {
-                'mse':
-                mean_squared_error(df_gl_annual['target'],
-                                   df_gl_annual['pred']),
-                'rmse':
-                mean_squared_error(df_gl_annual['target'],
-                                   df_gl_annual['pred'],
-                                   squared=False),
+                'mse': mse,
+                'rmse': mse**0.5,
                 'mae':
                 mean_absolute_error(df_gl_annual['target'],
                                     df_gl_annual['pred']),
@@ -541,14 +536,10 @@ def PlotIndividualGlacierPredVsTruth(grouped_ids,
         df_gl_winter = df_gl[df_gl['PERIOD'] == 'winter']
         # if array not empty
         if not df_gl_winter.empty:
+            mse = mean_squared_error(df_gl_winter['target'], df_gl_winter['pred'])
             scores_winter = {
-                'mse':
-                mean_squared_error(df_gl_winter['target'],
-                                   df_gl_winter['pred']),
-                'rmse':
-                mean_squared_error(df_gl_winter['target'],
-                                   df_gl_winter['pred'],
-                                   squared=False),
+                'mse': mse,
+                'rmse': mse**0.5,
                 'mae':
                 mean_absolute_error(df_gl_winter['target'],
                                     df_gl_winter['pred']),

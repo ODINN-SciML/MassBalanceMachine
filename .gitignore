@@ -46,3 +46,5 @@ notes
 regions/Norway/data/
 *.tox/
 *.tox
+
+logs/

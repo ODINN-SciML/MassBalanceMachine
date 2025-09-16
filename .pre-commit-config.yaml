@@ -1,0 +1,6 @@
+repos:
+  - repo: https://github.com/psf/black
+    rev: 24.8.0
+    hooks:
+      - id: black
+        files: ^(scripts/geo/.*\.py$|scripts/nongeo/.*\.py$|massbalancemachine/dataloader/GeoDataLoader\.py$|massbalancemachine/plots/.*\.py$|massbalancemachine/training/.*\.py$)
