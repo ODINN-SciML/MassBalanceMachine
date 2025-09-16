@@ -4,6 +4,7 @@ mbm_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 sys.path.append(mbm_path)  # Add root of repo to import MBM
 
 # import warnings
+from datetime import datetime
 import massbalancemachine as mbm
 import torch
 import torch.nn as nn
@@ -192,3 +193,12 @@ def buildArgs(cfg, params, model, train_split, callbacks=[]):
         "callbacks": callbacks,
     }
     return args
+
+
+def getLogDir(suffix=None):
+    # Generate filename with current date
+    run_name = datetime.now().strftime("%Y%m%d_%H%M%S")
+    suffixStr = f"_{suffix}" if suffix is not None else ""
+    logdir = f"logs/nongeo_{run_name}{suffixStr}"
+    print(f"Logging in {logdir}")
+    return logdir
