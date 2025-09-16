@@ -3,7 +3,7 @@ import pytest
 import massbalancemachine as mbm
 from regions.Switzerland.scripts.glamos_preprocess import get_geodetic_MB, getStakesData
 from regions.Switzerland.scripts.config_CH import *
-from regions.Switzerland.scripts.xgb_helpers import process_or_load_data, get_CV_splits
+from regions.Switzerland.scripts.helpers import process_or_load_data, get_CV_splits
 
 if "CI" in os.environ:
     pathDataDownload = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)), '../../dataDownload/data/'))
@@ -45,7 +45,7 @@ def test_process_or_load_data():
         'radiation_save_path': cfg.dataPath + path_pcsr + 'zarr/'
     }
 
-    dataloader_gl = process_or_load_data(
+    data_monthly = process_or_load_data(
         run_flag=True,
         data_glamos=data_glamos,
         paths=paths,
@@ -54,14 +54,14 @@ def test_process_or_load_data():
         vois_topographical=vois_topographical,
         output_file='CH_wgms_dataset_monthly_silvretta.csv'
     )
-    months_head_pad, months_tail_pad = mbm.data_processing.utils.build_head_tail_pads_from_monthly_df(dataloader_gl.data)
+    months_head_pad, months_tail_pad = mbm.data_processing.utils.build_head_tail_pads_from_monthly_df(data_monthly)
     month_list, month_pos = mbm.data_processing.utils._rebuild_month_index(months_head_pad, months_tail_pad)
     assert months_head_pad == ['oct_']
     assert months_tail_pad == ['sep_'] # Not ['aug_', 'sep_'] because we are using only Silvretta data
     assert len(month_list)==14
     assert len(month_pos)==14
-    print(dataloader_gl.data.shape)
-    assert dataloader_gl.data.shape == (37763, 30)
+    print(data_monthly.shape)
+    assert data_monthly.shape == (37763, 30)
 
 @pytest.mark.order2
 def test_geodataloader():
@@ -90,7 +90,7 @@ def test_geodataloader():
         'radiation_save_path': cfg.dataPath + path_pcsr + 'zarr/'
     }
 
-    dataloader_gl = process_or_load_data(
+    data_monthly = process_or_load_data(
         run_flag=False,
         data_glamos=data_glamos,
         paths=paths,
@@ -99,8 +99,6 @@ def test_geodataloader():
         vois_topographical=vois_topographical,
         output_file='CH_wgms_dataset_monthly_silvretta.csv',
     )
-
-    data_monthly = dataloader_gl.data
     months_head_pad, months_tail_pad = mbm.data_processing.utils.build_head_tail_pads_from_monthly_df(data_monthly)
 
     data_monthly['GLWD_ID'] = data_monthly.apply(

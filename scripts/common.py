@@ -15,11 +15,9 @@ from regions.Switzerland.scripts.config_CH import (
     path_pcsr,
 )
 from regions.Switzerland.scripts.xgb_helpers import (
-    process_or_load_data,
     transform_df_to_seasonal,
-    get_CV_splits,
 )
-from regions.Switzerland.scripts.helpers import seed_all
+from regions.Switzerland.scripts.helpers import seed_all, process_or_load_data, get_CV_splits
 
 
 _default_test_glaciers = [
@@ -265,7 +263,7 @@ def getTrainTestSetsSwitzerland(
     }
 
     # Transform data to monthly format (run or load data)
-    dataloader_gl = process_or_load_data(
+    data_monthly = process_or_load_data(
         run_flag=process,
         data_glamos=data_glamos,
         paths=paths,
@@ -275,7 +273,6 @@ def getTrainTestSetsSwitzerland(
         output_file=csvFileName,
     )
 
-    data_monthly = dataloader_gl.data
     months_head_pad, months_tail_pad = mbm.data_processing.utils.build_head_tail_pads_from_monthly_df(data_monthly)
 
     data_monthly["GLWD_ID"] = data_monthly.apply(
