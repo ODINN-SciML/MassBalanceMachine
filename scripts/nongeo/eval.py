@@ -14,7 +14,7 @@ import argparse
 
 from scripts.common import (
     trainTestGlaciers,
-    getTrainTestSets,
+    getTrainTestSetsSwitzerland,
     seed_all,
 )
 from scripts.nongeo.utils import (
@@ -88,13 +88,15 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 
 train_glaciers, test_glaciers = trainTestGlaciers(params)
 
-train_set, test_set, data_glamos, months_head_pad, months_tail_pad = getTrainTestSets(
-    train_glaciers,
-    test_glaciers,
-    params,
-    cfg,
-    "CH_wgms_dataset_monthly_NN_nongeo.csv",
-    process=False,
+train_set, test_set, data_glamos, months_head_pad, months_tail_pad = (
+    getTrainTestSetsSwitzerland(
+        train_glaciers,
+        test_glaciers,
+        params,
+        cfg,
+        "CH_wgms_dataset_monthly_NN_nongeo.csv",
+        process=False,
+    )
 )
 
 data_train = train_set["df_X"]

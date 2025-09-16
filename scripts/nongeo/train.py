@@ -21,7 +21,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from scripts.common import (
     trainTestGlaciers,
-    getTrainTestSets,
+    getTrainTestSetsSwitzerland,
     seed_all,
     loadParams,
 )
@@ -92,13 +92,15 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 print(params)
 train_glaciers, test_glaciers = trainTestGlaciers(params)
 
-train_set, test_set, data_glamos, months_head_pad, months_tail_pad = getTrainTestSets(
-    train_glaciers,
-    test_glaciers,
-    params,
-    cfg,
-    "CH_wgms_dataset_monthly_NN_nongeo.csv",
-    process=False,
+train_set, test_set, data_glamos, months_head_pad, months_tail_pad = (
+    getTrainTestSetsSwitzerland(
+        train_glaciers,
+        test_glaciers,
+        params,
+        cfg,
+        "CH_wgms_dataset_monthly_NN_nongeo.csv",
+        process=False,
+    )
 )
 
 data_train = train_set["df_X"]
@@ -132,7 +134,6 @@ def my_train_split(ds, y=None, **fit_params):
 
 
 param_init = {"device": "cuda:0" if runOnGpu else "cpu"}
-nInp = len(feature_columns)
 
 
 model = mbm.models.buildModel(cfg, params=params)

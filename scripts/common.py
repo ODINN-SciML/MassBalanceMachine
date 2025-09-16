@@ -209,6 +209,8 @@ def getTrainTestSetsIceland(test_glaciers, params, cfg):
         random_seed=cfg.seed,
         meta_data_columns=cfg.metaData
     )
+    data_monthly = dataloader.data
+    months_head_pad, months_tail_pad = mbm.data_processing.utils.build_head_tail_pads_from_monthly_df(data_monthly)
 
     data_test = dataloader.data[dataloader.data.RGIId.isin(test_glaciers)]
     print("Size of monthly test data:", len(data_test))
@@ -229,12 +231,12 @@ def getTrainTestSetsIceland(test_glaciers, params, cfg):
         test_splits=test_glaciers,
         random_state=cfg.seed,
     )
-    return train_set, test_set
+    return train_set, test_set, months_head_pad, months_tail_pad
 
 
 
 
-def getTrainTestSets(
+def getTrainTestSetsSwitzerland(
     target_train_glaciers, test_glaciers, params, cfg, csvFileName, process=False
 ):
 

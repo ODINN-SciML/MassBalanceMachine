@@ -11,7 +11,7 @@ from massbalancemachine.dataloader.GeoDataLoader import GeoDataLoader
 
 from scripts.common import (
     trainTestGlaciers,
-    getTrainTestSets,
+    getTrainTestSetsSwitzerland,
     _default_input,
     seed_all,
     loadParams,
@@ -53,13 +53,15 @@ seed_all(cfg.seed)
 
 train_glaciers, test_glaciers = trainTestGlaciers(params)
 
-train_set, test_set, data_glamos = getTrainTestSets(
-    train_glaciers,
-    test_glaciers,
-    params,
-    cfg,
-    "CH_wgms_dataset_monthly_NN_geo.csv",
-    process=False,
+train_set, test_set, data_glamos, months_head_pad, months_tail_pad = (
+    getTrainTestSetsSwitzerland(
+        train_glaciers,
+        test_glaciers,
+        params,
+        cfg,
+        "CH_wgms_dataset_monthly_NN_geo.csv",
+        process=False,
+    )
 )
 
 
@@ -102,7 +104,14 @@ print("Running with features:", feature_columns)
 
 
 glaciers = list(data_train.GLACIER.unique())
-gdl = GeoDataLoader(cfg, glaciers, trainStakesDf=df_X_train, valStakesDf=df_X_val)
+gdl = GeoDataLoader(
+    cfg,
+    glaciers,
+    trainStakesDf=df_X_train,
+    months_head_pad=months_head_pad,
+    months_tail_pad=months_tail_pad,
+    valStakesDf=df_X_val,
+)
 
 
 network = mbm.models.buildModel(cfg, params=params)
@@ -144,6 +153,8 @@ gdl_test = GeoDataLoader(
     cfg,
     test_glaciers,
     trainStakesDf=data_test,
+    months_head_pad=months_head_pad,
+    months_tail_pad=months_tail_pad,
 )
 
 trainCfg = {

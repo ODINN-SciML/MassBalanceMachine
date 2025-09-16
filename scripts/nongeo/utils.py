@@ -10,7 +10,7 @@ import torch.nn as nn
 from skorch.helper import SliceDataset
 
 from scripts.common import (
-    getTrainTestSets,
+    getTrainTestSetsSwitzerland,
     _default_input,
     seed_all,
 )
