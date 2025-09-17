@@ -138,68 +138,13 @@ def evaluate_model_and_group_predictions(
     months_head_pad,
     months_tail_pad,
 ):
-    # Create features and metadata
-    features, metadata = mbm.data_processing.utils.create_features_metadata(
-        cfg, df_X_subset
+    return custom_NN_model.evaluate_group_pred(
+        df_X_subset,
+        y,
+        months_head_pad,
+        months_tail_pad,
+        group_by_col=["PERIOD", "GLACIER", "YEAR"],
     )
-
-    # Ensure features and targets are on CPU
-    if hasattr(features, "cpu"):
-        features = features.cpu()
-    if hasattr(y, "cpu"):
-        y = y.cpu()
-
-    # Define the dataset for the NN
-    dataset = mbm.data_processing.AggregatedDataset(
-        cfg,
-        features=features,
-        metadata=metadata,
-        months_head_pad=months_head_pad,
-        months_tail_pad=months_tail_pad,
-        targets=y,
-    )
-    dataset = [SliceDataset(dataset, idx=0), SliceDataset(dataset, idx=1)]
-
-    # Make predictions
-    y_pred = custom_NN_model.predict(dataset[0])
-    y_pred_agg = custom_NN_model.aggrPredict(dataset[0])
-
-    # Get true values
-    batchIndex = np.arange(len(y_pred_agg))
-    y_true = np.array([e for e in dataset[1][batchIndex]])
-
-    # Compute scores
-    score = custom_NN_model.score(dataset[0], dataset[1])
-    mse, rmse, mae, pearson, r2, bias = custom_NN_model.evalMetrics(y_pred, y_true)
-    scores = {
-        "score": score,
-        "mse": mse,
-        "rmse": rmse,
-        "mae": mae,
-        "pearson": pearson,
-        "r2": r2,
-        "bias": bias,
-    }
-
-    # Create grouped prediction DataFrame
-    ids = dataset[0].dataset.indexToId(batchIndex)
-    grouped_ids = pd.DataFrame(
-        {"target": [e[0] for e in dataset[1]], "ID": ids, "pred": y_pred_agg}
-    )
-
-    # Add period
-    periods_per_ids = df_X_subset.groupby("ID")["PERIOD"].first()
-    grouped_ids = grouped_ids.merge(periods_per_ids, on="ID")
-
-    # Add glacier name
-    glacier_per_ids = df_X_subset.groupby("ID")["GLACIER"].first()
-    grouped_ids = grouped_ids.merge(glacier_per_ids, on="ID")
-
-    # Add YEAR
-    years_per_ids = df_X_subset.groupby("ID")["YEAR"].first()
-    grouped_ids = grouped_ids.merge(years_per_ids, on="ID")
-
-    return grouped_ids, scores, ids, y_pred
 
 
 def process_glacier_grids(
