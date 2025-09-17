@@ -15,4 +15,5 @@ from data_processing.utils.hydro_year import (
     _rebuild_month_index,
     build_head_tail_pads_from_monthly_df,
     _compute_head_tail_pads_from_df,
+    months_hydro_year,
 )

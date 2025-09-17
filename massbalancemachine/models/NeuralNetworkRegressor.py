@@ -423,20 +423,7 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         df_pred_months["MONTHS"] = grouped_ids["MONTHS"]
         df_pred_months["PERIOD"] = grouped_ids["PERIOD"]
 
-        months_extended = [
-            "sep",
-            "oct",
-            "nov",
-            "dec",
-            "jan",
-            "feb",
-            "mar",
-            "apr",
-            "may",
-            "jun",
-            "jul",
-            "aug",
-        ]
+        months_extended = data_processing.utils.months_hydro_year
 
         df_months_nn = pd.DataFrame(columns=months_extended)
 
@@ -447,7 +434,7 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
                     month = month + "_"
                 dic[month] = row[j]
 
-            # add missing months from months extended
+            # add missing months from months_extended
             for month in months_extended:
                 if month not in dic.keys():
                     dic[month] = np.nan
