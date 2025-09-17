@@ -2,15 +2,14 @@ import torch
 import numpy as np
 import random as rd
 import os
-import gc 
+import gc
 import shutil
 from matplotlib.colors import to_hex
 from matplotlib import pyplot as plt
 
 
 def seed_all(seed=None):
-    """Sets the random seed everywhere for reproducibility.
-    """
+    """Sets the random seed everywhere for reproducibility."""
     if seed is None:
         seed = 10  # Default seed value
 
@@ -31,8 +30,8 @@ def seed_all(seed=None):
 
     # Setting CUBLAS environment variable (helps in newer versions)
     os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
-    
-    
+
+
 def free_up_cuda():
     """Frees up unused CUDA memory in PyTorch."""
     gc.collect()  # Run garbage collection
@@ -57,6 +56,7 @@ def get_cmap_hex(cmap, length):
     hex_codes = [to_hex(rgb[i, :]) for i in range(rgb.shape[0])]
 
     return hex_codes
+
 
 def emptyfolder(path):
     """Removes all files and subdirectories in the given folder."""

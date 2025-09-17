@@ -50,8 +50,7 @@ def transform_to_monthly(
     column_names = _get_column_names(meta_data_columns, vois_topographical)
 
     # Create the final dataframe with the new exploded climate data
-    result_df = _create_result_dataframe(df_exploded, column_names,
-                                         vois_climate)
+    result_df = _create_result_dataframe(df_exploded, column_names, vois_climate)
 
     result_df.to_csv(output_fname, index=False)
 
@@ -83,11 +82,15 @@ def _generate_monthly_ranges(df: pd.DataFrame) -> pd.DataFrame:
     df["TO_DATE_RND"] = df["TO_DATE"].apply(_round_to_start_of_month)
 
     df["MONTHS"] = df.apply(
-        lambda row: pd.date_range(start=row["FROM_DATE_RND"],
-                                  end=row["TO_DATE_RND"],
-                                  freq="MS",
-                                  inclusive='left').strftime("%b").str.lower().
-        tolist(),
+        lambda row: pd.date_range(
+            start=row["FROM_DATE_RND"],
+            end=row["TO_DATE_RND"],
+            freq="MS",
+            inclusive="left",
+        )
+        .strftime("%b")
+        .str.lower()
+        .tolist(),
         axis=1,
     )
 
@@ -96,7 +99,7 @@ def _generate_monthly_ranges(df: pd.DataFrame) -> pd.DataFrame:
         Tag month tokens to disambiguate padding around the Oct→Sep hydrological core.
 
         Rules:
-        - Leading (tail) padding: starting 'aug'/'sep' should be tagged 'aug_'/'sep_' 
+        - Leading (tail) padding: starting 'aug'/'sep' should be tagged 'aug_'/'sep_'
         if they appear before the first 'oct' (or if no 'oct' exists, they are still tagged if at the start).
         - Trailing (head) padding: ending 'oct'/'nov' should be tagged 'oct_'/'nov_'
         if they appear after the last 'sep' (or if no 'sep' exists, they are still tagged if at the end).
@@ -109,12 +112,12 @@ def _generate_monthly_ranges(df: pd.DataFrame) -> pd.DataFrame:
 
         # Find anchors (may be missing)
         try:
-            first_oct = base.index('oct')
+            first_oct = base.index("oct")
         except ValueError:
             first_oct = None
 
         try:
-            last_sep = n - 1 - base[::-1].index('sep')
+            last_sep = n - 1 - base[::-1].index("sep")
         except ValueError:
             last_sep = None
 
@@ -122,16 +125,18 @@ def _generate_monthly_ranges(df: pd.DataFrame) -> pd.DataFrame:
 
         # --- Tag leading tail padding: starting run of aug/sep before first oct (or if no oct, still at start) ---
         i = 0
-        while i < n and base[i] in ('aug', 'sep') and (first_oct is None
-                                                       or i < first_oct):
-            tagged[i] = base[i] + '_'
+        while (
+            i < n and base[i] in ("aug", "sep") and (first_oct is None or i < first_oct)
+        ):
+            tagged[i] = base[i] + "_"
             i += 1
 
         # --- Tag trailing head padding: ending run of oct/nov after last sep (or if no sep, still at end) ---
         j = n - 1
-        while j >= 0 and base[j] in ('oct', 'nov') and (last_sep is None
-                                                        or j > last_sep):
-            tagged[j] = base[j] + '_'
+        while (
+            j >= 0 and base[j] in ("oct", "nov") and (last_sep is None or j > last_sep)
+        ):
+            tagged[j] = base[j] + "_"
             j -= 1
 
         return tagged
@@ -155,8 +160,9 @@ def _explode_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     return df_exploded.reset_index(drop=True)
 
 
-def _get_column_names(meta_data_columns: "list[str]",
-                      vois_topographical: "list[str]") -> "list[str]":
+def _get_column_names(
+    meta_data_columns: "list[str]", vois_topographical: "list[str]"
+) -> "list[str]":
     """Get the list of column names to keep in the final DataFrame."""
     column_names = [
         "YEAR",
@@ -172,8 +178,9 @@ def _get_column_names(meta_data_columns: "list[str]",
     return column_names
 
 
-def _get_climate_values(row: pd.Series, vois_climate: "list[str]",
-                        column_names: "list[str]") -> np.ndarray:
+def _get_climate_values(
+    row: pd.Series, vois_climate: "list[str]", column_names: "list[str]"
+) -> np.ndarray:
     """Get climate values for a specific row and month."""
 
     cols = [f'{voi}_{row["MONTHS"]}' for voi in vois_climate]
@@ -189,14 +196,13 @@ def _create_result_dataframe(
     chunk_size=10000,
 ) -> pd.DataFrame:
     """Create the final result DataFrame."""
-    apply_func = lambda row: _get_climate_values(row, vois_climate,
-                                                 column_names)
+    apply_func = lambda row: _get_climate_values(row, vois_climate, column_names)
     if chunk_size > 0:
         # Split call to apply in chunks
         # This is useful when working with large dataframes to avoid having OOM errors
         climate_records = []
         for start in range(0, df_exploded.shape[0], chunk_size):
-            chunk = df_exploded.iloc[start:start + chunk_size]
+            chunk = df_exploded.iloc[start : start + chunk_size]
             chunk_records = chunk.apply(apply_func, axis=1).tolist()
             climate_records.extend(chunk_records)
     else:
