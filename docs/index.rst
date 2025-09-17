@@ -33,7 +33,7 @@ Specifically, the example notebooks concentrate on glaciers documented in the WG
 
     If the OGGM cluster is shut down, users will be unable to retrieve topographical features for their region of interest. If you encounter a 403 error in your notebook while trying to retrieve these features, it likely means that the OGGM cluster is down. You can check the status of the cluster on their `Slack channel <https://community.oggm.org/guides/slack-intro.html>`_.
 
-2. **Data Exploration 🔍**: Users can gain deeper insights into their data by visualizing the time series of the available stake measurements, which are related to either the region-wide surface mass balance or the point surface mass balance. See the :doc:`notebooks/date_exploration` tutorial.
+2. **Data Exploration 🔍**: Users can gain deeper insights into their data by visualizing the time series of the available stake measurements, which are related to either the region-wide surface mass balance or the point surface mass balance. See the :doc:`notebooks/data_exploration` tutorial.
 3. **Model Training 🚀 & Testing 🎯**: Two tutorials cover the use of two models: XGBoost and neural networks. Refer to the :doc:`notebooks/model_training_xgboost` and :doc:`notebooks/model_training_neuralnetwork` tutorials.
 
 .. toctree::
@@ -43,7 +43,7 @@ Specifically, the example notebooks concentrate on glaciers documented in the WG
 
     notebooks/data_preprocessing
     notebooks/data_processing_wgms
-    notebooks/date_exploration
+    notebooks/data_exploration
     notebooks/model_training_xgboost
     notebooks/model_training_neuralnetwork
 

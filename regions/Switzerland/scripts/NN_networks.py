@@ -5,17 +5,21 @@ import torch
 class BiggerNetwork(nn.Module):
     def __init__(self, input_dim, layer0, layer1, layer2, layer3, dropout):
         super().__init__()
-        self.model = nn.Sequential(nn.Linear(input_dim, layer0), nn.ReLU(),
-                                   nn.Dropout(dropout),
-                                   
-                                   nn.Linear(layer0, layer1), nn.ReLU(),
-                                   nn.Dropout(dropout),
-                                   
-                                   nn.Linear(layer1, layer2), nn.ReLU(),
-                                   nn.Dropout(dropout),
-                                   
-                                   nn.Linear(layer2, layer3), nn.ReLU(),
-                                   nn.Dropout(dropout), nn.Linear(layer3, 1))
+        self.model = nn.Sequential(
+            nn.Linear(input_dim, layer0),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(layer0, layer1),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(layer1, layer2),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(layer2, layer3),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(layer3, 1),
+        )
 
     def forward(self, x):
         return self.model(x)
@@ -67,4 +71,3 @@ class SimpleModel(nn.Module):
 
     def forward(self, x):
         return self.model(x)
-    
