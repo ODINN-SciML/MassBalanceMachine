@@ -11,6 +11,7 @@ local_path_wgms = f"{data_path}/{wgms_zip_file}"
 
 wgms_folder = f"{data_path}/{wgms_zip_file.replace('.zip', '')}"
 
+
 def check_and_download_wgms():
     os.makedirs(data_path, exist_ok=True)
     if not os.path.isdir(wgms_folder):
@@ -18,8 +19,9 @@ def check_and_download_wgms():
             print("Downloading from WGMS website")
             urllib.request.urlretrieve(wgms_source_data_link, local_path_wgms)
         print("Unzipping file")
-        with zipfile.ZipFile(local_path_wgms, 'r') as zip_ref:
+        with zipfile.ZipFile(local_path_wgms, "r") as zip_ref:
             zip_ref.extractall(wgms_folder)
+
 
 def load_wgms_data():
     check_and_download_wgms()

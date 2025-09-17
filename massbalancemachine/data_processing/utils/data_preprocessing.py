@@ -20,8 +20,7 @@ import hashlib
 from data_processing.glacier_utils import get_region_shape_file
 
 
-def convert_to_wgs84(*, data: pd.DataFrame,
-                     from_crs: str | int) -> pd.DataFrame:
+def convert_to_wgs84(*, data: pd.DataFrame, from_crs: str | int) -> pd.DataFrame:
     """
     Transform coordinates from a given CRS to WGS84.
 
@@ -45,9 +44,11 @@ def convert_to_wgs84(*, data: pd.DataFrame,
         return lat_wgs84, lon_wgs84
 
     # Apply transformation to the DataFrame
-    data["POINT_LAT"], data["POINT_LON"] = zip(*data.apply(
-        lambda x: transform_coordinates(x["POINT_LAT"], x["POINT_LON"]),
-        axis=1))
+    data["POINT_LAT"], data["POINT_LON"] = zip(
+        *data.apply(
+            lambda x: transform_coordinates(x["POINT_LAT"], x["POINT_LON"]), axis=1
+        )
+    )
 
     return data
 
@@ -75,8 +76,12 @@ def _transform_dates(row: pd.Series) -> "list[tuple[Any, Any]]":
     return [(date1, date2), (date2, date3), (date1, date3)]
 
 
-def _reshape_dataset(df: pd.DataFrame, date_columns: "list[str]",
-                     smb_columns: "list[str]", ids: "list[str]") -> pd.DataFrame:
+def _reshape_dataset(
+    df: pd.DataFrame,
+    date_columns: "list[str]",
+    smb_columns: "list[str]",
+    ids: "list[str]",
+) -> pd.DataFrame:
     """
     Reshape the dataset to create individual records for each measurement period.
 
@@ -91,18 +96,18 @@ def _reshape_dataset(df: pd.DataFrame, date_columns: "list[str]",
     """
 
     # Transform dates
-    transformed_dates = df[date_columns].apply(_transform_dates,
-                                               axis=1).explode()
-    transformed_dates = pd.DataFrame(transformed_dates.tolist(),
-                                     columns=["FROM_DATE", "TO_DATE"])
+    transformed_dates = df[date_columns].apply(_transform_dates, axis=1).explode()
+    transformed_dates = pd.DataFrame(
+        transformed_dates.tolist(), columns=["FROM_DATE", "TO_DATE"]
+    )
 
     # Assign a unique ID to each row
     df["ID"] = np.arange(len(df))
 
     # Melt the dataframe
-    df_melted = df.melt(id_vars=ids + smb_columns + ["ID"],
-                        value_vars=date_columns,
-                        var_name="date").drop(["value"], axis=1)
+    df_melted = df.melt(
+        id_vars=ids + smb_columns + ["ID"], value_vars=date_columns, var_name="date"
+    ).drop(["value"], axis=1)
 
     # Sort the melted dataframe
     df_melted = df_melted.sort_values(by=["ID", "date"]).reset_index(drop=True)
@@ -114,9 +119,9 @@ def _reshape_dataset(df: pd.DataFrame, date_columns: "list[str]",
     date_to_smb = dict(zip(date_columns, smb_columns))
 
     # Apply SMB value selection
-    df_combined["POINT_BALANCE"] = df_combined.apply(_select_smb_value,
-                                                     axis=1,
-                                                     date_to_smb=date_to_smb)
+    df_combined["POINT_BALANCE"] = df_combined.apply(
+        _select_smb_value, axis=1, date_to_smb=date_to_smb
+    )
 
     # Drop the original SMB columns and temporary columns
     df_combined.drop(["date", "ID"] + smb_columns, axis=1, inplace=True)
@@ -150,22 +155,25 @@ def convert_to_wgms(
     ids.remove("POINT_BALANCE")
     df_combined = _reshape_dataset(data, date_columns, smb_columns, ids)
 
-    df_combined = df_combined[list(
-        wgms_data_columns.keys())].rename(columns=wgms_data_columns)
+    df_combined = df_combined[list(wgms_data_columns.keys())].rename(
+        columns=wgms_data_columns
+    )
 
     # Convert and format the date columns
     df_combined["TO_DATE"] = pd.to_datetime(
-        df_combined["TO_DATE"], errors="coerce",
-        dayfirst=True).dt.strftime("%Y%m%d")
+        df_combined["TO_DATE"], errors="coerce", dayfirst=True
+    ).dt.strftime("%Y%m%d")
     df_combined["FROM_DATE"] = pd.to_datetime(
-        df_combined["FROM_DATE"], errors="coerce",
-        dayfirst=True).dt.strftime("%Y%m%d")
+        df_combined["FROM_DATE"], errors="coerce", dayfirst=True
+    ).dt.strftime("%Y%m%d")
 
     # Replace NaT with empty string
     df_combined["TO_DATE"] = df_combined["TO_DATE"].apply(
-        lambda x: x if pd.notna(x) else "")
+        lambda x: x if pd.notna(x) else ""
+    )
     df_combined["FROM_DATE"] = df_combined["FROM_DATE"].apply(
-        lambda x: x if pd.notna(x) else "")
+        lambda x: x if pd.notna(x) else ""
+    )
 
     return df_combined
 
@@ -189,10 +197,13 @@ def get_rgi(
         geopandas.GeoDataFrame: DataFrame with original data and added 'RGIId' column for each stake measurement.
     """
 
-    assert (glacier_outlines is None) ^ (region is None), "Either `glacier_outlines` or `region_id` must be provided but not both at the same time."
+    assert (glacier_outlines is None) ^ (
+        region is None
+    ), "Either `glacier_outlines` or `region_id` must be provided but not both at the same time."
 
     if glacier_outlines is None:
-        if not isinstance(region, str): region = f'{region:02d}'
+        if not isinstance(region, str):
+            region = f"{region:02d}"
         shp_path = get_region_shape_file(region)
         glacier_outlines = gpd.read_file(shp_path)
 
@@ -200,13 +211,9 @@ def get_rgi(
     # using the column names for longitude and latitude similar as the WGMS
     # dataset.
     geometry = [
-        Point(lon, lat)
-        for lon, lat in zip(data["POINT_LON"], data["POINT_LAT"])
+        Point(lon, lat) for lon, lat in zip(data["POINT_LON"], data["POINT_LAT"])
     ]
-    points_gdf = gpd.GeoDataFrame(
-        data,
-        geometry=geometry,
-        crs=glacier_outlines.crs)
+    points_gdf = gpd.GeoDataFrame(data, geometry=geometry, crs=glacier_outlines.crs)
 
     # Perform a spatial joint for all the stake measurements that are within a section of the icecap that is
     # associated with a RGIId.
@@ -226,8 +233,8 @@ def get_rgi(
 
     return joined_df
 
+
 # Generate a unique glacier-wide ID
 def get_hash(unique_string):
-    unique_id = hashlib.md5(
-        unique_string.encode()).hexdigest()[:10]  # Shortened hash
+    unique_id = hashlib.md5(unique_string.encode()).hexdigest()[:10]  # Shortened hash
     return unique_id

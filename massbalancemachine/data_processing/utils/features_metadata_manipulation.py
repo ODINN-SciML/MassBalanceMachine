@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 from config import Config
 
+
 def create_features_metadata(
     cfg: Config,
     X: pd.DataFrame,

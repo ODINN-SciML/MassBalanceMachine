@@ -11,6 +11,7 @@ import pandas as pd
 import config
 import random as rd
 import os
+
 """
 Model diagram:
     Monthly inputs (B×15×Fm) ──► LSTM ──────────┐
@@ -58,10 +59,8 @@ class LSTM_MB(nn.Module):
             hidden_size=hidden_size,  # capacity of the recurrent units
             num_layers=num_layers,  # stacked LSTMs for depth
             batch_first=True,
-            bidirectional=
-            bidirectional,  # whether to process the sequence forwards and backwards
-            dropout=dropout
-            if num_layers > 1 else 0.0,  # applied between LSTM layers
+            bidirectional=bidirectional,  # whether to process the sequence forwards and backwards
+            dropout=dropout if num_layers > 1 else 0.0,  # applied between LSTM layers
         )
 
         # Output shape of LSTM block: (B, 15, H) where H = hidden_size × (2 if bidirectional else 1)
@@ -72,8 +71,7 @@ class LSTM_MB(nn.Module):
 
         # ---- static MLP ----
         if static_layers == 0 or static_hidden is None:
-            widths = [
-            ]  # identity case where static features go through no MLP
+            widths = []  # identity case where static features go through no MLP
         elif isinstance(static_hidden, int):
             widths = [static_hidden] * static_layers
         else:
@@ -82,18 +80,15 @@ class LSTM_MB(nn.Module):
         mlp, in_dim = [], Fs
         # if static_layers > 0, build an MLP with ReLU activations + dropout
         for w in widths:
-            mlp += [
-                nn.Linear(in_dim, w),
-                nn.ReLU(),
-                nn.Dropout(static_dropout)
-            ]
+            mlp += [nn.Linear(in_dim, w), nn.ReLU(), nn.Dropout(static_dropout)]
             in_dim = w
         self.static_mlp = nn.Sequential(*mlp) if mlp else nn.Identity()
         static_out_dim = in_dim if mlp else Fs
 
         fused_dim = H + static_out_dim
-        self.head_pre_dropout = nn.Dropout(
-            head_dropout) if head_dropout > 0 else nn.Identity()
+        self.head_pre_dropout = (
+            nn.Dropout(head_dropout) if head_dropout > 0 else nn.Identity()
+        )
 
         # ---- Two options depending on two_heads ----
         if self.two_heads:
@@ -108,8 +103,7 @@ class LSTM_MB(nn.Module):
             self.head = nn.Linear(fused_dim, 1)  # shared per-month
 
     def seed_all(self):
-        """Sets the random seed everywhere for reproducibility.
-        """
+        """Sets the random seed everywhere for reproducibility."""
         # Python built-in random
         rd.seed(self.cfg.seed)
 
@@ -126,7 +120,7 @@ class LSTM_MB(nn.Module):
         torch.backends.cudnn.benchmark = False
 
         torch.use_deterministic_algorithms(True, warn_only=True)
-        
+
         # Setting CUBLAS environment variable (helps in newer versions)
         os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:2"
 
@@ -142,8 +136,9 @@ class LSTM_MB(nn.Module):
         s = self.static_mlp(x_s)  # (B,static_out_dim)
 
         # ---- Fusion layer ----
-        s_rep = s.unsqueeze(1).expand(-1, out.size(1),
-                                      -1)  # repeat static along time dimension
+        s_rep = s.unsqueeze(1).expand(
+            -1, out.size(1), -1
+        )  # repeat static along time dimension
         z = torch.cat([out, s_rep], dim=-1)  # concat dynamic + static
         # Output shape: (B, 15, H + static_out_dim)
         z = self.head_pre_dropout(z)
@@ -179,68 +174,75 @@ class LSTM_MB(nn.Module):
     # ----------------
     #  Train loop / losses
     # ----------------
-    def train_loop(self,
-                   device,
-                   train_dl,
-                   val_dl,
-                   *,
-                   epochs: int = 100,
-                   optimizer: Optional[torch.optim.Optimizer] = None,
-                   lr: float = 1e-3,
-                   weight_decay: float = 1e-4,
-                   clip_val: float = 1.0,
-                   loss_fn=None,
-                   sched_factor: float = 0.5,
-                   sched_patience: int = 6,
-                   sched_threshold: float = 0.01,
-                   sched_threshold_mode: str = "rel",
-                   sched_cooldown: int = 1,
-                   sched_min_lr: float = 1e-6,
-                   es_patience: int = 20,
-                   es_min_delta: float = 1e-4,
-                   log_every: int = 5,
-                   verbose: bool = True,
-                   return_best_state: bool = True,
-                   save_best_path: Optional[str] = None):
+    def train_loop(
+        self,
+        device,
+        train_dl,
+        val_dl,
+        *,
+        epochs: int = 100,
+        optimizer: Optional[torch.optim.Optimizer] = None,
+        lr: float = 1e-3,
+        weight_decay: float = 1e-4,
+        clip_val: float = 1.0,
+        loss_fn=None,
+        sched_factor: float = 0.5,
+        sched_patience: int = 6,
+        sched_threshold: float = 0.01,
+        sched_threshold_mode: str = "rel",
+        sched_cooldown: int = 1,
+        sched_min_lr: float = 1e-6,
+        es_patience: int = 20,
+        es_min_delta: float = 1e-4,
+        log_every: int = 5,
+        verbose: bool = True,
+        return_best_state: bool = True,
+        save_best_path: Optional[str] = None,
+    ):
         if optimizer is None:
-            optimizer = torch.optim.AdamW(self.parameters(),
-                                          lr=lr,
-                                          weight_decay=weight_decay)
+            optimizer = torch.optim.AdamW(
+                self.parameters(), lr=lr, weight_decay=weight_decay
+            )
 
-        scheduler = ReduceLROnPlateau(optimizer,
-                                      mode='min',
-                                      factor=sched_factor,
-                                      patience=sched_patience,
-                                      threshold=sched_threshold,
-                                      threshold_mode=sched_threshold_mode,
-                                      cooldown=sched_cooldown,
-                                      min_lr=sched_min_lr,
-                                      verbose=verbose)
+        scheduler = ReduceLROnPlateau(
+            optimizer,
+            mode="min",
+            factor=sched_factor,
+            patience=sched_patience,
+            threshold=sched_threshold,
+            threshold_mode=sched_threshold_mode,
+            cooldown=sched_cooldown,
+            min_lr=sched_min_lr,
+            verbose=verbose,
+        )
 
         history = {"train_loss": [], "val_loss": [], "lr": []}
-        best_val, best_state = float('inf'), None
-        es_best, es_wait = float('inf'), 0
+        best_val, best_state = float("inf"), None
+        es_best, es_wait = float("inf"), 0
 
         for ep in range(1, epochs + 1):
-            tr = self.run_epoch(device,
-                                optimizer,
-                                train_dl,
-                                loss_fn=loss_fn,
-                                clip_val=clip_val,
-                                train=True)
-            va = self.run_epoch(device,
-                                optimizer,
-                                val_dl,
-                                loss_fn=loss_fn,
-                                clip_val=clip_val,
-                                train=False)
+            tr = self.run_epoch(
+                device,
+                optimizer,
+                train_dl,
+                loss_fn=loss_fn,
+                clip_val=clip_val,
+                train=True,
+            )
+            va = self.run_epoch(
+                device,
+                optimizer,
+                val_dl,
+                loss_fn=loss_fn,
+                clip_val=clip_val,
+                train=False,
+            )
 
             scheduler.step(va)
             if va + es_min_delta < best_val:
                 best_val = va
                 best_state = {
-                    k: v.detach().cpu().clone()
-                    for k, v in self.state_dict().items()
+                    k: v.detach().cpu().clone() for k, v in self.state_dict().items()
                 }
                 if save_best_path is not None:
                     torch.save(best_state, save_best_path)
@@ -250,7 +252,7 @@ class LSTM_MB(nn.Module):
             else:
                 es_wait += 1
 
-            curr_lr = optimizer.param_groups[0]['lr']
+            curr_lr = optimizer.param_groups[0]["lr"]
             if verbose and (ep % log_every == 0 or ep == 1):
                 print(
                     f"Epoch {ep:03d} | lr {curr_lr:.2e} | train {tr:.4f} | val {va:.4f} | best {best_val:.4f} | wait {es_wait}/{es_patience}"
@@ -262,62 +264,64 @@ class LSTM_MB(nn.Module):
 
             if es_wait >= es_patience:
                 if verbose:
-                    print(
-                        f"Early stopping at epoch {ep} (best val {best_val:.6f})."
-                    )
+                    print(f"Early stopping at epoch {ep} (best val {best_val:.6f}).")
                 break
 
         if best_state is not None:
             self.load_state_dict(best_state)
-        return (history, best_val,
-                best_state) if return_best_state else (history, best_val)
+        return (
+            (history, best_val, best_state)
+            if return_best_state
+            else (history, best_val)
+        )
 
     @staticmethod
     def custom_loss(outputs, batch) -> torch.Tensor:
         _, y_w_pred, y_a_pred = outputs
-        y_true = batch['y']
-        iw, ia = batch['iw'], batch['ia']
+        y_true = batch["y"]
+        iw, ia = batch["iw"], batch["ia"]
         loss, terms = 0.0, 0
         if iw.any():
-            loss, terms = loss + torch.mean(
-                (y_w_pred[iw] - y_true[iw])**2), terms + 1
+            loss, terms = loss + torch.mean((y_w_pred[iw] - y_true[iw]) ** 2), terms + 1
         if ia.any():
-            loss, terms = loss + torch.mean(
-                (y_a_pred[ia] - y_true[ia])**2), terms + 1
-        return torch.tensor(
-            0.0, device=y_true.device) if terms == 0 else loss / terms
+            loss, terms = loss + torch.mean((y_a_pred[ia] - y_true[ia]) ** 2), terms + 1
+        return torch.tensor(0.0, device=y_true.device) if terms == 0 else loss / terms
 
     @staticmethod
     def seasonal_mse_weighted(outputs, batch, w_winter=1.0, w_annual=3.33):
         _, y_w_pred, y_a_pred = outputs
-        y_true = batch['y']
-        iw, ia = batch['iw'], batch['ia']
+        y_true = batch["y"]
+        iw, ia = batch["iw"], batch["ia"]
         loss, terms = 0.0, 0
         if iw.any():
-            loss, terms = loss + w_winter * torch.mean(
-                (y_w_pred[iw] - y_true[iw])**2), terms + 1
+            loss, terms = (
+                loss + w_winter * torch.mean((y_w_pred[iw] - y_true[iw]) ** 2),
+                terms + 1,
+            )
         if ia.any():
-            loss, terms = loss + w_annual * torch.mean(
-                (y_a_pred[ia] - y_true[ia])**2), terms + 1
-        return torch.tensor(
-            0.0, device=y_true.device) if terms == 0 else loss / terms
+            loss, terms = (
+                loss + w_annual * torch.mean((y_a_pred[ia] - y_true[ia]) ** 2),
+                terms + 1,
+            )
+        return torch.tensor(0.0, device=y_true.device) if terms == 0 else loss / terms
 
     @staticmethod
     @torch.no_grad()
     def to_device(device, batch: dict) -> dict:
         return {
-            k: (v.to(device) if torch.is_tensor(v) else v)
-            for k, v in batch.items()
+            k: (v.to(device) if torch.is_tensor(v) else v) for k, v in batch.items()
         }
 
-    def run_epoch(self,
-                  device,
-                  optimizer,
-                  dl,
-                  *,
-                  loss_fn=None,
-                  clip_val: float = 1.0,
-                  train: bool = True) -> float:
+    def run_epoch(
+        self,
+        device,
+        optimizer,
+        dl,
+        *,
+        loss_fn=None,
+        clip_val: float = 1.0,
+        train: bool = True,
+    ) -> float:
         if loss_fn is None:
             loss_fn = self.custom_loss
         self.train(train)
@@ -325,15 +329,16 @@ class LSTM_MB(nn.Module):
         with torch.set_grad_enabled(train):
             for batch in dl:
                 batch = self.to_device(device, batch)
-                y_m, y_w, y_a = self(batch['x_m'], batch['x_s'], batch['mv'],
-                                     batch['mw'], batch['ma'])
+                y_m, y_w, y_a = self(
+                    batch["x_m"], batch["x_s"], batch["mv"], batch["mw"], batch["ma"]
+                )
                 loss = loss_fn((y_m, y_w, y_a), batch)
                 if train:
                     optimizer.zero_grad(set_to_none=True)
                     loss.backward()
                     nn.utils.clip_grad_norm_(self.parameters(), clip_val)
                     optimizer.step()
-                bs = batch['x_m'].shape[0]
+                bs = batch["x_m"].shape[0]
                 tot += loss.item() * bs
                 n += bs
         return tot / max(n, 1)
@@ -345,14 +350,15 @@ class LSTM_MB(nn.Module):
         all_keys = ds.keys
         i = 0
         for batch in dl:
-            bs = batch['x_m'].shape[0]
-            batch_keys = all_keys[i:i + bs]
+            bs = batch["x_m"].shape[0]
+            batch_keys = all_keys[i : i + bs]
             i += bs
             batch = self.to_device(device, batch)
-            _, y_w, y_a = self(batch['x_m'], batch['x_s'], batch['mv'],
-                               batch['mw'], batch['ma'])
+            _, y_w, y_a = self(
+                batch["x_m"], batch["x_s"], batch["mv"], batch["mw"], batch["ma"]
+            )
             # invert scaling
-            y_true = batch['y'] * ds.y_std.to(device) + ds.y_mean.to(device)
+            y_true = batch["y"] * ds.y_std.to(device) + ds.y_mean.to(device)
             y_w = y_w * ds.y_std.to(device) + ds.y_mean.to(device)
             y_a = y_a * ds.y_std.to(device) + ds.y_mean.to(device)
 
@@ -360,14 +366,16 @@ class LSTM_MB(nn.Module):
                 g, yr, mid, per = batch_keys[j]
                 target = float(y_true[j].cpu())
                 pred = float((y_w if per == "winter" else y_a)[j].cpu())
-                rows.append({
-                    "target": target,
-                    "ID": mid,
-                    "pred": pred,
-                    "PERIOD": per,
-                    "GLACIER": g,
-                    "YEAR": yr
-                })
+                rows.append(
+                    {
+                        "target": target,
+                        "ID": mid,
+                        "pred": pred,
+                        "PERIOD": per,
+                        "GLACIER": g,
+                        "YEAR": yr,
+                    }
+                )
 
         df = pd.DataFrame(rows)
 
@@ -377,8 +385,7 @@ class LSTM_MB(nn.Module):
 
         def rmse(period):
             p, t, n = _subset(period)
-            return float(np.sqrt(np.mean(
-                (p - t)**2))) if n > 0 else float("nan")
+            return float(np.sqrt(np.mean((p - t) ** 2))) if n > 0 else float("nan")
 
         def bias(period):
             p, t, n = _subset(period)
@@ -389,8 +396,8 @@ class LSTM_MB(nn.Module):
             p, t, n = _subset(period)
             if n == 0:
                 return float("nan")
-            ss_res = np.sum((t - p)**2)
-            ss_tot = np.sum((t - np.mean(t))**2)
+            ss_res = np.sum((t - p) ** 2)
+            ss_tot = np.sum((t - np.mean(t)) ** 2)
             # If variance is ~0, define R^2 as NaN (or 0.0). Using NaN is safer.
             return float(1.0 - ss_res / ss_tot) if ss_tot > 0 else float("nan")
 
@@ -415,24 +422,21 @@ class LSTM_MB(nn.Module):
         all_keys = ds.keys
         i = 0
         for batch in dl:
-            bs = batch['x_m'].shape[0]
-            keys = all_keys[i:i + bs]
+            bs = batch["x_m"].shape[0]
+            keys = all_keys[i : i + bs]
             i += bs
             batch = self.to_device(device, batch)
-            _, y_w, y_a = self(batch['x_m'], batch['x_s'], batch['mv'],
-                               batch['mw'], batch['ma'])
+            _, y_w, y_a = self(
+                batch["x_m"], batch["x_s"], batch["mv"], batch["mw"], batch["ma"]
+            )
             y_w = y_w * ds.y_std.to(device) + ds.y_mean.to(device)
             y_a = y_a * ds.y_std.to(device) + ds.y_mean.to(device)
             for j in range(bs):
                 g, yr, mid, per = keys[j]
-                pred = float((y_w if per == 'winter' else y_a)[j].cpu())
-                rows.append({
-                    "ID": mid,
-                    "pred": pred,
-                    "PERIOD": per,
-                    "GLACIER": g,
-                    "YEAR": yr
-                })
+                pred = float((y_w if per == "winter" else y_a)[j].cpu())
+                rows.append(
+                    {"ID": mid, "pred": pred, "PERIOD": per, "GLACIER": g, "YEAR": yr}
+                )
         return pd.DataFrame(rows)
 
     @staticmethod
@@ -493,7 +497,7 @@ class LSTM_MB(nn.Module):
         Returns a callable loss function based on params['loss_spec'].
         Fallback is cls.custom_loss.
         """
-        spec = cls._coerce_loss_spec(params.get('loss_spec'))
+        spec = cls._coerce_loss_spec(params.get("loss_spec"))
         if spec is None:
             return cls.custom_loss
         kind, kw = spec
@@ -508,24 +512,24 @@ class LSTM_MB(nn.Module):
         Also normalizes the static-MLP identity case.
         """
         # Normalize identity static block:
-        static_layers = int(params.get('static_layers', 0) or 0)
-        static_hidden = params.get('static_hidden', None)
-        static_dropout = params.get('static_dropout', None)
+        static_layers = int(params.get("static_layers", 0) or 0)
+        static_hidden = params.get("static_hidden", None)
+        static_dropout = params.get("static_dropout", None)
         if static_layers == 0:
             static_hidden = None
             static_dropout = None
 
         return cls(
             cfg=cfg,
-            Fm=int(params['Fm']),
-            Fs=int(params['Fs']),
-            hidden_size=int(params['hidden_size']),
-            num_layers=int(params['num_layers']),
-            bidirectional=bool(params['bidirectional']),
-            dropout=float(params.get('dropout', 0.0)),
+            Fm=int(params["Fm"]),
+            Fs=int(params["Fs"]),
+            hidden_size=int(params["hidden_size"]),
+            num_layers=int(params["num_layers"]),
+            bidirectional=bool(params["bidirectional"]),
+            dropout=float(params.get("dropout", 0.0)),
             static_hidden=static_hidden,
             static_layers=static_layers,
             static_dropout=static_dropout,
-            two_heads=bool(params.get('two_heads', True)),
-            head_dropout=float(params.get('head_dropout', 0.0)),
+            two_heads=bool(params.get("two_heads", True)),
+            head_dropout=float(params.get("head_dropout", 0.0)),
         ).to(device)

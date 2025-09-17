@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import random as rd
 import os
-import gc 
+import gc
 import shutil
 import pyproj
 from matplotlib.colors import to_hex
@@ -10,8 +10,7 @@ from matplotlib import pyplot as plt
 
 
 def seed_all(seed=None):
-    """Sets the random seed everywhere for reproducibility.
-    """
+    """Sets the random seed everywhere for reproducibility."""
     if seed is None:
         seed = 10  # Default seed value
 
@@ -32,8 +31,8 @@ def seed_all(seed=None):
 
     # Setting CUBLAS environment variable (helps in newer versions)
     os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
-    
-    
+
+
 def free_up_cuda():
     """Frees up unused CUDA memory in PyTorch."""
     gc.collect()  # Run garbage collection
@@ -59,6 +58,7 @@ def get_cmap_hex(cmap, length):
 
     return hex_codes
 
+
 def emptyfolder(path):
     """Removes all files and subdirectories in the given folder."""
     if os.path.exists(path):
@@ -74,6 +74,7 @@ def emptyfolder(path):
     else:
         os.makedirs(path, exist_ok=True)  # Ensure directory exists
 
+
 def lamberttoWGS84(df, lambert_type="III"):
     """Converts from x & y Lambert III (EPSG:27563) or Lambert II (EPSG:27562) to lat/lon WGS84 (EPSG:4326) coordinate system
     Args:
@@ -83,18 +84,18 @@ def lamberttoWGS84(df, lambert_type="III"):
     """
 
     if lambert_type == "II":
-        transformer = pyproj.Transformer.from_crs("EPSG:27562",
-                                              "EPSG:4326",
-                                              always_xy=True)
+        transformer = pyproj.Transformer.from_crs(
+            "EPSG:27562", "EPSG:4326", always_xy=True
+        )
     else:
-        transformer = pyproj.Transformer.from_crs("EPSG:27563",
-                                              "EPSG:4326",
-                                              always_xy=True)
+        transformer = pyproj.Transformer.from_crs(
+            "EPSG:27563", "EPSG:4326", always_xy=True
+        )
 
     # Transform to Latitude and Longitude (WGS84)
     lon, latitude = transformer.transform(df.x_lambert3, df.y_lambert3)
 
-    df['lat'] = latitude
-    df['lon'] = lon
-    df.drop(['x_lambert3', 'y_lambert3'], axis=1, inplace=True)
+    df["lat"] = latitude
+    df["lon"] = lon
+    df.drop(["x_lambert3", "y_lambert3"], axis=1, inplace=True)
     return df

@@ -65,10 +65,7 @@ class DataLoader:
         self.meta_data_columns = meta_data_columns or cfg.metaData
 
     def set_train_test_split(
-        self,
-        *,
-        test_size: float = None,
-        type_fold: str = "group-meas-id"
+        self, *, test_size: float = None, type_fold: str = "group-meas-id"
     ) -> Tuple[Iterator[Any], Iterator[Any]]:
         """
         Split the dataset into training and testing sets.
@@ -98,7 +95,9 @@ class DataLoader:
         gss = GroupShuffleSplit(
             n_splits=1, test_size=test_size, random_state=self.random_seed
         )
-        groups = {'group-meas-id': stake_meas_id, 'group-rgi': glacier_ids}.get(type_fold)
+        groups = {"group-meas-id": stake_meas_id, "group-rgi": glacier_ids}.get(
+            type_fold
+        )
         train_indices, test_indices = next(gss.split(X, y, groups))
 
         # Check that the intersection train and test ids is empty
@@ -184,28 +183,39 @@ class DataLoader:
         train_indices = self.train_indices
         return self.data.iloc[train_indices]
 
-    def correct_for_elevation(self,
-                                *,
-                                temp_grad: float = -6.5 / 1000,
-                                dpdz: float = 1.5 / 10000,
-                                gl_specific: bool = False,
-                                c_prec_dic: dict = {},
-                                t_off_dic: dict = {},
-                                c_prec: float = 1.434,
-                                t_off: float = 0.617) -> None:
-            """Corrects the temperature and precipitation data for elevation differences and correction factors.
-            This factors can be glacier specific, when given as a dictionary or as a constant value for all glaciers.
+    def correct_for_elevation(
+        self,
+        *,
+        temp_grad: float = -6.5 / 1000,
+        dpdz: float = 1.5 / 10000,
+        gl_specific: bool = False,
+        c_prec_dic: dict = {},
+        t_off_dic: dict = {},
+        c_prec: float = 1.434,
+        t_off: float = 0.617,
+    ) -> None:
+        """Corrects the temperature and precipitation data for elevation differences and correction factors.
+        This factors can be glacier specific, when given as a dictionary or as a constant value for all glaciers.
 
-            Args:
-                temp_grad (float, optional): temperature gradient. Defaults to -6.5/1000 [deg/1000m].
-                dpdz (float, optional): Precipitation increase in % per 100m. Defaults to 1.5/10000.
-                gl_specific (bool, optional): Boolean to indicate if glacier-specific correction factors are used. Defaults to False.
-                c_prec_dic (dict, optional): Dictionary with glacier-specific precipitation correction factors. Defaults to {}.
-                t_off_dic (dict, optional): Dictionary with glacier-specific temperature offset factors. Defaults to {}.
-                c_prec (float, optional): Constant precipitation correction factor. Defaults to 1.434.
-                t_off (float, optional): Constant temperature offset. Defaults to 0.617.
-            """
-            self.data = correct_T_P(self.data, temp_grad, dpdz, gl_specific, c_prec_dic, t_off_dic, c_prec, t_off)
+        Args:
+            temp_grad (float, optional): temperature gradient. Defaults to -6.5/1000 [deg/1000m].
+            dpdz (float, optional): Precipitation increase in % per 100m. Defaults to 1.5/10000.
+            gl_specific (bool, optional): Boolean to indicate if glacier-specific correction factors are used. Defaults to False.
+            c_prec_dic (dict, optional): Dictionary with glacier-specific precipitation correction factors. Defaults to {}.
+            t_off_dic (dict, optional): Dictionary with glacier-specific temperature offset factors. Defaults to {}.
+            c_prec (float, optional): Constant precipitation correction factor. Defaults to 1.434.
+            t_off (float, optional): Constant temperature offset. Defaults to 0.617.
+        """
+        self.data = correct_T_P(
+            self.data,
+            temp_grad,
+            dpdz,
+            gl_specific,
+            c_prec_dic,
+            t_off_dic,
+            c_prec,
+            t_off,
+        )
 
     @staticmethod
     def _prepare_data_for_cv(
