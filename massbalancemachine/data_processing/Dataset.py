@@ -381,6 +381,8 @@ class AggregatedDataset(torch.utils.data.Dataset):
         self.metadataColumns = metadataColumns or self.cfg.metaData
         self.targets = targets
 
+        assert len(self.features) > 0, "The features variable is empty."
+
         _, self.month_pos = _rebuild_month_index(months_head_pad, months_tail_pad)
 
         self.ID = np.array(

@@ -340,15 +340,101 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
             cum_pred[i][ind] = np.cumsum(y_pred[i][ind])
         return cum_pred
 
+    def evaluate_on_df(self, input_df, months_head_pad, months_tail_pad, targets=None):
+        """
+        Evaluate the model on an input dataframe and optionally compute the performance metrics.
+
+        Args:
+            input_df (pd.DataFrame): The dataframe that contains input features and metadata columns.
+            months_head_pad (list of str): Months to pad the end of the hydrological year.
+            months_tail_pad (list of str): Months to pad the start of the hydrological year.
+            targets (torch.Tensor): The target values (optional).
+
+        Returns:
+            y_pred (array like): The prediction associated to each row of the dataframe.
+            y_pred_agg (array like): The aggregated prediction as they are seen in the
+                loss function, that is aggregated over time periods per measurement ID.
+            y_true (np.ndarray): The ground truth value. It has the same size as y_pred.
+            ID (list of int): Point measurement ID of each of the aggregated predictions.
+            scores (dict): Performance metrics on the provided dataframe. Empty if targets
+                is not set.
+        """
+        hasTgt = targets is not None
+
+        # Create features and metadata
+        features_grid, metadata_grid = data_processing.utils.create_features_metadata(
+            self.cfg, input_df
+        )
+
+        # Ensure all tensors are on CPU if they are torch tensors
+        if hasattr(features_grid, "cpu"):
+            features_grid = features_grid.cpu()
+
+        # Ensure targets are also on CPU if provided
+        if hasattr(targets, "cpu"):
+            targets = targets.cpu()
+
+        # Create the dataset
+        dataset = data_processing.AggregatedDataset(
+            self.cfg,
+            features=features_grid,
+            metadata=metadata_grid,
+            months_head_pad=months_head_pad,
+            months_tail_pad=months_tail_pad,
+            targets=targets,
+        )
+        dataset = (
+            [
+                SliceDataset(dataset, idx=0),
+                SliceDataset(dataset, idx=1),
+            ]
+            if hasTgt
+            else [SliceDataset(dataset, idx=0)]
+        )
+
+        # Make predictions aggr to meas ID
+        y_pred = self.predict(dataset[0])
+        y_pred_agg = self.aggrPredict(dataset[0])
+
+        batchIndex = np.arange(len(y_pred_agg))
+        y_true_padded = (
+            np.array([e for e in dataset[1][batchIndex]]) if hasTgt else None
+        )
+        y_true = np.array([e[0] for e in dataset[1][batchIndex]]) if hasTgt else None
+
+        ID = dataset[0].dataset.indexToId(batchIndex)
+
+        # Compute scores
+        if hasTgt:
+            score = self.score(dataset[0], dataset[1])
+            mse, rmse, mae, pearson, r2, bias = self.evalMetrics(y_pred, y_true_padded)
+            scores = {
+                "score": score,
+                "mse": mse,
+                "rmse": rmse,
+                "mae": mae,
+                "pearson": pearson,
+                "r2": r2,
+                "bias": bias,
+            }
+        else:
+            scores = {}
+
+        return y_pred, y_pred_agg, y_true, ID, scores
+
     def glacier_wide_pred(
         self, df_grid_monthly, months_head_pad, months_tail_pad, type_pred="annual"
     ):
         """
         Generate predictions for an entire glacier grid
         and return them aggregated by measurement point ID.
+        This function does not compute any metric or consider
+        a ground truth. Hence, it also works for test sets.
 
         Args:
             df_grid_monthly (pd.DataFrame): The input features of whole glacier grid including metadata columns.
+            months_head_pad (list of str): Months to pad the end of the hydrological year.
+            months_tail_pad (list of str): Months to pad the start of the hydrological year.
             type_pred (str): The type of seasonal prediction to perform.
         Returns:
             pd.DataFrame: The aggregated predictions for each measurement point ID.
@@ -361,44 +447,11 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
                 df_grid_monthly.MONTHS.isin(winter_months)
             ]
 
-        # Create features and metadata
-        features_grid, metadata_grid = data_processing.utils.create_features_metadata(
-            self.cfg, df_grid_monthly
+        y_pred, y_pred_agg, _, id, _ = self.evaluate_on_df(
+            df_grid_monthly, months_head_pad, months_tail_pad
         )
-
-        # Ensure all tensors are on CPU if they are torch tensors
-        if hasattr(features_grid, "cpu"):
-            features_grid = features_grid.cpu()
-
-        # Ensure targets are also on CPU
-        targets_grid = np.empty(len(features_grid))  # No targets in grid data
-        if hasattr(targets_grid, "cpu"):
-            targets_grid = targets_grid.cpu()
-
-        # Create the dataset
-        dataset_grid = data_processing.AggregatedDataset(
-            self.cfg,
-            features=features_grid,
-            metadata=metadata_grid,
-            months_head_pad=months_head_pad,
-            months_tail_pad=months_tail_pad,
-            targets=targets_grid,
-        )
-
-        dataset_grid = [
-            SliceDataset(dataset_grid, idx=0),
-            SliceDataset(dataset_grid, idx=1),
-        ]
-
-        # Make predictions aggr to meas ID
-        y_pred = self.predict(dataset_grid[0])
-        y_pred_agg = self.aggrPredict(dataset_grid[0])
-
-        batchIndex = np.arange(len(y_pred_agg))
-        y_true = np.array([e for e in dataset_grid[1][batchIndex]])
 
         # Aggregate predictions
-        id = dataset_grid[0].dataset.indexToId(batchIndex)
         data = {"ID": id, "pred": y_pred_agg}
         data = pd.DataFrame(data)
         data.set_index("ID", inplace=True)
@@ -447,6 +500,28 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         df_months_nn["PERIOD"] = type_pred
 
         return grouped_ids, df_months_nn
+
+    def evaluate_group_pred(
+        self,
+        df_X,
+        y,
+        months_head_pad,
+        months_tail_pad,
+        group_by=["YEAR"],
+    ):
+
+        y_pred, y_pred_agg, y_true, ids, scores = self.evaluate_on_df(
+            df_X, months_head_pad, months_tail_pad, targets=y
+        )
+
+        # Create grouped prediction DataFrame
+        grouped_ids = pd.DataFrame({"target": y_true, "ID": ids, "pred": y_pred_agg})
+
+        # Add period, glacier name and year
+        periods_per_ids = df_X.groupby("ID")[group_by].first()
+        grouped_ids = grouped_ids.merge(periods_per_ids, on="ID")
+
+        return grouped_ids, scores, ids, y_pred
 
     def save_model(self, fname: str = None, model_dir: str = None) -> None:
         """save the model parameters to a file.
