@@ -93,12 +93,3 @@ build-backend = "poetry.core.masonry.api"
 [tool.black]
 line-length = 88
 target-version = ['py311']
-include = '''
-/(
-    scripts/geo/.*\.py$ |
-    scripts/nongeo/.*\.py$ |
-    massbalancemachine/dataloader/GeoDataLoader.py |
-    massbalancemachine/plots/.*\.py$ |
-    massbalancemachine/training/.*\.py$
-)
-'''
