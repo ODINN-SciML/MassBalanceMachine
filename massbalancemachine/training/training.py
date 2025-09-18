@@ -11,7 +11,7 @@ import pandas as pd
 import glob
 import warnings
 
-from plots import predVSTruth_all
+from plots import predVSTruth
 
 
 def in_jupyter_notebook():
@@ -204,7 +204,7 @@ def assessOnTest(log_dir, model, geodataloader_test):
     )
 
     # Make plots
-    plot_pred_vs_obs(log_dir, targetAll, predAll, mae, rmse)
+    plot_pred_vs_obs(log_dir, targetAll, predAll, {"rmse": rmse, "mae": mae})
 
     return {
         "mse": mse.item(),
@@ -228,9 +228,11 @@ def assessOnTest(log_dir, model, geodataloader_test):
     }
 
 
-def plot_pred_vs_obs(log_dir, target, pred, mae, rmse):
+def plot_pred_vs_obs(log_dir, target, pred, scores):
     grouped_ids = pd.DataFrame({"target": target.numpy(), "pred": pred.numpy()})
-    fig = predVSTruth_all(grouped_ids, mae, rmse, title="NN on test")
+    fig = predVSTruth(
+        grouped_ids, scores=scores, marker="o", title="NN on test", alpha=0.5
+    )
     plt.savefig(os.path.join(log_dir, "predVsObs.png"))
     plt.close(fig)
 
