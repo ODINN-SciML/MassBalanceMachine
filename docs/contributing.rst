@@ -30,7 +30,7 @@ However, in order to build a live representation of the documentation on your ow
 Formatting the code
 *******************
 
-Before committing your changes, make sure that they comply with the coding rules.
+Before committing your changes, make sure that they comply with the coding style.
 You can format the code by running `black <https://github.com/psf/black>`_.
 This code formatter can be automatically called upon commit by installing the `pre-commit hook <https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/.pre-commit-config.yaml>`_ defined at the root of the MBM repository.
 For this, install `pre-commit <https://pre-commit.com/>`_ in the `MassBalanceMachine` environment by running:
@@ -38,4 +38,9 @@ For this, install `pre-commit <https://pre-commit.com/>`_ in the `MassBalanceMac
 
     pip install pre-commit
 
-Then once you have staged your changes, when running the :code:`git commit` command, the hook will trigger and black will ask you to confirm the formatting that have been applied (if changes to the code format are needed).
+The hook can be installed by running:
+.. code-block:: bash
+
+    pre-commit install
+
+Then once you have staged your changes, when running the :code:`git commit` command, the hook will trigger and black will ask you to confirm the formatting that have been applied (if changes to the code format were necessary).
