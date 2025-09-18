@@ -392,57 +392,24 @@ def predVSTruth(
     hue="GLACIER",
     palette=None,
     color=color_annual,
-    add_legend=True,
     ax_xlim=(-8, 6),
     ax_ylim=(-8, 6),
 ):
-
-    sns.scatterplot(
+    """
+    Wrapper around mbm.plots.predVSTruth with custom parameters for Switzerland.
+    """
+    return mbm.plots.predVSTruth(
         grouped_ids,
-        x="target",
-        y="pred",
-        palette=palette,
-        hue=hue,
         ax=ax,
-        color=color,
-        style="PERIOD",
+        scores=scores,
+        hue=hue,
         markers={"annual": "o", "winter": "o"},
-    )  # optional custom marker map)
-
-    ax.set_ylabel("Modelled PMB [m w.e.]", fontsize=20)
-    ax.set_xlabel("Observed PMB [m w.e.]", fontsize=20)
-
-    if add_legend:
-        legend_xgb = "\n".join(
-            (
-                (r"$\mathrm{RMSE}=%.3f$," % (scores["rmse"],)),
-                (r"$\mathrm{\rho}=%.3f$" % (scores["pearson_corr"],)),
-            )
-        )
-        ax.text(
-            0.03,
-            0.98,
-            legend_xgb,
-            transform=ax.transAxes,
-            verticalalignment="top",
-            fontsize=20,
-            bbox=dict(boxstyle="round", facecolor="white", alpha=0.5),
-        )
-    if hue is not None:
-        ax.legend(fontsize=20, loc="lower right", ncol=2)
-    else:
-        ax.legend([], [], frameon=False)
-    # diagonal line
-    pt = (0, 0)
-    ax.axline(pt, slope=1, color="grey", linestyle="-", linewidth=0.2)
-    ax.axvline(0, color="grey", linestyle="--", linewidth=1)
-    ax.axhline(0, color="grey", linestyle="--", linewidth=1)
-    ax.grid()
-
-    # Set ylimits to be the same as xlimits
-    ax.set_xlim(ax_xlim)
-    ax.set_ylim(ax_ylim)
-    plt.tight_layout()
+        style="PERIOD",
+        xlabel="Observed PMB [m w.e.]",
+        ylabel="Modelled PMB [m w.e.]",
+        ax_xlim=ax_xlim,
+        ax_ylim=ax_ylim,
+    )
 
 
 def plotMeanPred(grouped_ids, ax, color_pred=color_annual, color_obs="orange"):
