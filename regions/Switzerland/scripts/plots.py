@@ -478,51 +478,14 @@ def PlotIndividualGlacierPredVsTruth(
     ax_xlim=(-8, 6),
     ax_ylim=(-8, 6),
 ):
+    """
+    Wrapper around mbm.plots.predVSTruthPerGlacier with custom parameters for Switzerland.
+    """
 
-    color_palette_period = [color_annual, color_winter]
-
-    if custom_order is None:
-        custom_order = grouped_ids["GLACIER"].unique()
-    for i, test_gl in enumerate(custom_order):
+    scores = {}
+    for i, test_gl in enumerate(grouped_ids["GLACIER"].unique()):
         df_gl = grouped_ids[grouped_ids.GLACIER == test_gl]
 
-        ax1 = axs.flatten()[i]
-
-        sns.scatterplot(
-            df_gl,
-            x="target",
-            y="pred",
-            palette=color_palette_period,
-            hue="PERIOD",
-            style="PERIOD",  # markers
-            markers={"annual": "o", "winter": "o"},
-            ax=ax1,
-            hue_order=["annual", "winter"],
-        )
-
-        ax1.set_ylabel("Modelled PMB [m w.e.]", fontsize=20)
-        ax1.set_xlabel("Observed PMB [m w.e.]", fontsize=20)
-
-        # diagonal line
-        pt = (0, 0)
-        ax1.axline(pt, slope=1, color="grey", linestyle="-", linewidth=0.2)
-        ax1.axvline(0, color="grey", linestyle="--", linewidth=1)
-        ax1.axhline(0, color="grey", linestyle="--", linewidth=1)
-        ax1.grid()
-
-        # Set ylimits to be the same as xlimits
-        if ax_xlim is None:
-            ymin = math.floor(min(df_gl.pred.min(), df_gl.target.min()))
-            ymax = math.ceil(max(df_gl.pred.max(), df_gl.target.max()))
-            ax1.set_xlim(ymin, ymax)
-            ax1.set_ylim(ymin, ymax)
-        else:
-            ax1.set_xlim(ax_xlim)
-            ax1.set_ylim(ax_ylim)
-
-        ax1.legend(fontsize=18, loc="lower right", ncol=2)
-
-        # Text:
         df_gl_annual = df_gl[df_gl["PERIOD"] == "annual"]
         if not df_gl_annual.empty:
             mse = mean_squared_error(df_gl_annual["target"], df_gl_annual["pred"])
@@ -536,11 +499,10 @@ def PlotIndividualGlacierPredVsTruth(
                     df_gl_annual["target"], df_gl_annual["pred"]
                 )[0, 1],
                 "R2": r2_score(df_gl_annual["target"], df_gl_annual["pred"]),
-                "Bias": np.mean(df_gl_annual["pred"] - df_gl_annual["target"]),
+                "bias": np.mean(df_gl_annual["pred"] - df_gl_annual["target"]),
             }
 
         df_gl_winter = df_gl[df_gl["PERIOD"] == "winter"]
-        # if array not empty
         if not df_gl_winter.empty:
             mse = mean_squared_error(df_gl_winter["target"], df_gl_winter["pred"])
             scores_winter = {
@@ -553,44 +515,33 @@ def PlotIndividualGlacierPredVsTruth(
                     df_gl_winter["target"], df_gl_winter["pred"]
                 )[0, 1],
                 "R2": r2_score(df_gl_winter["target"], df_gl_winter["pred"]),
-                "Bias": np.mean(df_gl_winter["pred"] - df_gl_winter["target"]),
+                "bias": np.mean(df_gl_winter["pred"] - df_gl_winter["target"]),
             }
-            legend = "\n".join(
-                (
-                    (
-                        r"$\mathrm{RMSE_a}=%.2f$, $\mathrm{RMSE_w}=%.2f$,"
-                        % (scores_annual["rmse"], scores_winter["rmse"])
-                    ),
-                    (
-                        r"$\mathrm{R^2_a}=%.2f$, $\mathrm{R^2_w}=%.2f$"
-                        % (scores_annual["R2"], scores_winter["R2"])
-                    ),
-                    r"$\mathrm{B_a}=%.2f$, $\mathrm{B_w}=%.2f$"
-                    % (scores_annual["Bias"], scores_winter["Bias"]),
-                )
-            )
-        else:
-            legend = "\n".join(
-                (
-                    (r"$\mathrm{RMSE_a}=%.2f$ " % (scores_annual["rmse"],)),
-                    (r"$\mathrm{R^2_a}=%.2f$ " % (scores_annual["R2"],)),
-                    r"$\mathrm{B_a}=%.2f$" % (scores_annual["Bias"],),
-                )
-            )
+            scores[test_gl] = {
+                "RMSE": {"a": scores_annual["rmse"], "w": scores_winter["rmse"]},
+                "R2": {"a": scores_annual["R2"], "w": scores_winter["R2"]},
+                "bias": {"a": scores_annual["bias"], "w": scores_winter["bias"]},
+            }
+        elif not df_gl_annual.empty:
+            scores[test_gl] = {
+                "RMSE": {"a": scores_annual["rmse"]},
+                "R2": {"a": scores_annual["R2"]},
+                "B": {"a": scores_annual["bias"]},
+            }
 
-        if add_text:
-            ax1.text(
-                0.03,
-                0.96,
-                legend,
-                transform=ax1.transAxes,
-                verticalalignment="top",
-                fontsize=18,
-                bbox=dict(boxstyle="round", facecolor="white", alpha=0.0),
-            )
-        ax1.set_title(f"{test_gl.capitalize()}", fontsize=28)
-
-    plt.tight_layout()
+    mbm.plots.predVSTruthPerGlacier(
+        grouped_ids,
+        axs=axs,
+        scores=scores,
+        custom_order=custom_order,
+        xlabel="Observed PMB [m w.e.]",
+        ylabel="Modelled PMB [m w.e.]",
+        markers={"annual": "o", "winter": "o"},
+        style="PERIOD",  # markers
+        hue="PERIOD",
+        palette=[color_annual, color_winter],
+        precLegend=2,
+    )
 
 
 def plotGlAttr(ds, cmap=cm.batlow):
