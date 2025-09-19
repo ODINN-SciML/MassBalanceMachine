@@ -1,8 +1,9 @@
 import os
 import pytest
 import numpy as np
-import torch
+import matplotlib.pyplot as plt
 import pandas as pd
+import torch
 from torch import nn
 from skorch.helper import SliceDataset
 import massbalancemachine as mbm
@@ -93,6 +94,77 @@ def test_iceland_train():
 
     custom_nn.set_params(lr=0.01, max_epochs=8)
     custom_nn.fit(dataset[0], dataset[1])
+
+    ## Test plot function
+
+    # Make predictions on test
+    features_test, metadata_test = mbm.data_processing.utils.create_features_metadata(
+        cfg, df_X_test
+    )
+
+    dataset_test = mbm.data_processing.AggregatedDataset(
+        cfg,
+        features=features_test,
+        metadata=metadata_test,
+        months_head_pad=months_head_pad,
+        months_tail_pad=months_tail_pad,
+        targets=y_test,
+    )
+    month_pos = dataset_test.month_pos
+    col_idx_rgiid = dataset_test.metadataColumns.index("RGIId")
+
+    dataset_test = [
+        SliceDataset(dataset_test, idx=0),  # Features
+        SliceDataset(dataset_test, idx=1),  # Target
+        SliceDataset(dataset_test, idx=2),  # Metadata
+    ]
+
+    # Make predictions aggr to meas ID
+    y_pred = custom_nn.predict(dataset_test[0])
+    y_pred_agg = custom_nn.aggrPredict(dataset_test[0])
+
+    batchIndex = np.arange(len(y_pred_agg))
+    y_true = np.array([e for e in dataset_test[1][batchIndex]])
+
+    # Calculate scores
+    score = custom_nn.score(dataset_test[0], dataset_test[1])
+    mse, rmse, mae, pearson, r2, bias = custom_nn.evalMetrics(y_pred, y_true)
+
+    # Aggregate predictions
+    ID = dataset_test[0].dataset.indexToId(batchIndex)
+    data = {
+        "target": [e[0] for e in dataset_test[1]],
+        "ID": ID,
+        "pred": y_pred_agg,
+        "RGIId": [e[col_idx_rgiid] for e in dataset_test[2]],
+    }
+    grouped_ids = pd.DataFrame(data)
+
+    scores = {"rmse": rmse, "mae": mae, "R2": r2}
+    fig = mbm.plots.predVSTruth(
+        grouped_ids,
+        scores=scores,
+        marker="o",
+        title="NN on test",
+        alpha=0.5,
+    )
+
+    scores = {}
+    for i, test_gl in enumerate(grouped_ids["RGIId"].unique()):
+        df_gl = grouped_ids[grouped_ids["RGIId"] == test_gl]
+        glacier_scores = mbm.metrics.scores(df_gl["target"], df_gl["pred"])
+        scores[test_gl] = {
+            "rmse": glacier_scores["rmse"],
+            "R2": glacier_scores["r2"],
+            "B": glacier_scores["bias"],
+        }
+
+    fig, axs = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
+    mbm.plots.predVSTruthPerGlacier(
+        grouped_ids,
+        axs=axs,
+        scores=scores,
+    )
 
 
 if __name__ == "__main__":

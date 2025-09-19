@@ -112,7 +112,7 @@ Consistency is the most important. Following the existing style, formatting, and
 
 For example, if all private properties are prefixed with an underscore `_`, then new ones you add should be prefixed in the same way. Or, if methods are named using camelcase, like `thisIsMyNewMethod`, then do not diverge from that by writing `this_is_my_new_method`. You get the idea. If in doubt, please ask or search the codebase for something similar.
 
-When possible, style and format will be enforced with a linter.
+The code must be formatted using [black](https://github.com/psf/black) and the CI will raise an error if the changes don't comply with the coding style.
 
 ## Credits
 

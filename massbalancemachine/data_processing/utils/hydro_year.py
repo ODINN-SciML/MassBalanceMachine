@@ -2,6 +2,9 @@ import numpy as np
 from calendar import month_abbr
 from typing import Union, Callable, Dict, List, Optional, Tuple
 
+months_hydro_year = [
+    month.lower() for month in month_abbr[10:] + month_abbr[1:10]
+]  # Standard hydro year (oct..sep)
 
 # ---------------- Flexible month mapping ----------------
 
@@ -48,23 +51,7 @@ def _make_month_abbr_hydr(
         ['aug_', 'sep_', 'oct','nov','dec','jan','feb','mar','apr','may','jun','jul','aug','sep','oct_']
     """
 
-    # Standard hydro year (oct..sep)
-    hydro = [
-        "oct",
-        "nov",
-        "dec",
-        "jan",
-        "feb",
-        "mar",
-        "apr",
-        "may",
-        "jun",
-        "jul",
-        "aug",
-        "sep",
-    ]
-
-    full = months_tail_pad + hydro + months_head_pad
+    full = months_tail_pad + months_hydro_year + months_head_pad
     return full
 
 
