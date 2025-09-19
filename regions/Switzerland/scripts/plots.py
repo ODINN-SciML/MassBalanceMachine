@@ -397,6 +397,8 @@ def predVSTruth(
         scores=scores,
         hue=hue,
         markers={"annual": "o", "winter": "o"},
+        palette=palette,
+        color=color,
         style="PERIOD",
         xlabel="Observed PMB [m w.e.]",
         ylabel="Modelled PMB [m w.e.]",
@@ -465,7 +467,6 @@ def PlotIndividualGlacierPredVsTruth(
     color_winter,
     axs,
     custom_order=None,
-    add_text=True,
     ax_xlim=(-8, 6),
     ax_ylim=(-8, 6),
 ):
