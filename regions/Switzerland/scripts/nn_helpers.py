@@ -1,11 +1,6 @@
 import matplotlib.pyplot as plt
 import os
 import seaborn as sns
-from sklearn.metrics import (
-    mean_squared_error,
-    mean_absolute_error,
-    root_mean_squared_error,
-)
 from skorch.helper import SliceDataset
 from datetime import datetime
 import massbalancemachine as mbm
@@ -82,12 +77,9 @@ def PlotPredictions_NN(grouped_ids):
     y_true_mean = grouped_ids_annual["target"]
     y_pred_agg = grouped_ids_annual["pred"]
 
-    scores_annual = {
-        "mse": mean_squared_error(y_true_mean, y_pred_agg),
-        "rmse": root_mean_squared_error(y_true_mean, y_pred_agg),
-        "mae": mean_absolute_error(y_true_mean, y_pred_agg),
-        "pearson_corr": np.corrcoef(y_true_mean, y_pred_agg)[0, 1],
-    }
+    scores_annual = mbm.metrics.scores(y_true_mean, y_pred_agg)
+    scores_annual.pop("bias")
+    scores_annual.pop("r2")
     predVSTruth(
         ax1,
         grouped_ids_annual,
@@ -107,12 +99,9 @@ def PlotPredictions_NN(grouped_ids):
     y_pred_agg = grouped_ids_winter["pred"]
 
     ax3 = plt.subplot(2, 2, 3)
-    scores_winter = {
-        "mse": mean_squared_error(y_true_mean, y_pred_agg),
-        "rmse": root_mean_squared_error(y_true_mean, y_pred_agg),
-        "mae": mean_absolute_error(y_true_mean, y_pred_agg),
-        "pearson_corr": np.corrcoef(y_true_mean, y_pred_agg)[0, 1],
-    }
+    scores_winter = mbm.metrics.scores(y_true_mean, y_pred_agg)
+    scores_winter.pop("bias")
+    scores_winter.pop("r2")
     predVSTruth(
         ax3,
         grouped_ids_winter,

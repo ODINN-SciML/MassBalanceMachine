@@ -6,11 +6,6 @@ import pandas as pd
 import torch
 from torch import nn
 from skorch.helper import SliceDataset
-from sklearn.metrics import (
-    r2_score,
-    mean_squared_error,
-    root_mean_squared_error,
-)
 import massbalancemachine as mbm
 
 
@@ -156,16 +151,12 @@ def test_iceland_train():
 
     scores = {}
     for i, test_gl in enumerate(grouped_ids["RGIId"].unique()):
-
         df_gl = grouped_ids[grouped_ids["RGIId"] == test_gl]
-        pred = df_gl["pred"]
-        tgt = df_gl["target"]
-
-        mse = mean_squared_error(tgt, pred)
+        glacier_scores = mbm.metrics.scores(df_gl["target"], df_gl["pred"])
         scores[test_gl] = {
-            "rmse": mse**0.5,
-            "R2": r2_score(tgt, pred),
-            "B": np.mean(pred - tgt),
+            "rmse": glacier_scores["rmse"],
+            "R2": glacier_scores["r2"],
+            "B": glacier_scores["bias"],
         }
 
     fig, axs = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
