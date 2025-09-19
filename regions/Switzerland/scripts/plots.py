@@ -4,14 +4,7 @@ import pandas as pd
 import seaborn as sns
 from matplotlib.patches import Rectangle
 from cmcrameri import cm
-from sklearn.metrics import (
-    r2_score,
-    mean_squared_error,
-    mean_absolute_error,
-    root_mean_squared_error,
-)
 from matplotlib import gridspec
-import math
 
 from regions.Switzerland.scripts.helpers import *
 from regions.Switzerland.scripts.config_CH import *
@@ -450,12 +443,10 @@ def plotMeanPred(grouped_ids, ax, color_pred=color_annual, color_obs="orange"):
     # rotate x-axis labels
     ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha="right")
 
-    mae, rmse, pearson_corr = (
-        mean_absolute_error(grouped_ids.groupby("YEAR")["pred"].mean().values, mean),
-        mean_squared_error(grouped_ids.groupby("YEAR")["pred"].mean().values, mean)
-        ** 0.5,
-        np.corrcoef(grouped_ids.groupby("YEAR")["pred"].mean().values, mean)[0, 1],
-    )
+    scores = mbm.metrics.scores(mean, grouped_ids.groupby("YEAR")["pred"].mean().values)
+    mae = scores["mae"]
+    rmse = scores["rmse"]
+    pearson_corr = scores["pearson_corr"]
     legend_xgb = "\n".join((r"$\mathrm{RMSE}=%.3f$ " % (rmse,),))
     ax.text(
         0.03,
@@ -488,44 +479,24 @@ def PlotIndividualGlacierPredVsTruth(
 
         df_gl_annual = df_gl[df_gl["PERIOD"] == "annual"]
         if not df_gl_annual.empty:
-            mse = mean_squared_error(df_gl_annual["target"], df_gl_annual["pred"])
-            scores_annual = {
-                "mse": mse,
-                "rmse": mse**0.5,
-                "mae": mean_absolute_error(
-                    df_gl_annual["target"], df_gl_annual["pred"]
-                ),
-                "pearson_corr": np.corrcoef(
-                    df_gl_annual["target"], df_gl_annual["pred"]
-                )[0, 1],
-                "R2": r2_score(df_gl_annual["target"], df_gl_annual["pred"]),
-                "bias": np.mean(df_gl_annual["pred"] - df_gl_annual["target"]),
-            }
+            scores_annual = mbm.metrics.scores(
+                df_gl_annual["target"], df_gl_annual["pred"]
+            )
 
         df_gl_winter = df_gl[df_gl["PERIOD"] == "winter"]
         if not df_gl_winter.empty:
-            mse = mean_squared_error(df_gl_winter["target"], df_gl_winter["pred"])
-            scores_winter = {
-                "mse": mse,
-                "rmse": mse**0.5,
-                "mae": mean_absolute_error(
-                    df_gl_winter["target"], df_gl_winter["pred"]
-                ),
-                "pearson_corr": np.corrcoef(
-                    df_gl_winter["target"], df_gl_winter["pred"]
-                )[0, 1],
-                "R2": r2_score(df_gl_winter["target"], df_gl_winter["pred"]),
-                "bias": np.mean(df_gl_winter["pred"] - df_gl_winter["target"]),
-            }
+            scores_winter = mbm.metrics.scores(
+                df_gl_winter["target"], df_gl_winter["pred"]
+            )
             scores[test_gl] = {
                 "RMSE": {"a": scores_annual["rmse"], "w": scores_winter["rmse"]},
-                "R2": {"a": scores_annual["R2"], "w": scores_winter["R2"]},
-                "bias": {"a": scores_annual["bias"], "w": scores_winter["bias"]},
+                "R2": {"a": scores_annual["r2"], "w": scores_winter["r2"]},
+                "B": {"a": scores_annual["bias"], "w": scores_winter["bias"]},
             }
         elif not df_gl_annual.empty:
             scores[test_gl] = {
                 "RMSE": {"a": scores_annual["rmse"]},
-                "R2": {"a": scores_annual["R2"]},
+                "R2": {"a": scores_annual["r2"]},
                 "B": {"a": scores_annual["bias"]},
             }
 
@@ -675,14 +646,10 @@ def compute_seasonal_scores(df, target_col="target", pred_col="pred"):
         df_season = df[df["PERIOD"] == season]
         y_true = df_season[target_col]
         y_pred = df_season[pred_col]
-        scores[season] = {
-            "mse": mean_squared_error(y_true, y_pred),
-            "rmse": root_mean_squared_error(y_true, y_pred),
-            "mae": mean_absolute_error(y_true, y_pred),
-            "pearson_corr": np.corrcoef(y_true, y_pred)[0, 1],
-            "R2": r2_score(y_true, y_pred),
-            "Bias": np.mean(y_pred - y_true),
-        }
+        seasonal_scores = mbm.metrics.scores(y_true, y_pred)
+        seasonal_scores["R2"] = seasonal_scores.pop("r2")
+        seasonal_scores["Bias"] = seasonal_scores.pop("bias")
+        scores[season] = seasonal_scores
     return scores["annual"], scores["winter"]
 
 
