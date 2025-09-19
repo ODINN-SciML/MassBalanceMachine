@@ -231,7 +231,6 @@ PlotIndividualGlacierPredVsTruth(
     color_annual=color_dark_blue,
     color_winter=color_pink,
     custom_order=train_gl_per_el,
-    add_text=True,
     ax_xlim=None,
 )
 fig.savefig(f"{pathFolder}/individual_glaciers_train_PMB.pdf")
