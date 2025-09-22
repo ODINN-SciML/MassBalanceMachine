@@ -557,3 +557,33 @@ def plot_history_lstm(history):
         ax2.legend(loc="upper center")
 
     plt.show()
+
+
+def compute_seasonal_scores(df, target_col="target", pred_col="pred"):
+    """
+    Computes regression scores separately for annual and winter data.
+
+    Parameters:
+    - df: DataFrame with at least 'PERIOD', target_col, and pred_col columns.
+    - target_col: name of the column with ground truth values.
+    - pred_col: name of the column with predicted values.
+
+    Returns:
+    - scores_annual: dict of metrics for annual data.
+    - scores_winter: dict of metrics for winter data.
+    """
+
+    scores = {}
+    for season in ["annual", "winter"]:
+        df_season = df[df["PERIOD"] == season]
+        y_true = df_season[target_col]
+        y_pred = df_season[pred_col]
+        scores[season] = {
+            "mse": mean_squared_error(y_true, y_pred),
+            "rmse": root_mean_squared_error(y_true, y_pred),
+            "mae": mean_absolute_error(y_true, y_pred),
+            "pearson_corr": np.corrcoef(y_true, y_pred)[0, 1],
+            "R2": r2_score(y_true, y_pred),
+            "Bias": np.mean(y_pred - y_true),
+        }
+    return scores["annual"], scores["winter"]
