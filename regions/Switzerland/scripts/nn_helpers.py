@@ -6,17 +6,23 @@ from sklearn.metrics import (
     mean_absolute_error,
     root_mean_squared_error,
 )
+from pathlib import Path
 from skorch.helper import SliceDataset
 from datetime import datetime
 import massbalancemachine as mbm
 from tqdm.notebook import tqdm
 import ast
+from typing import Optional, Dict, Any, Union
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+from pathlib import Path
+from typing import List, Optional, Union
 
 from regions.Switzerland.scripts.plots import *
 
 
-def plot_training_history(custom_nn, skip_first_n=0, save=True):
-    history = custom_nn.history
+def plot_training_history(history, skip_first_n=0, save=True):
 
     # Skip first N entries if specified
     if skip_first_n > 0:
@@ -332,3 +338,252 @@ def retrieve_best_params(path, sort_values="valid_loss"):
             params[key] = value
 
     return params
+
+
+def get_best_params_for_lstm(
+    log_path: Union[str, Path],
+    select_by: str = "valid_loss",  # or "avg_test_loss"
+    minimize: bool = True,
+) -> Dict[str, Any]:
+    """
+    Return best hyperparameters with original names (incl. 'two_heads').
+    - Parses types (bools, floats, ints, list-like strings).
+    - If 'two_heads' missing but 'simple' present, sets two_heads = not simple.
+      'simple' is NOT included in the output to keep original param names.
+    - 'static_hidden' becomes list[int] or None (treat "0", 0, "", "none", NaN as None).
+    - 'loss_spec' parsed to Python object or None. If loss_name == "weighted" and
+      loss_spec is missing/empty, defaults to ("weighted", {}).
+    """
+
+    def _as_bool(x):
+        if isinstance(x, bool):
+            return x
+        if isinstance(x, (int, float)):
+            return bool(int(x))
+        return str(x).strip().lower() in {"1", "true", "t", "yes", "y"}
+
+    def _as_opt_list(x):
+        # map "0", 0, "", "none", NaN -> None
+        if x is None or (isinstance(x, float) and pd.isna(x)):
+            return None
+        s = str(x).strip()
+        if s.lower() in {"", "none", "nan", "0"}:
+            return None
+        try:
+            val = ast.literal_eval(s)
+            if isinstance(val, (list, tuple)):
+                return [int(v) for v in val]
+            # single int string like "128"
+            if isinstance(val, int):
+                return [val]
+        except Exception:
+            pass
+        return None
+
+    def _as_opt_float(x):
+        if x is None or (isinstance(x, float) and pd.isna(x)):
+            return None
+        s = str(x).strip().lower()
+        if s in {"", "none", "nan"}:
+            return None
+        return float(x)
+
+    def _as_opt_literal(x):
+        if x is None or (isinstance(x, float) and pd.isna(x)):
+            return None
+        s = str(x).strip()
+        if s.lower() in {"", "none", "nan"}:
+            return None
+        try:
+            return ast.literal_eval(s)
+        except Exception:
+            return s
+
+    log_path = Path(log_path)
+    df = pd.read_csv(log_path)
+
+    if select_by == "avg_test_loss":
+        if {"test_rmse_a", "test_rmse_w"}.issubset(df.columns):
+            df["avg_test_loss"] = (df["test_rmse_a"] + df["test_rmse_w"]) / 2
+        else:
+            raise ValueError(
+                "Need columns 'test_rmse_a' and 'test_rmse_w' to compute avg_test_loss."
+            )
+
+    if select_by not in df.columns:
+        raise ValueError(
+            f"Column '{select_by}' not found. Available: {list(df.columns)}"
+        )
+
+    idx = df[select_by].idxmin() if minimize else df[select_by].idxmax()
+    r = df.loc[idx].to_dict()
+
+    # print loss metrics of the best run
+    print(f"Best run {idx} by '{select_by}' (value: {r[select_by]:.4f}):")
+    print(f"Best run: test_rmse_a (value: {r['test_rmse_a']:.4f}):")
+    print(f"Best run: test_rmse_w (value: {r['test_rmse_w']:.4f}):")
+    print(f"Best run: valid_loss (value: {r['valid_loss']:.4f}):")
+
+    best_params: Dict[str, Any] = {
+        "Fm": int(r["Fm"]),
+        "Fs": int(r["Fs"]),
+        "hidden_size": int(r["hidden_size"]),
+        "num_layers": int(r["num_layers"]),
+        "bidirectional": _as_bool(r["bidirectional"]),
+        "dropout": float(r["dropout"]),
+        "static_layers": int(r["static_layers"]),
+        "static_hidden": _as_opt_list(r.get("static_hidden")),
+        "static_dropout": _as_opt_float(r.get("static_dropout")),
+        "lr": float(r["lr"]),
+        "weight_decay": float(r["weight_decay"]),
+        "loss_name": str(r.get("loss_name", "neutral")),
+        # loss_spec handled below
+    }
+
+    loss_spec_val = _as_opt_literal(r.get("loss_spec"))
+    if best_params["loss_name"] == "weighted" and loss_spec_val is None:
+        loss_spec_val = ("weighted", {})
+    best_params["loss_spec"] = loss_spec_val
+
+    return best_params
+
+
+def plot_topk_param_distributions(
+    log: Union[str, Path, pd.DataFrame],
+    k: int = 10,
+    metric: str = "valid_loss",
+    minimize: bool = True,
+    num_params: Optional[List[str]] = None,
+    cat_params: Optional[List[str]] = None,
+):
+    """
+    Plot distributions of parameters for the top-k models in a grid-search log.
+
+    Args:
+        log: Either a path to the CSV log file or a DataFrame of search results.
+        k: Number of top rows to select.
+        metric: Column name to rank by.
+        minimize: If True, lower metric is better; if False, higher is better.
+        num_params: List of numeric parameter names to histogram.
+        cat_params: List of categorical/boolean parameter names to countplot.
+    """
+    # load CSV if a path is passed
+    if isinstance(log, (str, Path)):
+        df_log = pd.read_csv(log)
+    else:
+        df_log = log.copy()
+
+    if metric == "avg_test_loss":
+        if {"test_rmse_a", "test_rmse_w"}.issubset(df_log.columns):
+            df_log["avg_test_loss"] = (
+                df_log["test_rmse_a"] + df_log["test_rmse_w"]
+            ) / 2
+
+    if metric not in df_log.columns:
+        raise ValueError(
+            f"Metric '{metric}' not found in columns: {list(df_log.columns)}"
+        )
+
+    # rank models
+    df_sorted = df_log.sort_values(metric, ascending=minimize)
+    topk = df_sorted.head(k).copy()
+
+    print(f"[Top {k}] average {metric}: {topk[metric].mean():.4f}")
+
+    # defaults
+    if num_params is None:
+        num_params = [
+            "hidden_size",
+            "num_layers",
+            "dropout",
+            "static_layers",
+            "static_hidden",
+            "lr",
+            "weight_decay",
+        ]
+    # if cat_params is None:
+    #     cat_params = ["bidirectional", "loss_name"]
+
+    # numeric distributions
+    numeric_avail = [c for c in num_params if c in topk.columns]
+    if numeric_avail:
+        topk[numeric_avail].hist(figsize=(12, 10), bins=10)
+        plt.suptitle(f"Top {k}: Numerical Parameter Distributions")
+        plt.tight_layout(rect=[0, 0, 1, 0.96])
+        plt.show()
+
+    # # categorical/boolean distributions
+    # for col in cat_params:
+    #     if col in topk.columns:
+    #         plt.figure(figsize=(5, 4))
+    #         sns.countplot(x=col, data=topk)
+    #         plt.title(f"Top {k}: {col} distribution")
+    #         plt.show()
+
+
+def plot_history_lstm(history):
+    """
+    Plot training and validation loss curves (and learning rate if available).
+
+    Parameters
+    ----------
+    history : dict
+        Dictionary with keys 'train_loss', 'val_loss', and optionally 'lr'.
+    """
+    epochs = range(1, len(history["train_loss"]) + 1)
+
+    fig, ax1 = plt.subplots(figsize=(10, 6))
+
+    # Plot losses
+    ax1.plot(epochs, history["train_loss"], label="Train Loss", color="tab:blue")
+    ax1.plot(epochs, history["val_loss"], label="Validation Loss", color="tab:orange")
+    ax1.set_xlabel("Epoch")
+    ax1.set_ylabel("Loss")
+    ax1.set_title("Training and Validation Loss")
+    ax1.legend(loc="upper right")
+    ax1.grid(True, linestyle="--", alpha=0.6)
+
+    # If LR is present, plot on secondary axis
+    if "lr" in history:
+        ax2 = ax1.twinx()
+        ax2.plot(
+            epochs,
+            history["lr"],
+            label="Learning Rate",
+            color="tab:green",
+            linestyle="--",
+        )
+        ax2.set_ylabel("Learning Rate")
+        ax2.legend(loc="upper center")
+
+    plt.show()
+
+
+def compute_seasonal_scores(df, target_col="target", pred_col="pred"):
+    """
+    Computes regression scores separately for annual and winter data.
+
+    Parameters:
+    - df: DataFrame with at least 'PERIOD', target_col, and pred_col columns.
+    - target_col: name of the column with ground truth values.
+    - pred_col: name of the column with predicted values.
+
+    Returns:
+    - scores_annual: dict of metrics for annual data.
+    - scores_winter: dict of metrics for winter data.
+    """
+
+    scores = {}
+    for season in ["annual", "winter"]:
+        df_season = df[df["PERIOD"] == season]
+        y_true = df_season[target_col]
+        y_pred = df_season[pred_col]
+        scores[season] = {
+            "mse": mean_squared_error(y_true, y_pred),
+            "rmse": root_mean_squared_error(y_true, y_pred),
+            "mae": mean_absolute_error(y_true, y_pred),
+            "pearson_corr": np.corrcoef(y_true, y_pred)[0, 1],
+            "R2": r2_score(y_true, y_pred),
+            "Bias": np.mean(y_pred - y_true),
+        }
+    return scores["annual"], scores["winter"]
