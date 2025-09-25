@@ -117,6 +117,7 @@ def predVSTruthPerGlacier(
     grouped_ids,
     axs=None,
     scores={},
+    titles={},
     custom_order=None,
     xlabel="Observed PMB [m w.e.]",
     ylabel="Predicted PMB [m w.e.]",
@@ -138,6 +139,8 @@ def predVSTruthPerGlacier(
         DataFrame containing at least 'target' (observed), 'pred' (predicted), and a glacier identifier column ('GLACIER' or 'RGIId').
     axs : numpy.ndarray or list of matplotlib.axes.Axes, optional
         Array or list of Axes objects to draw the plots onto; should be at least as long as the number of glaciers.
+    titles: dict, optional
+        Dictionary mapping glacier names or RGI IDs to the title to use in each of the subplots (default: empty dict).
     scores : dict, optional
         Dictionary mapping glacier names or RGI IDs to their respective score dictionaries or floats for annotation (default: empty dict).
         For each glacier:
@@ -200,7 +203,9 @@ def predVSTruthPerGlacier(
         ax.axhline(0, color="grey", linestyle="-", linewidth=1)
 
         ax.grid()
-        ax.set_title(f"{test_gl.capitalize()}", fontsize=28)
+
+        glacier_title = titles.get(test_gl) if titles is not None else None
+        ax.set_title(glacier_title or test_gl.capitalize(), fontsize=28)
 
         # Set ylimits to be the same as xlimits
         if ax_xlim is None and ax_ylim is None:

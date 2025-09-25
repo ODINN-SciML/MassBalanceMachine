@@ -13,8 +13,8 @@ from regions.Switzerland.scripts.config_CH import *
 colors = get_cmap_hex(cm.batlow, 10)
 color_annual = colors[0]
 color_winter = "#c51b7d"
-color_obs = "#e08214"
-color_pred = color_annual
+# color_obs = "#e08214"
+# color_pred = color_annual
 
 
 def plotHeatmap(test_glaciers, data_glamos, glacierCap, period="annual"):
@@ -407,57 +407,60 @@ def predVSTruth(
     )
 
 
-def plotMeanPred(grouped_ids, ax, color_pred=color_annual, color_obs="orange"):
-    mean = grouped_ids.groupby("YEAR")["target"].mean().values
-    std = grouped_ids.groupby("YEAR")["target"].std().values
-    years = grouped_ids.YEAR.unique()
+def plotMeanPred(
+    grouped_ids,
+    ax,
+    color_pred=color_annual,
+    color_obs="orange",
+    linestyle_pred="--",
+    linestyle_obs="-",
+):
+    # Aggregate once
+    g = grouped_ids.groupby("YEAR")
+    years = np.sort(g.size().index.values)
+
+    obs_mean = g["target"].mean().reindex(years).values
+    obs_std = g["target"].std().reindex(years).values
+
+    pred_mean = g["pred"].mean().reindex(years).values
+    pred_std = g["pred"].std().reindex(years).values
+
+    # Observations
     ax.fill_between(
-        years,
-        mean - std,
-        mean + std,
-        color=color_obs,
-        alpha=0.3,
+        years, obs_mean - obs_std, obs_mean + obs_std, color=color_obs, alpha=0.3
     )
-    ax.plot(years, mean, color=color_obs, label="observed")
-    ax.scatter(years, mean, color=color_obs, marker="x")
     ax.plot(
         years,
-        grouped_ids.groupby("YEAR")["pred"].mean().values,
+        obs_mean,
+        color=color_obs,
+        label="observed",
+        linestyle=linestyle_obs,
+    )
+
+    # Predictions
+    ax.plot(
+        years,
+        pred_mean,
         color=color_pred,
         label="predicted",
-        linestyle="--",
-    )
-    ax.scatter(
-        years,
-        grouped_ids.groupby("YEAR")["pred"].mean().values,
-        color=color_pred,
-        marker="x",
+        linestyle=linestyle_pred,
+        marker="v",
     )
     ax.fill_between(
-        years,
-        grouped_ids.groupby("YEAR")["pred"].mean().values
-        - grouped_ids.groupby("YEAR")["pred"].std().values,
-        grouped_ids.groupby("YEAR")["pred"].mean().values
-        + grouped_ids.groupby("YEAR")["pred"].std().values,
-        color=color_pred,
-        alpha=0.3,
+        years, pred_mean - pred_std, pred_mean + pred_std, color=color_pred, alpha=0.3
     )
-    # rotate x-axis labels
-    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha="right")
 
-    scores = mbm.metrics.scores(mean, grouped_ids.groupby("YEAR")["pred"].mean().values)
+    # Rotate x labels (safer than set_xticklabels)
+    ax.tick_params(axis="x", rotation=45)
+
+    # Metrics
+    scores = mbm.metrics.scores(obs_mean, pred_mean)
     mae = scores["mae"]
     rmse = scores["rmse"]
     pearson_corr = scores["pearson_corr"]
-    legend_xgb = "\n".join((r"$\mathrm{RMSE}=%.3f$ " % (rmse,),))
-    ax.text(
-        0.03,
-        0.96,
-        legend_xgb,
-        transform=ax.transAxes,
-        verticalalignment="top",
-        fontsize=20,
-    )
+    legend_text = "\n".join((rf"$\mathrm{{RMSE}}={rmse:.3f}$",))
+    ax.text(0.03, 0.96, legend_text, transform=ax.transAxes, va="top", fontsize=20)
+
     ax.legend(fontsize=20, loc="lower right")
 
 
@@ -475,7 +478,11 @@ def PlotIndividualGlacierPredVsTruth(
     """
 
     scores = {}
+    titles = {}
     for i, test_gl in enumerate(grouped_ids["GLACIER"].unique()):
+        gl_elv = np.round(
+            grouped_ids[grouped_ids.GLACIER == test_gl]["gl_elv"].values[0], 0
+        )
         df_gl = grouped_ids[grouped_ids.GLACIER == test_gl]
 
         df_gl_annual = df_gl[df_gl["PERIOD"] == "annual"]
@@ -500,11 +507,13 @@ def PlotIndividualGlacierPredVsTruth(
                 "R2": {"a": scores_annual["r2"]},
                 "B": {"a": scores_annual["bias"]},
             }
+        titles[test_gl] = f"{test_gl.capitalize()} [{gl_elv} m]"
 
     mbm.plots.predVSTruthPerGlacier(
         grouped_ids,
         axs=axs,
         scores=scores,
+        titles=titles,
         custom_order=custom_order,
         xlabel="Observed PMB [m w.e.]",
         ylabel="Modelled PMB [m w.e.]",
@@ -538,8 +547,6 @@ def plot_predictions_summary(
     grouped_ids,
     scores_annual,
     scores_winter,
-    predVSTruth,
-    plotMeanPred,
     ax_xlim=(-8, 6),
     ax_ylim=(-8, 6),
 ):
@@ -601,12 +608,19 @@ def plot_predictions_summary(
     )
 
     # Top-right: Mean annual PMB
+    color_pred = "#762a83"
+    color_obs = "black"
     ax2.set_title("Mean yearly annual point mass balance", fontsize=24)
     grouped_ids_xgb_annual = grouped_ids[grouped_ids.PERIOD == "annual"].sort_values(
         by="YEAR"
     )
     plotMeanPred(
-        grouped_ids_xgb_annual, ax2, color_pred=color_pred, color_obs=color_obs
+        grouped_ids_xgb_annual,
+        ax2,
+        color_pred=color_pred,
+        color_obs=color_obs,
+        linestyle_pred="-",
+        linestyle_obs="--",
     )
     ax2.set_ylabel("PMB [m w.e.]", fontsize=20)
 
@@ -616,7 +630,12 @@ def plot_predictions_summary(
         by="YEAR"
     )
     plotMeanPred(
-        grouped_ids_xgb_winter, ax3, color_pred=color_pred, color_obs=color_obs
+        grouped_ids_xgb_winter,
+        ax3,
+        color_pred=color_pred,
+        color_obs=color_obs,
+        linestyle_pred="-",
+        linestyle_obs="--",
     )
     ax3.set_ylabel("PMB [m w.e.]", fontsize=20)
 
@@ -626,32 +645,6 @@ def plot_predictions_summary(
 
     plt.tight_layout()
     return fig  # return figure in case further customization or saving is needed
-
-
-def compute_seasonal_scores(df, target_col="target", pred_col="pred"):
-    """
-    Computes regression scores separately for annual and winter data.
-
-    Parameters:
-    - df: DataFrame with at least 'PERIOD', target_col, and pred_col columns.
-    - target_col: name of the column with ground truth values.
-    - pred_col: name of the column with predicted values.
-
-    Returns:
-    - scores_annual: dict of metrics for annual data.
-    - scores_winter: dict of metrics for winter data.
-    """
-
-    scores = {}
-    for season in ["annual", "winter"]:
-        df_season = df[df["PERIOD"] == season]
-        y_true = df_season[target_col]
-        y_pred = df_season[pred_col]
-        seasonal_scores = mbm.metrics.scores(y_true, y_pred)
-        seasonal_scores["R2"] = seasonal_scores.pop("r2")
-        seasonal_scores["Bias"] = seasonal_scores.pop("bias")
-        scores[season] = seasonal_scores
-    return scores["annual"], scores["winter"]
 
 
 def plot_scatter_geodetic_MB(df_all, hue, size, ax, y_col, rmse, corr):

@@ -120,7 +120,6 @@ class LSTM_MB(nn.Module):
         torch.backends.cudnn.benchmark = False
 
         torch.use_deterministic_algorithms(True, warn_only=True)
-
         # Setting CUBLAS environment variable (helps in newer versions)
         os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:2"
 
@@ -499,10 +498,17 @@ class LSTM_MB(nn.Module):
         """
         spec = cls._coerce_loss_spec(params.get("loss_spec"))
         if spec is None:
+            print("[Model Init] Using loss function: default loss")
             return cls.custom_loss
+
         kind, kw = spec
         if kind == "weighted":
+            print(
+                f"[Model Init] Using loss function: seasonal_mse_weighted with params {kw}"
+            )
             return partial(cls.seasonal_mse_weighted, **kw)
+
+        print("[Model Init] Using loss function: default loss (fallback)")
         return cls.custom_loss
 
     @classmethod
@@ -519,17 +525,23 @@ class LSTM_MB(nn.Module):
             static_hidden = None
             static_dropout = None
 
-        return cls(
-            cfg=cfg,
-            Fm=int(params["Fm"]),
-            Fs=int(params["Fs"]),
-            hidden_size=int(params["hidden_size"]),
-            num_layers=int(params["num_layers"]),
-            bidirectional=bool(params["bidirectional"]),
-            dropout=float(params.get("dropout", 0.0)),
-            static_hidden=static_hidden,
-            static_layers=static_layers,
-            static_dropout=static_dropout,
-            two_heads=bool(params.get("two_heads", True)),
-            head_dropout=float(params.get("head_dropout", 0.0)),
-        ).to(device)
+        # Collect normalized init params for printing
+        init_params = {
+            "Fm": int(params["Fm"]),
+            "Fs": int(params["Fs"]),
+            "hidden_size": int(params["hidden_size"]),
+            "num_layers": int(params["num_layers"]),
+            "bidirectional": bool(params["bidirectional"]),
+            "dropout": float(params.get("dropout", 0.0)),
+            "static_layers": static_layers,
+            "static_hidden": static_hidden,
+            "static_dropout": static_dropout,
+            "two_heads": bool(params.get("two_heads", False)),
+            "head_dropout": float(params.get("head_dropout", 0.0)),
+        }
+
+        print("\n[Model Init] Building model with parameters:")
+        for k, v in init_params.items():
+            print(f"  {k}: {v}")
+
+        return cls(cfg=cfg, **init_params).to(device)

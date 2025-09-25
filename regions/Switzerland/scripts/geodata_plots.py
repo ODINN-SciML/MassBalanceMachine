@@ -1,6 +1,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
+from sklearn.metrics import (
+    r2_score,
+    mean_squared_error,
+    root_mean_squared_error,
+    mean_absolute_error,
+)
 import seaborn as sns
 import matplotlib.colors as mcolors
 import massbalancemachine as mbm
@@ -73,13 +78,9 @@ def scatter_geodetic_MB(df_all, hue="GLACIER", size=False):
     df_all = df_all.dropna(subset=["Geodetic MB", "MBM MB", "GLAMOS MB"])
 
     # Compute RMSE and Pearson correlation
-    rmse_mbm = mean_squared_error(
-        df_all["Geodetic MB"], df_all["MBM MB"], squared=False
-    )
+    rmse_mbm = root_mean_squared_error(df_all["Geodetic MB"], df_all["MBM MB"])
     corr_mbm = np.corrcoef(df_all["Geodetic MB"], df_all["MBM MB"])[0, 1]
-    rmse_glamos = mean_squared_error(
-        df_all["Geodetic MB"], df_all["GLAMOS MB"], squared=False
-    )
+    rmse_glamos = root_mean_squared_error(df_all["Geodetic MB"], df_all["GLAMOS MB"])
     corr_glamos = np.corrcoef(df_all["Geodetic MB"], df_all["GLAMOS MB"])[0, 1]
 
     # Define figure and axes
@@ -290,8 +291,8 @@ def plot_mass_balance(
 
     # add rmse if available
     if not stakes_data_ann.empty:
-        rmse = mean_squared_error(
-            stakes_data_ann.POINT_BALANCE, stakes_data_ann.GLAMOS_MB, squared=False
+        rmse = root_mean_squared_error(
+            stakes_data_ann.POINT_BALANCE, stakes_data_ann.GLAMOS_MB
         )
         axes[0, 0].text(
             0.05,
@@ -326,8 +327,8 @@ def plot_mass_balance(
     )
 
     # add rmse
-    rmse = mean_squared_error(
-        stakes_data_ann.POINT_BALANCE, stakes_data_ann.Predicted_MB, squared=False
+    rmse = root_mean_squared_error(
+        stakes_data_ann.POINT_BALANCE, stakes_data_ann.Predicted_MB
     )
     axes[0, 1].text(
         0.05,
@@ -360,8 +361,8 @@ def plot_mass_balance(
     )
 
     # add rmse
-    rmse = mean_squared_error(
-        stakes_data_win.POINT_BALANCE, stakes_data_win.GLAMOS_MB, squared=False
+    rmse = root_mean_squared_error(
+        stakes_data_win.POINT_BALANCE, stakes_data_win.GLAMOS_MB
     )
     axes[1, 0].text(
         0.05,
@@ -394,8 +395,8 @@ def plot_mass_balance(
     )
 
     # add rmse
-    rmse = mean_squared_error(
-        stakes_data_win.POINT_BALANCE, stakes_data_win.Predicted_MB, squared=False
+    rmse = root_mean_squared_error(
+        stakes_data_win.POINT_BALANCE, stakes_data_win.Predicted_MB
     )
     axes[1, 1].text(
         0.05,
@@ -888,9 +889,8 @@ def plot_mass_balance_comparison_annual(
     cfg,
     df_stakes,
     path_distributed_mb,
-    path_pred_xgb,
+    path_pred_lstm,
     path_pred_nn,
-    get_glamos_func,
     get_pred_func,
     get_glamos_pred_func,
     load_grid_func,
@@ -919,7 +919,7 @@ def plot_mass_balance_comparison_annual(
 
     # Load model predictions (XGB & NN)
     mbm_file_xgb = os.path.join(
-        path_pred_xgb, glacier_name, f"{glacier_name}_{year}_annual.zarr"
+        path_pred_lstm, glacier_name, f"{glacier_name}_{year}_annual.zarr"
     )
     ds_mbm_xgb = apply_filter_func(xr.open_dataset(mbm_file_xgb))
 
@@ -990,8 +990,8 @@ def plot_mass_balance_comparison_annual(
             s=25,
             legend=False,
         )
-        rmse_glamos = mean_squared_error(
-            stakes_data_ann.POINT_BALANCE, stakes_data_ann.GLAMOS_MB, squared=False
+        rmse_glamos = root_mean_squared_error(
+            stakes_data_ann.POINT_BALANCE, stakes_data_ann.GLAMOS_MB
         )
         text_glamos = f"RMSE: {rmse_glamos:.2f},\nmean MB: {ds_glamos_wgs84_ann.mean().item():.2f},\nvar: {var_glamos:.2f}"
     else:
@@ -1016,7 +1016,7 @@ def plot_mass_balance_comparison_annual(
         norm=norm_ann,
         cbar_kwargs={"label": "Mass Balance [m w.e.]"},
     )
-    axes[1].set_title("MBM XGBoost (Annual)")
+    axes[1].set_title("MBM LSTM (Annual)")
     var_xgb = ds_mbm_xgb.pred_masked.var().item()
 
     if not stakes_data_ann.empty:
@@ -1031,10 +1031,9 @@ def plot_mass_balance_comparison_annual(
             s=25,
             legend=False,
         )
-        rmse_xgb = mean_squared_error(
+        rmse_xgb = root_mean_squared_error(
             stakes_data_ann.POINT_BALANCE,
             stakes_data_ann.Predicted_MB_XGB,
-            squared=False,
         )
 
         text_xgb = (
@@ -1080,10 +1079,9 @@ def plot_mass_balance_comparison_annual(
             s=25,
             legend=False,
         )
-        rmse_nn = mean_squared_error(
+        rmse_nn = root_mean_squared_error(
             stakes_data_ann.POINT_BALANCE,
             stakes_data_ann.Predicted_MB_NN,
-            squared=False,
         )
         text_nn = (
             f"RMSE: {rmse_nn:.2f},\n"
@@ -1416,8 +1414,8 @@ def plot_mass_balance_comparison_annual_glamos_nn(
             s=25,
             legend=False,
         )
-        rmse_glamos = mean_squared_error(
-            stakes_data_ann.POINT_BALANCE, stakes_data_ann.GLAMOS_MB, squared=False
+        rmse_glamos = root_mean_squared_error(
+            stakes_data_ann.POINT_BALANCE, stakes_data_ann.GLAMOS_MB
         )
         text_glamos = f"RMSE: {rmse_glamos:.2f},\nmean MB: {ds_glamos_wgs84_ann.mean().item():.2f},\nvar: {var_glamos:.2f}"
     else:
@@ -1456,10 +1454,9 @@ def plot_mass_balance_comparison_annual_glamos_nn(
             s=25,
             legend=False,
         )
-        rmse_nn = mean_squared_error(
+        rmse_nn = root_mean_squared_error(
             stakes_data_ann.POINT_BALANCE,
             stakes_data_ann.Predicted_MB_NN,
-            squared=False,
         )
         text_nn = (
             f"RMSE: {rmse_nn:.2f},\n"
