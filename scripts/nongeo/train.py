@@ -299,7 +299,7 @@ custom_nn.fit(dataset.X, dataset.y)
 # Save the model
 custom_nn.save_model(model_dir=logdir)
 
-plot_training_history(custom_nn, skip_first_n=5, save=False)
+plot_training_history(custom_nn.history, skip_first_n=5, save=False)
 plt.savefig(os.path.join(logdir, "training_history.pdf"))
 plt.close()
 
