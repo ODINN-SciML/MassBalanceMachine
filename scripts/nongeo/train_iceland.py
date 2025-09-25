@@ -34,11 +34,8 @@ from scripts.nongeo.utils import (
 from regions.Switzerland.scripts.nn_helpers import plot_training_history
 
 
-
-
 # data = pd.read_csv('./notebooks/example_data/iceland/files/iceland_monthly_dataset.csv')
 # print('Number of winter and annual samples:', len(data))
-
 
 
 parser = argparse.ArgumentParser()
@@ -81,13 +78,7 @@ print(params)
 # train_glaciers, test_glaciers = trainTestGlaciers(params)
 
 
-
-
-
-
-
-
-test_glaciers = []#'RGI60-06.00228', 'RGI60-06.00232']
+test_glaciers = []  #'RGI60-06.00228', 'RGI60-06.00232']
 
 train_set, test_set, months_head_pad, months_tail_pad = getTrainTestSetsIceland(
     test_glaciers,
@@ -103,8 +94,6 @@ df_X_train, y_train, df_X_val, y_val = trainValData(cfg, train_set, feature_colu
 
 
 # assert False
-
-
 
 
 # # Create a new DataLoader object with the monthly stake data measurements.
@@ -130,9 +119,6 @@ df_X_train, y_train, df_X_val, y_val = trainValData(cfg, train_set, feature_colu
 # # Print size of train and test
 # print(f"Size of training set: {len(train_indices)}")
 # print(f"Size of test set: {len(test_indices)}")
-
-
-
 
 
 # feature_columns = df_X_train.columns.difference(cfg.metaData)
@@ -168,9 +154,6 @@ model = mbm.models.buildModel(cfg, params=params)
 #     **params_init)
 
 
-
-
-
 logdir = getLogDir(suffix)
 
 
@@ -204,7 +187,13 @@ custom_nn = mbm.models.CustomNeuralNetRegressor(cfg, **args, **param_init)
 
 # features, metadata = mbm.data_processing.utils.create_features_metadata(cfg, df_X_train)
 dataset, dataset_val = getDatasets(
-    cfg, df_X_train, y_train, df_X_val, y_val, test_set["df_X"], custom_nn,
+    cfg,
+    df_X_train,
+    y_train,
+    df_X_val,
+    y_val,
+    test_set["df_X"],
+    custom_nn,
     months_head_pad,
     months_tail_pad,
 )
@@ -221,7 +210,7 @@ custom_nn.fit(dataset.X, dataset.y)
 # Save the model
 custom_nn.save_model(model_dir=logdir)
 
-plot_training_history(custom_nn, skip_first_n=5, save=False)
+plot_training_history(custom_nn.history, skip_first_n=5, save=False)
 plt.savefig(os.path.join(logdir, "training_history.pdf"))
 plt.close()
 
@@ -229,8 +218,6 @@ repo = git.Repo(search_parent_directories=True)
 params["commit_hash"] = repo.head.object.hexsha
 with open(os.path.join(logdir, "params.json"), "w") as f:
     json.dump(params, f, indent=4, sort_keys=True)
-
-
 
 
 # # Define the dataset for the NN
@@ -248,13 +235,4 @@ with open(os.path.join(logdir, "params.json"), "w") as f:
 # print(dataset[0].shape, dataset[1].shape)
 
 
-
-
-
-
-
-
-
 # TODO: try to remove POINT_ELEVATION in the features
-
-
