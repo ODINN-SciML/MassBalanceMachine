@@ -341,7 +341,7 @@ def convert_to_xarray(grid_data, metadata, num_months):
     return data_array
 
 
-def transform_xarray_coords_lv03_to_wgs84(data_array):
+def transform_xarray_coords_lv03_to_wgs84_time(data_array):
     # Extract time, y, and x dimensions
     time_dim = data_array.coords["time"]
 
@@ -1212,7 +1212,7 @@ def process_pcsr(cfg):
         data_array = convert_to_xarray(monthly_grids, metadata, num_months)
 
         # Convert to WGS84 (lat/lon) coordinates
-        data_array_transf = transform_xarray_coords_lv03_to_wgs84(data_array)
+        data_array_transf = transform_xarray_coords_lv03_to_wgs84_time(data_array)
 
         # Save xarray
         if glacierName == "findelen":

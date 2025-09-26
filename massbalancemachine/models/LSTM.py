@@ -512,7 +512,7 @@ class LSTM_MB(nn.Module):
         return cls.custom_loss
 
     @classmethod
-    def build_model_from_params(cls, cfg, params, device):
+    def build_model_from_params(cls, cfg, params, device, verbose=True):
         """
         Construct LSTM_MB from a flat params dict.
         Also normalizes the static-MLP identity case.
@@ -540,8 +540,8 @@ class LSTM_MB(nn.Module):
             "head_dropout": float(params.get("head_dropout", 0.0)),
         }
 
-        print("\n[Model Init] Building model with parameters:")
-        for k, v in init_params.items():
-            print(f"  {k}: {v}")
-
+        if verbose:
+            print("\n[Model Init] Building model with parameters:")
+            for k, v in init_params.items():
+                print(f"  {k}: {v}")
         return cls(cfg=cfg, **init_params).to(device)

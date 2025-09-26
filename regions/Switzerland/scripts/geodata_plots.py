@@ -1,11 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import (
-    r2_score,
     mean_squared_error,
     root_mean_squared_error,
-    mean_absolute_error,
 )
+
 import seaborn as sns
 import matplotlib.colors as mcolors
 import massbalancemachine as mbm
@@ -14,8 +13,7 @@ from cmcrameri import cm
 from scipy.stats import pearsonr
 
 from regions.Switzerland.scripts.geodata import *
-
-from scripts.helpers import *
+from regions.Switzerland.scripts.helpers import *
 
 
 def plot_geodetic_MB(df, glacier_name, color_xgb="blue", color_tim="red"):
@@ -895,6 +893,7 @@ def plot_mass_balance_comparison_annual(
     path_pred_lstm,
     path_pred_nn,
     bias_correction: float = 0.0,
+    period="annual",
 ):
     """Plot annual MB comparison (GLAMOS, LSTM/XGB, NN) for a glacier and year.
 
@@ -912,8 +911,23 @@ def plot_mass_balance_comparison_annual(
     ]
     stakes_data_ann = stakes_data[stakes_data.PERIOD == "annual"].copy()
 
-    # GLAMOS file path
-    file_ann = f"{year}_ann_fix_lv95.grid"
+    def pick_ann_file(cfg, glacier_name, year, period="annual"):
+        if period == "annual":
+            suffix = "ann"
+        elif period == "winter":
+            suffix = "win"
+        base = os.path.join(
+            cfg.dataPath, path_distributed_MB_glamos, "GLAMOS", glacier_name
+        )
+        cand_lv95 = os.path.join(base, f"{year}_{suffix}_fix_lv95.grid")
+        cand_lv03 = os.path.join(base, f"{year}_{suffix}_fix_lv03.grid")
+        if os.path.exists(cand_lv95):
+            return cand_lv95, "lv95"
+        if os.path.exists(cand_lv03):
+            return cand_lv03, "lv03"
+        return None, None
+
+    file_ann, coord_system = pick_ann_file(cfg, glacier_name, year, period)
     grid_path_ann = os.path.join(
         cfg.dataPath, path_distributed_mb, "GLAMOS", glacier_name, file_ann
     )
@@ -921,16 +935,20 @@ def plot_mass_balance_comparison_annual(
     # Load GLAMOS data and convert to WGS84
     metadata_ann, grid_data_ann = load_grid_file(grid_path_ann)
     ds_glamos_ann = convert_to_xarray_geodata(grid_data_ann, metadata_ann)
-    ds_glamos_wgs84_ann = transform_xarray_coords_lv95_to_wgs84(ds_glamos_ann)
+
+    if coord_system == "lv03":
+        ds_glamos_wgs84_ann = transform_xarray_coords_lv03_to_wgs84(ds_glamos_ann)
+    elif coord_system == "lv95":
+        ds_glamos_wgs84_ann = transform_xarray_coords_lv95_to_wgs84(ds_glamos_ann)
 
     # Load model predictions (LSTM/XGB & NN)
     mbm_file_xgb = os.path.join(
-        path_pred_lstm, glacier_name, f"{glacier_name}_{year}_annual.zarr"
+        path_pred_lstm, glacier_name, f"{glacier_name}_{year}_{period}.zarr"
     )
     ds_mbm_xgb = apply_gaussian_filter(xr.open_dataset(mbm_file_xgb))
 
     mbm_file_nn = os.path.join(
-        path_pred_nn, glacier_name, f"{glacier_name}_{year}_annual.zarr"
+        path_pred_nn, glacier_name, f"{glacier_name}_{year}_{period}.zarr"
     )
     ds_mbm_nn = apply_gaussian_filter(xr.open_dataset(mbm_file_nn))
 
@@ -1373,7 +1391,11 @@ def plot_mass_balance_comparison_annual_glamos_nn(
     )
     metadata_ann, grid_data_ann = load_grid_file(grid_path_ann)
     ds_glamos_ann = convert_to_xarray_geodata(grid_data_ann, metadata_ann)
-    ds_glamos_wgs84_ann = transform_xarray_coords_lv95_to_wgs84(ds_glamos_ann)
+
+    if glacier_name == "adler" or glacier_name == "findelen":
+        ds_glamos_wgs84_ann = transform_xarray_coords_lv03_to_wgs84(ds_glamos_ann)
+    else:
+        ds_glamos_wgs84_ann = transform_xarray_coords_lv95_to_wgs84(ds_glamos_ann)
 
     # Load NN predictions
     mbm_file_nn = os.path.join(
@@ -1500,123 +1522,291 @@ def plot_mass_balance_comparison_annual_glamos_nn(
     plt.show()
 
 
-def plot_mb_by_elevation(df_all_years, df_stakes, glacier_name, ax):
+# def plot_mb_by_elevation(df_all_years, df_stakes, glacier_name, ax):
+#     """
+#     Plot min–max shaded ranges and mean curves of LSTM vs GLAMOS
+#     mass balance by elevation, plus mean observed stakes per bin.
+
+#     Parameters
+#     ----------
+#     df_all_years : pd.DataFrame
+#         Combined dataframe of predictions (must include columns:
+#         ['SOURCE', 'altitude_interval', 'YEAR', 'PERIOD', 'pred'])
+#     df_stakes : pd.DataFrame
+#         Stakes dataframe (must include columns:
+#         ['GLACIER', 'PERIOD', 'POINT_ELEVATION', 'POINT_BALANCE'])
+#     glacier_name : str
+#         Name of glacier to filter stake observations.
+#     ax : matplotlib.axes.Axes, optional
+#         Axes to plot into. If None, a new one is created.
+
+#     Returns
+#     -------
+#     ax : matplotlib.axes.Axes
+#         The axes with the plot.
+#     """
+
+#     yearly_by_elevation = (df_all_years.groupby(
+#         ["SOURCE", "altitude_interval", "YEAR",
+#          "PERIOD"])["pred"].mean().reset_index())
+
+#     # Annual only
+#     yearly_Ba_by_elevation = yearly_by_elevation[yearly_by_elevation["PERIOD"]
+#                                                  == "annual"]
+
+#     agg_by_source = (yearly_Ba_by_elevation.groupby(
+#         ["SOURCE",
+#          "altitude_interval"])["pred"].agg(mean_Ba="mean",
+#                                            min_Ba="min",
+#                                            max_Ba="max").reset_index())
+
+#     # Split by source
+#     agg_lstm = agg_by_source[agg_by_source["SOURCE"].str.upper() == "LSTM"]
+#     agg_glamos = agg_by_source[agg_by_source["SOURCE"].str.upper() == "GLAMOS"]
+
+#     alpha = 1
+#     lw = 0.8
+
+#     # LSTM band + mean
+#     if not agg_lstm.empty:
+#         ax.fill_betweenx(
+#             agg_lstm["altitude_interval"],
+#             agg_lstm["min_Ba"],
+#             agg_lstm["max_Ba"],
+#             alpha=0.3,
+#             label="LSTM Min–Max",
+#         )
+#         ax.plot(agg_lstm["mean_Ba"],
+#                 agg_lstm["altitude_interval"],
+#                 label="LSTM Mean",
+#                 linewidth=lw,
+#                 alpha=alpha)
+
+#     # GLAMOS band + mean
+#     if not agg_glamos.empty:
+#         ax.fill_betweenx(
+#             agg_glamos["altitude_interval"],
+#             agg_glamos["min_Ba"],
+#             agg_glamos["max_Ba"],
+#             alpha=0.3,
+#             label="GLAMOS Min–Max",
+#         )
+#         ax.plot(
+#             agg_glamos["mean_Ba"],
+#             agg_glamos["altitude_interval"],
+#             linestyle="--",
+#             linewidth=lw,
+#             alpha=alpha,
+#             label="GLAMOS Mean",
+#         )
+
+#     # --- Observed stake means per elevation bin ---
+#     stakes_obs = df_stakes[(df_stakes["GLACIER"] == glacier_name)
+#                            & (df_stakes["PERIOD"] == "annual")].copy()
+
+#     def bin_center_100m(z):
+#         left = np.floor(z / 100.0) * 100.0
+#         return left + 50.0
+
+#     stakes_obs["altitude_interval"] = bin_center_100m(
+#         stakes_obs["POINT_ELEVATION"])
+
+#     # Keep only bins present in predictions
+#     valid_bins = set(agg_by_source["altitude_interval"].unique())
+#     stakes_obs = stakes_obs[stakes_obs["altitude_interval"].isin(valid_bins)]
+
+#     agg_obs_by_elev = (stakes_obs.groupby(
+#         "altitude_interval", as_index=False)["POINT_BALANCE"].mean().rename(
+#             columns={
+#                 "POINT_BALANCE": "mean_obs_Ba"
+#             }).sort_values("altitude_interval"))
+
+#     ax.scatter(
+#         agg_obs_by_elev["mean_obs_Ba"],
+#         agg_obs_by_elev["altitude_interval"],
+#         marker='o',
+#         color='k',
+#         s=10,
+#         label="Observed Ba Mean",
+#     )
+#     return ax
+
+
+def plot_mb_by_elevation_periods(df_all_a, df_all_w, df_stakes, glacier_name, ax=None):
     """
-    Plot min–max shaded ranges and mean curves of LSTM vs GLAMOS
-    mass balance by elevation, plus mean observed stakes per bin.
+    Plot LSTM (band + mean) for annual & winter (different colors),
+    and GLAMOS mean only (no band) for annual & winter.
+    Also plots stake means per elevation bin for both periods.
 
     Parameters
     ----------
-    df_all_years : pd.DataFrame
-        Combined dataframe of predictions (must include columns:
-        ['SOURCE', 'altitude_interval', 'YEAR', 'PERIOD', 'pred'])
+    df_all_a : pd.DataFrame
+        Predictions for ANNUAL period. Must include:
+        ['SOURCE','altitude_interval','YEAR','PERIOD','pred'].
+    df_all_w : pd.DataFrame
+        Predictions for WINTER period. Same columns as above.
     df_stakes : pd.DataFrame
-        Stakes dataframe (must include columns:
-        ['GLACIER', 'PERIOD', 'POINT_ELEVATION', 'POINT_BALANCE'])
+        Stakes with columns:
+        ['GLACIER','PERIOD','POINT_ELEVATION','POINT_BALANCE'].
     glacier_name : str
-        Name of glacier to filter stake observations.
-    ax : matplotlib.axes.Axes, optional
-        Axes to plot into. If None, a new one is created.
+        Glacier filter for stakes.
+    ax : matplotlib.axes.Axes or None
+        Where to draw. If None, creates a new figure/axes.
 
     Returns
     -------
     ax : matplotlib.axes.Axes
-        The axes with the plot.
     """
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(5, 6))
 
-    # --- Step 5: group by source, altitude bin, and year ---
-    yearly_by_elevation = (
-        df_all_years.groupby(["SOURCE", "altitude_interval", "YEAR", "PERIOD"])["pred"]
-        .mean()
-        .reset_index()
-    )
+    # Colors/linestyles per period
+    style = {
+        "annual": {"color": "#1f77b4", "ls": "-", "label": "Annual"},
+        "winter": {"color": "#ff7f0e", "ls": "-", "label": "Winter"},
+    }
 
-    # Annual only
-    yearly_Ba_by_elevation = yearly_by_elevation[
-        yearly_by_elevation["PERIOD"] == "annual"
-    ]
+    def _aggregate(df):
+        """Per-period aggregator: first mean per (SOURCE, bin, YEAR), then min/mean/max over years."""
+        if df is None or df.empty:
+            return pd.DataFrame(), pd.DataFrame()
+        # average predictions per year per elevation bin
+        per_year = (
+            df.groupby(["SOURCE", "altitude_interval", "YEAR"])["pred"]
+            .mean()
+            .reset_index()
+        )
+        # then aggregate across years
+        agg = (
+            per_year.groupby(["SOURCE", "altitude_interval"])["pred"]
+            .agg(mean_Ba="mean", min_Ba="min", max_Ba="max")
+            .reset_index()
+        )
+        agg_lstm = agg[agg["SOURCE"].str.upper() == "LSTM"]
+        agg_glam = agg[agg["SOURCE"].str.upper() == "GLAMOS"]
+        return agg_lstm, agg_glam
 
-    # --- Step 6: aggregate per source across years (per altitude bin) ---
-    agg_by_source = (
-        yearly_Ba_by_elevation.groupby(["SOURCE", "altitude_interval"])["pred"]
-        .agg(mean_Ba="mean", min_Ba="min", max_Ba="max")
-        .reset_index()
-    )
+    # Aggregate per period
+    agg_lstm_a, agg_glam_a = _aggregate(df_all_a)
+    agg_lstm_w, agg_glam_w = _aggregate(df_all_w)
 
-    # Split by source
-    agg_lstm = agg_by_source[agg_by_source["SOURCE"].str.upper() == "LSTM"]
-    agg_glamos = agg_by_source[agg_by_source["SOURCE"].str.upper() == "GLAMOS"]
+    alpha_line = 1.0
+    lw = 1.0
+    band_alpha = 0.25
 
-    # LSTM band + mean
-    if not agg_lstm.empty:
+    # ---- LSTM bands + means ----
+    if not agg_lstm_a.empty:
         ax.fill_betweenx(
-            agg_lstm["altitude_interval"],
-            agg_lstm["min_Ba"],
-            agg_lstm["max_Ba"],
-            alpha=0.25,
-            label="LSTM Min–Max",
+            agg_lstm_a["altitude_interval"],
+            agg_lstm_a["min_Ba"],
+            agg_lstm_a["max_Ba"],
+            color=style["annual"]["color"],
+            alpha=band_alpha,
+            label="LSTM band (annual)",
         )
         ax.plot(
-            agg_lstm["mean_Ba"],
-            agg_lstm["altitude_interval"],
-            label="LSTM Mean",
-            linewidth=2,
+            agg_lstm_a["mean_Ba"],
+            agg_lstm_a["altitude_interval"],
+            color=style["annual"]["color"],
+            linestyle=style["annual"]["ls"],
+            linewidth=lw,
+            alpha=alpha_line,
+            label="LSTM mean (annual)",
         )
 
-    # GLAMOS band + mean
-    if not agg_glamos.empty:
+    if not agg_lstm_w.empty:
         ax.fill_betweenx(
-            agg_glamos["altitude_interval"],
-            agg_glamos["min_Ba"],
-            agg_glamos["max_Ba"],
-            alpha=0.25,
-            label="GLAMOS Min–Max",
+            agg_lstm_w["altitude_interval"],
+            agg_lstm_w["min_Ba"],
+            agg_lstm_w["max_Ba"],
+            color=style["winter"]["color"],
+            alpha=band_alpha,
+            label="LSTM band (winter)",
         )
         ax.plot(
-            agg_glamos["mean_Ba"],
-            agg_glamos["altitude_interval"],
-            linestyle="--",
-            linewidth=2,
-            label="GLAMOS Mean",
+            agg_lstm_w["mean_Ba"],
+            agg_lstm_w["altitude_interval"],
+            color=style["winter"]["color"],
+            linestyle=style["winter"]["ls"],
+            linewidth=lw,
+            alpha=alpha_line,
+            label="LSTM mean (winter)",
         )
 
-    # --- Observed stake means per elevation bin ---
-    stakes_obs = df_stakes[
-        (df_stakes["GLACIER"] == glacier_name) & (df_stakes["PERIOD"] == "annual")
-    ].copy()
+    # ---- GLAMOS mean only (no bands) ----
+    if not agg_glam_a.empty:
+        ax.plot(
+            agg_glam_a["mean_Ba"],
+            agg_glam_a["altitude_interval"],
+            color=style["annual"]["color"],
+            linestyle=":",
+            linewidth=lw + 0.3,
+            alpha=alpha_line,
+            label="GLAMOS mean (annual)",
+        )
 
+    if not agg_glam_w.empty:
+        ax.plot(
+            agg_glam_w["mean_Ba"],
+            agg_glam_w["altitude_interval"],
+            color=style["winter"]["color"],
+            linestyle=":",
+            linewidth=lw + 0.3,
+            alpha=alpha_line,
+            label="GLAMOS mean (winter)",
+        )
+
+    # ---- Observed stake means per elevation bin (both periods) ----
     def bin_center_100m(z):
         left = np.floor(z / 100.0) * 100.0
         return left + 50.0
 
-    stakes_obs["altitude_interval"] = bin_center_100m(stakes_obs["POINT_ELEVATION"])
+    stakes = df_stakes[df_stakes["GLACIER"] == glacier_name].copy()
+    if not stakes.empty:
+        stakes["altitude_interval"] = bin_center_100m(stakes["POINT_ELEVATION"])
 
-    # Keep only bins present in predictions
-    valid_bins = set(agg_by_source["altitude_interval"].unique())
-    stakes_obs = stakes_obs[stakes_obs["altitude_interval"].isin(valid_bins)]
+        # Make sure we only plot bins that exist in model outputs
+        valid_bins = set(
+            pd.concat(
+                [
+                    agg_lstm_a["altitude_interval"],
+                    agg_lstm_w["altitude_interval"],
+                    agg_glam_a["altitude_interval"],
+                    agg_glam_w["altitude_interval"],
+                ],
+                ignore_index=True,
+            )
+            .dropna()
+            .unique()
+        )
 
-    agg_obs_by_elev = (
-        stakes_obs.groupby("altitude_interval", as_index=False)["POINT_BALANCE"]
-        .mean()
-        .rename(columns={"POINT_BALANCE": "mean_obs_Ba"})
-        .sort_values("altitude_interval")
-    )
+        for period_key, tag in (("annual", "annual"), ("winter", "winter")):
+            ssub = stakes[stakes["PERIOD"].str.lower() == tag]
+            if ssub.empty:
+                continue
+            ssub = ssub[ssub["altitude_interval"].isin(valid_bins)]
+            if ssub.empty:
+                continue
+            sagg = (
+                ssub.groupby("altitude_interval", as_index=False)["POINT_BALANCE"]
+                .mean()
+                .rename(columns={"POINT_BALANCE": "mean_obs_Ba"})
+                .sort_values("altitude_interval")
+            )
+            ax.scatter(
+                sagg["mean_obs_Ba"],
+                sagg["altitude_interval"],
+                s=14,
+                marker="o" if tag == "annual" else "s",
+                facecolors="none",
+                edgecolors=style[period_key]["color"],
+                linewidths=0.9,
+                label=f"Stakes mean ({tag})",
+            )
 
-    ax.plot(
-        agg_obs_by_elev["mean_obs_Ba"],
-        agg_obs_by_elev["altitude_interval"],
-        linestyle="None",
-        marker="o",
-        markersize=5,
-        color="black",
-        label="Observed Ba Mean",
-    )
-
-    # Cosmetics
+    # ---- cosmetics ----
+    ax.set_ylabel("Elevation bin (m a.s.l.)")
     ax.set_xlabel("Mass balance (m w.e.)")
-    ax.set_ylabel("Elevation bin center (m)")
-    ax.legend(loc="best")
-    ax.grid(True, alpha=0.25)
-    plt.tight_layout()
-
+    ax.grid(True, linestyle=":", alpha=0.4)
+    ax.legend(loc="best", fontsize=8)
     return ax
