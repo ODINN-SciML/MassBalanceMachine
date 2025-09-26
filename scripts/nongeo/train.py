@@ -13,7 +13,6 @@ import json
 import git
 import argparse
 import numpy as np
-from datetime import datetime
 from skorch.callbacks import EarlyStopping, LRScheduler, Callback
 from skorch.helper import SliceDataset
 from torch.optim.lr_scheduler import ReduceLROnPlateau
@@ -200,11 +199,7 @@ class TensorBoardMetricLogger(Callback):
         self.writer.close()
 
 
-# Generate filename with current date
-run_name = datetime.now().strftime("%Y%m%d_%H%M%S")
-suffixStr = f"_{suffix}" if suffix is not None else ""
-logdir = f"logs/nongeo_{run_name}{suffixStr}"
-print(f"Logging in {logdir}")
+logdir = getLogDir(suffix)
 
 
 def annual_winter_func(model, dataset):
@@ -304,7 +299,7 @@ custom_nn.fit(dataset.X, dataset.y)
 # Save the model
 custom_nn.save_model(model_dir=logdir)
 
-plot_training_history(custom_nn, skip_first_n=5, save=False)
+plot_training_history(custom_nn.history, skip_first_n=5, save=False)
 plt.savefig(os.path.join(logdir, "training_history.pdf"))
 plt.close()
 

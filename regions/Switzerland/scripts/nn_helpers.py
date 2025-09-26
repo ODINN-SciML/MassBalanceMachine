@@ -1,12 +1,6 @@
 import matplotlib.pyplot as plt
 import os
 import seaborn as sns
-from sklearn.metrics import (
-    mean_squared_error,
-    mean_absolute_error,
-    root_mean_squared_error,
-)
-from pathlib import Path
 from skorch.helper import SliceDataset
 from datetime import datetime
 import massbalancemachine as mbm
@@ -88,12 +82,9 @@ def PlotPredictions_NN(grouped_ids):
     y_true_mean = grouped_ids_annual["target"]
     y_pred_agg = grouped_ids_annual["pred"]
 
-    scores_annual = {
-        "mse": mean_squared_error(y_true_mean, y_pred_agg),
-        "rmse": root_mean_squared_error(y_true_mean, y_pred_agg),
-        "mae": mean_absolute_error(y_true_mean, y_pred_agg),
-        "pearson_corr": np.corrcoef(y_true_mean, y_pred_agg)[0, 1],
-    }
+    scores_annual = mbm.metrics.scores(y_true_mean, y_pred_agg)
+    scores_annual.pop("bias")
+    scores_annual.pop("r2")
     predVSTruth(
         ax1,
         grouped_ids_annual,
@@ -113,12 +104,9 @@ def PlotPredictions_NN(grouped_ids):
     y_pred_agg = grouped_ids_winter["pred"]
 
     ax3 = plt.subplot(2, 2, 3)
-    scores_winter = {
-        "mse": mean_squared_error(y_true_mean, y_pred_agg),
-        "rmse": root_mean_squared_error(y_true_mean, y_pred_agg),
-        "mae": mean_absolute_error(y_true_mean, y_pred_agg),
-        "pearson_corr": np.corrcoef(y_true_mean, y_pred_agg)[0, 1],
-    }
+    scores_winter = mbm.metrics.scores(y_true_mean, y_pred_agg)
+    scores_winter.pop("bias")
+    scores_winter.pop("r2")
     predVSTruth(
         ax3,
         grouped_ids_winter,
@@ -144,68 +132,13 @@ def evaluate_model_and_group_predictions(
     months_head_pad,
     months_tail_pad,
 ):
-    # Create features and metadata
-    features, metadata = mbm.data_processing.utils.create_features_metadata(
-        cfg, df_X_subset
+    return custom_NN_model.evaluate_group_pred(
+        df_X_subset,
+        y,
+        months_head_pad,
+        months_tail_pad,
+        group_by_col=["PERIOD", "GLACIER", "YEAR"],
     )
-
-    # Ensure features and targets are on CPU
-    if hasattr(features, "cpu"):
-        features = features.cpu()
-    if hasattr(y, "cpu"):
-        y = y.cpu()
-
-    # Define the dataset for the NN
-    dataset = mbm.data_processing.AggregatedDataset(
-        cfg,
-        features=features,
-        metadata=metadata,
-        months_head_pad=months_head_pad,
-        months_tail_pad=months_tail_pad,
-        targets=y,
-    )
-    dataset = [SliceDataset(dataset, idx=0), SliceDataset(dataset, idx=1)]
-
-    # Make predictions
-    y_pred = custom_NN_model.predict(dataset[0])
-    y_pred_agg = custom_NN_model.aggrPredict(dataset[0])
-
-    # Get true values
-    batchIndex = np.arange(len(y_pred_agg))
-    y_true = np.array([e for e in dataset[1][batchIndex]])
-
-    # Compute scores
-    score = custom_NN_model.score(dataset[0], dataset[1])
-    mse, rmse, mae, pearson, r2, bias = custom_NN_model.evalMetrics(y_pred, y_true)
-    scores = {
-        "score": score,
-        "mse": mse,
-        "rmse": rmse,
-        "mae": mae,
-        "pearson": pearson,
-        "r2": r2,
-        "bias": bias,
-    }
-
-    # Create grouped prediction DataFrame
-    ids = dataset[0].dataset.indexToId(batchIndex)
-    grouped_ids = pd.DataFrame(
-        {"target": [e[0] for e in dataset[1]], "ID": ids, "pred": y_pred_agg}
-    )
-
-    # Add period
-    periods_per_ids = df_X_subset.groupby("ID")["PERIOD"].first()
-    grouped_ids = grouped_ids.merge(periods_per_ids, on="ID")
-
-    # Add glacier name
-    glacier_per_ids = df_X_subset.groupby("ID")["GLACIER"].first()
-    grouped_ids = grouped_ids.merge(glacier_per_ids, on="ID")
-
-    # Add YEAR
-    years_per_ids = df_X_subset.groupby("ID")["YEAR"].first()
-    grouped_ids = grouped_ids.merge(years_per_ids, on="ID")
-
-    return grouped_ids, scores, ids, y_pred
 
 
 def process_glacier_grids(
@@ -578,12 +511,9 @@ def compute_seasonal_scores(df, target_col="target", pred_col="pred"):
         df_season = df[df["PERIOD"] == season]
         y_true = df_season[target_col]
         y_pred = df_season[pred_col]
-        scores[season] = {
-            "mse": mean_squared_error(y_true, y_pred),
-            "rmse": root_mean_squared_error(y_true, y_pred),
-            "mae": mean_absolute_error(y_true, y_pred),
-            "pearson_corr": np.corrcoef(y_true, y_pred)[0, 1],
-            "R2": r2_score(y_true, y_pred),
-            "Bias": np.mean(y_pred - y_true),
-        }
+        scores_season = mbm.metrics.scores(y_true, y_pred)
+        # Rename to match with where this function is used
+        scores_season["R2"] = scores_season.pop("r2")
+        scores_season["Bias"] = scores_season.pop("bias")
+        scores[season] = scores_season
     return scores["annual"], scores["winter"]
