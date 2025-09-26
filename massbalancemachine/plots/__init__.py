@@ -1,1 +1,1 @@
-from plots.perf_plots import predVSTruth_all
+from plots.perf_plots import predVSTruth, predVSTruthPerGlacier

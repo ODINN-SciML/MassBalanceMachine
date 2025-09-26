@@ -283,7 +283,7 @@ def _generate_climate_variable_names(
 ) -> list:
     """Generate list of climate variable names for one hydrological year."""
     climate_variables = list(ds_climate.keys())
-    months_names = [f"_{month.lower()}" for month in month_abbr[10:] + month_abbr[1:10]]
+    months_names = [f"_{month}" for month in data_processing.utils.months_hydro_year]
 
     # extend months on both sides for longer periods:
     months_names = (

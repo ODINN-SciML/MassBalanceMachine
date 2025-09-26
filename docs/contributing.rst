@@ -10,7 +10,7 @@ We welcome contributions! Here's how to get started:
 2. Create a new branch for your feature or bugfix.
 3. Submit a pull request with a clear description.
 
-See our `Contribution Guidelines <https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/CONTRIBUTING.md>`_ for community guidelines.
+Make sure to conform with the `Contribution Guidelines <https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/CONTRIBUTING.md>`_.
 
 
 - The MassBalanceMachine project is an open-source community initiative that welcomes new users to fork the repository, add new regions, or modify the existing code and submit a `pull request <https://github.com/ODINN-SciML/MassBalanceMachine/pulls>`_.
@@ -27,4 +27,20 @@ However, in order to build a live representation of the documentation on your ow
 - `Install pandoc <https://pandoc.org/installing.html>`_.
 - Run ``sphinx-autobuild docs docs/_build/html`` which will print a link that you can open in your browser to visualize the documentation built locally. This will also execute the notebooks and render their outputs in the documentation. Notebooks execution can take a while, in order to build the documentatin and skip these execution steps run ``sphinx-autobuild docs docs/_build/html --define nbsphinx_execute=never``.
 
-TODO: format code samples
+Formatting the code
+*******************
+
+Before committing your changes, make sure that they comply with the coding style.
+You can format the code by running `black <https://github.com/psf/black>`_.
+This code formatter can be automatically called upon commit by installing the `pre-commit hook <https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/.pre-commit-config.yaml>`_ defined at the root of the MBM repository.
+For this, install `pre-commit <https://pre-commit.com/>`_ in the `MassBalanceMachine` environment by running:
+.. code-block:: bash
+
+    pip install pre-commit
+
+The hook can be installed by running:
+.. code-block:: bash
+
+    pre-commit install
+
+Then once you have staged your changes, when running the :code:`git commit` command, the hook will trigger and black will ask you to confirm the formatting that have been applied (if changes to the code format were necessary).

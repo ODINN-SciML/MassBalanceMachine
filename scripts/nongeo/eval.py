@@ -33,7 +33,6 @@ from regions.Switzerland.scripts.plots import (
     plotMeanPred,
     PlotIndividualGlacierPredVsTruth,
 )
-from regions.Switzerland.scripts.nn_helpers import evaluate_model_and_group_predictions
 
 warnings.filterwarnings("ignore")
 
@@ -120,9 +119,6 @@ param_init = {"device": "cpu"}  # Use CPU for evaluation
 model = mbm.models.buildModel(cfg, params=params)
 
 
-#################################
-
-
 args = buildArgs(cfg, params, model, my_train_split)
 
 # Load model and set to CPU
@@ -135,11 +131,9 @@ loaded_model = loaded_model.set_params(device="cpu")
 loaded_model = loaded_model.to("cpu")
 
 
-grouped_ids, scores_NN, ids_NN, y_pred_NN = evaluate_model_and_group_predictions(
-    loaded_model,
+grouped_ids, scores_NN, ids_NN, y_pred_NN = loaded_model.evaluate_group_pred(
     df_X_test_subset,
     test_set["y"],
-    cfg,
     months_head_pad,
     months_tail_pad,
 )
@@ -202,12 +196,9 @@ plt.close(fig)
 
 
 grouped_ids_NN_train, scores_NN_train, ids_train, y_pred_train = (
-    evaluate_model_and_group_predictions(
-        # loaded_model, data_train[all_columns], data_train['POINT_BALANCE'].values,
-        loaded_model,
+    loaded_model.evaluate_group_pred(
         data_train,
         data_train["POINT_BALANCE"].values,
-        cfg,
         months_head_pad,
         months_tail_pad,
     )
@@ -240,7 +231,6 @@ PlotIndividualGlacierPredVsTruth(
     color_annual=color_dark_blue,
     color_winter=color_pink,
     custom_order=train_gl_per_el,
-    add_text=True,
     ax_xlim=None,
 )
 fig.savefig(f"{pathFolder}/individual_glaciers_train_PMB.pdf")
