@@ -1522,116 +1522,6 @@ def plot_mass_balance_comparison_annual_glamos_nn(
     plt.show()
 
 
-# def plot_mb_by_elevation(df_all_years, df_stakes, glacier_name, ax):
-#     """
-#     Plot min–max shaded ranges and mean curves of LSTM vs GLAMOS
-#     mass balance by elevation, plus mean observed stakes per bin.
-
-#     Parameters
-#     ----------
-#     df_all_years : pd.DataFrame
-#         Combined dataframe of predictions (must include columns:
-#         ['SOURCE', 'altitude_interval', 'YEAR', 'PERIOD', 'pred'])
-#     df_stakes : pd.DataFrame
-#         Stakes dataframe (must include columns:
-#         ['GLACIER', 'PERIOD', 'POINT_ELEVATION', 'POINT_BALANCE'])
-#     glacier_name : str
-#         Name of glacier to filter stake observations.
-#     ax : matplotlib.axes.Axes, optional
-#         Axes to plot into. If None, a new one is created.
-
-#     Returns
-#     -------
-#     ax : matplotlib.axes.Axes
-#         The axes with the plot.
-#     """
-
-#     yearly_by_elevation = (df_all_years.groupby(
-#         ["SOURCE", "altitude_interval", "YEAR",
-#          "PERIOD"])["pred"].mean().reset_index())
-
-#     # Annual only
-#     yearly_Ba_by_elevation = yearly_by_elevation[yearly_by_elevation["PERIOD"]
-#                                                  == "annual"]
-
-#     agg_by_source = (yearly_Ba_by_elevation.groupby(
-#         ["SOURCE",
-#          "altitude_interval"])["pred"].agg(mean_Ba="mean",
-#                                            min_Ba="min",
-#                                            max_Ba="max").reset_index())
-
-#     # Split by source
-#     agg_lstm = agg_by_source[agg_by_source["SOURCE"].str.upper() == "LSTM"]
-#     agg_glamos = agg_by_source[agg_by_source["SOURCE"].str.upper() == "GLAMOS"]
-
-#     alpha = 1
-#     lw = 0.8
-
-#     # LSTM band + mean
-#     if not agg_lstm.empty:
-#         ax.fill_betweenx(
-#             agg_lstm["altitude_interval"],
-#             agg_lstm["min_Ba"],
-#             agg_lstm["max_Ba"],
-#             alpha=0.3,
-#             label="LSTM Min–Max",
-#         )
-#         ax.plot(agg_lstm["mean_Ba"],
-#                 agg_lstm["altitude_interval"],
-#                 label="LSTM Mean",
-#                 linewidth=lw,
-#                 alpha=alpha)
-
-#     # GLAMOS band + mean
-#     if not agg_glamos.empty:
-#         ax.fill_betweenx(
-#             agg_glamos["altitude_interval"],
-#             agg_glamos["min_Ba"],
-#             agg_glamos["max_Ba"],
-#             alpha=0.3,
-#             label="GLAMOS Min–Max",
-#         )
-#         ax.plot(
-#             agg_glamos["mean_Ba"],
-#             agg_glamos["altitude_interval"],
-#             linestyle="--",
-#             linewidth=lw,
-#             alpha=alpha,
-#             label="GLAMOS Mean",
-#         )
-
-#     # --- Observed stake means per elevation bin ---
-#     stakes_obs = df_stakes[(df_stakes["GLACIER"] == glacier_name)
-#                            & (df_stakes["PERIOD"] == "annual")].copy()
-
-#     def bin_center_100m(z):
-#         left = np.floor(z / 100.0) * 100.0
-#         return left + 50.0
-
-#     stakes_obs["altitude_interval"] = bin_center_100m(
-#         stakes_obs["POINT_ELEVATION"])
-
-#     # Keep only bins present in predictions
-#     valid_bins = set(agg_by_source["altitude_interval"].unique())
-#     stakes_obs = stakes_obs[stakes_obs["altitude_interval"].isin(valid_bins)]
-
-#     agg_obs_by_elev = (stakes_obs.groupby(
-#         "altitude_interval", as_index=False)["POINT_BALANCE"].mean().rename(
-#             columns={
-#                 "POINT_BALANCE": "mean_obs_Ba"
-#             }).sort_values("altitude_interval"))
-
-#     ax.scatter(
-#         agg_obs_by_elev["mean_obs_Ba"],
-#         agg_obs_by_elev["altitude_interval"],
-#         marker='o',
-#         color='k',
-#         s=10,
-#         label="Observed Ba Mean",
-#     )
-#     return ax
-
-
 def plot_mb_by_elevation_periods(df_all_a, df_all_w, df_stakes, glacier_name, ax=None):
     """
     Plot LSTM (band + mean) for annual & winter (different colors),
@@ -1762,6 +1652,10 @@ def plot_mb_by_elevation_periods(df_all_a, df_all_w, df_stakes, glacier_name, ax
         return left + 50.0
 
     stakes = df_stakes[df_stakes["GLACIER"] == glacier_name].copy()
+
+    min_year_stake = df_all_a["YEAR"].min()
+    stakes = stakes[stakes["YEAR"] >= min_year_stake]
+
     if not stakes.empty:
         stakes["altitude_interval"] = bin_center_100m(stakes["POINT_ELEVATION"])
 

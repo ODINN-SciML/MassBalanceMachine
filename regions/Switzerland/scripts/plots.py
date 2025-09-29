@@ -507,10 +507,11 @@ def PlotIndividualGlacierPredVsTruth(
     color_annual,
     color_winter,
     axs,
+    subplot_labels,
     custom_order=None,
     add_text=True,
-    ax_xlim=(-8, 6),
-    ax_ylim=(-8, 6),
+    ax_xlim=(-9, 6),
+    ax_ylim=(-9, 6),
 ):
 
     color_palette_period = [color_annual, color_winter]
@@ -537,15 +538,11 @@ def PlotIndividualGlacierPredVsTruth(
             hue_order=["annual", "winter"],
         )
 
-        ax1.set_ylabel("Modelled PMB [m w.e.]", fontsize=20)
-        ax1.set_xlabel("Observed PMB [m w.e.]", fontsize=20)
-
         # diagonal line
         pt = (0, 0)
         ax1.axline(pt, slope=1, color="grey", linestyle="-", linewidth=0.2)
         ax1.axvline(0, color="grey", linestyle="--", linewidth=1)
         ax1.axhline(0, color="grey", linestyle="--", linewidth=1)
-        ax1.grid()
 
         # Set ylimits to be the same as xlimits
         if ax_xlim is None:
@@ -557,7 +554,24 @@ def PlotIndividualGlacierPredVsTruth(
             ax1.set_xlim(ax_xlim)
             ax1.set_ylim(ax_ylim)
 
-        ax1.legend(fontsize=18, loc="lower right", ncol=2)
+        ax1.grid(alpha=0.2)
+        ax1.tick_params(labelsize=18, pad=2)
+        ax1.set_ylabel("")
+        ax1.set_xlabel("")
+
+        # remove legend
+        if ax1.get_legend() is not None:
+            ax1.get_legend().remove()
+
+        ax1.text(
+            0.02,
+            0.98,
+            subplot_labels[i],
+            transform=ax1.transAxes,
+            fontsize=24,
+            verticalalignment="top",
+            horizontalalignment="left",
+        )
 
         # Text:
         df_gl_annual = df_gl[df_gl["PERIOD"] == "annual"]
@@ -594,40 +608,33 @@ def PlotIndividualGlacierPredVsTruth(
             }
             legend = "\n".join(
                 (
-                    (
-                        r"$\mathrm{RMSE_a}=%.2f$, $\mathrm{RMSE_w}=%.2f$,"
-                        % (scores_annual["rmse"], scores_winter["rmse"])
-                    ),
-                    (
-                        r"$\mathrm{R^2_a}=%.2f$, $\mathrm{R^2_w}=%.2f$"
-                        % (scores_annual["R2"], scores_winter["R2"])
-                    ),
-                    r"$\mathrm{B_a}=%.2f$, $\mathrm{B_w}=%.2f$"
-                    % (scores_annual["Bias"], scores_winter["Bias"]),
+                    rf"$\mathrm{{RMSE_a}}={scores_annual['rmse']:.2f},\ \mathrm{{R^2_a}}={scores_annual['R2']:.2f},\ \mathrm{{B_a}}={scores_annual['Bias']:.2f}$",
+                    rf"$\mathrm{{RMSE_b}}={scores_winter['rmse']:.2f},\ \mathrm{{R^2_b}}={scores_winter['R2']:.2f},\ \mathrm{{B_b}}={scores_winter['Bias']:.2f}$",
                 )
             )
+
         else:
             legend = "\n".join(
                 (
-                    (r"$\mathrm{RMSE_a}=%.2f$ " % (scores_annual["rmse"],)),
-                    (r"$\mathrm{R^2_a}=%.2f$ " % (scores_annual["R2"],)),
-                    r"$\mathrm{B_a}=%.2f$" % (scores_annual["Bias"],),
+                    rf"$\mathrm{{RMSE_a}}={scores_annual['rmse']:.2f},\ \mathrm{{R^2_a}}={scores_annual['R2']:.2f},\ \mathrm{{B_a}}={scores_annual['Bias']:.2f}$",
                 )
             )
 
         if add_text:
             ax1.text(
-                0.03,
-                0.96,
+                0.98,
+                0.02,  # bottom-right in axes coords
                 legend,
                 transform=ax1.transAxes,
-                verticalalignment="top",
                 fontsize=18,
+                ha="right",
+                va="bottom",  # anchor text to that corner
                 bbox=dict(boxstyle="round", facecolor="white", alpha=0.0),
             )
+
         ax1.set_title(f"{test_gl.capitalize()} [{gl_elv} m]", fontsize=28)
 
-    plt.tight_layout()
+    return axs.flatten()
 
 
 def plotGlAttr(ds, cmap=cm.batlow):
