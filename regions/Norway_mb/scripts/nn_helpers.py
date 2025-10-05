@@ -1,10 +1,12 @@
 import matplotlib.pyplot as plt
 import os 
 import seaborn as sns
-from sklearn.metrics import mean_squared_error, mean_absolute_error, root_mean_squared_error
+from sklearn.metrics import mean_squared_error, mean_absolute_error, root_mean_squared_error, r2_score 
 from skorch.helper import SliceDataset
 from skorch.callbacks import Callback
 import torch
+from matplotlib.ticker import MaxNLocator
+from scipy import stats
 
 from scripts.plots import *
 
@@ -217,9 +219,8 @@ def evaluate_model_and_group_predictions(custom_NN_model, df_X_subset, y, cfg, m
     return grouped_ids, scores, ids, y_pred
 
 
-def PlotPredictionsCombined_NN(grouped_ids, region_name="", include_summer=False, axis_limits=None, tick_step=None):
-    import math
-    fig = plt.figure(figsize=(12, 10))
+def PlotPredictionsCombined_NN(grouped_ids, region_name="", include_summer=False, nticks=6, min_val=0.00, max_val=0.00):
+    fig = plt.figure(figsize=(9.7, 9.7))
     period_colors = {'annual': '#e31a1c', 'winter': '#1f78b4', 'summer': '#33a02c'}
 
     # Compute metrics for each period
@@ -230,13 +231,22 @@ def PlotPredictionsCombined_NN(grouped_ids, region_name="", include_summer=False
         subset = grouped_ids[grouped_ids.PERIOD == period]
         if len(subset) > 0:
             rmse = np.sqrt(mean_squared_error(subset.target, subset.pred))
-            rho = np.corrcoef(subset.target, subset.pred)[0, 1] if len(subset) > 1 else np.nan
-            metrics[period] = (rmse, rho)
+            r2 = r2_score(subset.target, subset.pred)
+            # Pearson correlation
+            if len(subset) > 1:
+                rho = np.corrcoef(subset.target, subset.pred)[0, 1]
+            else:
+                rho = np.nan
+            metrics[period] = (rmse, rho, r2)
 
     # Combined metrics
     rmse_all = np.sqrt(mean_squared_error(grouped_ids.target, grouped_ids.pred))
-    rho_all = np.corrcoef(grouped_ids.target, grouped_ids.pred)[0, 1] if len(grouped_ids) > 1 else np.nan
-    metrics['combined'] = (rmse_all, rho_all)
+    r2_all = r2_score(grouped_ids.target, grouped_ids.pred)
+    if len(grouped_ids) > 1:
+        rho_all = np.corrcoef(grouped_ids.target, grouped_ids.pred)[0, 1]
+    else:
+        rho_all = np.nan
+    metrics['combined'] = (rmse_all, rho_all, r2_all)
 
     ax = plt.subplot(1, 1, 1)
     for period in grouped_ids.PERIOD.unique():
@@ -248,52 +258,188 @@ def PlotPredictionsCombined_NN(grouped_ids, region_name="", include_summer=False
                        color=period_colors.get(period, 'gray'),
                        alpha=0.7, s=80, label=f"{period}")
 
-    # Determine axis limits (use provided axis_limits if given)
-    if axis_limits is None:
+    # Calculate common axis limits and ticks
+    if min_val == 0.00:
         min_val = min(grouped_ids.target.min(), grouped_ids.pred.min())
+    if max_val == 0.00:
         max_val = max(grouped_ids.target.max(), grouped_ids.pred.max())
-        margin = 0.5
-        min_val -= margin
-        max_val += margin
-    else:
-        min_val, max_val = axis_limits
-
-    # 1:1 line and fixed limits
-    ax.plot([min_val, max_val], [min_val, max_val], 'k--', alpha=0.5, linewidth=2)
+    
+    # Add some padding
+    range_val = max_val - min_val
+    padding = range_val * 0.05
+    min_val -= padding
+    max_val += padding
+    
+    # Set equal limits for both axes
     ax.set_xlim(min_val, max_val)
     ax.set_ylim(min_val, max_val)
+    
+    # Force equal aspect ratio
+    ax.set_aspect('equal', adjustable='box')
 
-    # Ticks: keep them inside [min_val, max_val]
-    if tick_step is not None:
-        # choose tick_start as smallest multiple >= min_val, tick_end as largest multiple <= max_val
-        tick_start = math.ceil(min_val / float(tick_step)) * float(tick_step)
-        tick_end = math.floor(max_val / float(tick_step)) * float(tick_step)
-        if tick_start <= tick_end:
-            ticks = np.arange(tick_start, tick_end + 1e-8, tick_step)
-            ax.set_xticks(ticks)
-            ax.set_yticks(ticks)
-        else:
-            # fallback: do nothing if no multiples fit inside limits
-            pass
+    ax.xaxis.set_major_locator(MaxNLocator(nbins=nticks))
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=nticks))
+    
+    ax.plot([min_val, max_val], [min_val, max_val], 'k--', alpha=0.5, linewidth=2)
 
-    # Build metrics text
-    metrics_text = f"Combined: RMSE: {metrics['combined'][0]:.2f} m w.e., ρ: {metrics['combined'][1]:.2f}\n"
+    # Build metrics text for top left (RMSE values)
+    rmse_text = f"RMSE$_{{\\mathbf{{C}}}}$: {metrics['combined'][0]:.2f}\n"
     if 'annual' in metrics:
-        metrics_text += f"Annual: RMSE: {metrics['annual'][0]:.2f} m w.e., ρ: {metrics['annual'][1]:.2f}\n"
+        rmse_text += f"RMSE$_{{\\mathbf{{A}}}}$: {metrics['annual'][0]:.2f}\n"
     if 'winter' in metrics:
-        metrics_text += f"Winter: RMSE: {metrics['winter'][0]:.2f} m w.e., ρ: {metrics['winter'][1]:.2f}\n"
+        rmse_text += f"RMSE$_{{\\mathbf{{W}}}}$: {metrics['winter'][0]:.2f}"
     if include_summer and 'summer' in metrics:
-        metrics_text += f"Summer: RMSE: {metrics['summer'][0]:.2f} m w.e., ρ: {metrics['summer'][1]:.2f}"
-
-    ax.text(0.05, 0.95, metrics_text, transform=ax.transAxes,
+        rmse_text += f"\nRMSE$_{{\\mathbf{{S}}}}$: {metrics['summer'][0]:.2f}"
+    
+    # Build metrics text for bottom right (rho and R² values)
+    corr_text = f"ρ$_{{\\mathbf{{C}}}}$: {metrics['combined'][1]:.2f}, R²$_{{\\mathbf{{C}}}}$: {metrics['combined'][2]:.2f}\n"
+    if 'annual' in metrics:
+        corr_text += f"ρ$_{{\\mathbf{{A}}}}$: {metrics['annual'][1]:.2f}, R²$_{{\\mathbf{{A}}}}$: {metrics['annual'][2]:.2f}\n"
+    if 'winter' in metrics:
+        corr_text += f"ρ$_{{\\mathbf{{W}}}}$: {metrics['winter'][1]:.2f}, R²$_{{\\mathbf{{W}}}}$: {metrics['winter'][2]:.2f}"
+    if include_summer and 'summer' in metrics:
+        corr_text += f"\nρ$_{{\\mathbf{{S}}}}$: {metrics['summer'][1]:.2f}, R²$_{{\\mathbf{{S}}}}$: {metrics['summer'][2]:.2f}"
+        
+    # Top left text box (RMSE)
+    ax.text(0.02, 0.98, rmse_text, transform=ax.transAxes,
             verticalalignment='top', horizontalalignment='left',
-            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8),
-            fontsize=20)
+            bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.5, linewidth=0.5),
+            fontsize=32)
+    
+    # Bottom right text box (rho and R²)
+    ax.text(0.98, 0.02, corr_text, transform=ax.transAxes,
+            verticalalignment='bottom', horizontalalignment='right',
+            bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.5, linewidth=0.5),
+            fontsize=32)
+    
+    ax.legend(fontsize=32, loc='upper center', bbox_to_anchor=(0.5, 1.15), ncol=3, 
+              borderpad=0.2, labelspacing=0.2, handletextpad=0.1, columnspacing=1.0)
 
-    ax.legend(fontsize=24, loc='lower right')
-    ax.set_xlabel('Observed PMB [m w.e.]', fontsize=27)
-    ax.set_ylabel('Predicted PMB [m w.e.]', fontsize=27)
-    ax.set_title(f'PMB - Pred vs. Obs ({region_name})', fontsize=30)
-    ax.tick_params(axis='both', which='major', labelsize=21)
+    # ax.legend(fontsize=32, loc='upper left', borderpad=0.2,labelspacing=0.2,handletextpad=0.1)
+    ax.set_xlabel('Observed PMB [m w.e.]', fontsize=32)
+    ax.set_ylabel('Predicted PMB [m w.e.]', fontsize=32)
+    #ax.set_title(f'PMB - Pred vs. Obs ({region_name})', fontsize=32)
+    ax.tick_params(axis='both', which='major', labelsize=32)
     plt.tight_layout()
 
+def PlotPredictionsCombined_NN_additional(grouped_ids, region_name="", include_summer=False, nticks=6, min_val=0.00, max_val=0.00):
+    fig = plt.figure(figsize=(9.7, 9.7))
+    period_colors = {'annual': '#e31a1c', 'winter': '#1f78b4', 'summer': '#33a02c'}
+
+    # Compute metrics for each period
+    metrics = {}
+    for period in ['annual', 'winter', 'summer']:
+        if period == 'summer' and not include_summer:
+            continue
+        subset = grouped_ids[grouped_ids.PERIOD == period]
+        if len(subset) > 0:
+            rmse = np.sqrt(mean_squared_error(subset.target, subset.pred))
+            r2 = r2_score(subset.target, subset.pred)
+            bias = np.mean(subset.pred - subset.target)  # Add bias calculation
+            # Pearson correlation
+            if len(subset) > 1:
+                rho = np.corrcoef(subset.target, subset.pred)[0, 1]
+            else:
+                rho = np.nan
+            metrics[period] = (rmse, rho, r2, bias)
+
+    # Combined metrics
+    rmse_all = np.sqrt(mean_squared_error(grouped_ids.target, grouped_ids.pred))
+    r2_all = r2_score(grouped_ids.target, grouped_ids.pred)
+    bias_all = np.mean(grouped_ids.pred - grouped_ids.target)  # Add combined bias
+    if len(grouped_ids) > 1:
+        rho_all = np.corrcoef(grouped_ids.target, grouped_ids.pred)[0, 1]
+    else:
+        rho_all = np.nan
+    metrics['combined'] = (rmse_all, rho_all, r2_all, bias_all)
+
+    # Linear regression for all data
+    slope, intercept, r_value, p_value, std_err = stats.linregress(grouped_ids.target, grouped_ids.pred)
+
+    ax = plt.subplot(1, 1, 1)
+    for period in grouped_ids.PERIOD.unique():
+        if period == 'summer' and not include_summer:
+            continue
+        subset = grouped_ids[grouped_ids.PERIOD == period]
+        if len(subset) > 0:
+            ax.scatter(subset.target, subset.pred,
+                       color=period_colors.get(period, 'gray'),
+                       alpha=0.7, s=80, label=f"{period}",
+                       edgecolors='white', linewidth=0.3)
+
+    # Calculate common axis limits and ticks
+    if min_val == 0.00:
+        min_val = min(grouped_ids.target.min(), grouped_ids.pred.min())
+    if max_val == 0.00:
+        max_val = max(grouped_ids.target.max(), grouped_ids.pred.max())
+    
+    # Add some padding
+    range_val = max_val - min_val
+    padding = range_val * 0.05
+    min_val -= padding
+    max_val += padding
+    
+    # Set equal limits for both axes
+    ax.set_xlim(min_val, max_val)
+    ax.set_ylim(min_val, max_val)
+    
+    # Force equal aspect ratio
+    ax.set_aspect('equal', adjustable='box')
+
+    ax.xaxis.set_major_locator(MaxNLocator(nbins=nticks))
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=nticks))
+    
+    # 1:1 line
+    ax.plot([min_val, max_val], [min_val, max_val], 'k--', alpha=0.5, linewidth=2)
+    
+    # Linear regression line
+    #regression_color = '#ff7f0e'
+    regression_color = '#6a0dad'
+
+    x_line = np.array([min_val, max_val])
+    y_line = slope * x_line + intercept
+    ax.plot(x_line, y_line, color=regression_color, linewidth=2, alpha=0.8)
+
+    # Build metrics text for top left (RMSE and Bias values)
+    rmse_bias_text = f"RMSE$_{{\\mathbf{{C}}}}$: {metrics['combined'][0]:.2f}\n"
+    if 'annual' in metrics:
+        rmse_bias_text += f"RMSE$_{{\\mathbf{{A}}}}$: {metrics['annual'][0]:.2f}\n"
+    if 'winter' in metrics:
+        rmse_bias_text += f"RMSE$_{{\\mathbf{{W}}}}$: {metrics['winter'][0]:.2f}"
+    if include_summer and 'summer' in metrics:
+        rmse_bias_text += f"\nRMSE$_{{\\mathbf{{S}}}}$: {metrics['summer'][0]:.2f}"
+    
+    # Build metrics text for bottom right (rho and R² values)
+    corr_text = f"B$_{{\\mathbf{{C}}}}$: {metrics['combined'][3]:.2f}, R²$_{{\\mathbf{{C}}}}$: {metrics['combined'][2]:.2f}\n"
+    if 'annual' in metrics:
+        corr_text += f"B$_{{\\mathbf{{A}}}}$: {metrics['annual'][3]:.2f}, R²$_{{\\mathbf{{A}}}}$: {metrics['annual'][2]:.2f}\n"
+    if 'winter' in metrics:
+        corr_text += f"B$_{{\\mathbf{{W}}}}$: {metrics['winter'][3]:.2f}, R²$_{{\\mathbf{{W}}}}$: {metrics['winter'][2]:.2f}"
+    if include_summer and 'summer' in metrics:
+        corr_text += f"B$_{{\\mathbf{{S}}}}$: {metrics['summer'][3]:.2f}, R²$_{{\\mathbf{{S}}}}$: {metrics['summer'][2]:.2f}"
+
+    # Top left text box (RMSE and Bias)
+    ax.text(0.02, 0.98, rmse_bias_text, transform=ax.transAxes,
+            verticalalignment='top', horizontalalignment='left',
+            bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.5, linewidth=0.5),
+            fontsize=35)
+    
+    # Linear regression equation as separate text below the RMSE/Bias box
+    ax.text(0.02, 0.77, f"y = {slope:.2f}x + {intercept:.2f}", transform=ax.transAxes,
+            verticalalignment='top', horizontalalignment='left',
+            fontsize=32, color=regression_color)
+    
+    # Bottom right text box (rho and R²)
+    ax.text(0.98, 0.02, corr_text, transform=ax.transAxes,
+            verticalalignment='bottom', horizontalalignment='right',
+            bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.5, linewidth=0.5),
+            fontsize=35)
+
+    # ax.legend(fontsize=32, loc='upper left', borderpad=0.2,labelspacing=0.2,handletextpad=0.1)
+    #ax.set_xlabel('Observed PMB [m w.e.]', fontsize=32)
+    ax.set_xlabel('')
+    #ax.set_ylabel('Predicted PMB [m w.e.]', fontsize=32)
+    ax.set_ylabel('')
+    #ax.set_title(f'PMB - Pred vs. Obs ({region_name})', fontsize=32)
+    ax.tick_params(axis='both', which='major', labelsize=35)
+    plt.tight_layout()

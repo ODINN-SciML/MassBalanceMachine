@@ -5,6 +5,7 @@ import seaborn as sns
 from matplotlib.patches import Rectangle
 from cmcrameri import cm
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
+from matplotlib.ticker import MaxNLocator
 
 from scripts.helpers import *
 from scripts.config_NOR import *
@@ -516,6 +517,105 @@ def PlotPredictionsCombined(grouped_ids, y_pred, metadata_test, test_set, model,
     ax.set_title(f'PMB - Pred vs. Obs ({region_name})', fontsize=30)
     
     ax.tick_params(axis='both', which='major', labelsize=21)
+
+def PlotPredictionsCombined_NN(grouped_ids, region_name="", include_summer=False, nticks=6):
+    fig = plt.figure(figsize=(9.7, 9.7))
+    period_colors = {'annual': '#e31a1c', 'winter': '#1f78b4', 'summer': '#33a02c'}
+
+    # Compute metrics for each period
+    metrics = {}
+    for period in ['annual', 'winter', 'summer']:
+        if period == 'summer' and not include_summer:
+            continue
+        subset = grouped_ids[grouped_ids.PERIOD == period]
+        if len(subset) > 0:
+            rmse = np.sqrt(mean_squared_error(subset.target, subset.pred))
+            r2 = r2_score(subset.target, subset.pred)
+            # Pearson correlation
+            if len(subset) > 1:
+                rho = np.corrcoef(subset.target, subset.pred)[0, 1]
+            else:
+                rho = np.nan
+            metrics[period] = (rmse, rho, r2)
+
+    # Combined metrics
+    rmse_all = np.sqrt(mean_squared_error(grouped_ids.target, grouped_ids.pred))
+    r2_all = r2_score(grouped_ids.target, grouped_ids.pred)
+    if len(grouped_ids) > 1:
+        rho_all = np.corrcoef(grouped_ids.target, grouped_ids.pred)[0, 1]
+    else:
+        rho_all = np.nan
+    metrics['combined'] = (rmse_all, rho_all, r2_all)
+
+    ax = plt.subplot(1, 1, 1)
+    for period in grouped_ids.PERIOD.unique():
+        if period == 'summer' and not include_summer:
+            continue
+        subset = grouped_ids[grouped_ids.PERIOD == period]
+        if len(subset) > 0:
+            ax.scatter(subset.target, subset.pred,
+                       color=period_colors.get(period, 'gray'),
+                       alpha=0.7, s=80, label=f"{period}")
+
+    # Calculate common axis limits and ticks
+    min_val = min(grouped_ids.target.min(), grouped_ids.pred.min())
+    print(min_val)
+    max_val = max(grouped_ids.target.max(), grouped_ids.pred.max())
+    print(max_val)
+    # Add some padding
+    range_val = max_val - min_val
+    padding = range_val * 0.05
+    min_val -= padding
+    max_val += padding
+    
+    # Set equal limits for both axes
+    ax.set_xlim(min_val, max_val)
+    ax.set_ylim(min_val, max_val)
+    
+    # Force equal aspect ratio
+    ax.set_aspect('equal', adjustable='box')
+
+    ax.xaxis.set_major_locator(MaxNLocator(nbins=nticks))
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=nticks))
+    
+    ax.plot([min_val, max_val], [min_val, max_val], 'k--', alpha=0.5, linewidth=2)
+
+    # Build metrics text for top left (RMSE values)
+    rmse_text = f"RMSE$_{{\\mathbf{{C}}}}$: {metrics['combined'][0]:.2f}\n"
+    if 'annual' in metrics:
+        rmse_text += f"RMSE$_{{\\mathbf{{A}}}}$: {metrics['annual'][0]:.2f}\n"
+    if 'winter' in metrics:
+        rmse_text += f"RMSE$_{{\\mathbf{{W}}}}$: {metrics['winter'][0]:.2f}"
+    if include_summer and 'summer' in metrics:
+        rmse_text += f"\nRMSE$_{{\\mathbf{{S}}}}$: {metrics['summer'][0]:.2f}"
+    
+    # Build metrics text for bottom right (rho and R² values)
+    corr_text = f"ρ$_{{\\mathbf{{C}}}}$: {metrics['combined'][1]:.2f}, R²$_{{\\mathbf{{C}}}}$: {metrics['combined'][2]:.2f}\n"
+    if 'annual' in metrics:
+        corr_text += f"ρ$_{{\\mathbf{{A}}}}$: {metrics['annual'][1]:.2f}, R²$_{{\\mathbf{{A}}}}$: {metrics['annual'][2]:.2f}\n"
+    if 'winter' in metrics:
+        corr_text += f"ρ$_{{\\mathbf{{W}}}}$: {metrics['winter'][1]:.2f}, R²$_{{\\mathbf{{W}}}}$: {metrics['winter'][2]:.2f}"
+    if include_summer and 'summer' in metrics:
+        corr_text += f"\nρ$_{{\\mathbf{{S}}}}$: {metrics['summer'][1]:.2f}, R²$_{{\\mathbf{{S}}}}$: {metrics['summer'][2]:.2f}"
+        
+    # Top left text box (RMSE)
+    ax.text(0.02, 0.98, rmse_text, transform=ax.transAxes,
+            verticalalignment='top', horizontalalignment='left',
+            bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.5, linewidth=0.5),
+            fontsize=32)
+    
+    # Bottom right text box (rho and R²)
+    ax.text(0.98, 0.02, corr_text, transform=ax.transAxes,
+            verticalalignment='bottom', horizontalalignment='right',
+            bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.5, linewidth=0.5),
+            fontsize=32)
+
+    # ax.legend(fontsize=32, loc='upper left', borderpad=0.2,labelspacing=0.2,handletextpad=0.1)
+    ax.set_xlabel('Observed PMB [m w.e.]', fontsize=32)
+    ax.set_ylabel('Predicted PMB [m w.e.]', fontsize=32)
+    #ax.set_title(f'PMB - Pred vs. Obs ({region_name})', fontsize=32)
+    ax.tick_params(axis='both', which='major', labelsize=32)
+    plt.tight_layout()
         
 def predVSTruth(ax, grouped_ids, scores, hue='GLACIER', palette=None):
 
