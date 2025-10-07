@@ -872,6 +872,9 @@ def initialize_oggm_glacier_directories(
     # Set working directory
     if working_dir is None:
         working_dir = cfg.dataPath + path_OGGM
+        emptyfolder(working_dir)
+    # empty the working directory if it exists
+    emptyfolder(working_dir)
     oggmCfg.PATHS["working_dir"] = working_dir
 
     # Get RGI file
@@ -880,9 +883,13 @@ def initialize_oggm_glacier_directories(
     rgidf = gpd.read_file(path)
 
     # Initialize glacier directories from preprocessed data
+    print("Collecting from base_url: ", base_url)
     gdirs = workflow.init_glacier_directories(
         rgidf,
-        from_prepro_level=3,
+        # from_prepro_level=3,
+        # prepro_base_url=base_url,
+        # prepro_border=10,
+        from_prepro_level=2,
         prepro_base_url=base_url,
         prepro_border=10,
         reset=True,
@@ -910,6 +917,9 @@ def export_oggm_grids(cfg, gdirs, subset_rgis=None, output_path=None):
     if output_path is None:
         output_path = cfg.dataPath + path_OGGM_xrgrids
     emptyfolder(output_path)
+
+    records = []
+
     for gdir in gdirs:
         RGIId = gdir.rgi_id
         # only save a subset if it's not empty
@@ -920,8 +930,23 @@ def export_oggm_grids(cfg, gdirs, subset_rgis=None, output_path=None):
                 continue
         with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
             ds = ds.load()
+
+        vars = ["hugonnet_dhdt", "consensus_ice_thickness", "millan_v"]
+
+        if not all(var in ds for var in vars):
+            missing_vars = [var for var in vars if var not in ds]
+            records.append(
+                {
+                    "rgi_id": RGIId,
+                    "missing_vars": missing_vars,
+                }
+            )
+
         # save ds
         ds.to_zarr(os.path.join(output_path, f"{RGIId}.zarr"))
+    df_missing = pd.DataFrame(records)
+
+    return df_missing
 
 
 def merge_pmb_with_oggm_data(
