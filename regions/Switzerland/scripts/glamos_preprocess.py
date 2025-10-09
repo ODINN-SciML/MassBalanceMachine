@@ -854,7 +854,7 @@ def initialize_oggm_glacier_directories(
     cfg,
     working_dir=None,
     rgi_region="11",
-    rgi_version="6",
+    rgi_version="62",
     base_url="https://cluster.klima.uni-bremen.de/~oggm/gdirs/oggm_v1.6/L3-L5_files/2023.1/elev_bands/W5E5_w_data/",
     log_level="WARNING",
     task_list=None,
@@ -880,8 +880,10 @@ def initialize_oggm_glacier_directories(
     oggmCfg.PATHS["working_dir"] = working_dir
 
     # Get RGI file
-    rgi_dir = utils.get_rgi_dir(version=rgi_version)
-    path = utils.get_rgi_region_file(region=rgi_region, version=rgi_version)
+    # rgi_dir = utils.get_rgi_dir(version=rgi_version, reset=False)
+    path = utils.get_rgi_region_file(
+        region=rgi_region, version=rgi_version, reset=False
+    )
     rgidf = gpd.read_file(path)
 
     # Initialize glacier directories from preprocessed data
