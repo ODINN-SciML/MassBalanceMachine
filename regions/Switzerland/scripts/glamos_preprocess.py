@@ -858,6 +858,8 @@ def initialize_oggm_glacier_directories(
     base_url="https://cluster.klima.uni-bremen.de/~oggm/gdirs/oggm_v1.6/L3-L5_files/2023.1/elev_bands/W5E5_w_data/",
     log_level="WARNING",
     task_list=None,
+    from_prepro_level=2,
+    prepro_border=10,
 ):
     # Initialize OGGM config
     oggmCfg.initialize(logging_level=log_level)
@@ -886,12 +888,9 @@ def initialize_oggm_glacier_directories(
     print("Collecting from base_url: ", base_url)
     gdirs = workflow.init_glacier_directories(
         rgidf,
-        # from_prepro_level=3,
-        # prepro_base_url=base_url,
-        # prepro_border=10,
-        from_prepro_level=2,
+        from_prepro_level=from_prepro_level,
         prepro_base_url=base_url,
-        prepro_border=10,
+        prepro_border=prepro_border,
         reset=True,
         force=True,
     )

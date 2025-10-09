@@ -1170,8 +1170,10 @@ def create_glacier_grid_RGI(ds: xr.Dataset, years: list, rgi_gl: str):
     ds_masked = ds.where(mask)
 
     base_cols = ["masked_aspect", "masked_slope", "masked_elev"]
-    opt_cols = [v for v in ["masked_hug", "masked_cit", "masked_miv"] if v in ds]
-
+    opt_cols = [
+        v for v in ["masked_hug", "masked_cit", "masked_miv", "svf"] if v in ds_masked
+    ]
+    # print(f"Available optional columns: {opt_cols}")
     cols = base_cols + opt_cols
 
     df_grid = (
@@ -1189,10 +1191,10 @@ def create_glacier_grid_RGI(ds: xr.Dataset, years: list, rgi_gl: str):
                 "masked_hug": "hugonnet_dhdt",
                 "masked_cit": "consensus_ice_thickness",
                 "masked_miv": "millan_v",
+                "svf": "svf",
             }
         )
     )
-
     df_grid["RGIId"] = rgi_gl
 
     # Match to WGMS format:
@@ -1201,8 +1203,10 @@ def create_glacier_grid_RGI(ds: xr.Dataset, years: list, rgi_gl: str):
     df_grid["POINT_ELEVATION"] = df_grid["topo"]  # no other elevation available
     df_grid["POINT_BALANCE"] = 0  # fake PMB for simplicity (not used)
     num_rows_per_year = len(df_grid)
+
     # Repeat the DataFrame num_years times
     df_grid = pd.concat([df_grid] * len(years), ignore_index=True)
+
     # Add the 'year' and date columns to the DataFrame
     df_grid["YEAR"] = np.repeat(
         years, num_rows_per_year
@@ -1210,6 +1214,8 @@ def create_glacier_grid_RGI(ds: xr.Dataset, years: list, rgi_gl: str):
     df_grid["FROM_DATE"] = df_grid["YEAR"].apply(lambda x: str(x) + "1001")
     df_grid["TO_DATE"] = df_grid["YEAR"].apply(lambda x: str(x + 1) + "0930")
     df_grid["PERIOD"] = "annual"
+
+    # print(df_grid.columns)
 
     return df_grid
 
@@ -1455,7 +1461,6 @@ def build_all_years_df(glacier_name, path_pred_lstm, cfg, period="annual"):
 #             years.append(int(m.group(2)))
 #     return sorted(set(years))
 
-
 # # ---- helper: build full paths for a given year and check existence ----
 # def paths_for_year(path_pred_lstm, glacier_name, year, cfg):
 #     def pick_ann_file(cfg, glacier_name, year):
@@ -1481,7 +1486,6 @@ def build_all_years_df(glacier_name, path_pred_lstm, cfg, period="annual"):
 #         mbm_file_lstm = os.path.join(path_pred_lstm, glacier_name,
 #                                      f"{glacier_name}_{year}_annual.zarr")
 #         return grid_path_ann, mbm_file_lstm
-
 
 # # ---- main per-year function (your original logic, wrapped) ----
 # def process_year(glacier_name, path_pred_lstm, year, cfg):
@@ -1581,7 +1585,6 @@ def build_all_years_df(glacier_name, path_pred_lstm, cfg, period="annual"):
 #         "altitude_interval"].map(centers)
 
 #     return df_pred_lstm, df_pred_glamos
-
 
 # def build_all_years_df(glacier_name, path_pred_lstm, cfg):
 #     """
