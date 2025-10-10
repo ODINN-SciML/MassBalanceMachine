@@ -15,6 +15,10 @@ from scipy.stats import pearsonr
 from regions.Switzerland.scripts.geodata import *
 from regions.Switzerland.scripts.helpers import *
 
+colors = get_cmap_hex(cm.batlow, 10)
+color_annual = colors[0]
+color_winter = "#c51b7d"
+
 
 def plot_geodetic_MB(df, glacier_name, color_xgb="blue", color_tim="red"):
     df = df.dropna(subset=["geodetic_mb", "mbm_mb_mean", "glamos_mb_mean"])
@@ -1224,25 +1228,172 @@ def mbm_glwd_pred(PATH_PREDICTIONS, GLACIER_NAME):
     return MBM_glwmb
 
 
+# def plot_mbm_vs_geodetic_by_area_bin(
+#     df,
+#     bins=[0, 1, 5, 10, 100, np.inf],
+#     labels=["<1", "1–5", "5–10", "10–100", ">100"],
+#     max_bins=4,
+#     figsize=(20, 6),
+#     title="",
+#     annotate_rmse=True,
+#     rmse_box=True,
+# ):
+#     """
+#     Plot MBM vs. Geodetic mass balance grouped by glacier area bins,
+#     and annotate per-bin RMSE and R² between observed (Geodetic MB) and predicted (MBM MB).
+#     """
+#     subplot_labels = ['(a)', '(b)', '(c)', '(d)']
+#     df = df.copy()
+#     df = df.replace([np.inf, -np.inf], np.nan)
+
+#     # Ordered categorical bins
+#     df["Area_bin"] = pd.cut(
+#         df["Area"],
+#         bins=bins,
+#         labels=labels,
+#         right=False,
+#         include_lowest=True,
+#         ordered=True,
+#     )
+#     categories = list(df["Area_bin"].cat.categories)
+#     bins_in_use = [b for b in categories if (df["Area_bin"] == b).any()]
+#     if not bins_in_use:
+#         raise ValueError("No data fall into the specified area bins.")
+
+#     n_plots = min(max_bins, len(bins_in_use))
+#     fig, axs = plt.subplots(1, n_plots, figsize=figsize, sharex=True, sharey=True)
+#     if n_plots == 1:
+#         axs = np.array([axs])
+
+#     # Global limits
+#     mask_bins = df["Area_bin"].isin(bins_in_use[:n_plots])
+#     all_x = df.loc[mask_bins, "Geodetic MB"]
+#     all_y = df.loc[mask_bins, "MBM MB"]
+#     valid = ~(all_x.isna() | all_y.isna())
+#     if valid.any():
+#         vmin = float(min(all_x[valid].min(), all_y[valid].min())) - 0.25
+#         vmax = float(max(all_x[valid].max(), all_y[valid].max())) + 0.25
+#     else:
+#         vmin, vmax = -1.0, 1.0
+
+#     for i, area_bin in enumerate(bins_in_use[:n_plots]):
+#         ax = axs[i]
+#         df_bin = df[df["Area_bin"] == area_bin].dropna(subset=["Geodetic MB", "MBM MB"])
+
+#         df_bin["GLACIER"] = df_bin["GLACIER"].apply(lambda x: x.capitalize())
+
+#         # Scatter
+#         hue_kw = {}
+#         if "GLACIER" in df_bin.columns:
+#             hue_kw = dict(hue="GLACIER", style="GLACIER")
+#         sns.scatterplot(
+#             data=df_bin,
+#             x="Geodetic MB",
+#             y="MBM MB",
+#             alpha=0.8,
+#             ax=ax,
+#             s=250,
+#             palette=sns.color_palette(
+#                 get_cmap_hex(
+#                     cm.batlow, 1 + df_bin.get("GLACIER", pd.Series()).nunique()
+#                 )
+#             ),
+#             **hue_kw,
+#         )
+
+#         # Axes & identity
+#         ax.grid(True, linestyle="--", linewidth=0.5)
+#         ax.axvline(0, color="grey", linestyle="--", linewidth=1)
+#         ax.axhline(0, color="grey", linestyle="--", linewidth=1)
+#         ax.axline((0, 0), slope=1, color="grey", linestyle="--", linewidth=1)
+#         ax.set_xlim(vmin, vmax)
+#         ax.set_ylim(vmin, vmax)
+
+#         ax.text(
+#             0.02,
+#             1,
+#             subplot_labels[i],
+#             transform=ax.transAxes,
+#             fontsize=24,
+#             verticalalignment="top",
+#             horizontalalignment="left",
+#         )
+
+#         # Titles & labels
+#         ax.set_xlabel("Observed geodetic MB [m w.e.]", fontsize=20)
+#         ax.set_ylabel("Modelled MB [m w.e.]", fontsize=20)
+#         ax.set_title(f"Area: {area_bin} km²", fontsize=24)
+
+#         # RMSE + correlation annotation
+#         n = len(df_bin)
+#         if annotate_rmse and n > 1:  # need at least 2 points for correlation
+#             resid = df_bin["MBM MB"].to_numpy() - df_bin["Geodetic MB"].to_numpy()
+#             rmse = float(np.sqrt(np.nanmean(resid**2)))
+#             r, _ = pearsonr(df_bin["Geodetic MB"], df_bin["MBM MB"])
+#             box = (
+#                 dict(facecolor="white", alpha=0.7, edgecolor="none")
+#                 if rmse_box
+#                 else None
+#             )
+#             ax.text(
+#                 0.93,
+#                 0.02,
+#                 f"RMSE = {rmse:.2f}, r = {r:.2f}",
+#                 transform=ax.transAxes,
+#                 ha="right",
+#                 va="bottom",
+#                 fontsize=20,
+#                 bbox=box,
+#             )
+#         elif annotate_rmse:
+#             ax.text(
+#                 0.93,
+#                 0.02,
+#                 "No data",
+#                 transform=ax.transAxes,
+#                 ha="right",
+#                 va="bottom",
+#                 fontsize=20,
+#                 bbox=(
+#                     dict(facecolor="white", alpha=0.7, edgecolor="none")
+#                     if rmse_box
+#                     else None
+#                 ),
+#             )
+
+#         # Legend (glacier + correlation info in title)
+#         if "GLACIER" in df_bin.columns:
+#             handles, labels = ax.get_legend_handles_labels()
+#             # corr_txt = f"r = {r:.2f}" if n > 1 else ""
+#             ax.legend(
+#                 handles,
+#                 labels,
+#                 loc="lower center",
+#                 borderaxespad=0.5,
+#                 fontsize=12,
+#                 bbox_to_anchor=(0.5, -0.3),
+#                 ncol=2,
+#             )
+#         else:
+#             ax.legend_.remove() if ax.legend_ else None
+#     plt.suptitle(title)
+#     plt.tight_layout()
+#     plt.subplots_adjust(bottom=-0.15)
+#     plt.show()
+
+
 def plot_mbm_vs_geodetic_by_area_bin(
     df,
     bins=[0, 1, 5, 10, 100, np.inf],
     labels=["<1", "1–5", "5–10", "10–100", ">100"],
     max_bins=4,
-    figsize=(20, 6),
-    title="",
+    figsize=(25, 8),
     annotate_rmse=True,
     rmse_box=True,
 ):
-    """
-    Plot MBM vs. Geodetic mass balance grouped by glacier area bins,
-    and annotate per-bin RMSE and R² between observed (Geodetic MB) and predicted (MBM MB).
-    """
+    subplot_labels = ["(a)", "(b)", "(c)", "(d)"]
+    df = df.copy().replace([np.inf, -np.inf], np.nan)
 
-    df = df.copy()
-    df = df.replace([np.inf, -np.inf], np.nan)
-
-    # Ordered categorical bins
     df["Area_bin"] = pd.cut(
         df["Area"],
         bins=bins,
@@ -1266,22 +1417,24 @@ def plot_mbm_vs_geodetic_by_area_bin(
     all_x = df.loc[mask_bins, "Geodetic MB"]
     all_y = df.loc[mask_bins, "MBM MB"]
     valid = ~(all_x.isna() | all_y.isna())
-    if valid.any():
-        vmin = float(min(all_x[valid].min(), all_y[valid].min())) - 0.25
-        vmax = float(max(all_x[valid].max(), all_y[valid].max())) + 0.25
-    else:
-        vmin, vmax = -1.0, 1.0
+    vmin, vmax = (
+        (-1.0, 1.0)
+        if not valid.any()
+        else (
+            float(min(all_x[valid].min(), all_y[valid].min())) - 0.25,
+            float(max(all_x[valid].max(), all_y[valid].max())) + 0.25,
+        )
+    )
 
     for i, area_bin in enumerate(bins_in_use[:n_plots]):
         ax = axs[i]
         df_bin = df[df["Area_bin"] == area_bin].dropna(subset=["Geodetic MB", "MBM MB"])
-
         df_bin["GLACIER"] = df_bin["GLACIER"].apply(lambda x: x.capitalize())
 
-        # Scatter
         hue_kw = {}
         if "GLACIER" in df_bin.columns:
             hue_kw = dict(hue="GLACIER", style="GLACIER")
+
         sns.scatterplot(
             data=df_bin,
             x="Geodetic MB",
@@ -1297,7 +1450,6 @@ def plot_mbm_vs_geodetic_by_area_bin(
             **hue_kw,
         )
 
-        # Axes & identity
         ax.grid(True, linestyle="--", linewidth=0.5)
         ax.axvline(0, color="grey", linestyle="--", linewidth=1)
         ax.axhline(0, color="grey", linestyle="--", linewidth=1)
@@ -1305,14 +1457,24 @@ def plot_mbm_vs_geodetic_by_area_bin(
         ax.set_xlim(vmin, vmax)
         ax.set_ylim(vmin, vmax)
 
-        # Titles & labels
-        ax.set_xlabel("Observed geodetic MB [m w.e.]", fontsize=20)
+        ax.text(
+            0.02,
+            1,
+            subplot_labels[i],
+            transform=ax.transAxes,
+            fontsize=24,
+            va="top",
+            ha="left",
+        )
+
+        # remove per-axes X label; keep Y labels if you like
+        ax.set_xlabel("")
         ax.set_ylabel("Modelled MB [m w.e.]", fontsize=20)
         ax.set_title(f"Area: {area_bin} km²", fontsize=24)
 
-        # RMSE + correlation annotation
+        # RMSE + r
         n = len(df_bin)
-        if annotate_rmse and n > 1:  # need at least 2 points for correlation
+        if annotate_rmse and n > 1:
             resid = df_bin["MBM MB"].to_numpy() - df_bin["Geodetic MB"].to_numpy()
             rmse = float(np.sqrt(np.nanmean(resid**2)))
             r, _ = pearsonr(df_bin["Geodetic MB"], df_bin["MBM MB"])
@@ -1322,23 +1484,23 @@ def plot_mbm_vs_geodetic_by_area_bin(
                 else None
             )
             ax.text(
+                0.93,
                 0.02,
-                0.98,
-                f"RMSE = {rmse:.2f}\nr = {r:.2f}\nN = {n}",
+                f"RMSE = {rmse:.2f}, r = {r:.2f}",
                 transform=ax.transAxes,
-                ha="left",
-                va="top",
+                ha="right",
+                va="bottom",
                 fontsize=20,
                 bbox=box,
             )
         elif annotate_rmse:
             ax.text(
+                0.93,
                 0.02,
-                0.98,
                 "No data",
                 transform=ax.transAxes,
-                ha="left",
-                va="top",
+                ha="right",
+                va="bottom",
                 fontsize=20,
                 bbox=(
                     dict(facecolor="white", alpha=0.7, edgecolor="none")
@@ -1347,24 +1509,47 @@ def plot_mbm_vs_geodetic_by_area_bin(
                 ),
             )
 
-        # Legend (glacier + correlation info in title)
         if "GLACIER" in df_bin.columns:
-            handles, labels = ax.get_legend_handles_labels()
-            # corr_txt = f"r = {r:.2f}" if n > 1 else ""
+            handles, labels_ = ax.get_legend_handles_labels()
             ax.legend(
                 handles,
-                labels,
+                labels_,
                 loc="lower center",
                 borderaxespad=0.5,
-                fontsize=12,
+                fontsize=16,
                 bbox_to_anchor=(0.5, -0.3),
                 ncol=2,
             )
         else:
-            ax.legend_.remove() if ax.legend_ else None
-    plt.suptitle(title)
-    plt.tight_layout()
-    plt.subplots_adjust(bottom=-0.15)
+            if ax.legend_:
+                ax.legend_.remove()
+
+    fig.canvas.draw()  # need a renderer
+
+    # find the highest (topmost) legend extent in figure coords
+    legend_tops = []
+    for ax in np.atleast_1d(axs).ravel():
+        leg = ax.get_legend()
+        if leg is None:
+            continue
+        bb_fig = leg.get_window_extent(fig.canvas.get_renderer()).transformed(
+            fig.transFigure.inverted()
+        )
+        legend_tops.append(bb_fig.y1)
+
+    if legend_tops:
+        top_of_legends = max(legend_tops)  # e.g., 0.10
+        gap = 0.015  # space between legends and xlabel
+        y_xlabel = min(0.95, top_of_legends + gap)  # don’t go too high
+        fig.supxlabel("Observed geodetic MB [m w.e.]", fontsize=20, y=y_xlabel)
+        # ensure enough bottom margin to fit legends + xlabel
+        bottom = min(0.4, y_xlabel + 0.06)  # tweak 0.06 as needed
+        bottom = 0.12
+        plt.subplots_adjust(bottom=bottom)
+    else:
+        # fallback if no legends
+        fig.supxlabel("Observed geodetic MB [m w.e.]", fontsize=20, y=0.05)
+        plt.subplots_adjust(bottom=0.18)
     plt.show()
 
 
@@ -1552,8 +1737,8 @@ def plot_mb_by_elevation_periods(df_all_a, df_all_w, df_stakes, glacier_name, ax
 
     # Colors/linestyles per period
     style = {
-        "annual": {"color": "#1f77b4", "ls": "-", "label": "Annual"},
-        "winter": {"color": "#ff7f0e", "ls": "-", "label": "Winter"},
+        "annual": {"color": color_annual, "ls": "-", "label": "Annual"},
+        "winter": {"color": color_winter, "ls": "-", "label": "Winter"},
     }
 
     def _aggregate(df):

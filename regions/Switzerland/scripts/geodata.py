@@ -709,7 +709,7 @@ def add_OGGM_features(df_y_gl, voi, path_OGGM):
             # Load the xarray dataset for the current RGIId
             ds_oggm = xr.open_dataset(file_path)
         except FileNotFoundError:
-            print(f"File not found for RGIId: {rgi_id}")
+            print(f"File not found for RGIId: {file_path}")
             continue
 
         # Define the coordinate transformation

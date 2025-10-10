@@ -491,24 +491,27 @@ class LSTM_MB(nn.Module):
         return None
 
     @classmethod
-    def resolve_loss_fn(cls, params):
+    def resolve_loss_fn(cls, params, verbose=False):
         """
         Returns a callable loss function based on params['loss_spec'].
         Fallback is cls.custom_loss.
         """
         spec = cls._coerce_loss_spec(params.get("loss_spec"))
         if spec is None:
-            print("[Model Init] Using loss function: default loss")
+            if verbose:
+                print("[Model Init] Using loss function: default loss")
             return cls.custom_loss
 
         kind, kw = spec
         if kind == "weighted":
-            print(
-                f"[Model Init] Using loss function: seasonal_mse_weighted with params {kw}"
-            )
+            if verbose:
+                print(
+                    f"[Model Init] Using loss function: seasonal_mse_weighted with params {kw}"
+                )
             return partial(cls.seasonal_mse_weighted, **kw)
 
-        print("[Model Init] Using loss function: default loss (fallback)")
+        if verbose:
+            print("[Model Init] Using loss function: default loss (fallback)")
         return cls.custom_loss
 
     @classmethod

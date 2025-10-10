@@ -639,6 +639,7 @@ class MBSequenceDataset(Dataset):
         num_workers: int = 0,
         pin_memory: bool = False,
         use_weighted_sampler: bool = False,
+        verbose: bool = True,
     ):
         """
         Split this dataset into train/val, (optionally) fit+apply scalers on TRAIN,
@@ -726,8 +727,9 @@ class MBSequenceDataset(Dataset):
         # ---- Sanity check printout ----
         n_w_tr, n_a_tr = int(self.iw[train_idx].sum()), int(self.ia[train_idx].sum())
         n_w_va, n_a_va = int(self.iw[val_idx].sum()), int(self.ia[val_idx].sum())
-        print(f"Train counts: {n_w_tr} winter | {n_a_tr} annual")
-        print(f"Val   counts: {n_w_va} winter | {n_a_va} annual")
+        if verbose:
+            print(f"Train counts: {n_w_tr} winter | {n_a_tr} annual")
+            print(f"Val   counts: {n_w_va} winter | {n_a_va} annual")
 
         return train_dl, val_dl
 

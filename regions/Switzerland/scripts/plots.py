@@ -438,7 +438,12 @@ def predVSTruth(
     ax.axvline(0, color="grey", linestyle="--", linewidth=1)
     ax.axhline(0, color="grey", linestyle="--", linewidth=1)
     ax.grid()
-
+    leg = ax.get_legend()
+    if leg is not None:
+        for txt in leg.get_texts():
+            t = txt.get_text().strip().lower()
+            if t in ("annual", "winter"):
+                txt.set_text(t.capitalize())
     # Set ylimits to be the same as xlimits
     ax.set_xlim(ax_xlim)
     ax.set_ylim(ax_ylim)
@@ -492,12 +497,10 @@ def plotMeanPred(
     ax.tick_params(axis="x", rotation=45)
 
     # Metrics
-    mae = mean_absolute_error(pred_mean, obs_mean)
     rmse = mean_squared_error(pred_mean, obs_mean) ** 0.5
-    pearson_corr = np.corrcoef(pred_mean, obs_mean)[0, 1]
 
     legend_text = "\n".join((rf"$\mathrm{{RMSE}}={rmse:.3f}$",))
-    ax.text(0.03, 0.96, legend_text, transform=ax.transAxes, va="top", fontsize=20)
+    ax.text(0.06, 0.96, legend_text, transform=ax.transAxes, va="top", fontsize=20)
 
     ax.legend(fontsize=20, loc="lower right")
 
@@ -673,6 +676,7 @@ def plot_predictions_summary(
     - plotMeanPred: function to plot mean prediction time series.
     - color_annual, color_winter: colors for the NN plot.
     """
+    subplot_labels = ["(a)", "(b)", "(c)"]
     # Create figure
     fig = plt.figure(figsize=(20, 8))
 
@@ -698,6 +702,15 @@ def plot_predictions_summary(
         ax_xlim=ax_xlim,
         ax_ylim=ax_ylim,
     )
+    ax1.text(
+        0.02,
+        0.98,
+        subplot_labels[0],
+        transform=ax1.transAxes,
+        fontsize=24,
+        verticalalignment="top",
+        horizontalalignment="left",
+    )
 
     legend_NN = "\n".join(
         [
@@ -710,7 +723,7 @@ def plot_predictions_summary(
         ]
     )
     ax1.text(
-        0.03,
+        0.25,
         0.98,
         legend_NN,
         transform=ax1.transAxes,
@@ -735,6 +748,15 @@ def plot_predictions_summary(
         linestyle_obs="--",
     )
     ax2.set_ylabel("PMB [m w.e.]", fontsize=20)
+    ax2.text(
+        0.01,
+        0.98,
+        subplot_labels[1],
+        transform=ax2.transAxes,
+        fontsize=24,
+        verticalalignment="top",
+        horizontalalignment="left",
+    )
 
     # Bottom-right: Mean winter PMB
     ax3.set_title("Mean yearly winter point mass balance", fontsize=24)
@@ -750,7 +772,15 @@ def plot_predictions_summary(
         linestyle_obs="--",
     )
     ax3.set_ylabel("PMB [m w.e.]", fontsize=20)
-
+    ax3.text(
+        0.01,
+        0.98,
+        subplot_labels[2],
+        transform=ax3.transAxes,
+        fontsize=24,
+        verticalalignment="top",
+        horizontalalignment="left",
+    )
     # Remove legend from ax3 if it exists
     if ax3.get_legend() is not None:
         ax3.get_legend().remove()
