@@ -582,7 +582,9 @@ def extract_topo_over_outline(
     return mask_xarray, masked_aspect
 
 
-def coarsenDS(ds, target_res_m=50):
+def coarsenDS(
+    ds, target_res_m=50, vars=["masked_slope", "masked_aspect", "masked_elev"]
+):
     dx_m, dy_m = get_res_from_degrees(ds)  # Get resolution in meters
 
     # Compute resampling factor
@@ -594,7 +596,7 @@ def coarsenDS(ds, target_res_m=50):
     if dx_m < target_res_m or dy_m < target_res_m:
         # Coarsen non-binary variables with mean
         ds_non_binary = (
-            ds[["masked_slope", "masked_aspect", "masked_elev"]]
+            ds[vars]
             .coarsen(lon=resampling_fac_lon, lat=resampling_fac_lat, boundary="trim")
             .mean()
         )
