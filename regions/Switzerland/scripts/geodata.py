@@ -15,6 +15,7 @@ from scipy.ndimage import gaussian_filter
 from dateutil.relativedelta import relativedelta
 from tqdm.notebook import tqdm
 import warnings
+from rasterio.transform import from_bounds
 
 # Project-specific imports
 from regions.Switzerland.scripts.config_CH import *
@@ -484,56 +485,99 @@ def xr_SGI_masked_topo(gdf_shapefiles, sgi_id, cfg):
     return ds
 
 
-def extract_topo_over_outline(aspect_xarray, glacier_polygon_gdf):
+def extract_topo_over_outline(
+    aspect_xarray: xr.DataArray,
+    glacier_polygon_gdf,
+    *,
+    target_crs: int = 4326,
+):
     """
-    Extracts aspect values over a glacier outline (polygon) from an xarray in WGS84 coordinates.
+    Mask aspect values by a glacier outline.
 
-    Parameters:
-    - aspect_xarray: xarray.DataArray containing the aspect values, with WGS84 coordinates.
-    - glacier_polygon_gdf: GeoPandas GeoDataFrame with the glacier outline polygon (WGS84 CRS).
+    Works with rasters in either EPSG:2056 (LV95) or EPSG:4326 (WGS84).
+    By default, assumes EPSG:4326 if no CRS information is found.
 
-    Returns:
-    - A masked xarray.DataArray with aspect values only within the glacier polygon.
+    Parameters
+    ----------
+    aspect_xarray : xarray.DataArray
+        2D array of aspect values. Coordinates can be (lon, lat) or (x, y).
+        If `rioxarray` CRS is available, it will be used.
+    glacier_polygon_gdf : geopandas.GeoDataFrame
+        Glacier outline(s). Must have a defined CRS.
+    target_crs : int, optional
+        EPSG code of target coordinate system (default 4326).
+
+    Returns
+    -------
+    mask_xarray : xarray.DataArray (bool/int)
+        1 inside glacier, 0 outside, aligned to `aspect_xarray`.
+    masked_aspect : xarray.DataArray
+        aspect_xarray masked to the glacier outline (NaN outside).
     """
-    # Ensure the GeoDataFrame is in WGS84 CRS
+    # --- Validate glacier CRS ---
     if glacier_polygon_gdf.crs is None:
         raise ValueError("Glacier GeoDataFrame must have a defined CRS.")
-    if glacier_polygon_gdf.crs.to_epsg() != 4326:
-        glacier_polygon_gdf = glacier_polygon_gdf.to_crs("EPSG:4326")
 
-    # Get the x and y coordinates from the xarray
-    lon_coords = aspect_xarray.coords["lon"].values
-    lat_coords = aspect_xarray.coords["lat"].values
+    # --- Identify coordinate names ---
+    if {"lon", "lat"}.issubset(aspect_xarray.coords):
+        x_name, y_name = "lon", "lat"
+    elif {"x", "y"}.issubset(aspect_xarray.coords):
+        x_name, y_name = "x", "y"
+    else:
+        raise ValueError(
+            "aspect_xarray must have coordinates named (lon, lat) or (x, y)."
+        )
 
-    # Compute the transform using rasterio's from_bounds
-    transform = rasterio.transform.from_bounds(
-        lon_coords.min(),
-        lat_coords.min(),
-        lon_coords.max(),
-        lat_coords.max(),
-        width=len(lon_coords),
-        height=len(lat_coords),
-    )
+    x = aspect_xarray.coords[x_name].values
+    y = aspect_xarray.coords[y_name].values
+    nx, ny = len(x), len(y)
 
-    # Rasterize the glacier polygon
-    shapes = [(geom, 1) for geom in glacier_polygon_gdf.geometry]
+    # --- Determine the raster CRS ---
+    try:
+        raster_crs_obj = aspect_xarray.rio.crs  # type: ignore[attr-defined]
+        if raster_crs_obj is not None and raster_crs_obj.to_epsg() is not None:
+            raster_epsg = int(raster_crs_obj.to_epsg())
+        else:
+            raster_epsg = target_crs  # default to provided target CRS (usually 4326)
+    except Exception:
+        raster_epsg = target_crs  # fallback default
+
+    # --- Reproject glacier polygons to raster CRS ---
+    if glacier_polygon_gdf.crs.to_epsg() != raster_epsg:
+        glacier_polygon_gdf = glacier_polygon_gdf.to_crs(f"EPSG:{raster_epsg}")
+
+    # --- Compute transform ---
+    left, right = float(np.min(x)), float(np.max(x))
+    bottom, top = float(np.min(y)), float(np.max(y))
+    transform = from_bounds(left, bottom, right, top, width=nx, height=ny)
+
+    # --- Rasterize glacier polygon ---
+    shapes = [(geom, 1) for geom in glacier_polygon_gdf.geometry if not geom.is_empty]
     mask = rasterio.features.rasterize(
-        shapes,
-        out_shape=(len(lat_coords), len(lon_coords)),  # height (rows), width (cols)
+        shapes=shapes,
+        out_shape=(ny, nx),
         transform=transform,
         fill=0,
-        dtype="int32",
+        dtype="uint8",
     )
 
-    # Apply the mask to the xarray
-    masked_aspect = aspect_xarray.where(np.flip(mask, 0) == 1)
+    # --- Flip if y ascending (south to north) ---
+    if y[0] < y[-1]:
+        mask = np.flipud(mask)
 
-    # Convert the mask to an xarray with the same coordinates as aspect_xarray
+    # --- Build outputs ---
     mask_xarray = xr.DataArray(
-        np.flip(mask, 0),
-        coords=[aspect_xarray.coords["lat"], aspect_xarray.coords["lon"]],
-        dims=["lat", "lon"],
+        mask,
+        coords={
+            y_name: aspect_xarray.coords[y_name],
+            x_name: aspect_xarray.coords[x_name],
+        },
+        dims=(y_name, x_name),
+        name="glacier_mask",
+        attrs={"crs": f"EPSG:{raster_epsg}"},
     )
+
+    masked_aspect = aspect_xarray.where(mask_xarray == 1)
 
     return mask_xarray, masked_aspect
 
@@ -668,6 +712,7 @@ def create_glacier_grid_SGI(
         "aspect": ds.masked_aspect.values[gl_mask_bool],
         "slope": ds.masked_slope.values[gl_mask_bool],
         "topo": ds.masked_elev.values[gl_mask_bool],
+        "svf": ds.svf.values[gl_mask_bool],
     }
     df_grid = pd.DataFrame(data_grid)
 

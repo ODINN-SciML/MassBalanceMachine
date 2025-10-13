@@ -1273,7 +1273,7 @@ def _worker_init():
 
 
 # --- single task executed in a worker ---
-def _process_one_item(item, cfg, type_, path_save, path_SGI_topo):
+def _process_one_item_sgi(item, cfg, type_, path_save, path_SGI_topo, path_xr_svf):
     """
     Returns tuple: (status, item, msg)
     status in {"ok","skip","err"}
@@ -1298,30 +1298,61 @@ def _process_one_item(item, cfg, type_, path_save, path_SGI_topo):
         else:
             return ("err", item, f"Unknown type '{type_}'")
 
-        # build dataset
+        # build dataset (in wgs84)
         ds = xr_SGI_masked_topo(glacier_outline_sgi, sgi_id, cfg)
         if ds is None:
             return ("skip", item, "xr_SGI_masked_topo returned None")
 
         # resample
-        ds_resampled = coarsenDS(ds)
-        if ds_resampled is None:
+        ds_latlon = coarsenDS(ds)
+        if ds_latlon is None:
             return ("skip", item, "coarsenDS returned None")
 
-        # # load svf file
-        # path_xr_svf = os.path.join(cfg.dataPath, "GLAMOS/topo/RGI_v6_11",
-        #                    "svf_nc_latlon/")
-        # svf_path = os.path.join(path_xr_svf, f"{rgi_id}_svf_latlon.nc")
-        # if not os.path.exists(svf_path):
-        #     print(f"SVF not found for {rgi_id}: {svf_path}")
-        # else:
-        #     ds_svf = xr.open_dataset(svf_path)
+        # Merge with SVF
+        # load corresponding SVF (already in lat/lon) and merge
+
+        svf_path = os.path.join(path_xr_svf, f"{sgi_id}_svf_latlon.nc")
+        if not os.path.exists(svf_path):
+            print(f"SVF not found for {sgi_id}: {svf_path}")
+        else:
+            ds_svf = xr.open_dataset(svf_path)
+
+        # Sort ascending for interpolation stability
+        if ds_latlon.lon[0] > ds_latlon.lon[-1]:
+            ds_latlon = ds_latlon.sortby("lon")
+        if ds_latlon.lat[0] > ds_latlon.lat[-1]:
+            ds_latlon = ds_latlon.sortby("lat")
+        if ds_svf.lon[0] > ds_svf.lon[-1]:
+            ds_svf = ds_svf.sortby("lon")
+        if ds_svf.lat[0] > ds_svf.lat[-1]:
+            ds_svf = ds_svf.sortby("lat")
+
+        svf_vars = [v for v in ["svf", "asvf", "opns"] if v in ds_svf.data_vars]
+
+        # If grids match, merge; else interpolate SVF to ds_latlon grid
+        if np.array_equal(ds_latlon.lon.values, ds_svf.lon.values) and np.array_equal(
+            ds_latlon.lat.values, ds_svf.lat.values
+        ):
+            ds_latlon = xr.merge([ds_latlon, ds_svf[svf_vars]])
+        else:
+            svf_on_grid = ds_svf[svf_vars].interp(
+                lon=ds_latlon.lon, lat=ds_latlon.lat, method="linear"
+            )
+            for v in svf_vars:
+                svf_on_grid[v] = svf_on_grid[v].astype("float32")
+            ds_latlon = ds_latlon.assign(**{v: svf_on_grid[v] for v in svf_vars})
+
+        # Add masked versions using glacier_mask already in ds_latlon
+        if "glacier_mask" in ds_latlon:
+            gmask = xr.where(ds_latlon["glacier_mask"] == 1, 1.0, np.nan)
+            for v in svf_vars:
+                ds_latlon[f"masked_{v}"] = gmask * ds_latlon[v]
 
         # atomic save: write to temp then replace
         final_path = os.path.join(path_save, f"{item}.zarr")
         tmp_dir = tempfile.mkdtemp(prefix=f".tmp_{item}_", dir=path_save)
         try:
-            ds_resampled.to_zarr(tmp_dir, mode="w")
+            ds_latlon.to_zarr(tmp_dir, mode="w")
             # remove existing if present, then atomic move
             if os.path.exists(final_path):
                 shutil.rmtree(final_path)
@@ -1342,7 +1373,7 @@ def _process_one_item(item, cfg, type_, path_save, path_SGI_topo):
 
 
 def create_sgi_topo_masks_parallel(
-    cfg, iterator, type="glacier_name", path_save=None, max_workers=None
+    cfg, path_xr_svf, iterator, type="glacier_name", path_save=None, max_workers=None
 ):
     """
     Parallel version of create_sgi_topo_masks (CPU-only).
@@ -1378,7 +1409,15 @@ def create_sgi_topo_masks_parallel(
         mp_context=ctx,
     ) as ex:
         futures = [
-            ex.submit(_process_one_item, item, cfg, type, path_save, path_SGI_topo)
+            ex.submit(
+                _process_one_item_sgi,
+                item,
+                cfg,
+                type,
+                path_save,
+                path_SGI_topo,
+                path_xr_svf,
+            )
             for item in iterator
         ]
 
