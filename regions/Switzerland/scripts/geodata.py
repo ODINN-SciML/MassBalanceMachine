@@ -1027,86 +1027,103 @@ def process_geodetic_mass_balance_comparison(
     glacier_list,
     path_SMB_GLAMOS_csv,
     periods_per_glacier,
-    geoMB_per_glacier,
+    geoMB_per_glacier,  # {'aletsch': [(mb, sigma), ...], ...}
     gl_area,
     test_glaciers,
     path_predictions,
     cfg,
 ):
-    # Storage lists for results
-    mbm_mb_mean, glamos_mb_mean, geodetic_mb = [], [], []
-    gl, period_len, gl_type, area = [], [], [], []
-    start_year, end_year = [], []
+    """
+    For each glacier and period, compute mean MBM and GLAMOS MBs, attach the
+    corresponding geodetic mass balance and its uncertainty (sigma), and return
+    a DataFrame of results.
+    """
+    # Storage
+    mbm_mb_mean, glamos_mb_mean = [], []
     mbm_mb_var, glamos_mb_var = [], []
+    geodetic_mb, geodetic_sigma = [], []
+    gl, gl_type, area = [], [], []
+    period_len, start_year, end_year = [], [], []
 
     for glacier_name in tqdm(glacier_list, desc="Processing glaciers"):
-
-        # Check if GLAMOS file exists
+        # Load GLAMOS annual balances
         glamos_file = os.path.join(
             path_SMB_GLAMOS_csv, "fix", f"{glacier_name}_fix.csv"
         )
-        glamos_exists = os.path.exists(glamos_file)
-
-        if glamos_exists:
+        if os.path.exists(glamos_file):
             GLAMOS_glwmb = get_GLAMOS_glwmb(glacier_name, cfg)
-
             if GLAMOS_glwmb is None:
-                print(
-                    f"Warning: Failed to load GLAMOS data for {glacier_name}. Using NaNs."
-                )
-                GLAMOS_glwmb = {"GLAMOS Balance": {}}
+                GLAMOS_glwmb = pd.DataFrame()
         else:
             print(f"GLAMOS file not found for {glacier_name}. Using NaNs.")
-            GLAMOS_glwmb = {"GLAMOS Balance": {}}
+            GLAMOS_glwmb = pd.DataFrame()
 
-        # Get periods and geodetic MBs
         periods = periods_per_glacier.get(glacier_name, [])
-        geoMBs = geoMB_per_glacier.get(glacier_name, [])
+        geo_tuples = geoMB_per_glacier.get(glacier_name, [])
 
-        if not periods or not geoMBs:
+        if not periods or not geo_tuples:
             print(f"Skipping {glacier_name}: No geodetic mass balance data available.")
             continue
 
         # Path to model predictions
         folder_path = os.path.join(path_predictions, glacier_name)
 
-        for period in periods:
-            mbm_mb, glamos_mb = [], []
+        for i, period in enumerate(periods):
+            # require matching geodetic tuple by index
+            if (
+                i >= len(geo_tuples)
+                or not isinstance(geo_tuples[i], (tuple, list))
+                or len(geo_tuples[i]) < 2
+            ):
+                print(
+                    f"Skipping {glacier_name} {period}: missing geodetic (mb, sigma) tuple at index {i}."
+                )
+                continue
 
+            # Special case skip
             if period[1] == 2021 and glacier_name == "silvretta":
                 continue
 
+            # Check input availability (your helper)
             if check_missing_years(folder_path, glacier_name, period):
                 print(f"Skipping {glacier_name} {period}: Missing years")
                 continue
 
+            mbm_mb, glamos_mb = [], []
             for year in range(period[0], period[1] + 1):
-                file_path = os.path.join(
+                zarr_path = os.path.join(
                     folder_path, f"{glacier_name}_{year}_annual.zarr"
                 )
-
-                if not os.path.exists(file_path):
+                if not os.path.exists(zarr_path):
                     print(f"Warning: Missing MBM file for {glacier_name} ({year}).")
                     mbm_mb.append(np.nan)
                 else:
-                    ds = xr.open_dataset(file_path)
+                    # Zarr -> open_zarr (not open_dataset)
+                    ds = xr.open_zarr(zarr_path)
                     mbm_mb.append(ds["pred_masked"].mean().values)
 
                 glamos_mb.append(GLAMOS_glwmb["GLAMOS Balance"].get(year, np.nan))
 
+            # Aggregate period stats
             mbm_mb_mean.append(np.nanmean(mbm_mb))
             mbm_mb_var.append(np.nanstd(mbm_mb))
             glamos_mb_mean.append(np.nanmean(glamos_mb))
             glamos_mb_var.append(np.nanstd(glamos_mb))
-            geodetic_mb.append(geoMBs[periods.index(period)])
+
+            # Geodetic (mb, sigma)
+            g_mb, g_sig = geo_tuples[i][0], geo_tuples[i][1]
+            geodetic_mb.append(g_mb)
+            geodetic_sigma.append(g_sig)
+
+            # Meta
             gl.append(glacier_name)
             gl_type.append(glacier_name in test_glaciers)
-            period_len.append(period[1] - period[0])
+            period_len.append(period[1] - period[0])  # keep your original convention
             area.append(gl_area.get(glacier_name, np.nan))
             start_year.append(period[0])
             end_year.append(period[1])
 
-    # Create and return DataFrame
+    # Assemble DataFrame
     df_all = pd.DataFrame(
         {
             "MBM MB": mbm_mb_mean,
@@ -1114,6 +1131,7 @@ def process_geodetic_mass_balance_comparison(
             "MBM MB std": mbm_mb_var,
             "GLAMOS MB std": glamos_mb_var,
             "Geodetic MB": geodetic_mb,
+            "Geodetic MB sigma": geodetic_sigma,
             "GLACIER": gl,
             "Period Length": period_len,
             "Test Glacier": gl_type,
@@ -1191,19 +1209,22 @@ def build_periods_per_glacier(geodetic_mb):
 
     periods_per_glacier = defaultdict(list)
     geoMB_per_glacier = defaultdict(list)
+    geoMB_sigma_per_glacier = defaultdict(list)
 
     # Iterate through the DataFrame rows
     for _, row in geodetic_mb.iterrows():
         glacier_name = row["glacier_name"]
         start_year = row["Astart"]
         end_year = row["Aend"]
-        geoMB = row["Bgeod"]
+        geoMB = row["Bgeod_mwe_a"]
+        sigma = row["sigma_mwe_a"]
 
         # Append the (start, end) tuple to the glacier's list
         # Only if period is longer than 5 years
         if end_year - start_year >= 5:
             periods_per_glacier[glacier_name].append((start_year, end_year))
-            geoMB_per_glacier[glacier_name].append(geoMB)
+            # append geodetic MB and its uncertainty
+            geoMB_per_glacier[glacier_name].append((geoMB, sigma))
 
     # sort by glacier_list
     periods_per_glacier = dict(sorted(periods_per_glacier.items()))

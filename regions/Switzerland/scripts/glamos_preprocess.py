@@ -422,11 +422,12 @@ def get_geodetic_MB(cfg):
     )
 
     # Read geodetic MB dataset
+    # geodetic_mb = pd.read_csv(
+    #     cfg.dataPath + path_geodetic_MB_glamos + "dV_DOI2024_allcomb.csv"
+    # )
     geodetic_mb = pd.read_csv(
-        cfg.dataPath + path_geodetic_MB_glamos + "dV_DOI2024_allcomb.csv"
+        cfg.dataPath + path_geodetic_MB_glamos + "dV_DOI2025_allcomb_prelim.csv"
     )
-    # geodetic_mb = pd.read_csv(path_geodetic_MB_glamos +
-    #                           'volumechange.csv', sep = ',')
 
     # Get RGI IDs for the glaciers
     rgi_gl = data_glamos.RGIId.unique()
@@ -434,12 +435,12 @@ def get_geodetic_MB(cfg):
         glacier_ids[glacier_ids["rgi_id.v6"] == rgi]["sgi-id"].values[0]
         for rgi in rgi_gl
     ]
-    geodetic_mb = geodetic_mb[geodetic_mb["SGI-ID"].isin(sgi_gl)]
+    geodetic_mb = geodetic_mb[geodetic_mb["SGI_ID"].isin(sgi_gl)]
 
     # Add glacier_name to geodetic_mb based on SGI-ID
     glacier_names = [
         glacier_ids[glacier_ids["sgi-id"] == sgi_id].index[0]
-        for sgi_id in geodetic_mb["SGI-ID"].values
+        for sgi_id in geodetic_mb["SGI_ID"].values
     ]
     geodetic_mb["glacier_name"] = glacier_names
 
