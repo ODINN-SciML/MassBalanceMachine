@@ -893,36 +893,23 @@ def plot_mass_balance_comparison_annual(
     year,
     cfg,
     df_stakes,
-    path_distributed_mb,
-    path_pred_lstm,
-    path_pred_nn,
-    bias_correction: float = 0.0,
+    path_distributed_mb,  # base for GLAMOS grids
+    path_pred_lstm,  # base for LSTM/XGB zarrs
+    path_pred_nn,  # base for NN zarrs
     period="annual",
 ):
-    """Plot annual MB comparison (GLAMOS, LSTM/XGB, NN) for a glacier and year.
+    """Plot annual MB comparison (GLAMOS, LSTM/XGB, NN) for a glacier and year (no bias correction)."""
 
-    Parameters
-    ----------
-    bias_correction : float
-        Additive bias (in m w.e.) applied ONLY to the middle plot (LSTM/XGB).
-        The corrected field is: pred_masked_corrected = pred_masked - bias_correction.
-        Stake-based RMSE on the middle panel also uses the corrected predictions.
-    """
-
-    # Stake data
+    # Stake data (annual only)
     stakes_data = df_stakes[
         (df_stakes.GLACIER == glacier_name) & (df_stakes.YEAR == year)
     ]
     stakes_data_ann = stakes_data[stakes_data.PERIOD == "annual"].copy()
 
+    # ---- Locate GLAMOS grid (ann/win in lv95/lv03) ----
     def pick_ann_file(cfg, glacier_name, year, period="annual"):
-        if period == "annual":
-            suffix = "ann"
-        elif period == "winter":
-            suffix = "win"
-        base = os.path.join(
-            cfg.dataPath, path_distributed_MB_glamos, "GLAMOS", glacier_name
-        )
+        suffix = "ann" if period == "annual" else "win"
+        base = os.path.join(cfg.dataPath, path_distributed_mb, "GLAMOS", glacier_name)
         cand_lv95 = os.path.join(base, f"{year}_{suffix}_fix_lv95.grid")
         cand_lv03 = os.path.join(base, f"{year}_{suffix}_fix_lv03.grid")
         if os.path.exists(cand_lv95):
@@ -931,96 +918,87 @@ def plot_mass_balance_comparison_annual(
             return cand_lv03, "lv03"
         return None, None
 
-    file_ann, coord_system = pick_ann_file(cfg, glacier_name, year, period)
-    grid_path_ann = os.path.join(
-        cfg.dataPath, path_distributed_mb, "GLAMOS", glacier_name, file_ann
-    )
+    grid_path_ann, coord_system = pick_ann_file(cfg, glacier_name, year, period)
+    if grid_path_ann is None:
+        raise FileNotFoundError(
+            f"No GLAMOS {period} grid found for {glacier_name} {year}"
+        )
 
-    # Load GLAMOS data and convert to WGS84
+    # ---- Load GLAMOS and transform to WGS84 ----
     metadata_ann, grid_data_ann = load_grid_file(grid_path_ann)
-    ds_glamos_ann = convert_to_xarray_geodata(grid_data_ann, metadata_ann)
+    da_glamos_ann = convert_to_xarray_geodata(grid_data_ann, metadata_ann)  # DataArray
 
     if coord_system == "lv03":
-        ds_glamos_wgs84_ann = transform_xarray_coords_lv03_to_wgs84(ds_glamos_ann)
+        da_glamos_wgs84_ann = transform_xarray_coords_lv03_to_wgs84(da_glamos_ann)
     elif coord_system == "lv95":
-        ds_glamos_wgs84_ann = transform_xarray_coords_lv95_to_wgs84(ds_glamos_ann)
+        da_glamos_wgs84_ann = transform_xarray_coords_lv95_to_wgs84(da_glamos_ann)
+    else:
+        raise ValueError(f"Unknown coord system for GLAMOS grid: {coord_system}")
 
-    # Load model predictions (LSTM/XGB & NN)
-    mbm_file_xgb = os.path.join(
+    # ---- Load predictions (Zarr) and (optionally) smooth ----
+    mbm_file_lstm = os.path.join(
         path_pred_lstm, glacier_name, f"{glacier_name}_{year}_{period}.zarr"
     )
-    ds_mbm_xgb = apply_gaussian_filter(xr.open_dataset(mbm_file_xgb))
-
     mbm_file_nn = os.path.join(
         path_pred_nn, glacier_name, f"{glacier_name}_{year}_{period}.zarr"
     )
-    ds_mbm_nn = apply_gaussian_filter(xr.open_dataset(mbm_file_nn))
 
-    # Coordinate name resolution
-    lon_name = "lon" if "lon" in ds_mbm_xgb.coords else "longitude"
-    lat_name = "lat" if "lat" in ds_mbm_xgb.coords else "latitude"
+    if not os.path.exists(mbm_file_lstm):
+        raise FileNotFoundError(f"Missing LSTM/XGB zarr: {mbm_file_lstm}")
+    if not os.path.exists(mbm_file_nn):
+        raise FileNotFoundError(f"Missing NN zarr: {mbm_file_nn}")
 
-    # Prepare a bias-corrected copy for the middle (XGB/LSTM) plot
-    ds_mbm_xgb_bc = ds_mbm_xgb.copy()
-    ds_mbm_xgb_bc["pred_masked"] = ds_mbm_xgb_bc["pred_masked"] - bias_correction
+    ds_mbm_lstm = apply_gaussian_filter(xr.open_zarr(mbm_file_lstm))
+    ds_mbm_nn = apply_gaussian_filter(xr.open_zarr(mbm_file_nn))
 
-    # Add model predictions to stake data (use corrected values for XGB on the middle plot)
+    # ---- Coordinate names for stake sampling ----
+    lon_name = "lon" if "lon" in ds_mbm_lstm.coords else "longitude"
+    lat_name = "lat" if "lat" in ds_mbm_lstm.coords else "latitude"
+
+    # ---- Sample model & GLAMOS at stake points ----
     if not stakes_data_ann.empty:
-        stakes_data_ann["Predicted_MB_XGB_raw"] = stakes_data_ann.apply(
-            lambda row: get_predicted_mb(lon_name, lat_name, row, ds_mbm_xgb), axis=1
+        stakes_data_ann["Predicted_MB_LSTM"] = stakes_data_ann.apply(
+            lambda row: get_predicted_mb(lon_name, lat_name, row, ds_mbm_lstm), axis=1
         )
-        stakes_data_ann["Predicted_MB_XGB_corr"] = (
-            stakes_data_ann["Predicted_MB_XGB_raw"] - bias_correction
-        )
-
         stakes_data_ann["Predicted_MB_NN"] = stakes_data_ann.apply(
             lambda row: get_predicted_mb(lon_name, lat_name, row, ds_mbm_nn), axis=1
         )
         stakes_data_ann["GLAMOS_MB"] = stakes_data_ann.apply(
             lambda row: get_predicted_mb_glamos(
-                lon_name, lat_name, row, ds_glamos_wgs84_ann
+                lon_name, lat_name, row, da_glamos_wgs84_ann
             ),
             axis=1,
         )
-
         stakes_data_ann.dropna(
-            subset=[
-                "Predicted_MB_XGB_raw",
-                "Predicted_MB_XGB_corr",
-                "Predicted_MB_NN",
-                "GLAMOS_MB",
-            ],
-            inplace=True,
+            subset=["Predicted_MB_LSTM", "Predicted_MB_NN", "GLAMOS_MB"], inplace=True
         )
 
-    # Color scale limits — compute AFTER applying XGB correction so panels are comparable
+    # ---- Color limits from raw (unbiased) fields ----
     vmin = min(
-        ds_glamos_wgs84_ann.min().item(),
-        ds_mbm_xgb_bc.pred_masked.min().item(),
-        ds_mbm_nn.pred_masked.min().item(),
+        float(da_glamos_wgs84_ann.min().item()),
+        float(ds_mbm_lstm["pred_masked"].min().item()),
+        float(ds_mbm_nn["pred_masked"].min().item()),
     )
     vmax = max(
-        ds_glamos_wgs84_ann.max().item(),
-        ds_mbm_xgb_bc.pred_masked.max().item(),
-        ds_mbm_nn.pred_masked.max().item(),
+        float(da_glamos_wgs84_ann.max().item()),
+        float(ds_mbm_lstm["pred_masked"].max().item()),
+        float(ds_mbm_nn["pred_masked"].max().item()),
     )
     cmap_ann, norm_ann, _, _ = get_color_maps(vmin, vmax, 0, 0)
 
-    # Plot setup
+    # ---- Plot ----
     fig, axes = plt.subplots(1, 3, figsize=(20, 8), sharex=False, sharey=False)
 
-    # ----------------
-    # GLAMOS plot
-    # ----------------
-    ds_glamos_wgs84_ann.plot.imshow(
+    # GLAMOS
+    da_glamos_wgs84_ann.plot.imshow(
         ax=axes[0],
         cmap=cmap_ann,
         norm=norm_ann,
         cbar_kwargs={"label": "Mass Balance [m w.e.]"},
     )
     axes[0].set_title("GLAMOS (Annual)")
+    var_glamos = float(da_glamos_wgs84_ann.var().item())
 
-    var_glamos = ds_glamos_wgs84_ann.var().item()
     if not stakes_data_ann.empty:
         sns.scatterplot(
             data=stakes_data_ann,
@@ -1036,15 +1014,9 @@ def plot_mass_balance_comparison_annual(
         rmse_glamos = root_mean_squared_error(
             stakes_data_ann.POINT_BALANCE, stakes_data_ann.GLAMOS_MB
         )
-        text_glamos = (
-            f"RMSE: {rmse_glamos:.2f},\n"
-            f"mean MB: {ds_glamos_wgs84_ann.mean().item():.2f},\n"
-            f"var: {var_glamos:.2f}"
-        )
+        text_glamos = f"RMSE: {rmse_glamos:.2f},\nmean MB: {float(da_glamos_wgs84_ann.mean().item()):.2f},\nvar: {var_glamos:.2f}"
     else:
-        text_glamos = (
-            f"mean MB: {ds_glamos_wgs84_ann.mean().item():.2f},\nvar: {var_glamos:.2f}"
-        )
+        text_glamos = f"mean MB: {float(da_glamos_wgs84_ann.mean().item()):.2f},\nvar: {var_glamos:.2f}"
 
     axes[0].text(
         0.05,
@@ -1056,18 +1028,16 @@ def plot_mass_balance_comparison_annual(
         fontsize=18,
     )
 
-    # ----------------
-    # XGB (bias-corrected) plot — middle
-    # ----------------
-    ds_mbm_xgb_bc.pred_masked.plot.imshow(
+    # LSTM
+    ds_mbm_lstm["pred_masked"].plot.imshow(
         ax=axes[1],
         cmap=cmap_ann,
         norm=norm_ann,
         cbar_kwargs={"label": "Mass Balance [m w.e.]"},
     )
-    axes[1].set_title("MBM LSTM (Annual) – Bias corrected")
+    axes[1].set_title("MBM LSTM (Annual)")
+    var_lstm = float(ds_mbm_lstm["pred_masked"].var().item())
 
-    var_xgb = ds_mbm_xgb_bc.pred_masked.var().item()
     if not stakes_data_ann.empty:
         sns.scatterplot(
             data=stakes_data_ann,
@@ -1080,46 +1050,33 @@ def plot_mass_balance_comparison_annual(
             s=25,
             legend=False,
         )
-        # Use corrected predictions for RMSE
-        rmse_xgb = root_mean_squared_error(
-            stakes_data_ann.POINT_BALANCE, stakes_data_ann.Predicted_MB_XGB_corr
+        rmse_lstm = root_mean_squared_error(
+            stakes_data_ann.POINT_BALANCE, stakes_data_ann.Predicted_MB_LSTM
         )
-
-        text_xgb = (
-            f"RMSE: {rmse_xgb:.2f},\n"
-            f"mean MB: {ds_mbm_xgb_bc.pred_masked.mean().item():.2f},\n"
-            f"var: {var_xgb:.2f}\n"
-            f"(bias: {bias_correction:+.2f} m w.e.)"
-        )
+        text_lstm = f"RMSE: {rmse_lstm:.2f},\nmean MB: {float(ds_mbm_lstm['pred_masked'].mean().item()):.2f},\nvar: {var_lstm:.2f}"
     else:
-        text_xgb = (
-            f"mean MB: {ds_mbm_xgb_bc.pred_masked.mean().item():.2f},\n"
-            f"var: {var_xgb:.2f}\n"
-            f"(bias: {bias_correction:+.2f} m w.e.)"
-        )
+        text_lstm = f"mean MB: {float(ds_mbm_lstm['pred_masked'].mean().item()):.2f},\nvar: {var_lstm:.2f}"
 
     axes[1].text(
         0.05,
         0.15,
-        text_xgb,
+        text_lstm,
         transform=axes[1].transAxes,
         ha="left",
         va="top",
         fontsize=18,
     )
 
-    # ----------------
-    # NN plot
-    # ----------------
-    ds_mbm_nn.pred_masked.plot.imshow(
+    # NN
+    ds_mbm_nn["pred_masked"].plot.imshow(
         ax=axes[2],
         cmap=cmap_ann,
         norm=norm_ann,
         cbar_kwargs={"label": "Mass Balance [m w.e.]"},
     )
     axes[2].set_title("MBM NN (Annual)")
+    var_nn = float(ds_mbm_nn["pred_masked"].var().item())
 
-    var_nn = ds_mbm_nn.pred_masked.var().item()
     if not stakes_data_ann.empty:
         sns.scatterplot(
             data=stakes_data_ann,
@@ -1135,15 +1092,9 @@ def plot_mass_balance_comparison_annual(
         rmse_nn = root_mean_squared_error(
             stakes_data_ann.POINT_BALANCE, stakes_data_ann.Predicted_MB_NN
         )
-        text_nn = (
-            f"RMSE: {rmse_nn:.2f},\n"
-            f"mean MB: {ds_mbm_nn.pred_masked.mean().item():.2f},\n"
-            f"var: {var_nn:.2f}"
-        )
+        text_nn = f"RMSE: {rmse_nn:.2f},\nmean MB: {float(ds_mbm_nn['pred_masked'].mean().item()):.2f},\nvar: {var_nn:.2f}"
     else:
-        text_nn = (
-            f"mean MB: {ds_mbm_nn.pred_masked.mean().item():.2f},\nvar: {var_nn:.2f}"
-        )
+        text_nn = f"mean MB: {float(ds_mbm_nn['pred_masked'].mean().item()):.2f},\nvar: {var_nn:.2f}"
 
     axes[2].text(
         0.05,
