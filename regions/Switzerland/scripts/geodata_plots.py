@@ -1,10 +1,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import (
+    r2_score,
     mean_squared_error,
     root_mean_squared_error,
+    mean_absolute_error,
 )
-
 import seaborn as sns
 import matplotlib.colors as mcolors
 import massbalancemachine as mbm
