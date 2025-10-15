@@ -15,6 +15,7 @@ import xarray as xr
 
 # add near the other imports
 import massbalancemachine as mbm
+from regions.Switzerland.scripts.helpers import *
 
 # 3rd party progress bar is optional; caller can pass a shim
 try:
@@ -244,6 +245,7 @@ def process_glacier_year(
         return ("ok", glacier_name, year, "")
 
     except Exception as e:
+        print(e)
         return ("err", glacier_name, year, str(e))
 
 
@@ -289,6 +291,7 @@ def run_glacier_mb(
     """Run parallel glacier-year MB inference & save. Returns summary counts."""
     # ensure output folder exists & is empty if desired
     os.makedirs(job.path_save_glw, exist_ok=True)
+    emptyfolder(job.path_save_glw)
     # caller can empty it beforehand if they want
 
     tasks = build_tasks(
@@ -301,6 +304,7 @@ def run_glacier_mb(
     max_workers = job.max_workers or min(max(1, (os.cpu_count() or 2) - 1), 32)
 
     class _Devnull(io.StringIO):
+
         def write(self, *args, **kwargs):
             return 0
 
