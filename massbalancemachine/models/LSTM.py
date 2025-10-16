@@ -491,28 +491,31 @@ class LSTM_MB(nn.Module):
         return None
 
     @classmethod
-    def resolve_loss_fn(cls, params):
+    def resolve_loss_fn(cls, params, verbose=False):
         """
         Returns a callable loss function based on params['loss_spec'].
         Fallback is cls.custom_loss.
         """
         spec = cls._coerce_loss_spec(params.get("loss_spec"))
         if spec is None:
-            print("[Model Init] Using loss function: default loss")
+            if verbose:
+                print("[Model Init] Using loss function: default loss")
             return cls.custom_loss
 
         kind, kw = spec
         if kind == "weighted":
-            print(
-                f"[Model Init] Using loss function: seasonal_mse_weighted with params {kw}"
-            )
+            if verbose:
+                print(
+                    f"[Model Init] Using loss function: seasonal_mse_weighted with params {kw}"
+                )
             return partial(cls.seasonal_mse_weighted, **kw)
 
-        print("[Model Init] Using loss function: default loss (fallback)")
+        if verbose:
+            print("[Model Init] Using loss function: default loss (fallback)")
         return cls.custom_loss
 
     @classmethod
-    def build_model_from_params(cls, cfg, params, device):
+    def build_model_from_params(cls, cfg, params, device, verbose=True):
         """
         Construct LSTM_MB from a flat params dict.
         Also normalizes the static-MLP identity case.
@@ -540,8 +543,8 @@ class LSTM_MB(nn.Module):
             "head_dropout": float(params.get("head_dropout", 0.0)),
         }
 
-        print("\n[Model Init] Building model with parameters:")
-        for k, v in init_params.items():
-            print(f"  {k}: {v}")
-
+        if verbose:
+            print("\n[Model Init] Building model with parameters:")
+            for k, v in init_params.items():
+                print(f"  {k}: {v}")
         return cls(cfg=cfg, **init_params).to(device)

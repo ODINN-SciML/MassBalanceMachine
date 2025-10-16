@@ -1,19 +1,27 @@
-import pandas as pd
-import numpy as np
-from scipy.spatial.distance import cdist
-import pyproj
-import xarray as xr
+# --- standard library ---
+import os
 import re
+import tempfile
+import shutil
+import logging
+from calendar import monthrange
+import multiprocessing as mp
+from concurrent.futures import ProcessPoolExecutor, as_completed
+
+# --- third-party ---
+import numpy as np
+import pandas as pd
+import xarray as xr
+import pyproj
 import geopandas as gpd
 from shapely.geometry import Point
-from tqdm.notebook import tqdm
-import logging
+from scipy.spatial.distance import cdist
+from tqdm import tqdm
+
+# --- project/local ---
+import massbalancemachine as mbm
 from oggm import utils, workflow, tasks
 from oggm import cfg as oggmCfg
-from calendar import monthrange
-
-import massbalancemachine as mbm
-
 from regions.Switzerland.scripts.wgs84_ch1903 import *
 from regions.Switzerland.scripts.config_CH import *
 from regions.Switzerland.scripts.helpers import *
@@ -341,7 +349,7 @@ def convert_to_xarray(grid_data, metadata, num_months):
     return data_array
 
 
-def transform_xarray_coords_lv03_to_wgs84(data_array):
+def transform_xarray_coords_lv03_to_wgs84_time(data_array):
     # Extract time, y, and x dimensions
     time_dim = data_array.coords["time"]
 
@@ -414,11 +422,12 @@ def get_geodetic_MB(cfg):
     )
 
     # Read geodetic MB dataset
+    # geodetic_mb = pd.read_csv(
+    #     cfg.dataPath + path_geodetic_MB_glamos + "dV_DOI2024_allcomb.csv"
+    # )
     geodetic_mb = pd.read_csv(
-        cfg.dataPath + path_geodetic_MB_glamos + "dV_DOI2024_allcomb.csv"
+        cfg.dataPath + path_geodetic_MB_glamos + "dV_DOI2025_allcomb_prelim.csv"
     )
-    # geodetic_mb = pd.read_csv(path_geodetic_MB_glamos +
-    #                           'volumechange.csv', sep = ',')
 
     # Get RGI IDs for the glaciers
     rgi_gl = data_glamos.RGIId.unique()
@@ -426,12 +435,12 @@ def get_geodetic_MB(cfg):
         glacier_ids[glacier_ids["rgi_id.v6"] == rgi]["sgi-id"].values[0]
         for rgi in rgi_gl
     ]
-    geodetic_mb = geodetic_mb[geodetic_mb["SGI-ID"].isin(sgi_gl)]
+    geodetic_mb = geodetic_mb[geodetic_mb["SGI_ID"].isin(sgi_gl)]
 
     # Add glacier_name to geodetic_mb based on SGI-ID
     glacier_names = [
         glacier_ids[glacier_ids["sgi-id"] == sgi_id].index[0]
-        for sgi_id in geodetic_mb["SGI-ID"].values
+        for sgi_id in geodetic_mb["SGI_ID"].values
     ]
     geodetic_mb["glacier_name"] = glacier_names
 
@@ -854,10 +863,12 @@ def initialize_oggm_glacier_directories(
     cfg,
     working_dir=None,
     rgi_region="11",
-    rgi_version="6",
+    rgi_version="62",
     base_url="https://cluster.klima.uni-bremen.de/~oggm/gdirs/oggm_v1.6/L3-L5_files/2023.1/elev_bands/W5E5_w_data/",
     log_level="WARNING",
     task_list=None,
+    from_prepro_level=2,
+    prepro_border=10,
 ):
     # Initialize OGGM config
     oggmCfg.initialize(logging_level=log_level)
@@ -872,19 +883,25 @@ def initialize_oggm_glacier_directories(
     # Set working directory
     if working_dir is None:
         working_dir = cfg.dataPath + path_OGGM
+        emptyfolder(working_dir)
+    # empty the working directory if it exists
+    emptyfolder(working_dir)
     oggmCfg.PATHS["working_dir"] = working_dir
 
     # Get RGI file
-    rgi_dir = utils.get_rgi_dir(version=rgi_version)
-    path = utils.get_rgi_region_file(region=rgi_region, version=rgi_version)
+    # rgi_dir = utils.get_rgi_dir(version=rgi_version, reset=False)
+    path = utils.get_rgi_region_file(
+        region=rgi_region, version=rgi_version, reset=False
+    )
     rgidf = gpd.read_file(path)
 
     # Initialize glacier directories from preprocessed data
+    print("Collecting from base_url: ", base_url)
     gdirs = workflow.init_glacier_directories(
         rgidf,
-        from_prepro_level=3,
+        from_prepro_level=from_prepro_level,
         prepro_base_url=base_url,
-        prepro_border=10,
+        prepro_border=prepro_border,
         reset=True,
         force=True,
     )
@@ -910,6 +927,9 @@ def export_oggm_grids(cfg, gdirs, subset_rgis=None, output_path=None):
     if output_path is None:
         output_path = cfg.dataPath + path_OGGM_xrgrids
     emptyfolder(output_path)
+
+    records = []
+
     for gdir in gdirs:
         RGIId = gdir.rgi_id
         # only save a subset if it's not empty
@@ -920,8 +940,23 @@ def export_oggm_grids(cfg, gdirs, subset_rgis=None, output_path=None):
                 continue
         with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
             ds = ds.load()
+
+        vars = ["hugonnet_dhdt", "consensus_ice_thickness", "millan_v"]
+
+        if not all(var in ds for var in vars):
+            missing_vars = [var for var in vars if var not in ds]
+            records.append(
+                {
+                    "rgi_id": RGIId,
+                    "missing_vars": missing_vars,
+                }
+            )
+
         # save ds
         ds.to_zarr(os.path.join(output_path, f"{RGIId}.zarr"))
+    df_missing = pd.DataFrame(records)
+
+    return df_missing
 
 
 def merge_pmb_with_oggm_data(
@@ -1212,7 +1247,7 @@ def process_pcsr(cfg):
         data_array = convert_to_xarray(monthly_grids, metadata, num_months)
 
         # Convert to WGS84 (lat/lon) coordinates
-        data_array_transf = transform_xarray_coords_lv03_to_wgs84(data_array)
+        data_array_transf = transform_xarray_coords_lv03_to_wgs84_time(data_array)
 
         # Save xarray
         if glacierName == "findelen":
@@ -1224,63 +1259,187 @@ def process_pcsr(cfg):
             data_array_transf.to_zarr(path_pcsr_save + f"xr_direct_{glacierName}.zarr")
 
 
-def create_sgi_topo_masks(cfg, iterator, type="glacier_name", path_save=None):
-    """
-    Create and save SGI topographic masks for a list of glaciers.
+# --- per-process initializer (caps threads, seeds if you want) ---
+def _worker_init():
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("MKL_NUM_THREADS", "1")
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+    os.environ.setdefault("NUMEXPR_MAX_THREADS", "1")
+    try:
+        import torch
 
-    Parameters:
-    -----------
-    glacier_list : list
-        List of glacier names to process.
-    sgi_list : list, optional (if instead of processing by name we process by sgi id)
-    """
-    if path_save is None:
-        path_save = os.path.join(cfg.dataPath, path_SGI_topo, "xr_masked_grids/")
-    # check if path_save exists and create otherwise, otherwise empty
-    if not os.path.exists(path_save):
-        os.makedirs(path_save)
-    else:
-        emptyfolder(path_save)
+        torch.set_num_threads(1)
+    except Exception:
+        pass
 
-    glacier_outline_sgi = gpd.read_file(
-        os.path.join(
+
+# --- single task executed in a worker ---
+def _process_one_item_sgi(item, cfg, type_, path_save, path_SGI_topo, path_xr_svf):
+    """
+    Returns tuple: (status, item, msg)
+    status in {"ok","skip","err"}
+    """
+    try:
+        # lazily import heavy deps inside worker to reduce parent footprint
+        import geopandas as gpd
+
+        # read shapefile once per worker process
+        shp_path = os.path.join(
             cfg.dataPath, path_SGI_topo, "inventory_sgi2016_r2020/SGI_2016_glaciers.shp"
         )
-    )
-    for item in tqdm(iterator, desc="Processing glaciers"):
+        glacier_outline_sgi = gpd.read_file(shp_path)
 
-        if type == "glacier_name":
+        # resolve SGI id
+        if type_ == "glacier_name":
             sgi_id, rgi_id, rgi_shp = get_rgi_sgi_ids(cfg, item)
             if not sgi_id:
-                print(f"Warning: Missing SGI ID or shapefile for {item}. Skipping...")
-                continue
-        elif type == "sgi_id":
+                return ("skip", item, "Missing SGI ID")
+        elif type_ == "sgi_id":
             sgi_id = item
+        else:
+            return ("err", item, f"Unknown type '{type_}'")
 
-        try:
-            ds = xr_SGI_masked_topo(glacier_outline_sgi, sgi_id, cfg)
-            if ds is None:
-                print(f"Warning: Failed to load dataset for {item}. Skipping...")
-                continue
-        except Exception as e:
-            print(f"Error loading dataset for {item}: {e}")
-            continue
+        # build dataset (in wgs84)
+        ds = xr_SGI_masked_topo(glacier_outline_sgi, sgi_id, cfg)
+        if ds is None:
+            return ("skip", item, "xr_SGI_masked_topo returned None")
 
-        try:
-            ds_resampled = coarsenDS(ds)
-            if ds_resampled is None:
-                print(f"Warning: Resampling failed for {item}. Skipping...")
-                continue
-        except Exception as e:
-            print(f"Error during resampling for {item}: {e}")
-            continue
+        # resample
+        ds_latlon = coarsenDS(ds)
+        if ds_latlon is None:
+            return ("skip", item, "coarsenDS returned None")
 
+        # Merge with SVF
+        # load corresponding SVF (already in lat/lon) and merge
+
+        svf_path = os.path.join(path_xr_svf, f"{sgi_id}_svf_latlon.nc")
+        if not os.path.exists(svf_path):
+            print(f"SVF not found for {sgi_id}: {svf_path}")
+        else:
+            ds_svf = xr.open_dataset(svf_path)
+
+        # Sort ascending for interpolation stability
+        if ds_latlon.lon[0] > ds_latlon.lon[-1]:
+            ds_latlon = ds_latlon.sortby("lon")
+        if ds_latlon.lat[0] > ds_latlon.lat[-1]:
+            ds_latlon = ds_latlon.sortby("lat")
+        if ds_svf.lon[0] > ds_svf.lon[-1]:
+            ds_svf = ds_svf.sortby("lon")
+        if ds_svf.lat[0] > ds_svf.lat[-1]:
+            ds_svf = ds_svf.sortby("lat")
+
+        svf_vars = [v for v in ["svf", "asvf", "opns"] if v in ds_svf.data_vars]
+
+        # If grids match, merge; else interpolate SVF to ds_latlon grid
+        if np.array_equal(ds_latlon.lon.values, ds_svf.lon.values) and np.array_equal(
+            ds_latlon.lat.values, ds_svf.lat.values
+        ):
+            ds_latlon = xr.merge([ds_latlon, ds_svf[svf_vars]])
+        else:
+            svf_on_grid = ds_svf[svf_vars].interp(
+                lon=ds_latlon.lon, lat=ds_latlon.lat, method="linear"
+            )
+            for v in svf_vars:
+                svf_on_grid[v] = svf_on_grid[v].astype("float32")
+            ds_latlon = ds_latlon.assign(**{v: svf_on_grid[v] for v in svf_vars})
+
+        # Add masked versions using glacier_mask already in ds_latlon
+        if "glacier_mask" in ds_latlon:
+            gmask = xr.where(ds_latlon["glacier_mask"] == 1, 1.0, np.nan)
+            for v in svf_vars:
+                ds_latlon[f"masked_{v}"] = gmask * ds_latlon[v]
+
+        # atomic save: write to temp then replace
+        final_path = os.path.join(path_save, f"{item}.zarr")
+        tmp_dir = tempfile.mkdtemp(prefix=f".tmp_{item}_", dir=path_save)
         try:
-            save_path = os.path.join(path_save, f"{item}.zarr")
-            ds_resampled.to_zarr(save_path)
-            print(f"Saved {item} dataset to {save_path}")
+            ds_latlon.to_zarr(tmp_dir, mode="w")
+            # remove existing if present, then atomic move
+            if os.path.exists(final_path):
+                shutil.rmtree(final_path)
+            os.replace(tmp_dir, final_path)
         except Exception as e:
-            print(f"Error saving dataset for {item}: {e}")
+            # cleanup tmp on failure
+            try:
+                if os.path.exists(tmp_dir):
+                    shutil.rmtree(tmp_dir)
+            except Exception:
+                pass
+            return ("err", item, f"Save error: {e}")
+
+        return ("ok", item, final_path)
+
+    except Exception as e:
+        return ("err", item, str(e))
+
+
+def create_sgi_topo_masks_parallel(
+    cfg, path_xr_svf, iterator, type="glacier_name", path_save=None, max_workers=None
+):
+    """
+    Parallel version of create_sgi_topo_masks (CPU-only).
+    Each item writes <item>.zarr into path_save.
+    """
+    if path_save is None:
+        # assumes 'path_SGI_topo' is defined/importable in this scope
+        path_save = os.path.join(cfg.dataPath, path_SGI_topo, "xr_masked_grids/")
+
+    os.makedirs(path_save, exist_ok=True)
+
+    # IMPORTANT: do NOT empty the folder *after* we start; clear it up front if desired:
+    # emptyfolder(path_save)  # <- only if you truly want to wipe existing outputs
+
+    iterator = list(iterator)
+    n = len(iterator)
+    if n == 0:
+        print("No items to process.")
+        return
+
+    if max_workers is None:
+        max_workers = min(max(1, (os.cpu_count() or 2) - 1), 32)
+
+    # Linux: use 'fork' to avoid pickling helpers; great for notebooks too
+    ctx = mp.get_context("fork")
+
+    ok = skip = err = 0
+    results = {}
+
+    with ProcessPoolExecutor(
+        max_workers=max_workers,
+        initializer=_worker_init,
+        mp_context=ctx,
+    ) as ex:
+        futures = [
+            ex.submit(
+                _process_one_item_sgi,
+                item,
+                cfg,
+                type,
+                path_save,
+                path_SGI_topo,
+                path_xr_svf,
+            )
+            for item in iterator
+        ]
+
+        for fut in tqdm(
+            as_completed(futures),
+            total=len(futures),
+            desc=f"Processing ({max_workers} workers)",
+        ):
+            status, item, msg = fut.result()
+            results[item] = (status, msg)
+            if status == "ok":
+                ok += 1
+            elif status == "skip":
+                skip += 1
+                # optional: print(f"[SKIP] {item}: {msg}")
+            else:
+                err += 1
+                print(f"[ERR]  {item}: {msg}")
+
+    print(f"Done. ok={ok}  skip={skip}  err={err}  total={n}")
+    return results
 
 
 def getStakesData(cfg):
