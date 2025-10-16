@@ -279,10 +279,10 @@ def get_best_params_for_lstm(
     minimize: bool = True,
 ) -> Dict[str, Any]:
     """
-    Return best hyperparameters with original names (incl. 'two_heads').
+    Return best hyperparameters with original names (incl. 'two_heads' & 'head_dropout').
     - Parses types (bools, floats, ints, list-like strings).
     - If 'two_heads' missing but 'simple' present, sets two_heads = not simple.
-      'simple' is NOT included in the output to keep original param names.
+      'simple' is NOT included in the output.
     - 'static_hidden' becomes list[int] or None (treat "0", 0, "", "none", NaN as None).
     - 'loss_spec' parsed to Python object or None. If loss_name == "weighted" and
       loss_spec is missing/empty, defaults to ("weighted", {}).
@@ -306,7 +306,6 @@ def get_best_params_for_lstm(
             val = ast.literal_eval(s)
             if isinstance(val, (list, tuple)):
                 return [int(v) for v in val]
-            # single int string like "128"
             if isinstance(val, int):
                 return [val]
         except Exception:
@@ -351,12 +350,16 @@ def get_best_params_for_lstm(
     idx = df[select_by].idxmin() if minimize else df[select_by].idxmax()
     r = df.loc[idx].to_dict()
 
-    # print loss metrics of the best run
-    print(f"Best run {idx} by '{select_by}' (value: {r[select_by]:.4f}):")
-    print(f"Best run: test_rmse_a (value: {r['test_rmse_a']:.4f}):")
-    print(f"Best run: test_rmse_w (value: {r['test_rmse_w']:.4f}):")
-    print(f"Best run: valid_loss (value: {r['valid_loss']:.4f}):")
+    # Print a quick summary if columns exist
+    def _fmt(name):
+        return f"{r[name]:.4f}" if name in r and pd.notna(r[name]) else "n/a"
 
+    print(f"Best run {idx} by '{select_by}' (value: {_fmt(select_by)}):")
+    print(
+        f"  test_rmse_a: {_fmt('test_rmse_a')}  |  test_rmse_w: {_fmt('test_rmse_w')}  |  valid_loss: {_fmt('valid_loss')}"
+    )
+
+    # Core params
     best_params: Dict[str, Any] = {
         "Fm": int(r["Fm"]),
         "Fs": int(r["Fs"]),
@@ -370,9 +373,27 @@ def get_best_params_for_lstm(
         "lr": float(r["lr"]),
         "weight_decay": float(r["weight_decay"]),
         "loss_name": str(r.get("loss_name", "neutral")),
-        # loss_spec handled below
+        # 'loss_spec' handled below
     }
 
+    # two_heads & head_dropout
+    if "two_heads" in r and pd.notna(r["two_heads"]):
+        two_heads = _as_bool(r["two_heads"])
+    elif "simple" in r and pd.notna(r["simple"]):
+        two_heads = not _as_bool(r["simple"])
+    else:
+        two_heads = False  # conservative default if not logged
+
+    head_dropout = _as_opt_float(r.get("head_dropout"))
+    if head_dropout is None:
+        head_dropout = 0.0
+    if not two_heads:
+        head_dropout = 0.0  # ensure consistency
+
+    best_params["two_heads"] = two_heads
+    best_params["head_dropout"] = float(head_dropout)
+
+    # loss_spec
     loss_spec_val = _as_opt_literal(r.get("loss_spec"))
     if best_params["loss_name"] == "weighted" and loss_spec_val is None:
         loss_spec_val = ("weighted", {})
