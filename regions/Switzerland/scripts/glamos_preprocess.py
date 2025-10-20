@@ -1373,6 +1373,134 @@ def _process_one_item_sgi(item, cfg, type_, path_save, path_SGI_topo, path_xr_sv
         return ("err", item, str(e))
 
 
+def _merge_svf_into_ds(ds_latlon, sgi_id, path_xr_svf):
+    """
+    Merge SVF variables into ds_latlon (lat/lon grid).
+    - Loads <path_xr_svf>/<sgi_id>_svf_latlon.nc if present.
+    - Interpolates to ds_latlon grid if needed.
+    - Adds masked_* vars if glacier_mask present.
+    Returns ds_latlon (possibly unchanged if SVF missing).
+    """
+    import xarray as xr
+    import numpy as np
+
+    svf_path = os.path.join(path_xr_svf, f"{sgi_id}_svf_latlon.nc")
+    if not os.path.exists(svf_path):
+        print(f"SVF not found for {sgi_id}: {svf_path}")
+        return ds_latlon
+
+    ds_svf = xr.open_dataset(svf_path)
+
+    # sort for interpolation stability
+    if ds_latlon.lon[0] > ds_latlon.lon[-1]:
+        ds_latlon = ds_latlon.sortby("lon")
+    if ds_latlon.lat[0] > ds_latlon.lat[-1]:
+        ds_latlon = ds_latlon.sortby("lat")
+    if ds_svf.lon[0] > ds_svf.lon[-1]:
+        ds_svf = ds_svf.sortby("lon")
+    if ds_svf.lat[0] > ds_svf.lat[-1]:
+        ds_svf = ds_svf.sortby("lat")
+
+    svf_vars = [v for v in ["svf", "asvf", "opns"] if v in ds_svf.data_vars]
+    if not svf_vars:
+        return ds_latlon
+
+    # exact match vs. interpolation
+    if np.array_equal(ds_latlon.lon.values, ds_svf.lon.values) and np.array_equal(
+        ds_latlon.lat.values, ds_svf.lat.values
+    ):
+        ds_latlon = xr.merge([ds_latlon, ds_svf[svf_vars]])
+    else:
+        svf_on_grid = ds_svf[svf_vars].interp(
+            lon=ds_latlon.lon, lat=ds_latlon.lat, method="linear"
+        )
+        for v in svf_vars:
+            svf_on_grid[v] = svf_on_grid[v].astype("float32")
+        ds_latlon = ds_latlon.assign(**{v: svf_on_grid[v] for v in svf_vars})
+
+    # masked versions (if glacier_mask exists)
+    if "glacier_mask" in ds_latlon:
+        gmask = xr.where(ds_latlon["glacier_mask"] == 1, 1.0, np.nan)
+        for v in svf_vars:
+            ds_latlon[f"masked_{v}"] = gmask * ds_latlon[v]
+    return ds_latlon
+
+
+def create_sgi_topo_masks(
+    cfg,
+    iterator,
+    type="glacier_name",
+    path_save=None,
+    path_xr_svf=None,
+    empty_output=True,
+):
+    """
+    Sequential version with SVF merge + atomic save.
+    """
+    if path_save is None:
+        path_save = os.path.join(cfg.dataPath, path_SGI_topo, "xr_masked_grids/")
+    os.makedirs(path_save, exist_ok=True)
+    if empty_output:
+        emptyfolder(path_save)  # keep old behavior unless you set empty_output=False
+
+    glacier_outline_sgi = gpd.read_file(
+        os.path.join(
+            cfg.dataPath, path_SGI_topo, "inventory_sgi2016_r2020/SGI_2016_glaciers.shp"
+        )
+    )
+
+    for item in tqdm(iterator, desc="Processing glaciers"):
+        # resolve SGI id
+        if type == "glacier_name":
+            sgi_id, rgi_id, rgi_shp = get_rgi_sgi_ids(cfg, item)
+            if not sgi_id:
+                print(f"Warning: Missing SGI ID or shapefile for {item}. Skipping...")
+                continue
+        elif type == "sgi_id":
+            sgi_id = item
+        else:
+            print(f"Unknown type '{type}', skipping {item}")
+            continue
+
+        # build + coarsen
+        try:
+            ds = xr_SGI_masked_topo(glacier_outline_sgi, sgi_id, cfg)
+            if ds is None:
+                print(f"Warning: Failed to load dataset for {item}. Skipping...")
+                continue
+            ds_resampled = coarsenDS(ds)
+            if ds_resampled is None:
+                print(f"Warning: Resampling failed for {item}. Skipping...")
+                continue
+        except Exception as e:
+            print(f"Error preparing dataset for {item}: {e}")
+            continue
+
+        # --- NEW: merge SVF (optional) ---
+        if path_xr_svf is not None:
+            try:
+                ds_resampled = _merge_svf_into_ds(ds_resampled, sgi_id, path_xr_svf)
+            except Exception as e:
+                print(f"SVF merge failed for {item} ({sgi_id}): {e}")
+
+        # atomic save
+        final_path = os.path.join(path_save, f"{item}.zarr")
+        tmp_dir = tempfile.mkdtemp(prefix=f".tmp_{item}_", dir=path_save)
+        try:
+            ds_resampled.to_zarr(tmp_dir, mode="w")
+            if os.path.exists(final_path):
+                shutil.rmtree(final_path)
+            os.replace(tmp_dir, final_path)
+            print(f"Saved {item} to {final_path}")
+        except Exception as e:
+            try:
+                if os.path.exists(tmp_dir):
+                    shutil.rmtree(tmp_dir)
+            except Exception:
+                pass
+            print(f"Error saving dataset for {item}: {e}")
+
+
 def create_sgi_topo_masks_parallel(
     cfg, path_xr_svf, iterator, type="glacier_name", path_save=None, max_workers=None
 ):

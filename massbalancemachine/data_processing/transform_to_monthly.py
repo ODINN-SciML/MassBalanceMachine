@@ -71,7 +71,10 @@ def _round_to_start_of_month(date):
     If day >= 15, round up to start of next month.
     """
     if date.day < 15 & date.day > 1:
+        print(date - pd.offsets.MonthBegin())
         return date - pd.offsets.MonthBegin()
+    elif date.day == 1:
+        return date
     else:
         return date + pd.offsets.MonthBegin()
 

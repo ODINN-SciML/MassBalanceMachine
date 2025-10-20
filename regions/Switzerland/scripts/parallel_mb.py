@@ -53,6 +53,7 @@ class MBJobConfig:
     seed: int = 0
     max_workers: Optional[int] = None
     cpu_only: bool = True
+    ONLY_GEODETIC: bool = True
 
 
 # ----------------- worker init (quiet + CPU threads cap) -----------------
@@ -255,8 +256,10 @@ def build_tasks(
     periods_per_glacier: Dict[str, Iterable[int]],
     data_path: str,
     path_glacier_grid_glamos: str,
+    ONLY_GEODETIC: bool,
 ) -> List[Tuple[str, int]]:
     tasks: List[Tuple[str, int]] = []
+    print(glacier_list)
     for glacier_name in glacier_list:
         glacier_path = os.path.join(data_path + path_glacier_grid_glamos, glacier_name)
         if not os.path.exists(glacier_path):
@@ -275,9 +278,13 @@ def build_tasks(
             np.max(periods_per_glacier[glacier_name]) + 1,
         )
         years = [int(f.split("_")[2].split(".")[0]) for f in glacier_files]
-        years = [y for y in years if y in geodetic_range]
+
+        # Process only geodetic years if specified
+        if ONLY_GEODETIC:
+            years = [y for y in years if y in geodetic_range]
         for y in years:
             tasks.append((glacier_name, y))
+    print(tasks)
     return tasks
 
 
@@ -295,7 +302,11 @@ def run_glacier_mb(
     # caller can empty it beforehand if they want
 
     tasks = build_tasks(
-        glacier_list, periods_per_glacier, job.data_path, job.path_glacier_grid_glamos
+        glacier_list,
+        periods_per_glacier,
+        job.data_path,
+        job.path_glacier_grid_glamos,
+        job.ONLY_GEODETIC,
     )
     if len(tasks) == 0:
         return dict(ok=0, skip=0, err=0, total=0)

@@ -77,6 +77,7 @@ class Config:
             "tp": (0, 0.1),  # Precipitation
             "u10": (-10, 10),  # Horizontal wind component
             "v10": (-10, 10),  # Vertical wind component
+            "svf": (0, 1),  # Sky view factor
         }
 
     # ---------------- Properties / setters ----------------
