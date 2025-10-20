@@ -39,6 +39,7 @@ def get_glwd_glamos_years(cfg, glacier_name):
         if match:
             years.append(int(match.group(1)))  # Extract the year as an integer
 
+    years = np.unique(years).tolist()
     years.sort()
     return years
 
@@ -1016,11 +1017,12 @@ def check_missing_years(folder_path, glacier_name, period):
             year = int(match.group(1))
             available_years.add(year)
 
-    missing_years = expected_years - available_years
+    missing_years = list(expected_years - available_years)
+    missing_years.sort()
     if missing_years:
-        return True
+        return True, missing_years
     else:
-        return False
+        return False, []
 
 
 def process_geodetic_mass_balance_comparison(
@@ -1085,8 +1087,13 @@ def process_geodetic_mass_balance_comparison(
                 continue
 
             # Check input availability (your helper)
-            if check_missing_years(folder_path, glacier_name, period):
-                print(f"Skipping {glacier_name} {period}: Missing years")
+            is_missing, years_missing = check_missing_years(
+                folder_path, glacier_name, period
+            )
+            if is_missing:
+                print(
+                    f"Skipping {glacier_name} {period}: Missing years: {years_missing}"
+                )
                 continue
 
             mbm_mb, glamos_mb = [], []
@@ -1101,7 +1108,6 @@ def process_geodetic_mass_balance_comparison(
                     # Zarr -> open_zarr (not open_dataset)
                     ds = xr.open_zarr(zarr_path)
                     mbm_mb.append(ds["pred_masked"].mean().values)
-
                 glamos_mb.append(GLAMOS_glwmb["GLAMOS Balance"].get(year, np.nan))
 
             # Aggregate period stats
@@ -1460,10 +1466,12 @@ def build_all_years_df(glacier_name, path_pred_lstm, cfg, period="annual"):
 
     def validate_paths(year, grid_path, mbm_file):
         if grid_path is None:
-            print(f"[skip] {glacier_name} {year}: GLAMOS grid file not found.")
+            print(
+                f"[skip] {glacier_name} {year}: GLAMOS grid file not found at: {grid_path}"
+            )
             return False
         if not os.path.exists(grid_path):
-            print(f"[skip] {glacier_name} {year}: GLAMOS grid missing: {grid_path}")
+            print(f"[skip] {glacier_name} {year}: GLAMOS grid missingat: {grid_path}")
             return False
         if mbm_file is None:
             print(f"[skip] {glacier_name} {year}: LSTM zarr path not provided.")

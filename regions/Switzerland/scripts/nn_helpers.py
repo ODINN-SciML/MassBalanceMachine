@@ -137,7 +137,7 @@ def evaluate_model_and_group_predictions(
         y,
         months_head_pad,
         months_tail_pad,
-        group_by_col=["PERIOD", "GLACIER", "YEAR"],
+        group_by=["PERIOD", "GLACIER", "YEAR"],
     )
 
 
