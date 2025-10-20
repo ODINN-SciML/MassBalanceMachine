@@ -417,7 +417,6 @@ class GeoData:
 
     def _save_monthly_predictions_NN(self, df, ds, glacier_name, year, path_save_glw):
         """Helper function to save monthly predictions."""
-        print(df.columns)
         hydro_months = [
             "sep",
             "oct",
