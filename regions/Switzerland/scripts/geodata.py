@@ -1471,7 +1471,7 @@ def build_all_years_df(glacier_name, path_pred_lstm, cfg, period="annual"):
             )
             return False
         if not os.path.exists(grid_path):
-            print(f"[skip] {glacier_name} {year}: GLAMOS grid missingat: {grid_path}")
+            print(f"[skip] {glacier_name} {year}: GLAMOS grid missing at: {grid_path}")
             return False
         if mbm_file is None:
             print(f"[skip] {glacier_name} {year}: LSTM zarr path not provided.")

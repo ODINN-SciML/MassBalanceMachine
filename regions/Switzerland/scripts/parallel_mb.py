@@ -259,6 +259,7 @@ def build_tasks(
     ONLY_GEODETIC: bool,
 ) -> List[Tuple[str, int]]:
     tasks: List[Tuple[str, int]] = []
+    print(glacier_list)
     for glacier_name in glacier_list:
         glacier_path = os.path.join(data_path + path_glacier_grid_glamos, glacier_name)
         if not os.path.exists(glacier_path):
@@ -283,6 +284,7 @@ def build_tasks(
             years = [y for y in years if y in geodetic_range]
         for y in years:
             tasks.append((glacier_name, y))
+    print(tasks)
     return tasks
 
 
