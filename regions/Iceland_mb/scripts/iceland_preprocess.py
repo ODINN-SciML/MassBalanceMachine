@@ -221,7 +221,7 @@ def merge_pmb_with_oggm_data(
             "aspect",
             "slope",
             "topo",
-            # "hugonnet_dhdt",
+            "hugonnet_dhdt",
             "consensus_ice_thickness",
             "millan_v",
         ]
