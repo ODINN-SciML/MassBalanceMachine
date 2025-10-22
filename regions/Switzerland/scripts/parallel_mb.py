@@ -284,7 +284,6 @@ def build_tasks(
             years = [y for y in years if y in geodetic_range]
         for y in years:
             tasks.append((glacier_name, y))
-    print(tasks)
     return tasks
 
 
