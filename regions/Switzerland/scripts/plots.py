@@ -1,13 +1,22 @@
-import matplotlib.pyplot as plt
+# --- Standard library ---
+import math
+from typing import Sequence, Optional, Tuple
+
+# --- Third-party libraries ---
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 import seaborn as sns
-from matplotlib.patches import Rectangle
-from cmcrameri import cm
 from matplotlib import gridspec
+from matplotlib.patches import Rectangle
+from sklearn.manifold import TSNE
+from sklearn.preprocessing import StandardScaler
+from sklearn.impute import SimpleImputer
+from cmcrameri import cm
+
+# --- Project-specific modules ---
 from regions.Switzerland.scripts.helpers import *
 from regions.Switzerland.scripts.config_CH import *
-import math
 
 # CONSTANT COLORS FOR PLOTS
 colors = get_cmap_hex(cm.batlow, 10)
@@ -905,3 +914,208 @@ def plot_permutation_importance(
     plt.grid(True, linestyle="--", alpha=0.6)
     plt.tight_layout()
     plt.show()
+
+
+# ---------- Stratified sampling helper ----------
+def stratified_sample_by_group(
+    df: pd.DataFrame,
+    group_col: str = "GLACIER",
+    n_per_group: int = 100,
+    *,
+    random_state: int = 42,
+    exact: bool = False,
+) -> pd.DataFrame:
+    """
+    Return a stratified sample with ~n_per_group rows per group (df[group_col]).
+    - exact=False (default): downsample without replacement; groups smaller than n_per_group are kept entirely.
+    - exact=True: always return exactly n_per_group per group; small groups are sampled with replacement.
+    """
+    rng = np.random.RandomState(random_state)
+    parts = []
+    for g, gdf in df.groupby(group_col, sort=False):
+        if exact:
+            replace = len(gdf) < n_per_group
+            take = n_per_group
+        else:
+            replace = False
+            take = min(len(gdf), n_per_group)
+        parts.append(gdf.sample(n=take, replace=replace, random_state=rng))
+    return pd.concat(parts, axis=0).reset_index(drop=True)
+
+
+# ---------- Existing helpers from before ----------
+def _safe_perplexity(n_samples: int, target: int = 30) -> int:
+    if n_samples <= 10:
+        return max(2, n_samples // 3)
+    return int(np.clip(target, 5, max(5, (n_samples - 1) // 3)))
+
+
+def _prepare_matrix(train_df, test_df, cols):
+    X_train = train_df[cols].to_numpy()
+    X_test = test_df[cols].to_numpy()
+
+    imputer = SimpleImputer(strategy="median")
+    scaler = StandardScaler()
+
+    X_train_imp = imputer.fit_transform(X_train)
+    X_test_imp = imputer.transform(X_test)
+
+    X_train_std = scaler.fit_transform(X_train_imp)
+    X_test_std = scaler.transform(X_test_imp)
+
+    X = np.vstack([X_train_std, X_test_std])
+    mask_train = np.zeros(X.shape[0], dtype=bool)
+    mask_train[: X_train_std.shape[0]] = True
+    return X, mask_train
+
+
+def _tsne_embed(
+    X,
+    n_components=2,
+    perplexity: Optional[int] = None,
+    random_state: int = 42,
+    n_iter: int = 500,
+    n_iter_without_progress: int = 100,
+):
+    n = X.shape[0]
+    px = _safe_perplexity(n) if perplexity is None else min(perplexity, max(2, n - 2))
+    kwargs = dict(
+        n_components=n_components,
+        perplexity=px,
+        learning_rate="auto",
+        init="pca",
+        random_state=random_state,
+        metric="euclidean",
+        n_iter_without_progress=n_iter_without_progress,
+        verbose=0,
+    )
+    try:
+        tsne = TSNE(max_iter=n_iter, **kwargs)  # sklearn >= 1.5
+    except TypeError:
+        tsne = TSNE(n_iter=n_iter, **kwargs)  # older sklearn
+    return tsne.fit_transform(X), px
+
+
+def plot_tsne_overlap(
+    data_train: pd.DataFrame,
+    data_test: pd.DataFrame,
+    STATIC_COLS: Sequence[str],
+    MONTHLY_COLS: Sequence[str],
+    *,
+    stratify_by: str = "GLACIER",
+    n_per_group: int = 100,
+    exact: bool = False,
+    perplexity: Optional[int] = None,
+    random_state: int = 20,
+    n_iter: int = 500,
+    n_iter_without_progress: int = 100,
+    figsize=(18, 5),
+    alpha_train=0.5,
+    alpha_test=0.5,
+    s_train=45,
+    s_test=45,
+    custom_palette: Optional[dict] = None,
+    # (optional) subpanel label controls if you kept them earlier
+    sublabels: Sequence[str] = ("a", "b", "c"),
+    label_fmt: str = "({})",
+    label_xy: Tuple[float, float] = (0.02, 0.98),
+    label_fontsize: int = 14,
+    label_bbox: Optional[dict] = None,
+):
+    # Default palette (your colors)
+    if custom_palette is None:
+        colors = get_cmap_hex(cm.batlow, 10)
+        color_dark_blue = colors[0]
+        custom_palette = {"Train": color_dark_blue, "Test": "#b2182b"}
+
+    # 1) Stratified downsample per split
+    train_s = stratified_sample_by_group(
+        data_train,
+        group_col=stratify_by,
+        n_per_group=n_per_group,
+        random_state=random_state,
+        exact=exact,
+    )
+    test_s = stratified_sample_by_group(
+        data_test,
+        group_col=stratify_by,
+        n_per_group=n_per_group,
+        random_state=random_state + 1,
+        exact=exact,
+    )
+
+    feature_sets = [
+        ("All features", list(STATIC_COLS) + list(MONTHLY_COLS)),
+        ("Meteorological", list(MONTHLY_COLS)),
+        ("Topographical & Glaciological", list(STATIC_COLS)),
+    ]
+
+    fig, axes = plt.subplots(1, 3, figsize=figsize)
+    if label_bbox is None:
+        label_bbox = dict(facecolor="white", alpha=0.7, pad=2, edgecolor="none")
+
+    for i, (ax, (title, cols)) in enumerate(zip(axes, feature_sets)):
+        if len(cols) == 0:
+            ax.text(0.5, 0.5, f"No columns in: {title}", ha="center", va="center")
+            ax.set_axis_off()
+            continue
+
+        # 2) Build matrix with train-fitted preprocessing
+        X, mask_train = _prepare_matrix(train_s, test_s, cols)
+
+        # 3) t-SNE on combined samples
+        emb, px_used = _tsne_embed(
+            X,
+            perplexity=perplexity,
+            random_state=random_state,
+            n_iter=n_iter,
+            n_iter_without_progress=n_iter_without_progress,
+        )
+
+        # 4) Split back to train/test embeddings
+        emb_train = emb[mask_train]
+        emb_test = emb[~mask_train]
+
+        # 5) Plot with your colors
+        ax.scatter(
+            emb_train[:, 0],
+            emb_train[:, 1],
+            marker="o",
+            s=s_train,
+            alpha=alpha_train,
+            color=custom_palette["Train"],
+            label="Train",
+            linewidths=0,
+        )
+        ax.scatter(
+            emb_test[:, 0],
+            emb_test[:, 1],
+            marker="^",
+            s=s_test,
+            alpha=alpha_test,
+            color=custom_palette["Test"],
+            label="Test",
+            linewidths=0,
+        )
+
+        ax.set_title(title)
+        ax.set_xlabel("t-SNE 1")
+        ax.set_ylabel("t-SNE 2")
+        ax.legend(frameon=True)
+
+        # optional subpanel labels
+        if sublabels and i < len(sublabels):
+            ax.text(
+                label_xy[0],
+                label_xy[1],
+                label_fmt.format(sublabels[i]),
+                transform=ax.transAxes,
+                ha="left",
+                va="top",
+                fontsize=label_fontsize,
+                bbox=label_bbox,
+            )
+
+    plt.tight_layout()
+    plt.show()
+    return fig
