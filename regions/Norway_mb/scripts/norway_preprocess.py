@@ -439,7 +439,7 @@ def merge_pmb_with_oggm_data(
             "topo",
             "hugonnet_dhdt",
             "consensus_ice_thickness",
-            # "millan_v",
+            "millan_v",
         ]
         # other options: "millan_ice_thickness", "millan_vx", "millan_vy", "dis_from_border"
         # millan_v missing for RGI60-08.01258
@@ -495,15 +495,21 @@ def merge_pmb_with_oggm_data(
         )
 
         # Get nearest OGGM grid data for points
-        stake = ds.sel(
-            x=xr.DataArray(x_stake, dims="points"),
-            y=xr.DataArray(y_stake, dims="points"),
-            method="nearest",
-        )
-        stake_var_df = stake[variables_of_interest].to_dataframe()
+        stake = ds.sel(x=xr.DataArray(x_stake, dims="points"),
+                       y=xr.DataArray(y_stake, dims="points"),
+                       method="nearest")
+        
+        # Check which variables are actually available in the dataset, since millan_v is missing in some glaciers
+        available_vars = [var for var in variables_of_interest if var in stake]
+        if len(available_vars) < len(variables_of_interest):
+            missing_vars = set(variables_of_interest) - set(available_vars)
+            if verbose:
+                log.warning(f"Missing variables for glacier {rgi_id}: {missing_vars}")
+        
+        stake_var_df = stake[available_vars].to_dataframe()
 
         # Assign to original DataFrame
-        for var in variables_of_interest:
+        for var in available_vars:
             df_pmb.loc[group.index, var] = stake_var_df[var].values
 
         df_pmb.loc[points_in_glacier.index, "within_glacier_shape"] = True
