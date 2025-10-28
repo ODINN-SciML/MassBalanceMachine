@@ -157,6 +157,59 @@ def process_glacier_year(
         # Predict annual
         df_preds_a = model.predict_with_keys(device, test_gl_dl_a, ds_gl_a)
 
+        # if save_monthly:
+        #     # --- Compute and save cumulative monthly predictions ---
+        #     # Define the hydrological month order
+        #     hydro_months = [
+        #         "sep", "oct", "nov", "dec", "jan",
+        #         "feb", "mar", "apr", "may", "jun",
+        #         "jul", "aug"
+        #     ]
+
+        #     # Merge monthly info with predictions
+        #     df_pred_months = df_grid_monthly_a[["ID", "MONTHS", "POINT_LAT", "POINT_LON"]].merge(
+        #         df_preds_a[["ID", "pred"]],
+        #         on="ID",
+        #         how="left"
+        #     )
+
+        #     # Pivot to wide format: one column per month
+        #     df_wide = df_pred_months.pivot_table(
+        #         index=["ID", "POINT_LAT", "POINT_LON"],
+        #         columns="MONTHS",
+        #         values="pred",
+        #         aggfunc="first"
+        #     )
+
+        #     # Ensure columns follow hydrological order
+        #     available_months = [m for m in hydro_months if m in df_wide.columns]
+        #     df_wide = df_wide.reindex(columns=available_months)
+
+        #     # Compute cumulative sum across months
+        #     df_cumulative = df_wide.cumsum(axis=1).reset_index()
+
+        #     # ---- Save one file per month ----
+        #     for month in available_months:
+        #         df_month = df_cumulative[["ID", "POINT_LON", "POINT_LAT"]].copy()
+        #         df_month["pred"] = df_wide[month].values
+        #         df_month["cum_pred"] = df_cumulative[month].values
+
+        #         geoData_m = mbm.geodata.GeoData(
+        #             df_grid_monthly_a,
+        #             months_head_pad=job.months_head_pad,
+        #             months_tail_pad=job.months_tail_pad,
+        #         )
+        #         geoData_m.data = df_month
+        #         geoData_m.pred_to_xr(ds, pred_var="cum_pred", source_type="sgi")
+
+        #         save_path = os.path.join(job.path_save_glw, glacier_name)
+        #         os.makedirs(save_path, exist_ok=True)
+        #         geoData_m.save_arrays(
+        #             f"{glacier_name}_{year}_{month}.zarr",
+        #             path=save_path + "/",
+        #             proj_type="wgs84",
+        #         )
+
         data_a = df_preds_a[["ID", "pred"]].set_index("ID")
         meta_cols = [
             c

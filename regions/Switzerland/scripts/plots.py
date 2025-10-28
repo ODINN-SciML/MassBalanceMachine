@@ -387,35 +387,6 @@ def PlotPredictions(grouped_ids, y_pred, metadata_test, test_set, model):
         plotMeanPred(grouped_ids_winter, ax4)
 
 
-# def predVSTruth(
-#     ax,
-#     grouped_ids,
-#     scores,
-#     hue="GLACIER",
-#     palette=None,
-#     color=color_annual,
-#     ax_xlim=(-8, 6),
-#     ax_ylim=(-8, 6),
-# ):
-#     """
-#     Wrapper around mbm.plots.predVSTruth with custom parameters for Switzerland.
-#     """
-#     return mbm.plots.predVSTruth(
-#         grouped_ids,
-#         ax=ax,
-#         scores=scores,
-#         hue=hue,
-#         markers={"annual": "o", "winter": "o"},
-#         palette=palette,
-#         color=color,
-#         style="PERIOD",
-#         xlabel="Observed PMB [m w.e.]",
-#         ylabel="Modelled PMB [m w.e.]",
-#         ax_xlim=ax_xlim,
-#         ax_ylim=ax_ylim,
-#     )
-
-
 def predVSTruth(
     ax,
     grouped_ids,
@@ -440,7 +411,7 @@ def predVSTruth(
         markers={"annual": "o", "winter": "o"},
     )  # optional custom marker map)
 
-    ax.set_ylabel("Modelled PMB [m w.e.]", fontsize=20)
+    ax.set_ylabel("Modeled PMB [m w.e.]", fontsize=20)
     ax.set_xlabel("Observed PMB [m w.e.]", fontsize=20)
 
     if add_legend:
@@ -533,7 +504,7 @@ def plotMeanPred(
     rmse = scores["rmse"]
     pearson_corr = scores["pearson_corr"]
     legend_text = "\n".join((rf"$\mathrm{{RMSE}}={rmse:.3f}$",))
-    ax.text(0.03, 0.96, legend_text, transform=ax.transAxes, va="top", fontsize=20)
+    ax.text(0.055, 0.96, legend_text, transform=ax.transAxes, va="top", fontsize=20)
 
     ax.legend(fontsize=20, loc="lower right")
 
@@ -1046,8 +1017,8 @@ def plot_tsne_overlap(
 
     feature_sets = [
         ("All features", list(STATIC_COLS) + list(MONTHLY_COLS)),
-        ("Meteorological", list(MONTHLY_COLS)),
-        ("Topographical & Glaciological", list(STATIC_COLS)),
+        ("Dynamic", list(MONTHLY_COLS)),
+        ("Static", list(STATIC_COLS)),
     ]
 
     fig, axes = plt.subplots(1, 3, figsize=figsize)

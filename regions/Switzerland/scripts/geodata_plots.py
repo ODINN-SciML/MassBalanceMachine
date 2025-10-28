@@ -902,10 +902,14 @@ def plot_mass_balance_comparison_annual(
     df_stakes,
     path_distributed_mb,  # base for GLAMOS grids
     path_pred_lstm,  # base for LSTM/XGB zarrs
-    path_pred_nn,  # base for NN zarrs
     period="annual",
 ):
-    """Plot annual MB comparison (GLAMOS, LSTM/XGB, NN) for a glacier and year (no bias correction)."""
+    """Plot annual MB comparison (GLAMOS vs LSTM/XGB) for a glacier and year (no bias correction)."""
+
+    import os
+    import xarray as xr
+    import matplotlib.pyplot as plt
+    import seaborn as sns
 
     # Stake data (annual only)
     stakes_data = df_stakes[
@@ -942,21 +946,14 @@ def plot_mass_balance_comparison_annual(
     else:
         raise ValueError(f"Unknown coord system for GLAMOS grid: {coord_system}")
 
-    # ---- Load predictions (Zarr) and (optionally) smooth ----
+    # ---- Load LSTM predictions (Zarr) and (optionally) smooth ----
     mbm_file_lstm = os.path.join(
         path_pred_lstm, glacier_name, f"{glacier_name}_{year}_{period}.zarr"
     )
-    mbm_file_nn = os.path.join(
-        path_pred_nn, glacier_name, f"{glacier_name}_{year}_{period}.zarr"
-    )
-
     if not os.path.exists(mbm_file_lstm):
         raise FileNotFoundError(f"Missing LSTM/XGB zarr: {mbm_file_lstm}")
-    if not os.path.exists(mbm_file_nn):
-        raise FileNotFoundError(f"Missing NN zarr: {mbm_file_nn}")
 
     ds_mbm_lstm = apply_gaussian_filter(xr.open_zarr(mbm_file_lstm))
-    ds_mbm_nn = apply_gaussian_filter(xr.open_zarr(mbm_file_nn))
 
     # ---- Coordinate names for stake sampling ----
     lon_name = "lon" if "lon" in ds_mbm_lstm.coords else "longitude"
@@ -967,34 +964,27 @@ def plot_mass_balance_comparison_annual(
         stakes_data_ann["Predicted_MB_LSTM"] = stakes_data_ann.apply(
             lambda row: get_predicted_mb(lon_name, lat_name, row, ds_mbm_lstm), axis=1
         )
-        stakes_data_ann["Predicted_MB_NN"] = stakes_data_ann.apply(
-            lambda row: get_predicted_mb(lon_name, lat_name, row, ds_mbm_nn), axis=1
-        )
         stakes_data_ann["GLAMOS_MB"] = stakes_data_ann.apply(
             lambda row: get_predicted_mb_glamos(
                 lon_name, lat_name, row, da_glamos_wgs84_ann
             ),
             axis=1,
         )
-        stakes_data_ann.dropna(
-            subset=["Predicted_MB_LSTM", "Predicted_MB_NN", "GLAMOS_MB"], inplace=True
-        )
+        stakes_data_ann.dropna(subset=["Predicted_MB_LSTM", "GLAMOS_MB"], inplace=True)
 
     # ---- Color limits from raw (unbiased) fields ----
     vmin = min(
         float(da_glamos_wgs84_ann.min().item()),
         float(ds_mbm_lstm["pred_masked"].min().item()),
-        float(ds_mbm_nn["pred_masked"].min().item()),
     )
     vmax = max(
         float(da_glamos_wgs84_ann.max().item()),
         float(ds_mbm_lstm["pred_masked"].max().item()),
-        float(ds_mbm_nn["pred_masked"].max().item()),
     )
     cmap_ann, norm_ann, _, _ = get_color_maps(vmin, vmax, 0, 0)
 
     # ---- Plot ----
-    fig, axes = plt.subplots(1, 3, figsize=(20, 8), sharex=False, sharey=False)
+    fig, axes = plt.subplots(1, 2, figsize=(14, 7), sharex=False, sharey=False)
 
     # GLAMOS
     da_glamos_wgs84_ann.plot.imshow(
@@ -1021,9 +1011,16 @@ def plot_mass_balance_comparison_annual(
         rmse_glamos = root_mean_squared_error(
             stakes_data_ann.POINT_BALANCE, stakes_data_ann.GLAMOS_MB
         )
-        text_glamos = f"RMSE: {rmse_glamos:.2f},\nmean MB: {float(da_glamos_wgs84_ann.mean().item()):.2f},\nvar: {var_glamos:.2f}"
+        text_glamos = (
+            f"RMSE: {rmse_glamos:.2f},\n"
+            f"mean MB: {float(da_glamos_wgs84_ann.mean().item()):.2f},\n"
+            f"var: {var_glamos:.2f}"
+        )
     else:
-        text_glamos = f"mean MB: {float(da_glamos_wgs84_ann.mean().item()):.2f},\nvar: {var_glamos:.2f}"
+        text_glamos = (
+            f"mean MB: {float(da_glamos_wgs84_ann.mean().item()):.2f},\n"
+            f"var: {var_glamos:.2f}"
+        )
 
     axes[0].text(
         0.05,
@@ -1060,54 +1057,22 @@ def plot_mass_balance_comparison_annual(
         rmse_lstm = root_mean_squared_error(
             stakes_data_ann.POINT_BALANCE, stakes_data_ann.Predicted_MB_LSTM
         )
-        text_lstm = f"RMSE: {rmse_lstm:.2f},\nmean MB: {float(ds_mbm_lstm['pred_masked'].mean().item()):.2f},\nvar: {var_lstm:.2f}"
+        text_lstm = (
+            f"RMSE: {rmse_lstm:.2f},\n"
+            f"mean MB: {float(ds_mbm_lstm['pred_masked'].mean().item()):.2f},\n"
+            f"var: {var_lstm:.2f}"
+        )
     else:
-        text_lstm = f"mean MB: {float(ds_mbm_lstm['pred_masked'].mean().item()):.2f},\nvar: {var_lstm:.2f}"
+        text_lstm = (
+            f"mean MB: {float(ds_mbm_lstm['pred_masked'].mean().item()):.2f},\n"
+            f"var: {var_lstm:.2f}"
+        )
 
     axes[1].text(
         0.05,
         0.15,
         text_lstm,
         transform=axes[1].transAxes,
-        ha="left",
-        va="top",
-        fontsize=18,
-    )
-
-    # NN
-    ds_mbm_nn["pred_masked"].plot.imshow(
-        ax=axes[2],
-        cmap=cmap_ann,
-        norm=norm_ann,
-        cbar_kwargs={"label": "Mass Balance [m w.e.]"},
-    )
-    axes[2].set_title("MBM NN (Annual)")
-    var_nn = float(ds_mbm_nn["pred_masked"].var().item())
-
-    if not stakes_data_ann.empty:
-        sns.scatterplot(
-            data=stakes_data_ann,
-            x="POINT_LON",
-            y="POINT_LAT",
-            hue="POINT_BALANCE",
-            palette=cmap_ann,
-            hue_norm=norm_ann,
-            ax=axes[2],
-            s=25,
-            legend=False,
-        )
-        rmse_nn = root_mean_squared_error(
-            stakes_data_ann.POINT_BALANCE, stakes_data_ann.Predicted_MB_NN
-        )
-        text_nn = f"RMSE: {rmse_nn:.2f},\nmean MB: {float(ds_mbm_nn['pred_masked'].mean().item()):.2f},\nvar: {var_nn:.2f}"
-    else:
-        text_nn = f"mean MB: {float(ds_mbm_nn['pred_masked'].mean().item()):.2f},\nvar: {var_nn:.2f}"
-
-    axes[2].text(
-        0.05,
-        0.15,
-        text_nn,
-        transform=axes[2].transAxes,
         ha="left",
         va="top",
         fontsize=18,

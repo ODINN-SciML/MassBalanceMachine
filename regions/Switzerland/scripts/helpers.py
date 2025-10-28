@@ -196,11 +196,6 @@ def process_or_load_data(
             data_monthly = pd.read_csv(input_file)
             filt = data_monthly.filter(["YEAR.1", "POINT_LAT.1", "POINT_LON.1"])
             data_monthly.drop(filt, inplace=True, axis=1)
-            # dataloader_gl = mbm.dataloader.DataLoader(
-            #     cfg,
-            #     data=data_monthly,
-            #     random_seed=cfg.seed,
-            #     meta_data_columns=cfg.metaData)
             logging.info("Loaded preprocessed data.")
             logging.info("Number of monthly rows: %d", len(data_monthly))
             logging.info(
