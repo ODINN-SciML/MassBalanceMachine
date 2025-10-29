@@ -411,7 +411,7 @@ class LSTM_MB(nn.Module):
         return metrics, df
 
     @torch.no_grad()
-    def predict_with_keys(self, device, dl, ds) -> pd.DataFrame:
+    def predict_with_keys(self, device, dl, ds, denorm=True) -> pd.DataFrame:
         """
         Predict seasonal MB for each sequence (no targets required).
         Returns: ID | pred | PERIOD | GLACIER | YEAR
@@ -428,14 +428,137 @@ class LSTM_MB(nn.Module):
             _, y_w, y_a = self(
                 batch["x_m"], batch["x_s"], batch["mv"], batch["mw"], batch["ma"]
             )
-            y_w = y_w * ds.y_std.to(device) + ds.y_mean.to(device)
-            y_a = y_a * ds.y_std.to(device) + ds.y_mean.to(device)
+            if denorm:
+                y_w = y_w * ds.y_std.to(device) + ds.y_mean.to(device)
+                y_a = y_a * ds.y_std.to(device) + ds.y_mean.to(device)
+
             for j in range(bs):
                 g, yr, mid, per = keys[j]
                 pred = float((y_w if per == "winter" else y_a)[j].cpu())
                 rows.append(
-                    {"ID": mid, "pred": pred, "PERIOD": per, "GLACIER": g, "YEAR": yr}
+                    {
+                        "ID": mid,
+                        "pred": pred,
+                        "PERIOD": per,
+                        "GLACIER": g,
+                        "YEAR": yr,
+                    }
                 )
+        return pd.DataFrame(rows)
+
+    @torch.no_grad()
+    def predict_monthly_with_keys(
+        self,
+        device,
+        dl,
+        ds,
+        month_names=None,
+        denorm=True,
+        consistent_denorm=True,
+    ) -> pd.DataFrame:
+        """
+        Predict per-month MB for each sequence (masked by mv).
+        Returns a long DataFrame with columns:
+        ['GLACIER','YEAR','ID','PERIOD','MONTH_IDX','MONTH',
+        'pred_raw','pred_consistent','mw','ma','pred_total']
+        """
+        self.eval()
+        if month_names is None:
+            month_names = [
+                "aug_",
+                "sep_",
+                "oct",
+                "nov",
+                "dec",
+                "jan",
+                "feb",
+                "mar",
+                "apr",
+                "may",
+                "jun",
+                "jul",
+                "aug",
+                "sep",
+                "oct_",
+            ]
+
+        rows = []
+        all_keys = ds.keys
+        i = 0
+
+        for batch in dl:
+            bs = batch["x_m"].shape[0]
+            keys = all_keys[i : i + bs]
+            i += bs
+
+            batch = self.to_device(device, batch)
+            y_month_a, y_w, y_a = self(
+                batch["x_m"], batch["x_s"], batch["mv"], batch["mw"], batch["ma"]
+            )
+
+            mv = batch["mv"].to(device)
+            ma = batch["ma"].to(device)
+
+            # --- denormalization handling ---
+            if denorm:
+                y_std, y_mean = ds.y_std.to(device), ds.y_mean.to(device)
+
+                # (1) Normalized per-month predictions
+                y_month_norm = y_month_a * mv * ma  # apply valid+annual masks
+
+                # (2) Annual prediction from normalized space (already matches model)
+                y_a_phys = y_a * y_std + y_mean  # (B,)
+
+                # (3) Compute consistent per-month predictions
+                if consistent_denorm:
+                    n_active = ma.sum(dim=1, keepdim=True).clamp_min(1.0)
+                    bias_corr = y_mean * (1 - n_active)  # scalar offset correction
+                    # Apply affine transform with correction so total equals y_a_phys
+                    y_month_phys = y_month_norm * y_std + y_mean + bias_corr / n_active
+                else:
+                    # regular (raw) denormalization
+                    y_month_phys = y_month_a * y_std + y_mean
+            else:
+                y_month_phys = y_month_a
+                y_a_phys = y_a
+
+            # --- collect results ---
+            y_np = y_month_phys.cpu().numpy()
+            y_total = y_a_phys.cpu().numpy()
+            mw = batch["mw"].cpu().numpy()
+            ma_np = ma.cpu().numpy()
+            mv_np = mv.cpu().numpy()
+
+            for j in range(bs):
+                g, yr, mid, per = keys[j]
+                for t_idx in range(y_np.shape[1]):
+                    if not mv_np[j, t_idx]:
+                        continue
+                    month = (
+                        month_names[t_idx]
+                        if t_idx < len(month_names)
+                        else f"m{t_idx:02d}"
+                    )
+                    rows.append(
+                        {
+                            "GLACIER": g,
+                            "YEAR": yr,
+                            "ID": mid,
+                            "PERIOD": per,
+                            "MONTH_IDX": t_idx,
+                            "MONTH": month,
+                            "pred_raw": float(
+                                y_month_a[j, t_idx].cpu()
+                            ),  # normalized or denorm raw
+                            "pred_consistent": float(
+                                y_np[j, t_idx]
+                            ),  # physically consistent
+                            "mw": int(mw[j, t_idx]),
+                            "ma": int(ma_np[j, t_idx]),
+                            "pred_total": float(y_total[j]),
+                        }
+                    )
+
         return pd.DataFrame(rows)
 
     @staticmethod

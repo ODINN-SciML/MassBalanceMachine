@@ -95,6 +95,7 @@ def get_model_cpu(cfg, params_used, model_filename):
 def process_glacier_year(
     args: Tuple[str, int],
     job: MBJobConfig,
+    save_monthly: bool = False,
 ) -> Tuple[str, str, int, str]:
     glacier_name, year = args
     try:
@@ -156,60 +157,6 @@ def process_glacier_year(
 
         # Predict annual
         df_preds_a = model.predict_with_keys(device, test_gl_dl_a, ds_gl_a)
-
-        # if save_monthly:
-        #     # --- Compute and save cumulative monthly predictions ---
-        #     # Define the hydrological month order
-        #     hydro_months = [
-        #         "sep", "oct", "nov", "dec", "jan",
-        #         "feb", "mar", "apr", "may", "jun",
-        #         "jul", "aug"
-        #     ]
-
-        #     # Merge monthly info with predictions
-        #     df_pred_months = df_grid_monthly_a[["ID", "MONTHS", "POINT_LAT", "POINT_LON"]].merge(
-        #         df_preds_a[["ID", "pred"]],
-        #         on="ID",
-        #         how="left"
-        #     )
-
-        #     # Pivot to wide format: one column per month
-        #     df_wide = df_pred_months.pivot_table(
-        #         index=["ID", "POINT_LAT", "POINT_LON"],
-        #         columns="MONTHS",
-        #         values="pred",
-        #         aggfunc="first"
-        #     )
-
-        #     # Ensure columns follow hydrological order
-        #     available_months = [m for m in hydro_months if m in df_wide.columns]
-        #     df_wide = df_wide.reindex(columns=available_months)
-
-        #     # Compute cumulative sum across months
-        #     df_cumulative = df_wide.cumsum(axis=1).reset_index()
-
-        #     # ---- Save one file per month ----
-        #     for month in available_months:
-        #         df_month = df_cumulative[["ID", "POINT_LON", "POINT_LAT"]].copy()
-        #         df_month["pred"] = df_wide[month].values
-        #         df_month["cum_pred"] = df_cumulative[month].values
-
-        #         geoData_m = mbm.geodata.GeoData(
-        #             df_grid_monthly_a,
-        #             months_head_pad=job.months_head_pad,
-        #             months_tail_pad=job.months_tail_pad,
-        #         )
-        #         geoData_m.data = df_month
-        #         geoData_m.pred_to_xr(ds, pred_var="cum_pred", source_type="sgi")
-
-        #         save_path = os.path.join(job.path_save_glw, glacier_name)
-        #         os.makedirs(save_path, exist_ok=True)
-        #         geoData_m.save_arrays(
-        #             f"{glacier_name}_{year}_{month}.zarr",
-        #             path=save_path + "/",
-        #             proj_type="wgs84",
-        #         )
-
         data_a = df_preds_a[["ID", "pred"]].set_index("ID")
         meta_cols = [
             c
@@ -250,6 +197,90 @@ def process_glacier_year(
         geoData._save_prediction(
             ds, pred_y_annual, glacier_name, year, job.path_save_glw, "annual"
         )
+
+        if save_monthly:
+            # --- Compute and save cumulative monthly predictions ---
+            # Define hydrological months (customize as needed)
+            hydro_months = [
+                "oct",
+                "nov",
+                "dec",
+                "jan",
+                "feb",
+                "mar",
+                "apr",
+                "may",
+                "jun",
+                "jul",
+                "aug",
+                "sep",
+            ]
+
+            # Get raw monthly predictions from LSTM
+            df_preds_monthly = model.predict_monthly_with_keys(
+                device,
+                test_gl_dl_a,
+                ds_gl_a,
+                month_names=None,
+                denorm=True,
+                consistent_denorm=True,
+            )
+
+            # Pivot to wide format (one column per month)
+            df_wide = (
+                df_preds_monthly.pivot_table(
+                    index="ID",
+                    columns="MONTH",
+                    values="pred_consistent",
+                    aggfunc="first",
+                )
+                .reindex(
+                    columns=[
+                        m
+                        for m in hydro_months
+                        if m in df_preds_monthly["MONTH"].unique()
+                    ]
+                )
+                .reset_index()
+            )
+
+            # Merge spatial metadata (ID, lon, lat)
+            df_wide = df_wide.merge(
+                df_grid_monthly_a[["ID", "POINT_LON", "POINT_LAT"]].drop_duplicates(),
+                on="ID",
+                how="left",
+            )
+
+            # Compute cumulative sum over months (only once!)
+            df_cumulative = df_wide.copy()
+            df_cumulative[hydro_months] = df_cumulative[hydro_months].cumsum(axis=1)
+
+            # Reorder columns for clarity
+            df_cumulative = df_cumulative[
+                ["ID", "POINT_LON", "POINT_LAT"] + hydro_months
+            ]
+
+            # ---- Save one file per month ----
+            for month in hydro_months:
+                df_month = df_cumulative[["ID", "POINT_LON", "POINT_LAT"]].copy()
+                df_month["pred"] = df_wide[month].values
+                df_month["cum_pred"] = df_cumulative[month].values
+
+                geoData_m = mbm.geodata.GeoData(
+                    df_grid_monthly_a,
+                    months_head_pad=job.months_head_pad,
+                    months_tail_pad=job.months_tail_pad,
+                )
+                geoData_m.data = df_month
+                geoData_m.pred_to_xr(ds, pred_var="cum_pred", source_type="sgi")
+
+                save_path = os.path.join(job.path_save_glw, glacier_name)
+                os.makedirs(save_path, exist_ok=True)
+                geoData_m.save_arrays(
+                    f"{glacier_name}_{year}_{month}.zarr",
+                    path=save_path + "/",
+                    proj_type="wgs84",
+                )
 
         # Winter branch
         if len(df_grid_monthly_w) == 0:
@@ -346,6 +377,7 @@ def run_glacier_mb(
     glacier_list: List[str],
     periods_per_glacier: Dict[str, Iterable[int]],
     tqdm=_tqdm_default,
+    save_monthly: bool = True,
 ) -> Dict[str, int]:
     """Run parallel glacier-year MB inference & save. Returns summary counts."""
     # ensure output folder exists & is empty if desired
@@ -378,7 +410,7 @@ def run_glacier_mb(
             initializer=lambda: worker_init_quiet(job.cpu_only),
             mp_context=ctx,
         ) as ex:
-            fn = partial(process_glacier_year, job=job)
+            fn = partial(process_glacier_year, job=job, save_monthly=save_monthly)
             futures = [ex.submit(fn, t) for t in tasks]
             for fut in tqdm(
                 as_completed(futures),
