@@ -22,8 +22,6 @@ from regions.Switzerland.scripts.config_CH import *
 colors = get_cmap_hex(cm.batlow, 10)
 color_annual = colors[0]
 color_winter = "#c51b7d"
-# color_obs = "#e08214"
-# color_pred = color_annual
 
 
 def plotHeatmap(test_glaciers, data_glamos, glacierCap, period="annual"):
