@@ -149,7 +149,7 @@ def extract_sarennes_data(all_sheets):
 
 def extract_blanc_data(blanc_data):
     import pandas as pd
-    
+
     rows = []
 
     # Get coordinate rows (X, Y, Z are in rows 0, 1, 2)
@@ -163,46 +163,48 @@ def extract_blanc_data(blanc_data):
     # Iterate through each stake (column)
     for col_idx, stake_id in enumerate(blanc_data.columns[:-1]):  # exclude last column
 
-        if stake_id == 'balise':
+        if stake_id == "balise":
             continue
-            
+
         # Get coordinates for this stake
         x_coord = x_row.iloc[col_idx]
-        y_coord = y_row.iloc[col_idx] 
+        y_coord = y_row.iloc[col_idx]
         elevation = z_row.iloc[col_idx]
-        
+
         # Iterate through each year for this stake
         for year_idx in range(len(data_rows)):
             year = data_rows.iloc[year_idx, 0]  # First column contains the year
             balance_value = data_rows.iloc[year_idx, col_idx]
 
             # Skip if balance value is ND
-            if str(balance_value).upper() == 'ND':
+            if str(balance_value).upper() == "ND":
                 continue
-                
+
             # Clean balance value (replace comma with dot for decimals)
             try:
-                balance_clean = float(str(balance_value).replace(',', '.'))
+                balance_clean = float(str(balance_value).replace(",", "."))
             except:
                 continue
-                
+
             # Create hydrological year dates (Oct 1 to Sep 30)
-            from_date = pd.to_datetime(f"{year-1}-10-01").strftime('%Y%m%d')
-            to_date = pd.to_datetime(f"{year}-09-30").strftime('%Y%m%d')
+            from_date = pd.to_datetime(f"{year-1}-10-01").strftime("%Y%m%d")
+            to_date = pd.to_datetime(f"{year}-09-30").strftime("%Y%m%d")
 
             # Create data row
-            rows.append({
-                'POINT_ID': f'glacier_blanc_complete_annual_{year}_{stake_id}',
-                'x_lambert3': x_coord,
-                'y_lambert3': y_coord,
-                'POINT_ELEVATION': elevation,
-                'FROM_DATE': from_date,
-                'TO_DATE': to_date,
-                'POINT_BALANCE': balance_clean,
-                'GLACIER': 'glacier_blanc',
-                'PERIOD': 'annual',
-                'GLACIER_ZONE': 'complete'
-            })
+            rows.append(
+                {
+                    "POINT_ID": f"glacier_blanc_complete_annual_{year}_{stake_id}",
+                    "x_lambert3": x_coord,
+                    "y_lambert3": y_coord,
+                    "POINT_ELEVATION": elevation,
+                    "FROM_DATE": from_date,
+                    "TO_DATE": to_date,
+                    "POINT_BALANCE": balance_clean,
+                    "GLACIER": "glacier_blanc",
+                    "PERIOD": "annual",
+                    "GLACIER_ZONE": "complete",
+                }
+            )
     return pd.DataFrame(rows)
 
 
