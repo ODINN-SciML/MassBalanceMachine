@@ -422,9 +422,6 @@ def get_geodetic_MB(cfg):
     )
 
     # Read geodetic MB dataset
-    # geodetic_mb = pd.read_csv(
-    #     cfg.dataPath + path_geodetic_MB_glamos + "dV_DOI2024_allcomb.csv"
-    # )
     geodetic_mb = pd.read_csv(
         cfg.dataPath + path_geodetic_MB_glamos + "dV_DOI2025_allcomb_prelim.csv"
     )

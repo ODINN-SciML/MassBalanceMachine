@@ -2147,3 +2147,124 @@ def plot_2glaciers_2years_glamos_vs_lstm(
     plt.show()
 
     return fig
+
+
+def plot_glacier_monthly_series_lstm_sharedcmap_center0(
+    glacier_name: str,
+    year: int,
+    path_pred_lstm: str,
+    *,
+    var: str = "pred_masked",
+    months_order=None,
+    apply_smoothing_fn=None,
+    cmap_name: str = "coolwarm_r",
+):
+    """
+    Plot all monthly LSTM predictions (e.g. cumulative MB) for a glacier–year.
+    All panels share the same color normalization centered at 0, like in
+    plot_2glaciers_2years_glamos_vs_lstm.
+
+    Parameters
+    ----------
+    glacier_name : str
+        Glacier folder name under path_pred_lstm.
+    year : int
+        Year to plot.
+    path_pred_lstm : str
+        Root path where monthly zarrs are stored.
+    var : str
+        Variable to plot (default "cum_pred").
+    months_order : list[str], optional
+        Order of months to display (hydrological order). Defaults to Sep–Aug.
+    apply_smoothing_fn : callable, optional
+        Function to apply to the dataset before plotting.
+    cmap_name : str
+        Matplotlib colormap name (default "coolwarm_r").
+    """
+
+    # Default hydrological year order (Sep–Aug)
+    if months_order is None:
+        months_order = [
+            "oct",
+            "nov",
+            "dec",
+            "jan",
+            "feb",
+            "mar",
+            "apr",
+            "may",
+            "jun",
+            "jul",
+            "aug",
+            "sep",
+        ]
+
+    n_months = len(months_order)
+    ncols = 4
+    nrows = int(np.ceil(n_months / ncols))
+
+    # --- First pass: determine global min/max ---
+    vmin, vmax = np.inf, -np.inf
+    month_datasets = {}
+
+    for month in months_order:
+        zpath = os.path.join(
+            path_pred_lstm, glacier_name, f"{glacier_name}_{year}_{month}.zarr"
+        )
+        if not os.path.exists(zpath):
+            continue
+        ds = xr.open_zarr(zpath)
+        if var not in ds:
+            continue
+        if apply_smoothing_fn is not None:
+            ds = apply_smoothing_fn(ds)
+        da = ds[var]
+        vmin = min(vmin, float(da.min().item()))
+        vmax = max(vmax, float(da.max().item()))
+        month_datasets[month] = da
+
+    if not month_datasets:
+        raise FileNotFoundError(
+            f"No {var} data found for {glacier_name} {year} in {path_pred_lstm}"
+        )
+
+    # --- Shared colormap centered at 0 ---
+    cmap = plt.get_cmap(cmap_name)
+    norm = mpl.colors.TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
+
+    # --- Plot grid ---
+    fig = plt.figure(figsize=(4.8 * ncols, 5.0 * nrows))
+    gs = GridSpec(nrows=nrows, ncols=ncols, figure=fig, wspace=0.3, hspace=0.25)
+
+    for i, month in enumerate(months_order):
+        row, col = divmod(i, ncols)
+        ax = fig.add_subplot(gs[row, col])
+
+        if month not in month_datasets:
+            ax.text(
+                0.5, 0.5, f"No data\n{month}", ha="center", va="center", fontsize=11
+            )
+            ax.set_axis_off()
+            continue
+
+        da = month_datasets[month]
+
+        im = da.plot.imshow(ax=ax, cmap=cmap, norm=norm, add_colorbar=False)
+
+        cb = fig.colorbar(im, ax=ax, shrink=0.75)
+        cb.set_label("Cumulative MB [m w.e.]", fontsize=10)
+
+        mean_val = float(da.mean().item())
+        ax.set_title(f"{month.capitalize()} ({mean_val:+.2f} m w.e.)", fontsize=11)
+        ax.set_xlabel("Longitude")
+        ax.set_ylabel("Latitude")
+
+    fig.suptitle(
+        f"{glacier_name.capitalize()} – {year} Monthly Cumulative Predictions",
+        fontsize=18,
+        y=1.02,
+    )
+    plt.tight_layout()
+    plt.show()
+
+    return fig
