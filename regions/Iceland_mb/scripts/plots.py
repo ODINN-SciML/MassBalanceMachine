@@ -4,7 +4,7 @@ import pandas as pd
 import seaborn as sns
 from matplotlib.patches import Rectangle
 from cmcrameri import cm
-from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error, r2_score 
+from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error, r2_score
 from matplotlib.ticker import MaxNLocator
 
 from scripts.helpers import *
@@ -554,30 +554,41 @@ def PlotPredictionsCombined(
     )
 
     # Add summer metrics if requested
-    if include_summer and 'summer' in grouped_ids.PERIOD.unique():
-        metrics_text += f"\nSummer: RMSE: {rmse_summer:.2f} m w.e., ρ: {pearson_corr_summer:.2f}"
-    
-    ax.text(0.05, 0.95, metrics_text, transform=ax.transAxes, 
-           verticalalignment='top', horizontalalignment='left',
-           bbox=dict(boxstyle='round', facecolor='white', alpha=0.8),
-           fontsize=20)
-    
-    ax.legend(fontsize=24, loc='lower right')
-    
-    ax.set_xlabel('Observed PMB [m w.e.]', fontsize=27)
-    ax.set_ylabel('Predicted PMB [m w.e.]', fontsize=27)
-    ax.set_title(f'PMB - Pred vs. Obs ({region_name})', fontsize=30)
-    
-    ax.tick_params(axis='both', which='major', labelsize=21)
+    if include_summer and "summer" in grouped_ids.PERIOD.unique():
+        metrics_text += (
+            f"\nSummer: RMSE: {rmse_summer:.2f} m w.e., ρ: {pearson_corr_summer:.2f}"
+        )
 
-def PlotPredictionsCombined_NN(grouped_ids, region_name="", include_summer=False, nticks=6):
+    ax.text(
+        0.05,
+        0.95,
+        metrics_text,
+        transform=ax.transAxes,
+        verticalalignment="top",
+        horizontalalignment="left",
+        bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
+        fontsize=20,
+    )
+
+    ax.legend(fontsize=24, loc="lower right")
+
+    ax.set_xlabel("Observed PMB [m w.e.]", fontsize=27)
+    ax.set_ylabel("Predicted PMB [m w.e.]", fontsize=27)
+    ax.set_title(f"PMB - Pred vs. Obs ({region_name})", fontsize=30)
+
+    ax.tick_params(axis="both", which="major", labelsize=21)
+
+
+def PlotPredictionsCombined_NN(
+    grouped_ids, region_name="", include_summer=False, nticks=6
+):
     fig = plt.figure(figsize=(9.7, 9.7))
-    period_colors = {'annual': '#e31a1c', 'winter': '#1f78b4', 'summer': '#33a02c'}
+    period_colors = {"annual": "#e31a1c", "winter": "#1f78b4", "summer": "#33a02c"}
 
     # Compute metrics for each period
     metrics = {}
-    for period in ['annual', 'winter', 'summer']:
-        if period == 'summer' and not include_summer:
+    for period in ["annual", "winter", "summer"]:
+        if period == "summer" and not include_summer:
             continue
         subset = grouped_ids[grouped_ids.PERIOD == period]
         if len(subset) > 0:
@@ -597,17 +608,22 @@ def PlotPredictionsCombined_NN(grouped_ids, region_name="", include_summer=False
         rho_all = np.corrcoef(grouped_ids.target, grouped_ids.pred)[0, 1]
     else:
         rho_all = np.nan
-    metrics['combined'] = (rmse_all, rho_all, r2_all)
+    metrics["combined"] = (rmse_all, rho_all, r2_all)
 
     ax = plt.subplot(1, 1, 1)
     for period in grouped_ids.PERIOD.unique():
-        if period == 'summer' and not include_summer:
+        if period == "summer" and not include_summer:
             continue
         subset = grouped_ids[grouped_ids.PERIOD == period]
         if len(subset) > 0:
-            ax.scatter(subset.target, subset.pred,
-                       color=period_colors.get(period, 'gray'),
-                       alpha=0.7, s=80, label=f"{period}")
+            ax.scatter(
+                subset.target,
+                subset.pred,
+                color=period_colors.get(period, "gray"),
+                alpha=0.7,
+                s=80,
+                label=f"{period}",
+            )
 
     # Calculate common axis limits and ticks
     min_val = min(grouped_ids.target.min(), grouped_ids.pred.min())
@@ -620,57 +636,74 @@ def PlotPredictionsCombined_NN(grouped_ids, region_name="", include_summer=False
     padding = range_val * 0.05
     min_val -= padding
     max_val += padding
-    
+
     # Set equal limits for both axes
     ax.set_xlim(min_val, max_val)
     ax.set_ylim(min_val, max_val)
-    
+
     # Force equal aspect ratio
-    ax.set_aspect('equal', adjustable='box')
+    ax.set_aspect("equal", adjustable="box")
 
     ax.xaxis.set_major_locator(MaxNLocator(nbins=nticks))
     ax.yaxis.set_major_locator(MaxNLocator(nbins=nticks))
-    
-    ax.plot([min_val, max_val], [min_val, max_val], 'k--', alpha=0.5, linewidth=2)
+
+    ax.plot([min_val, max_val], [min_val, max_val], "k--", alpha=0.5, linewidth=2)
 
     # Build metrics text for top left (RMSE values)
     rmse_text = f"RMSE$_{{\\mathbf{{C}}}}$: {metrics['combined'][0]:.2f}\n"
-    if 'annual' in metrics:
+    if "annual" in metrics:
         rmse_text += f"RMSE$_{{\\mathbf{{A}}}}$: {metrics['annual'][0]:.2f}\n"
-    if 'winter' in metrics:
+    if "winter" in metrics:
         rmse_text += f"RMSE$_{{\\mathbf{{W}}}}$: {metrics['winter'][0]:.2f}"
-    if include_summer and 'summer' in metrics:
+    if include_summer and "summer" in metrics:
         rmse_text += f"\nRMSE$_{{\\mathbf{{S}}}}$: {metrics['summer'][0]:.2f}"
-    
+
     # Build metrics text for bottom right (rho and R² values)
     corr_text = f"ρ$_{{\\mathbf{{C}}}}$: {metrics['combined'][1]:.2f}, R²$_{{\\mathbf{{C}}}}$: {metrics['combined'][2]:.2f}\n"
-    if 'annual' in metrics:
+    if "annual" in metrics:
         corr_text += f"ρ$_{{\\mathbf{{A}}}}$: {metrics['annual'][1]:.2f}, R²$_{{\\mathbf{{A}}}}$: {metrics['annual'][2]:.2f}\n"
-    if 'winter' in metrics:
+    if "winter" in metrics:
         corr_text += f"ρ$_{{\\mathbf{{W}}}}$: {metrics['winter'][1]:.2f}, R²$_{{\\mathbf{{W}}}}$: {metrics['winter'][2]:.2f}"
-    if include_summer and 'summer' in metrics:
+    if include_summer and "summer" in metrics:
         corr_text += f"\nρ$_{{\\mathbf{{S}}}}$: {metrics['summer'][1]:.2f}, R²$_{{\\mathbf{{S}}}}$: {metrics['summer'][2]:.2f}"
-        
+
     # Top left text box (RMSE)
-    ax.text(0.02, 0.98, rmse_text, transform=ax.transAxes,
-            verticalalignment='top', horizontalalignment='left',
-            bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.5, linewidth=0.5),
-            fontsize=32)
-    
+    ax.text(
+        0.02,
+        0.98,
+        rmse_text,
+        transform=ax.transAxes,
+        verticalalignment="top",
+        horizontalalignment="left",
+        bbox=dict(
+            boxstyle="round,pad=0.2", facecolor="white", alpha=0.5, linewidth=0.5
+        ),
+        fontsize=32,
+    )
+
     # Bottom right text box (rho and R²)
-    ax.text(0.98, 0.02, corr_text, transform=ax.transAxes,
-            verticalalignment='bottom', horizontalalignment='right',
-            bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.5, linewidth=0.5),
-            fontsize=32)
+    ax.text(
+        0.98,
+        0.02,
+        corr_text,
+        transform=ax.transAxes,
+        verticalalignment="bottom",
+        horizontalalignment="right",
+        bbox=dict(
+            boxstyle="round,pad=0.2", facecolor="white", alpha=0.5, linewidth=0.5
+        ),
+        fontsize=32,
+    )
 
     # ax.legend(fontsize=32, loc='upper left', borderpad=0.2,labelspacing=0.2,handletextpad=0.1)
-    ax.set_xlabel('Observed PMB [m w.e.]', fontsize=32)
-    ax.set_ylabel('Predicted PMB [m w.e.]', fontsize=32)
-    #ax.set_title(f'PMB - Pred vs. Obs ({region_name})', fontsize=32)
-    ax.tick_params(axis='both', which='major', labelsize=32)
+    ax.set_xlabel("Observed PMB [m w.e.]", fontsize=32)
+    ax.set_ylabel("Predicted PMB [m w.e.]", fontsize=32)
+    # ax.set_title(f'PMB - Pred vs. Obs ({region_name})', fontsize=32)
+    ax.tick_params(axis="both", which="major", labelsize=32)
     plt.tight_layout()
-        
-def predVSTruth(ax, grouped_ids, scores, hue='GLACIER', palette=None):
+
+
+def predVSTruth(ax, grouped_ids, scores, hue="GLACIER", palette=None):
 
     legend_xgb = "\n".join(
         (
@@ -706,7 +739,7 @@ def predVSTruth(ax, grouped_ids, scores, hue='GLACIER', palette=None):
         bbox=props,
     )
     if hue is not None:
-        ax.legend(fontsize=5, loc='center left', bbox_to_anchor=(1, 0.5))
+        ax.legend(fontsize=5, loc="center left", bbox_to_anchor=(1, 0.5))
     else:
         ax.legend([], [], frameon=False)
     # diagonal line
