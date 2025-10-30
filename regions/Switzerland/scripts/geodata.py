@@ -1175,13 +1175,16 @@ def prepareGeoTargets(geodetic_mb, periods_per_glacier, glacier_name=None):
     """
     if glacier_name is not None:
         geodetic_MB_target = []
+        Bgeod_key = (
+            "Bgeod" if "Bgeod" in geodetic_mb.keys() else "Bgeod_mwe_a"
+        )  # Handle the dV_DOI2025_allcomb_prelim.csv file
         for geodetic_period in periods_per_glacier[glacier_name]:
             mask = (
                 (geodetic_mb.glacier_name == glacier_name)
                 & (geodetic_mb.Astart == geodetic_period[0])
                 & (geodetic_mb.Aend == geodetic_period[1])
             )
-            geodetic_MB_target.append(geodetic_mb[mask].Bgeod.values[0])
+            geodetic_MB_target.append(geodetic_mb[mask][Bgeod_key].values[0])
 
         return np.array(geodetic_MB_target)
     else:

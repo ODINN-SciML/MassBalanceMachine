@@ -22,7 +22,7 @@ def test_geodetic_data():
 
     geodetic_mb = get_geodetic_MB(cfg)
     print("geodetic_mb.shape=", geodetic_mb.shape)
-    assert geodetic_mb.shape == (59, 17)
+    assert geodetic_mb.shape == (70, 19)
 
 
 @pytest.mark.order1
@@ -75,7 +75,7 @@ def test_process_or_load_data():
     assert len(month_list) == 14
     assert len(month_pos) == 14
     print(data_monthly.shape)
-    assert data_monthly.shape == (37763, 30)
+    assert data_monthly.shape == (41045, 30)
 
 
 @pytest.mark.order2
@@ -150,15 +150,15 @@ def test_geodataloader():
         print(f"Glacier {g}")
     g = "silvretta"
     s, m, gt = gdl.stakes(g)
-    nRows = 33981
+    nRows = 36934
     assert s.shape == (nRows, 16)
     assert m.shape == (nRows, 8)
     assert gt.shape == (nRows,)
     x, m, y = gdl.geo(g)
-    nRows = 215952
+    nRows = 227604
     assert x.shape == (nRows, 16)
     assert m.shape == (nRows, 8)
-    assert y.shape == (50,)
+    assert y.shape == (60,)
 
 
 if __name__ == "__main__":
