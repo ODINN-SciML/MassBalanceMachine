@@ -418,7 +418,6 @@ class GeoData:
     def _save_monthly_predictions_NN(self, df, ds, glacier_name, year, path_save_glw):
         """Helper function to save monthly predictions."""
         hydro_months = [
-            "sep",
             "oct",
             "nov",
             "dec",
@@ -430,6 +429,7 @@ class GeoData:
             "jun",
             "jul",
             "aug",
+            "sep",
         ]
         df_cumulative = df[hydro_months].cumsum(axis=1)
 

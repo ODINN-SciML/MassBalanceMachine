@@ -16,7 +16,7 @@ from sklearn.metrics import (
     root_mean_squared_error,
     mean_absolute_error,
 )
-
+import matplotlib as mpl
 import massbalancemachine as mbm
 
 from regions.Switzerland.scripts.geodata import *
