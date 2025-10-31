@@ -61,6 +61,7 @@ sphinxemoji = "^0.3.0"
 numcodecs = "0.15.1"
 torchsummary = "^1.5"
 nbstripout = "^0.8.1"
+joypy = "^0.2.6"
 
 [tool.poetry.group.docs.dependencies]
 sphinx = "^7.4.6"

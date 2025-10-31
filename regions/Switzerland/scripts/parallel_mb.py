@@ -54,6 +54,7 @@ class MBJobConfig:
     max_workers: Optional[int] = None
     cpu_only: bool = True
     ONLY_GEODETIC: bool = True
+    save_monthly: bool = True
 
 
 # ----------------- worker init (quiet + CPU threads cap) -----------------
@@ -95,7 +96,6 @@ def get_model_cpu(cfg, params_used, model_filename):
 def process_glacier_year(
     args: Tuple[str, int],
     job: MBJobConfig,
-    save_monthly: bool = False,
 ) -> Tuple[str, str, int, str]:
     glacier_name, year = args
     try:
@@ -198,7 +198,7 @@ def process_glacier_year(
             ds, pred_y_annual, glacier_name, year, job.path_save_glw, "annual"
         )
 
-        if save_monthly:
+        if job.save_monthly:
             # --- Compute and save cumulative monthly predictions ---
             # Define hydrological months (customize as needed)
             hydro_months = [
@@ -377,7 +377,6 @@ def run_glacier_mb(
     glacier_list: List[str],
     periods_per_glacier: Dict[str, Iterable[int]],
     tqdm=_tqdm_default,
-    save_monthly: bool = True,
 ) -> Dict[str, int]:
     """Run parallel glacier-year MB inference & save. Returns summary counts."""
     # ensure output folder exists & is empty if desired
@@ -410,7 +409,7 @@ def run_glacier_mb(
             initializer=lambda: worker_init_quiet(job.cpu_only),
             mp_context=ctx,
         ) as ex:
-            fn = partial(process_glacier_year, job=job, save_monthly=save_monthly)
+            fn = partial(process_glacier_year, job=job, save_monthly=job.save_monthly)
             futures = [ex.submit(fn, t) for t in tasks]
             for fut in tqdm(
                 as_completed(futures),
