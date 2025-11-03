@@ -1,6 +1,9 @@
 Installation instructions
 =========================
 
+.. tip::
+    If you want to contribute to MassBalanceMachine, don't forget to read the :doc:`contributing` section. This is especially useful to know the coding rules and code formatting tools that should be applied to your commits.
+
 Requirements
 ************
 
