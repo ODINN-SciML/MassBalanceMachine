@@ -55,6 +55,7 @@ class MBJobConfig:
     cpu_only: bool = True
     ONLY_GEODETIC: bool = True
     save_monthly: bool = True
+    denorm: bool = True
 
 
 # ----------------- worker init (quiet + CPU threads cap) -----------------
@@ -222,8 +223,8 @@ def process_glacier_year(
                 test_gl_dl_a,
                 ds_gl_a,
                 month_names=None,
-                denorm=True,
-                consistent_denorm=True,
+                denorm=job.denorm,
+                consistent_denorm=job.denorm,  # only relevant if normalized
             )
 
             # Pivot to wide format (one column per month)
@@ -409,7 +410,7 @@ def run_glacier_mb(
             initializer=lambda: worker_init_quiet(job.cpu_only),
             mp_context=ctx,
         ) as ex:
-            fn = partial(process_glacier_year, job=job, save_monthly=job.save_monthly)
+            fn = partial(process_glacier_year, job=job)
             futures = [ex.submit(fn, t) for t in tasks]
             for fut in tqdm(
                 as_completed(futures),

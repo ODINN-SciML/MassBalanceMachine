@@ -2458,3 +2458,101 @@ def plot_monthly_joyplot(
     # plt.tight_layout()
     plt.show()
     return fig
+
+
+def plot_monthly_joyplot_single(
+    df_long,
+    variable,
+    month_order=None,
+    color_model="tab:blue",
+    color_glamos="gray",
+    figsize_cm=(12, 14),
+    x_range=(-2.2, 2.2),
+    alpha=1,
+    show=True,
+):
+    """
+    Plot a JoyPy ridge plot showing monthly distributions for a single model variable
+    alongside GLAMOS reference data.
+
+    Parameters
+    ----------
+    df_long : pd.DataFrame
+        Long-format dataframe from `prepare_monthly_long_df`.
+        Must include columns 'Month', `variable`, and 'mb_glamos'.
+    variable : str
+        Name of the model variable column to plot (e.g. 'mb_lstm' or 'mb_nn').
+    month_order : list, optional
+        Ordered list of months (default: hydrological year Oct–Sep).
+    color_model, color_glamos : str
+        Line colors for the model and GLAMOS distributions.
+    figsize_cm : tuple
+        Figure size in centimeters.
+    x_range : tuple
+        x-axis range for MB (m w.e.).
+    alpha : float
+        Transparency for lines and legend patches.
+    """
+
+    if month_order is None:
+        month_order = [
+            "oct",
+            "nov",
+            "dec",
+            "jan",
+            "feb",
+            "mar",
+            "apr",
+            "may",
+            "jun",
+            "jul",
+            "aug",
+            "sep",
+        ]
+
+    cm = 1 / 2.54  # centimeters to inches conversion
+
+    # --- Ridge plot: model + GLAMOS ---
+    fig, ax = joypy.joyplot(
+        df_long,
+        by="Month",
+        column=[variable, "mb_glamos"],
+        alpha=0.8,
+        overlap=0,
+        fill=False,
+        linewidth=1.5,
+        xlabelsize=8.5,
+        ylabelsize=8.5,
+        x_range=x_range,
+        grid=False,
+        color=[color_model, color_glamos],
+        figsize=(figsize_cm[0] * cm, figsize_cm[1] * cm),
+        ylim="own",
+    )
+
+    # --- Aesthetics ---
+    plt.axvline(x=0, color="grey", alpha=0.5, linewidth=1)
+    plt.xlabel("Mass balance (m w.e.)", fontsize=8.5)
+    plt.yticks(ticks=range(1, 13), labels=month_order, fontsize=8.5)
+    plt.gca().set_yticklabels(month_order)
+
+    # --- Legend ---
+    model_name = variable.replace("mb_", "").upper()
+    legend_patches = [
+        Patch(facecolor=color_model, label=model_name, alpha=alpha, edgecolor="k"),
+        Patch(facecolor=color_glamos, label="GLAMOS", alpha=alpha, edgecolor="k"),
+    ]
+    plt.legend(
+        handles=legend_patches,
+        loc="upper center",
+        bbox_to_anchor=(0.48, -0.1),
+        ncol=2,
+        fontsize=8.5,
+        handletextpad=0.5,
+        columnspacing=1,
+    )
+
+    if show:
+        plt.show()
+
+    return fig

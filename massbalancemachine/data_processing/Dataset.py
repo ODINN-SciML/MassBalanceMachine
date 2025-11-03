@@ -570,472 +570,6 @@ class SliceDatasetBinding(Dataset):
         return self.M[idx]
 
 
-# # ---------- LSTM Dataset ----------
-# class MBSequenceDataset(Dataset):
-#     """
-#     Dataset for glacier mass-balance sequences.
-#     Provides:
-#       - MBSequenceDataset.from_dataframe(...) -> builds sequences from a tidy monthly table
-#       - Scaling helpers (fit_scalers / transform_inplace / set_scalers_from)
-#       - Access to .keys [(GLACIER, YEAR, ID, PERIOD)] aligned with row order
-#     """
-
-#     # ---------- Constructors ----------
-#     @classmethod
-#     def from_dataframe(
-#         cls,
-#         df: pd.DataFrame,
-#         monthly_cols: List[str],
-#         static_cols: List[str],
-#         show_progress: bool = True,
-#         expect_target: bool = True,
-#         months_tail_pad=None,
-#         months_head_pad=None,
-#     ) -> "MBSequenceDataset":
-#         """
-#         Build a dataset directly from a monthly table.
-
-#         Assumes MONTHS are already normalized to {'oct','nov','dec','jan','feb','mar','apr','may','jun','jul','aug','sep'}.
-#         Required columns: GLACIER, YEAR, ID, PERIOD, MONTHS, monthly_cols, static_cols,
-#         and POINT_BALANCE if expect_target=True.
-#         """
-
-#         # Padding to allow for flexible month ranges (customize freely)
-#         assert (months_head_pad is None) == (
-#             months_tail_pad is None
-#         ), "If any of months_head_pad or months_tail_pad is provided, the other variable must also be provided."
-
-#         try:
-#             if months_head_pad is None and months_tail_pad is None:
-#                 months_head_pad, months_tail_pad = _compute_head_tail_pads_from_df(df)
-#         except AttributeError as e:
-#             raise ValueError(
-#                 "Could not compute months_head_pad / months_tail_pad from dataframe. Please provide them explicitly as arguments in function from_dataframe."
-#             ) from e
-
-#         month_list, month_pos = _rebuild_month_index(months_head_pad, months_tail_pad)
-
-#         pos_map = {k: v - 1 for k, v in month_pos.items()}  # token -> 0-based index
-#         T = int(len(month_list))  # max sequence length
-
-#         data_dict = cls._build_sequences(
-#             df=df,
-#             monthly_cols=monthly_cols,
-#             static_cols=static_cols,
-#             pos_map=pos_map,
-#             T=T,
-#             show_progress=show_progress,
-#             expect_target=expect_target,
-#         )
-#         return cls(data_dict)
-
-#     def make_loaders(
-#         self,
-#         train_idx,
-#         val_idx,
-#         batch_size_train: int = 64,
-#         batch_size_val: int = 158,
-#         seed: int = 42,
-#         fit_and_transform: bool = True,
-#         shuffle_train: bool = True,
-#         drop_last_train: bool = False,
-#         num_workers: int = 0,
-#         pin_memory: bool = False,
-#         use_weighted_sampler: bool = False,
-#         verbose: bool = True,
-#     ):
-#         """
-#         Split this dataset into train/val, (optionally) fit+apply scalers on TRAIN,
-#         and return DataLoaders plus the split indices.
-
-#         Parameters
-#         ----------
-#         use_weighted_sampler : bool, default False
-#             If True, uses WeightedRandomSampler for the training DataLoader to
-#             balance winter/annual samples.
-
-#         Returns
-#         -------
-#         train_dl, val_dl, train_idx, val_idx
-#         """
-
-#         # Reproducible sampling
-#         g = torch.Generator()
-#         g.manual_seed(seed)
-#         self.seed_all(seed)
-
-#         def _seed_worker(worker_id):
-#             # Set seed for Python and NumPy in each worker
-#             worker_seed = torch.initial_seed() % 2**32
-#             np.random.seed(worker_seed)
-#             rd.seed(worker_seed)
-#             torch.manual_seed(worker_seed)
-
-#         if fit_and_transform:
-#             self.fit_scalers(train_idx)
-#             self.transform_inplace()
-
-#         train_ds = Subset(self, train_idx)
-#         val_ds = Subset(self, val_idx)
-
-#         if use_weighted_sampler:
-#             # Compute weights: higher for minority class (annual)
-#             iw = self.iw[train_idx].numpy()
-#             ia = self.ia[train_idx].numpy()
-#             n_w, n_a = iw.sum(), ia.sum()
-#             w_w, w_a = 1.0, (n_w / max(n_a, 1))  # annual weight = ratio of counts
-
-#             sample_weights = np.where(ia, w_a, w_w).astype(np.float32)
-#             sample_weights = torch.from_numpy(sample_weights)
-
-#             sampler = WeightedRandomSampler(
-#                 sample_weights,
-#                 num_samples=len(sample_weights),
-#                 replacement=True,
-#                 generator=g,
-#             )
-
-#             train_dl = DataLoader(
-#                 train_ds,
-#                 batch_size=batch_size_train,
-#                 sampler=sampler,
-#                 drop_last=drop_last_train,
-#                 num_workers=num_workers,
-#                 pin_memory=pin_memory,
-#                 worker_init_fn=_seed_worker,
-#                 generator=g,
-#             )
-#         else:
-#             train_dl = DataLoader(
-#                 train_ds,
-#                 batch_size=batch_size_train,
-#                 shuffle=shuffle_train,
-#                 drop_last=drop_last_train,
-#                 num_workers=num_workers,
-#                 pin_memory=pin_memory,
-#                 worker_init_fn=_seed_worker,
-#                 generator=g,
-#             )
-
-#         val_dl = DataLoader(
-#             val_ds,
-#             batch_size=batch_size_val,
-#             shuffle=False,
-#             num_workers=num_workers,
-#             pin_memory=pin_memory,
-#             worker_init_fn=_seed_worker,
-#             generator=g,
-#         )
-
-#         # ---- Sanity check printout ----
-#         n_w_tr, n_a_tr = int(self.iw[train_idx].sum()), int(self.ia[train_idx].sum())
-#         n_w_va, n_a_va = int(self.iw[val_idx].sum()), int(self.ia[val_idx].sum())
-#         if verbose:
-#             print(f"Train counts: {n_w_tr} winter | {n_a_tr} annual")
-#             print(f"Val   counts: {n_w_va} winter | {n_a_va} annual")
-
-#         return train_dl, val_dl
-
-#     @staticmethod
-#     def seed_all(seed=None):
-#         # Python
-#         rd.seed(seed)
-#         # NumPy
-#         np.random.seed(seed)
-#         # PyTorch
-#         torch.manual_seed(seed)
-#         torch.cuda.manual_seed_all(seed)
-
-#         # cuDNN deterministic kernels
-#         torch.backends.cudnn.deterministic = True
-#         torch.backends.cudnn.benchmark = False
-
-#         # Forbid nondeterministic ops (warn if an op has no deterministic impl)
-#         torch.use_deterministic_algorithms(True, warn_only=True)
-
-#         # Setting CUBLAS environment variable (helps in newer versions)
-#         os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:2"
-
-#     @staticmethod
-#     def make_test_loader(
-#         ds_test: "MBSequenceDataset",
-#         ds_train: "MBSequenceDataset",
-#         *,
-#         seed,
-#         batch_size: int = 158,
-#         num_workers: int = 0,
-#         pin_memory: bool = False,
-#     ):
-#         """
-#         Copy TRAIN scalers to TEST, transform TEST in-place, and return a DataLoader.
-#         """
-#         g = torch.Generator()
-#         g.manual_seed(seed)
-
-#         ds_test.set_scalers_from(ds_train)
-#         ds_test.transform_inplace()
-
-#         def _seed_worker(worker_id):
-#             worker_seed = seed + worker_id
-#             np.random.seed(worker_seed)
-#             rd.seed(worker_seed)
-
-#         test_dl = DataLoader(
-#             ds_test,
-#             batch_size=batch_size,
-#             shuffle=False,
-#             num_workers=num_workers,
-#             pin_memory=pin_memory,
-#             worker_init_fn=_seed_worker,
-#             generator=g,
-#         )
-#         return test_dl
-
-#     @staticmethod
-#     def _stack(a: List[np.ndarray]) -> np.ndarray:
-#         return np.stack(a, axis=0) if len(a) else np.empty((0,))
-
-#     @staticmethod
-#     def _build_sequences(
-#         df: pd.DataFrame,
-#         monthly_cols: List[str],
-#         static_cols: List[str],
-#         pos_map: Dict[str, int],  # token -> 0-based index
-#         T: int,  # total timeline length
-#         show_progress: bool = True,
-#         expect_target: bool = True,
-#     ) -> Dict[str, np.ndarray]:
-#         # --- required columns ---
-#         req = {"GLACIER", "YEAR", "ID", "PERIOD", "MONTHS", *monthly_cols, *static_cols}
-#         if expect_target:
-#             req |= {"POINT_BALANCE"}
-#         missing = req - set(df.columns)
-#         if missing:
-#             raise KeyError(f"Missing required columns: {sorted(missing)}")
-
-#         df = df.copy()
-#         df["PERIOD"] = df["PERIOD"].astype(str).str.strip().str.lower()
-#         df["MONTHS"] = df["MONTHS"].astype(str).str.strip().str.lower()
-
-#         X_monthly, X_static = [], []
-#         mask_valid, mask_w, mask_a = [], [], []
-#         y, is_winter, is_annual, keys = [], [], [], []
-
-#         groups = list(df.groupby(["GLACIER", "YEAR", "ID", "PERIOD"], sort=False))
-#         iterator = tqdm(groups, desc="Building sequences") if show_progress else groups
-
-#         agg_cols = (
-#             monthly_cols + static_cols + (["POINT_BALANCE"] if expect_target else [])
-#         )
-
-#         for (g, yr, mid, per), sub in iterator:
-#             # average duplicates within the same month token
-#             subm = sub.groupby("MONTHS", as_index=False)[agg_cols].mean(
-#                 numeric_only=True
-#             )
-
-#             # (T, Fm) matrix + valid mask
-#             mat = np.zeros((T, len(monthly_cols)), dtype=np.float32)
-#             mv = np.zeros(T, dtype=np.float32)
-
-#             for _, r in subm.iterrows():
-#                 m = str(r["MONTHS"]).strip().lower()
-#                 if m not in pos_map:
-#                     raise ValueError(
-#                         f"Unexpected month token '{m}'. Expected one of {list(pos_map.keys())}."
-#                     )
-#                 pos = int(pos_map[m])  # 0-based
-#                 mat[pos, :] = r[monthly_cols].to_numpy(np.float32)
-#                 mv[pos] = 1.0
-
-#             # static features
-#             s = subm.iloc[0][static_cols].to_numpy(np.float32)
-
-#             # target
-#             target = float(subm["POINT_BALANCE"].mean()) if expect_target else np.nan
-
-#             # ---- per-sample seasonal masks (flexible windows) ----
-#             per_l = str(per).strip().lower()
-#             if per_l == "winter":
-#                 mw_sample = mv.copy()
-#                 ma_sample = np.zeros(T, dtype=np.float32)
-#             elif per_l == "annual":
-#                 mw_sample = np.zeros(T, dtype=np.float32)
-#                 ma_sample = mv.copy()
-#             else:
-#                 raise ValueError(f"Unexpected PERIOD: {per}")
-
-#             # append once per group
-#             X_monthly.append(mat)
-#             X_static.append(s)
-#             mask_valid.append(mv)
-#             mask_w.append(mw_sample)
-#             mask_a.append(ma_sample)
-#             y.append(target)
-#             is_winter.append(per_l == "winter")
-#             is_annual.append(per_l == "annual")
-#             keys.append((g, int(yr), int(mid), per_l))
-
-#         def stack(a):
-#             return np.stack(a, axis=0) if len(a) else np.empty((0,))
-
-#         data_dict = dict(
-#             X_monthly=stack(X_monthly),  # (B, T, Fm)
-#             X_static=stack(X_static),  # (B, Fs)
-#             mask_valid=stack(mask_valid),  # (B, T)
-#             mask_w=stack(mask_w),  # (B, T)
-#             mask_a=stack(mask_a),  # (B, T)
-#             y=np.asarray(y, dtype=np.float32),
-#             is_winter=np.asarray(is_winter, dtype=bool),
-#             is_annual=np.asarray(is_annual, dtype=bool),
-#             keys=keys,
-#         )
-
-#         # Key uniqueness check
-#         if len(keys) != len(set(keys)):
-#             from collections import Counter
-
-#             dupes = [k for k, c in Counter(keys).items() if c > 1]
-#             raise ValueError(f"Found {len(dupes)} duplicate keys, e.g. {dupes[:5]}")
-
-#         return data_dict
-
-#     # ---------- Torch Dataset API ----------
-
-#     def __init__(self, data_dict: Dict[str, np.ndarray]):
-#         # raw numpy -> tensors
-#         self.Xm = torch.from_numpy(data_dict["X_monthly"]).float()  # (B,T,Fm)
-#         self.Xs = torch.from_numpy(data_dict["X_static"]).float()  # (B,Fs)
-#         self.mv = torch.from_numpy(data_dict["mask_valid"]).float()  # (B,T)
-#         self.mw = torch.from_numpy(data_dict["mask_w"]).float()  # (B,T)
-#         self.ma = torch.from_numpy(data_dict["mask_a"]).float()  # (B,T)
-#         self.y = torch.from_numpy(data_dict["y"]).float()  # (B,)
-#         self.iw = torch.from_numpy(data_dict["is_winter"]).bool()  # (B,)
-#         self.ia = torch.from_numpy(data_dict["is_annual"]).bool()  # (B,)
-#         self.keys = data_dict.get("keys", [])
-
-#         # scalers (set by fit_scalers or set_scalers_from)
-#         self.month_mean: Optional[torch.Tensor] = None
-#         self.month_std: Optional[torch.Tensor] = None
-#         self.static_mean: Optional[torch.Tensor] = None
-#         self.static_std: Optional[torch.Tensor] = None
-#         self.y_mean: Optional[torch.Tensor] = None
-#         self.y_std: Optional[torch.Tensor] = None
-
-#     def __len__(self) -> int:
-#         return self.Xm.shape[0]
-
-#     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
-#         return {
-#             "x_m": self.Xm[idx],
-#             "x_s": self.Xs[idx],
-#             "mv": self.mv[idx],
-#             "mw": self.mw[idx],
-#             "ma": self.ma[idx],
-#             "y": self.y[idx],
-#             "iw": self.iw[idx],
-#             "ia": self.ia[idx],
-#         }
-
-#     # ---------- Scaling helpers ----------
-
-#     def fit_scalers(self, idx_train: np.ndarray) -> None:
-#         """Fit scalers on TRAIN subset only."""
-#         # monthly features: mean/std over valid months
-#         Xm = self.Xm[idx_train].numpy()  # (N,T,Fm)
-#         Mv = self.mv[idx_train].numpy()  # (N,T)
-#         mask3 = Mv[..., None]  # (N,T,1)
-#         num = (Xm * mask3).sum(axis=(0, 1))  # (Fm,)
-#         den = mask3.sum(axis=(0, 1))  # (Fm,) effectively
-#         month_mean = num / np.maximum(den, 1e-8)
-#         var = (((Xm - month_mean) * mask3) ** 2).sum(axis=(0, 1)) / np.maximum(
-#             den, 1e-8
-#         )
-#         month_std = np.sqrt(np.maximum(var, 1e-8))
-
-#         # static features: simple mean/std per feature
-#         Xs = self.Xs[idx_train].numpy()
-#         static_mean = Xs.mean(axis=0)
-#         static_std = np.sqrt(np.maximum(Xs.var(axis=0), 1e-8))
-
-#         # target scaler
-#         y = self.y[idx_train].numpy()
-#         y_mean = float(np.mean(y))
-#         y_std = float(np.sqrt(max(np.var(y), 1e-8)))
-
-#         # store as tensors
-#         self.month_mean = torch.from_numpy(month_mean).float()
-#         self.month_std = torch.from_numpy(month_std).float()
-#         self.static_mean = torch.from_numpy(static_mean).float()
-#         self.static_std = torch.from_numpy(static_std).float()
-#         self.y_mean = torch.tensor(y_mean, dtype=torch.float32)
-#         self.y_std = torch.tensor(y_std, dtype=torch.float32)
-
-#     def transform_inplace(self) -> None:
-#         """Apply standardization to Xm, Xs, y using fitted scalers."""
-#         assert (
-#             self.month_mean is not None and self.month_std is not None
-#         ), "Call fit_scalers or set_scalers_from first."
-#         assert (
-#             self.static_mean is not None and self.static_std is not None
-#         ), "Call fit_scalers or set_scalers_from first."
-#         assert (
-#             self.y_mean is not None and self.y_std is not None
-#         ), "Call fit_scalers or set_scalers_from first."
-
-#         self.Xm = (
-#             self.Xm - self.month_mean
-#         ) / self.month_std  # (B,T,Fm) broadcasts over B and T
-#         self.Xs = (self.Xs - self.static_mean) / self.static_std
-#         self.y = (self.y - self.y_mean) / self.y_std
-
-#     def set_scalers_from(self, other: "MBSequenceDataset") -> None:
-#         """Copy fitted scalers from another dataset (usually the train dataset)."""
-#         self.month_mean = other.month_mean.clone()
-#         self.month_std = other.month_std.clone()
-#         self.static_mean = other.static_mean.clone()
-#         self.static_std = other.static_std.clone()
-#         self.y_mean = other.y_mean.clone()
-#         self.y_std = other.y_std.clone()
-
-#     def _clone_untransformed_dataset(
-#         ds_src: "MBSequenceDataset",
-#     ) -> "MBSequenceDataset":
-#         # Require the source to be pristine (not standardized yet)
-#         if any(
-#             x is not None
-#             for x in (ds_src.month_mean, ds_src.static_mean, ds_src.y_mean)
-#         ):
-#             raise ValueError(
-#                 "ds_pristine was already transformed. Build a fresh pristine dataset once and keep it read-only."
-#             )
-
-#         data_dict = dict(
-#             X_monthly=ds_src.Xm.detach().cpu().numpy().copy(),
-#             X_static=ds_src.Xs.detach().cpu().numpy().copy(),
-#             mask_valid=ds_src.mv.detach().cpu().numpy().copy(),
-#             mask_w=ds_src.mw.detach().cpu().numpy().copy(),
-#             mask_a=ds_src.ma.detach().cpu().numpy().copy(),
-#             y=ds_src.y.detach().cpu().numpy().copy(),
-#             is_winter=ds_src.iw.detach().cpu().numpy().copy(),
-#             is_annual=ds_src.ia.detach().cpu().numpy().copy(),
-#             keys=list(ds_src.keys),
-#         )
-#         return MBSequenceDataset(data_dict)
-
-#     # ---------- Utilities ----------
-
-#     @staticmethod
-#     def split_indices(
-#         n: int, val_ratio: float = 0.2, seed: int = 42
-#     ) -> Tuple[np.ndarray, np.ndarray]:
-#         rng = np.random.default_rng(seed)
-#         idx = np.arange(n)
-#         rng.shuffle(idx)
-#         cut = max(1, int(n * (1 - val_ratio)))
-#         return idx[:cut], idx[cut:]
-
-
 # ---------- LSTM Dataset ----------
 class MBSequenceDataset(Dataset):
     """
@@ -1058,6 +592,7 @@ class MBSequenceDataset(Dataset):
         months_tail_pad=None,
         months_head_pad=None,
         probe_cols: Optional[List[str]] = None,
+        normalize_target: bool = True,
     ) -> "MBSequenceDataset":
         """
         Build a dataset directly from a monthly table.
@@ -1096,7 +631,7 @@ class MBSequenceDataset(Dataset):
             # NEW:
             probe_cols=probe_cols,
         )
-        return cls(data_dict)
+        return cls(data_dict, normalize_target=normalize_target)
 
     def make_loaders(
         self,
@@ -1244,6 +779,7 @@ class MBSequenceDataset(Dataset):
         g = torch.Generator()
         g.manual_seed(seed)
 
+        ds_test.normalize_target = ds_train.normalize_target  # <--- propagate flag
         ds_test.set_scalers_from(ds_train)
         ds_test.transform_inplace()
 
@@ -1406,7 +942,9 @@ class MBSequenceDataset(Dataset):
 
     # ---------- Torch Dataset API ----------
 
-    def __init__(self, data_dict: Dict[str, np.ndarray]):
+    def __init__(self, data_dict: Dict[str, np.ndarray], normalize_target: bool = True):
+        self.normalize_target = normalize_target
+
         # raw numpy -> tensors
         self.Xm = torch.from_numpy(data_dict["X_monthly"]).float()  # (B,T,Fm)
         self.Xs = torch.from_numpy(data_dict["X_static"]).float()  # (B,Fs)
@@ -1457,7 +995,6 @@ class MBSequenceDataset(Dataset):
         return batch
 
     # ---------- Scaling helpers ----------
-
     def fit_scalers(self, idx_train: np.ndarray) -> None:
         """Fit scalers on TRAIN subset only."""
         # monthly features: mean/std over valid months
@@ -1465,7 +1002,7 @@ class MBSequenceDataset(Dataset):
         Mv = self.mv[idx_train].numpy()  # (N,T)
         mask3 = Mv[..., None]  # (N,T,1)
         num = (Xm * mask3).sum(axis=(0, 1))  # (Fm,)
-        den = mask3.sum(axis=(0, 1))  # (Fm,) effectively
+        den = mask3.sum(axis=(0, 1))  # (Fm,)
         month_mean = num / np.maximum(den, 1e-8)
         var = (((Xm - month_mean) * mask3) ** 2).sum(axis=(0, 1)) / np.maximum(
             den, 1e-8
@@ -1482,35 +1019,34 @@ class MBSequenceDataset(Dataset):
         y_mean = float(np.mean(y))
         y_std = float(np.sqrt(max(np.var(y), 1e-8)))
 
+        if self.normalize_target:
+            self.y_mean = torch.tensor(y_mean, dtype=torch.float32)
+            self.y_std = torch.tensor(y_std, dtype=torch.float32)
+        else:
+            # disable normalization
+            self.y_mean = torch.tensor(0.0, dtype=torch.float32)
+            self.y_std = torch.tensor(1.0, dtype=torch.float32)
+
         # store as tensors
         self.month_mean = torch.from_numpy(month_mean).float()
         self.month_std = torch.from_numpy(month_std).float()
         self.static_mean = torch.from_numpy(static_mean).float()
         self.static_std = torch.from_numpy(static_std).float()
-        self.y_mean = torch.tensor(y_mean, dtype=torch.float32)
-        self.y_std = torch.tensor(y_std, dtype=torch.float32)
 
         # Fitting probes (NaN-safe, masked by mv)
-        Mv = self.mv[idx_train].numpy().astype(bool)  # (N,T)
+        Mv = self.mv[idx_train].numpy().astype(bool)
         self.probe_mean, self.probe_std = {}, {}
-
         for pname in self.probe_names:
-            P = self.probes[pname][idx_train].numpy()  # (N,T)
-
-            # valid where month exists AND probe value is not NaN
+            P = self.probes[pname][idx_train].numpy()
             valid = Mv & ~np.isnan(P)
             den = valid.sum()
-
             if den == 0:
-                # fallback to avoid NaNs if everything is missing
-                mu = 0.0
-                std = 1.0
+                mu, std = 0.0, 1.0
             else:
-                vals = P[valid]  # 1-D array of valid probe values
+                vals = P[valid]
                 mu = float(vals.mean())
                 var = float(((vals - mu) ** 2).mean())
                 std = float(np.sqrt(max(var, 1e-8)))
-
             self.probe_mean[pname] = torch.tensor(mu, dtype=torch.float32)
             self.probe_std[pname] = torch.tensor(std, dtype=torch.float32)
 
@@ -1526,11 +1062,12 @@ class MBSequenceDataset(Dataset):
             self.y_mean is not None and self.y_std is not None
         ), "Call fit_scalers or set_scalers_from first."
 
-        self.Xm = (
-            self.Xm - self.month_mean
-        ) / self.month_std  # (B,T,Fm) broadcasts over B and T
+        self.Xm = (self.Xm - self.month_mean) / self.month_std
         self.Xs = (self.Xs - self.static_mean) / self.static_std
-        self.y = (self.y - self.y_mean) / self.y_std
+
+        # Conditionally normalize target
+        if self.normalize_target:
+            self.y = (self.y - self.y_mean) / self.y_std
 
         # Transform probes
         for pname in self.probe_names:
@@ -1549,6 +1086,7 @@ class MBSequenceDataset(Dataset):
         self.static_std = other.static_std.clone()
         self.y_mean = other.y_mean.clone()
         self.y_std = other.y_std.clone()
+        self.normalize_target = other.normalize_target
 
         # Copy probe scalers
         self.probe_mean = {k: v.clone() for k, v in other.probe_mean.items()}
@@ -1584,7 +1122,7 @@ class MBSequenceDataset(Dataset):
                 data_dict[f"probe__{pname}"] = (
                     ds_src.probes[pname].detach().cpu().numpy().copy()
                 )
-        return MBSequenceDataset(data_dict)
+        return MBSequenceDataset(data_dict, normalize_target=ds_src.normalize_target)
 
     # ---------- Utilities ----------
 
