@@ -34,11 +34,13 @@ Before committing your changes, make sure that they comply with the coding style
 You can format the code by running `black <https://github.com/psf/black>`_.
 This code formatter can be automatically called upon commit by installing the `pre-commit hook <https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/.pre-commit-config.yaml>`_ defined at the root of the MBM repository.
 For this, install `pre-commit <https://pre-commit.com/>`_ in the `MassBalanceMachine` environment by running:
+
 .. code-block:: bash
 
     pip install pre-commit
 
 The hook can be installed by running:
+
 .. code-block:: bash
 
     pre-commit install
