@@ -14,6 +14,16 @@ from pathlib import Path
 from typing import List, Optional, Union
 from functools import partial
 import torch
+import os
+import torch
+import numpy as np
+import pandas as pd
+import multiprocessing as mp
+from tqdm import tqdm
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from typing import Dict, Any, List, Optional
+import massbalancemachine as mbm
+import collections
 
 from regions.Switzerland.scripts.plots import *
 
@@ -616,6 +626,8 @@ def _pfi_worker_init(
     # local import avoids pickling a module from parent
     import massbalancemachine as mbm
 
+    print("[PFI worker initialized]")
+
     # silence worker prints
     sys.stdout = open(os.devnull, "w")
     sys.stderr = open(os.devnull, "w")
@@ -713,6 +725,8 @@ def _pfi_worker_task(task: Tuple[str, str, int]) -> Tuple[str, str, float]:
     """
     # local import
     import massbalancemachine as mbm
+
+    print(f"[PFI worker running] {task}")
 
     feat, ftype, seed_offset = task
     rng = np.random.default_rng(int(_PFI_G["seed"]) + int(seed_offset))
@@ -910,123 +924,42 @@ def permutation_feature_importance_mbm_parallel(
     return out
 
 
-# --- top of file (outside any function) ---
-def _pfi_monthly_worker_task(
-    task,
+# ------------------------------
+# Worker initializer
+# ------------------------------
+def _pfi_worker_init(
     cfg,
     custom_params,
     model_filename,
-    df_eval,
     ds_train,
     train_idx,
     MONTHLY_COLS,
     STATIC_COLS,
     months_head_pad,
     months_tail_pad,
+    df_eval,
+    target_col,
     seed,
     batch_size,
-    denorm=True,
 ):
-    """Worker function for monthly feature permutation."""
-    import numpy as np
-    import torch
-    import massbalancemachine as mbm
-
-    feat, m_idx, repeat = task
-    np.random.seed(seed + repeat)
-
-    # --- rebuild train scalers ---
-    ds_train_copy = mbm.data_processing.MBSequenceDataset._clone_untransformed_dataset(
-        ds_train
-    )
-    ds_train_copy.fit_scalers(train_idx)
-
-    # --- copy dataframe ---
-    df_mod = df_eval.copy()
-
-    # Expect df_eval to have "MONTH_IDX" or similar (0–14 per row)
-    if "MONTH_IDX" not in df_mod.columns:
-        raise ValueError(
-            "df_eval must include MONTH_IDX for month-specific permutation."
-        )
-
-    # Select rows corresponding to this month
-    mask = df_mod["MONTH_IDX"] == m_idx
-    if mask.any():
-        # Permute this feature only within this month
-        vals = df_mod.loc[mask, feat].values
-        np.random.shuffle(vals)
-        df_mod.loc[mask, feat] = vals
-
-    # --- rebuild dataset ---
-    ds_perm = mbm.data_processing.MBSequenceDataset.from_dataframe(
-        df_mod,
-        MONTHLY_COLS,
-        STATIC_COLS,
-        months_tail_pad=months_tail_pad,
+    global _PFI_G
+    _PFI_G = dict(
+        cfg=cfg,
+        custom_params=custom_params,
+        model_filename=model_filename,
+        ds_train=ds_train,
+        train_idx=train_idx,
+        MONTHLY_COLS=MONTHLY_COLS,
+        STATIC_COLS=STATIC_COLS,
         months_head_pad=months_head_pad,
-        expect_target=True,
-        show_progress=False,
+        months_tail_pad=months_tail_pad,
+        df_eval=df_eval,
+        target_col=target_col,
+        seed=seed,
+        batch_size=batch_size,
     )
 
-    dl_perm = mbm.data_processing.MBSequenceDataset.make_test_loader(
-        ds_perm, ds_train_copy, seed=seed + repeat, batch_size=batch_size
-    )
-
-    # --- rebuild model ---
-    device = torch.device("cpu")
-    model = mbm.models.LSTM_MB.build_model_from_params(
-        cfg, custom_params, device, verbose=False
-    )
-    state = torch.load(model_filename, map_location=device)
-    model.load_state_dict(state)
-    model.eval()
-
-    # --- predict ---
-    with torch.no_grad():
-        df_pred = model.predict_with_keys(device, dl_perm, ds_perm, denorm=denorm)
-
-    df_eval_perm = df_pred.merge(
-        df_eval[["ID", "PERIOD", "GLACIER", "YEAR", "y"]].drop_duplicates("ID"),
-        on=["ID", "PERIOD", "GLACIER", "YEAR"],
-        how="left",
-    )
-
-    def _rmse(period):
-        d = df_eval_perm[df_eval_perm["PERIOD"] == period]
-        return np.sqrt(np.mean((d["pred"] - d["y"]) ** 2)) if len(d) else np.nan
-
-    rmse_w = _rmse("winter")
-    rmse_a = _rmse("annual")
-    return feat, m_idx, rmse_w, rmse_a
-
-
-def permutation_feature_importance_mbm_monthly_parallel(
-    cfg,
-    custom_params,
-    model_filename,
-    df_eval,
-    MONTHLY_COLS,
-    STATIC_COLS,
-    ds_train,
-    train_idx,
-    months_head_pad,
-    months_tail_pad,
-    seed=42,
-    n_repeats=3,
-    batch_size=256,
-    denorm=True,
-    max_workers=None,
-):
-    """Parallel monthly permutation feature importance."""
-
-    # --- Prepare baseline ---
-    import massbalancemachine as mbm
-
-    ds_train_copy = mbm.data_processing.MBSequenceDataset._clone_untransformed_dataset(
-        ds_train
-    )
-    ds_train_copy.fit_scalers(train_idx)
+    # Prebuild evaluation dataset once (untransformed)
     ds_eval = mbm.data_processing.MBSequenceDataset.from_dataframe(
         df_eval,
         MONTHLY_COLS,
@@ -1036,10 +969,41 @@ def permutation_feature_importance_mbm_monthly_parallel(
         expect_target=True,
         show_progress=False,
     )
-    dl_eval = mbm.data_processing.MBSequenceDataset.make_test_loader(
-        ds_eval, ds_train_copy, seed=seed, batch_size=batch_size
+    _PFI_G["ds_eval"] = ds_eval
+
+
+# ------------------------------
+# Worker task (tensor-level permutation)
+# ------------------------------
+def _pfi_worker_task(task):
+    feat_idx, feat_name, month_idx, repeat = task
+    import torch, numpy as np
+
+    cfg = _PFI_G["cfg"]
+    custom_params = _PFI_G["custom_params"]
+    model_filename = _PFI_G["model_filename"]
+    ds_train = _PFI_G["ds_train"]
+    train_idx = _PFI_G["train_idx"]
+    seed = _PFI_G["seed"]
+    batch_size = _PFI_G["batch_size"]
+    ds_eval = _PFI_G["ds_eval"]
+
+    # Clone eval dataset (untransformed)
+    ds_perm = mbm.data_processing.MBSequenceDataset._clone_untransformed_dataset(
+        ds_eval
     )
 
+    # Permute one month-feature across samples
+    Xm = ds_perm.Xm.numpy().copy()  # (N,T,Fm)
+    np.random.seed(None)
+    Xm[:, month_idx, feat_idx] = np.random.permutation(Xm[:, month_idx, feat_idx])
+    ds_perm.Xm = torch.from_numpy(Xm)
+
+    # Apply scaling
+    ds_perm.set_scalers_from(ds_train)
+    ds_perm.transform_inplace()
+
+    # Load model
     device = torch.device("cpu")
     model = mbm.models.LSTM_MB.build_model_from_params(
         cfg, custom_params, device, verbose=False
@@ -1048,97 +1012,360 @@ def permutation_feature_importance_mbm_monthly_parallel(
     model.load_state_dict(state)
     model.eval()
 
+    # Evaluate
+    dl_eval = mbm.data_processing.MBSequenceDataset.make_test_loader(
+        ds_perm, ds_train, seed=seed, batch_size=batch_size
+    )
     with torch.no_grad():
-        df_pred_base = model.predict_with_keys(device, dl_eval, ds_eval, denorm=denorm)
+        metrics, _ = model.evaluate_with_preds(device, dl_eval, ds_perm)
 
-    df_eval_base = df_pred_base.merge(
-        df_eval[["ID", "PERIOD", "GLACIER", "YEAR", "y"]].drop_duplicates("ID"),
-        on=["ID", "PERIOD", "GLACIER", "YEAR"],
-        how="left",
+    rmse_a = metrics.get("RMSE_annual", np.nan)
+    rmse_w = metrics.get("RMSE_winter", np.nan)
+    rmse_global = np.nanmean([rmse_a, rmse_w])
+
+    return (feat_name, "monthly", month_idx, rmse_global, rmse_a, rmse_w)
+
+
+# ============================================================
+# Monthly Permutation Feature Importance (robust + diagnostic)
+# ============================================================
+
+import collections
+import numpy as np
+import torch
+import pandas as pd
+import os
+import torch.multiprocessing as mp
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from tqdm import tqdm
+
+# ---------------------------------------------------------------------
+# Globals for PFI worker communication
+# ---------------------------------------------------------------------
+_PFI_G = {}
+
+
+def _pfi_worker_init(
+    cfg_,
+    custom_params_,
+    model_filename_,
+    ds_train_,
+    train_idx_,
+    MONTHLY_COLS_,
+    STATIC_COLS_,
+    months_head_pad_,
+    months_tail_pad_,
+    df_eval_,
+    target_col_,
+    seed_,
+    batch_size_,
+):
+    """Initializer called once per worker process."""
+    import massbalancemachine as mbm
+
+    global _PFI_G
+
+    # Store global objects
+    _PFI_G = dict(
+        cfg=cfg_,
+        custom_params=custom_params_,
+        model_filename=model_filename_,
+        ds_train=ds_train_,
+        train_idx=train_idx_,
+        MONTHLY_COLS=MONTHLY_COLS_,
+        STATIC_COLS=STATIC_COLS_,
+        months_head_pad=months_head_pad_,
+        months_tail_pad=months_tail_pad_,
+        df_eval=df_eval_,
+        target_col=target_col_,
+        seed=seed_,
+        batch_size=batch_size_,
     )
 
-    def _rmse(period):
-        d = df_eval_base[df_eval_base["PERIOD"] == period]
-        return np.sqrt(np.mean((d["pred"] - d["y"]) ** 2)) if len(d) else np.nan
+    # --- Build eval dataset in *untransformed* state ---
+    _PFI_G["ds_eval"] = mbm.data_processing.MBSequenceDataset.from_dataframe(
+        df_eval_,
+        MONTHLY_COLS_,
+        STATIC_COLS_,
+        months_tail_pad=months_tail_pad_,
+        months_head_pad=months_head_pad_,
+        expect_target=True,
+        show_progress=False,
+    )
 
-    baseline_w = _rmse("winter")
-    baseline_a = _rmse("annual")
-    print(f"[Baseline RMSE] winter={baseline_w:.3f} | annual={baseline_a:.3f}")
+    # Ensure pristine (untransformed) state
+    if (
+        hasattr(_PFI_G["ds_eval"], "is_transformed")
+        and _PFI_G["ds_eval"].is_transformed
+    ):
+        _PFI_G["ds_eval"].untransform_inplace()
 
-    # --- Build tasks ---
-    month_names = [
-        "aug_",
-        "sep_",
-        "oct",
-        "nov",
-        "dec",
-        "jan",
-        "feb",
-        "mar",
-        "apr",
-        "may",
-        "jun",
-        "jul",
-        "aug",
-        "sep",
-        "oct_",
-    ]
-    n_months = len(month_names)
+
+def _pfi_worker_task(task):
+    """Executed in each worker — performs one permutation + evaluation."""
+    import numpy as np, torch, massbalancemachine as mbm
+    from torch.utils.data import DataLoader
+
+    feat_idx, feat_name, month_idx, repeat = task
+    cfg = _PFI_G["cfg"]
+    custom_params = _PFI_G["custom_params"]
+    model_filename = _PFI_G["model_filename"]
+    ds_train = _PFI_G["ds_train"]
+    seed = _PFI_G["seed"]
+    batch_size = _PFI_G["batch_size"]
+    ds_eval = _PFI_G["ds_eval"]
+
+    np.random.seed(seed + repeat)
+
+    # --- Clone pristine eval dataset ---
+    ds_perm = mbm.data_processing.MBSequenceDataset._clone_untransformed_dataset(
+        ds_eval
+    )
+
+    # --- Permute one (feature, month) ---
+    Xm = ds_perm.Xm.clone().detach().cpu().numpy()
+    n_months = Xm.shape[1]
+    if month_idx >= n_months:
+        return (feat_name, "monthly", month_idx, np.nan, np.nan)
+
+    vals = Xm[:, month_idx, feat_idx]
+    valid = ~np.isnan(vals)
+    np.random.shuffle(vals[valid])
+    Xm[:, month_idx, feat_idx] = vals
+    ds_perm.Xm = torch.from_numpy(Xm).float()
+
+    # --- Normalize using training scalers ---
+    ds_perm.set_scalers_from(ds_train)
+    ds_perm.transform_inplace()
+
+    # --- Model ---
+    device = torch.device("cpu")
+    model = mbm.models.LSTM_MB.build_model_from_params(
+        cfg, custom_params, device, verbose=False
+    )
+    state = torch.load(model_filename, map_location=device)
+    model.load_state_dict(state)
+    model.eval()
+
+    # --- Direct DataLoader (no double normalization) ---
+    dl_eval = DataLoader(
+        ds_perm,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=0,
+        pin_memory=False,
+    )
+
+    with torch.no_grad():
+        metrics, _ = model.evaluate_with_preds(device, dl_eval, ds_perm)
+
+    return (
+        feat_name,
+        "monthly",
+        month_idx,
+        metrics["RMSE_annual"],
+        metrics["RMSE_winter"],
+    )
+
+
+# ------------------------------
+# Main monthly PFI function
+# ------------------------------
+def permutation_feature_importance_mbm_monthly(
+    cfg,
+    custom_params: dict,
+    model_filename: str,
+    df_eval: pd.DataFrame,
+    MONTHLY_COLS: list,
+    STATIC_COLS: list,
+    ds_train,
+    train_idx,
+    target_col: str,
+    months_head_pad: int,
+    months_tail_pad: int,
+    seed: int = 42,
+    n_repeats: int = 3,
+    batch_size: int = 256,
+    max_workers: int = None,
+    n_months: int = 15,
+    month_names: list = None,
+) -> pd.DataFrame:
+    """Parallel monthly permutation feature importance (robust version)."""
+    import massbalancemachine as mbm
+
+    if month_names is None:
+        month_names = [
+            "aug_",
+            "sep_",
+            "oct",
+            "nov",
+            "dec",
+            "jan",
+            "feb",
+            "mar",
+            "apr",
+            "may",
+            "jun",
+            "jul",
+            "aug",
+            "sep",
+            "oct_",
+        ][:n_months]
+
+    # Ensure pristine ds_train (not transformed)
+    if hasattr(ds_train, "is_transformed") and ds_train.is_transformed:
+        ds_train = mbm.data_processing.MBSequenceDataset._clone_untransformed_dataset(
+            ds_train
+        )
+    if ds_train.month_mean is None:
+        ds_train.fit_scalers(train_idx)
+
+    # --- Build task list ---
     tasks = [
-        (feat, m_idx, r)
-        for feat in MONTHLY_COLS
-        for m_idx in range(n_months)
+        (i, f, m, r)
+        for i, f in enumerate(MONTHLY_COLS)
+        for m in range(n_months)
         for r in range(n_repeats)
     ]
 
-    # --- Run in parallel ---
-    ctx = torch.multiprocessing.get_context("fork")
+    # --- Multiprocessing context ---
+    ctx = mp.get_context("spawn")  # safer across platforms
     if max_workers is None:
-        import os
-
         max_workers = min(max(1, (os.cpu_count() or 2) - 1), 32)
 
-    worker = partial(
-        _pfi_monthly_worker_task,
-        cfg=cfg,
-        custom_params=custom_params,
-        model_filename=model_filename,
-        df_eval=df_eval,
-        ds_train=ds_train,
-        train_idx=train_idx,
-        MONTHLY_COLS=MONTHLY_COLS,
-        STATIC_COLS=STATIC_COLS,
-        months_head_pad=months_head_pad,
-        months_tail_pad=months_tail_pad,
-        seed=seed,
-        batch_size=batch_size,
-        denorm=denorm,
-    )
-
     results = []
-    with ProcessPoolExecutor(max_workers=max_workers, mp_context=ctx) as ex:
-        for res in tqdm(ex.map(worker, tasks), total=len(tasks), desc="Monthly PFI"):
-            results.append(res)
+    with ProcessPoolExecutor(
+        max_workers=max_workers,
+        mp_context=ctx,
+        initializer=_pfi_worker_init,
+        initargs=(
+            cfg,
+            custom_params,
+            model_filename,
+            ds_train,
+            train_idx,
+            MONTHLY_COLS,
+            STATIC_COLS,
+            months_head_pad,
+            months_tail_pad,
+            df_eval,
+            target_col,
+            seed,
+            batch_size,
+        ),
+    ) as ex:
+        futs = [ex.submit(_pfi_worker_task, t) for t in tasks]
+        for fut in tqdm(
+            as_completed(futs),
+            total=len(futs),
+            desc=f"PFI-monthly (workers={max_workers})",
+        ):
+            results.append(fut.result())
 
-    # --- Aggregate ---
-    df = pd.DataFrame(
-        results, columns=["feature", "month_idx", "rmse_winter", "rmse_annual"]
+    # ------------------------
+    # Compute baseline RMSEs (no permutation)
+    # ------------------------
+    device = torch.device("cpu")
+    model = mbm.models.LSTM_MB.build_model_from_params(
+        cfg, custom_params, device, verbose=False
     )
-    df["month"] = [month_names[m % len(month_names)] for m in df["month_idx"]]
-    df["delta_winter"] = df["rmse_winter"] - baseline_w
-    df["delta_annual"] = df["rmse_annual"] - baseline_a
+    state = torch.load(model_filename, map_location=device)
+    model.load_state_dict(state)
+    model.eval()
+
+    ds_eval_parent = mbm.data_processing.MBSequenceDataset.from_dataframe(
+        df_eval,
+        MONTHLY_COLS,
+        STATIC_COLS,
+        months_tail_pad=months_tail_pad,
+        months_head_pad=months_head_pad,
+        expect_target=True,
+        show_progress=False,
+    )
+    dl_eval_parent = mbm.data_processing.MBSequenceDataset.make_test_loader(
+        ds_eval_parent, ds_train, seed=seed, batch_size=batch_size
+    )
+    with torch.no_grad():
+        metrics_base, df_pred_base = model.evaluate_with_preds(
+            device, dl_eval_parent, ds_eval_parent
+        )
+
+    baseline_annual = metrics_base["RMSE_annual"]
+    baseline_winter = metrics_base["RMSE_winter"]
+
+    # Compute global RMSE manually
+    if target_col in df_pred_base.columns:
+        y_true = df_pred_base[target_col].to_numpy()
+    else:
+        merged = df_pred_base.merge(
+            df_eval[["ID", target_col]].drop_duplicates("ID"), on="ID", how="left"
+        )
+        y_true = merged[target_col].to_numpy()
+    y_pred = df_pred_base["pred"].to_numpy()
+    baseline_global = float(np.sqrt(np.mean((y_true - y_pred) ** 2)))
+
+    print(
+        f"Baseline RMSEs | global: {baseline_global:.4f} | annual: {baseline_annual:.4f} | winter: {baseline_winter:.4f}"
+    )
+
+    # ------------------------
+    # Aggregate results
+    # ------------------------
+    bucket_global = collections.defaultdict(list)
+    bucket_annual = collections.defaultdict(list)
+    bucket_winter = collections.defaultdict(list)
+
+    for feat, ftype, month_idx, rmse_a, rmse_w in results:
+        if np.isnan(rmse_a) or np.isnan(rmse_w):
+            continue
+        bucket_global[(feat, ftype, month_idx)].append(
+            ((rmse_a + rmse_w) / 2) - ((baseline_annual + baseline_winter) / 2)
+        )
+        bucket_annual[(feat, ftype, month_idx)].append(rmse_a - baseline_annual)
+        bucket_winter[(feat, ftype, month_idx)].append(rmse_w - baseline_winter)
+
+    rows = []
+    for (feat, ftype, month_idx), deltas in bucket_global.items():
+        mu_g = float(np.mean(bucket_global[(feat, ftype, month_idx)]))
+        sd_g = (
+            float(np.std(bucket_global[(feat, ftype, month_idx)], ddof=1))
+            if len(deltas) > 1
+            else 0.0
+        )
+        mu_a = float(np.mean(bucket_annual[(feat, ftype, month_idx)]))
+        sd_a = (
+            float(np.std(bucket_annual[(feat, ftype, month_idx)], ddof=1))
+            if len(deltas) > 1
+            else 0.0
+        )
+        mu_w = float(np.mean(bucket_winter[(feat, ftype, month_idx)]))
+        sd_w = (
+            float(np.std(bucket_winter[(feat, ftype, month_idx)], ddof=1))
+            if len(deltas) > 1
+            else 0.0
+        )
+
+        rows.append(
+            dict(
+                feature=feat,
+                type=ftype,
+                month_idx=month_idx,
+                month_name=month_names[month_idx] if month_idx is not None else None,
+                mean_delta_global=mu_g,
+                std_delta_global=sd_g,
+                mean_delta_annual=mu_a,
+                std_delta_annual=sd_a,
+                mean_delta_winter=mu_w,
+                std_delta_winter=sd_w,
+            )
+        )
 
     out = (
-        df.groupby(["feature", "month"])
-        .agg(
-            mean_delta_winter=("delta_winter", "mean"),
-            std_delta_winter=("delta_winter", "std"),
-            mean_delta_annual=("delta_annual", "mean"),
-            std_delta_annual=("delta_annual", "std"),
-        )
-        .reset_index()
+        pd.DataFrame(rows).sort_values(["feature", "month_idx"]).reset_index(drop=True)
     )
+    out["baseline_global"] = baseline_global
+    out["baseline_annual"] = baseline_annual
+    out["baseline_winter"] = baseline_winter
+    out["metric_name"] = "rmse"
 
-    out["baseline_rmse_winter"] = baseline_w
-    out["baseline_rmse_annual"] = baseline_a
     return out
