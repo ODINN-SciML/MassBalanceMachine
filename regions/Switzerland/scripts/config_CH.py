@@ -57,6 +57,9 @@ vois_climate_long_name = {
     "millan_v": "Millan ice velocity",
     "aspect_sgi": "Aspect",
     "slope_sgi": "Slope",
+    "svf": "Sky view factor",
+    "aspect": "Aspect",
+    "slope": "Slope",
 }
 
 vois_units = {
