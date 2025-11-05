@@ -23,6 +23,18 @@ Model diagram:
 
             ▼ masks mv, mw, ma
     Winter MB (B)    Annual MB (B)
+    
+    And inside the LSTM: 
+        Input x_t for t in [0, ..., T]
+        ↓
+        [LSTM Layer 1]
+        ↓     produces h_t^(1), c_t^(1)
+        [LSTM Layer 2]
+        ↓     produces h_t^(2), c_t^(2)
+
+        out = [h_1^(2), h_2^(2), ..., h_T^(2)]   → shape (B, T, H)
+        h_n = [h_T^(1), h_T^(2)]                 → shape (2, B, H)
+        c_n = [c_T^(1), c_T^(2)]                 → shape (2, B, H)
 """
 
 
@@ -126,48 +138,72 @@ class LSTM_MB(nn.Module):
     # ----------------
     #  Forward
     # ----------------
-    def forward(self, x_m, x_s, mv, mw, ma):
+    def forward(self, x_m, x_s, mv, mw, ma, debug=False):
         """
-        x_m: (B,15,Fm) | x_s: (B,Fs) | mv,mw,ma: (B,15)
+        x_m: (B, 15, Fm) | x_s: (B, Fs) | mv, mw, ma: (B, 15)
         Returns: y_month, y_w, y_a
         """
-        out, _ = self.lstm(x_m)  # (B,15,H or 2H)
-        s = self.static_mlp(x_s)  # (B,static_out_dim)
+
+        # ---- Dynamic path ----
+        out, (h_n, c_n) = self.lstm(x_m)  # (B, 15, H or 2H)
+        if debug:
+            print(f"[LSTM out] {tuple(out.shape)}  (H={out.shape[-1]})")
+            print(f"[LSTM h_n] {tuple(h_n.shape)}")
+            print(f"[LSTM c_n] {tuple(c_n.shape)}")
+
+        # ---- Static path ----
+        s = self.static_mlp(x_s)  # (B, static_out_dim)
+        if debug:
+            print(f"[Static MLP out] {tuple(s.shape)}  (static_out_dim={s.shape[-1]})")
 
         # ---- Fusion layer ----
-        s_rep = s.unsqueeze(1).expand(
-            -1, out.size(1), -1
-        )  # repeat static along time dimension
+        s_rep = s.unsqueeze(1).expand(-1, out.size(1), -1)  # (B, 15, static_out_dim)
+        if debug:
+            print(f"[Static repeated] {tuple(s_rep.shape)}")
+
         z = torch.cat([out, s_rep], dim=-1)  # concat dynamic + static
-        # Output shape: (B, 15, H + static_out_dim)
+        if debug:
+            print(f"[Fusion z] {tuple(z.shape)}  (H+static_out_dim={z.shape[-1]})")
+
         z = self.head_pre_dropout(z)
 
+        # ---- Heads ----
         if self.two_heads:
-            y_month_w = self.head_w(z).squeeze(-1)  # (B,15)
-            y_month_a = self.head_a(z).squeeze(-1)  # (B,15)
+            y_month_w = self.head_w(z).squeeze(-1)  # (B, 15)
+            y_month_a = self.head_a(z).squeeze(-1)  # (B, 15)
 
-            # mask valid months
+            if debug:
+                print(f"[Head W out] {tuple(y_month_w.shape)}")
+                print(f"[Head A out] {tuple(y_month_a.shape)}")
+
+            # Mask valid months
             y_month_w = y_month_w * mv
             y_month_a = y_month_a * mv
 
-            # Then it computes seasonal sums (y_w, y_a) depending on which months matter.
-            # For a winter meas, this is the sum of the months in mw (e.g. Nov-Apr),
-            # And y_a will also be over just winter  months
-            # but does not matter because not taken into account in loss
             y_w = (y_month_w * mw).sum(dim=1)  # (B,)
-
-            # For an annual meas, this is the sum of the months in ma (e.g. Oct-Sep).
-            # and mw will just be 0 everywhere but again does not matter
-            # just ignored in loss
             y_a = (y_month_a * ma).sum(dim=1)  # (B,)
 
-            # keep API: return one per-month series (use annual one for convenience)
+            if debug:
+                print(
+                    f"[Seasonal outputs] y_w={tuple(y_w.shape)} | y_a={tuple(y_a.shape)}"
+                )
+
             return y_month_a, y_w, y_a
+
         else:
-            y_month = self.head(z).squeeze(-1)  # (B,15)
-            y_month = y_month * mv  # mask valid months
-            y_w = (y_month * mw).sum(dim=1)  # (B,)
-            y_a = (y_month * ma).sum(dim=1)  # (B,)
+            y_month = self.head(z).squeeze(-1)  # (B, 15)
+            if debug:
+                print(f"[Head shared out] {tuple(y_month.shape)}")
+
+            y_month = y_month * mv
+            y_w = (y_month * mw).sum(dim=1)
+            y_a = (y_month * ma).sum(dim=1)
+
+            if debug:
+                print(
+                    f"[Seasonal outputs] y_w={tuple(y_w.shape)} | y_a={tuple(y_a.shape)}"
+                )
+
             return y_month, y_w, y_a
 
     # ----------------
