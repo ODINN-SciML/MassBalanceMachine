@@ -84,6 +84,7 @@ def plotHeatmap(test_glaciers, data_glamos, glacierCap, period="annual"):
     ax.tick_params(axis="y", labelsize=20)  # Adjust 16 to your preferred size
     ax.tick_params(axis="x", labelsize=20)  # Adjust 16 to your preferred size
     plt.tight_layout()
+    return fig
 
 
 def visualiseSplits(y_test, y_train, splits, colors=[color_annual, color_winter]):
@@ -652,7 +653,7 @@ def PlotIndividualGlacierPredVsTruth(
         else:
             area = np.round(area, 1)
 
-        ax1.set_title(f"{test_gl.capitalize()} ({area} km2, {gl_elv} m)", fontsize=28)
+        ax1.set_title(f"{test_gl.capitalize()} ({area} km2, {gl_elv} m)", fontsize=24)
 
     return ax_flat
 

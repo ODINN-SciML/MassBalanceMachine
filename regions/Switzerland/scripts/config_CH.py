@@ -80,7 +80,6 @@ vois_units = {
 TEST_GLACIERS = [
     "tortin",
     "plattalva",
-    "albigna",
     "schwarzberg",
     "hohlaub",
     "sanktanna",

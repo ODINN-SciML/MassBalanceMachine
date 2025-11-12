@@ -20,7 +20,13 @@ from sklearn.metrics import (
 )
 import matplotlib as mpl
 import massbalancemachine as mbm
-
+import os
+import numpy as np
+import xarray as xr
+import seaborn as sns
+import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
+import string
 from regions.Switzerland.scripts.geodata import *
 from regions.Switzerland.scripts.helpers import *
 
@@ -1885,25 +1891,23 @@ def plot_mb_by_elevation_periods_combined(
 
 
 def plot_2glaciers_2years_glamos_vs_lstm(
-    glacier_names,  # e.g. ("aletsch", "silvretta")
-    years_by_glacier,  # e.g. ((2016, 2022), (2014, 2021))  <-- NEW
+    glacier_names,
+    years_by_glacier,
     cfg,
     df_stakes=None,
-    path_distributed_mb=None,  # GLAMOS grids base
-    path_pred_lstm=None,  # LSTM zarrs base
+    path_distributed_mb=None,
+    path_pred_lstm=None,
     period="annual",
-    apply_smoothing_fn=None,  # optional callable(ds)->ds
+    apply_smoothing_fn=None,
+    add_panel_labels=True,  # whether to show labels
+    panel_label_start="a",  # starting letter
 ):
     """
     Layout (2 rows × 4 panels) with one colorbar per glacier–year (outside maps):
 
       Row 1 (glacier_names[0]): G1-GLAMOS(y1a), G1-LSTM(y1a), |cbar|, G1-GLAMOS(y1b), G1-LSTM(y1b), |cbar|
       Row 2 (glacier_names[1]): G2-GLAMOS(y2a), G2-LSTM(y2a), |cbar|, G2-GLAMOS(y2b), G2-LSTM(y2b), |cbar|
-
-    Each row has its own pair of years from `years_by_glacier[r]`, allowing different years per glacier.
-    Annotations (lower-left of each panel): RMSE (vs stakes), mean MB, variance.
     """
-
     assert len(glacier_names) == 2, "glacier_names must have length 2"
     assert len(years_by_glacier) == 2 and all(
         len(p) == 2 for p in years_by_glacier
@@ -1952,7 +1956,6 @@ def plot_2glaciers_2years_glamos_vs_lstm(
         return "lon", "lat"
 
     def stake_overlay_rmse(ax, glacier, year, cmap, norm, da_glamos, ds_lstm, which):
-        """Overlay stakes & return RMSE for 'GLAMOS' or 'LSTM' vs POINT_BALANCE."""
         if df_stakes is None:
             return None
         sub = df_stakes[
@@ -2011,32 +2014,27 @@ def plot_2glaciers_2years_glamos_vs_lstm(
         nrows=2,
         ncols=6,
         figure=fig,
-        width_ratios=[1, 1, 0.045, 1, 1, 0.045],  # slim cbar columns
+        width_ratios=[1, 1, 0.045, 1, 1, 0.045],
         wspace=0.30,
         hspace=0.12,
     )
 
-    # Keep the first axis per row to share y across the row
     first_ax_in_row = [None, None]
+    map_axes = []  # store map panels only (exclude colorbars)
 
     for r, glacier in enumerate(glacier_names):
-        row_years = years_by_glacier[r]  # (y_a, y_b) for this glacier/row
+        row_years = years_by_glacier[r]
         for j, year in enumerate(row_years):
-            col_base = 3 * j  # (0 or 3)
-            # sharey with the first axis in this row
+            col_base = 3 * j
             ax_g = fig.add_subplot(gs[r, col_base + 0], sharey=first_ax_in_row[r])
             if first_ax_in_row[r] is None:
-                first_ax_in_row[r] = (
-                    ax_g  # set after creation of the first GLAMOS axis in row
-                )
+                first_ax_in_row[r] = ax_g
             ax_m = fig.add_subplot(gs[r, col_base + 1], sharey=first_ax_in_row[r])
             ax_cb = fig.add_subplot(gs[r, col_base + 2])
 
-            # load data
             da_g = load_glamos_wgs84(glacier, year)
             ds_m = load_lstm_ds(glacier, year)
 
-            # compute pair vmin/vmax
             vals = []
             if da_g is not None:
                 vals += [float(da_g.min().item()), float(da_g.max().item())]
@@ -2069,7 +2067,6 @@ def plot_2glaciers_2years_glamos_vs_lstm(
                     ax=ax_g, cmap=cmap, norm=norm, add_colorbar=False
                 )
                 ax_g.set_title(f"{glacier.capitalize()} – GLAMOS ({year})", fontsize=16)
-
                 mean_g = float(da_g.mean().item())
                 var_g = float(da_g.var().item())
                 rmse_g = stake_overlay_rmse(
@@ -2088,6 +2085,7 @@ def plot_2glaciers_2years_glamos_vs_lstm(
                     fontsize=12,
                     bbox=dict(facecolor="white", alpha=0.7, edgecolor="none"),
                 )
+                map_axes.append(ax_g)
 
             # --- LSTM panel ---
             mappable_m = None
@@ -2100,8 +2098,7 @@ def plot_2glaciers_2years_glamos_vs_lstm(
                 mappable_m = ds_m["pred_masked"].plot.imshow(
                     ax=ax_m, cmap=cmap, norm=norm, add_colorbar=False
                 )
-                ax_m.set_title(f"{glacier.capitalize()} – LSTM ({year})", fontsize=16)
-
+                ax_m.set_title(f"{glacier.capitalize()} – MBM ({year})", fontsize=16)
                 mean_m = float(ds_m["pred_masked"].mean().item())
                 var_m = float(ds_m["pred_masked"].var().item())
                 rmse_m = stake_overlay_rmse(
@@ -2120,24 +2117,23 @@ def plot_2glaciers_2years_glamos_vs_lstm(
                     fontsize=12,
                     bbox=dict(facecolor="white", alpha=0.7, edgecolor="none"),
                 )
+                map_axes.append(ax_m)
 
-            # --- shared colorbar outside (for this glacier–year pair) ---
+            # --- shared colorbar ---
             pair_mappable = mappable_m or mappable_g
             if pair_mappable is not None:
                 cb = fig.colorbar(pair_mappable, cax=ax_cb)
                 cb.set_label("Mass Balance [m w.e.]", fontsize=16)
 
-            # ---- tidy y labels: only leftmost panel shows them ----
+            # tidy labels
             if j == 0:
                 ax_g.set_ylabel("Latitude")
                 ax_m.tick_params(labelleft=False)
-                ax_m.set_ylabel("")
             else:
                 ax_g.tick_params(labelleft=False)
                 ax_m.tick_params(labelleft=False)
                 ax_g.set_ylabel("")
                 ax_m.set_ylabel("")
-            # Only bottom row shows x labels
             if r == 0:
                 ax_g.tick_params(labelbottom=False)
                 ax_m.tick_params(labelbottom=False)
@@ -2145,10 +2141,41 @@ def plot_2glaciers_2years_glamos_vs_lstm(
                 ax_g.set_xlabel("Longitude")
                 ax_m.set_xlabel("Longitude")
 
+    # ---- Optionally add subplot labels ----
+    if add_panel_labels:
+        import string
+
+        # Create a sequence of letters starting from the user-specified one
+        all_letters = list(string.ascii_lowercase)
+        try:
+            start_idx = all_letters.index(panel_label_start.lower())
+        except ValueError:
+            start_idx = 0  # default to 'a' if invalid input
+        labels = all_letters[start_idx : start_idx + len(map_axes)]
+
+        for idx, (ax, label) in enumerate(zip(map_axes, labels)):
+            ax.text(
+                0.02,
+                0.98,
+                f"({label})",
+                transform=ax.transAxes,
+                ha="left",
+                va="top",
+                fontsize=18,
+                color="black",
+                bbox=dict(
+                    facecolor="white",
+                    alpha=0.5,
+                    edgecolor="none",
+                    boxstyle="round,pad=0.2",
+                ),
+                zorder=10,
+            )
+
     plt.tight_layout()
     plt.show()
 
-    return fig
+    return fig, map_axes
 
 
 def plot_glacier_monthly_series_lstm_sharedcmap_center0(

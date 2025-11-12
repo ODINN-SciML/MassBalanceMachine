@@ -384,8 +384,6 @@ def get_best_params_for_lstm(
     head_dropout = _as_opt_float(r.get("head_dropout"))
     if head_dropout is None:
         head_dropout = 0.0
-    if not two_heads:
-        head_dropout = 0.0  # ensure consistency
 
     best_params["two_heads"] = two_heads
     best_params["head_dropout"] = float(head_dropout)
