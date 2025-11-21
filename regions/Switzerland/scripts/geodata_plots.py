@@ -952,7 +952,6 @@ def plot_mass_balance_comparison(
         ha="left",
         va="top",
         fontsize=fontsize_text,
-        bbox=dict(facecolor="white", alpha=0.7, edgecolor="none"),
     )
 
     # ======================
@@ -1002,16 +1001,15 @@ def plot_mass_balance_comparison(
         ha="left",
         va="top",
         fontsize=fontsize_text,
-        bbox=dict(facecolor="white", alpha=0.7, edgecolor="none"),
     )
 
     # ---- Global title ----
-    plt.suptitle(
-        f"{glacier_name.capitalize()} Glacier – {period.capitalize()} MB Comparison ({year})",
-        fontsize=18,
-    )
-    plt.tight_layout()
-    plt.show()
+    # plt.suptitle(
+    #     f"{glacier_name.capitalize()} Glacier – {period.capitalize()} MB Comparison ({year})",
+    #     fontsize=18,
+    # )
+    # plt.tight_layout()
+    # plt.show()
 
 
 def plot_scatter_comparison(
@@ -2411,6 +2409,7 @@ def plot_monthly_joyplot_single(
     x_range=(-2.2, 2.2),
     alpha=1,
     show=True,
+    model_name="lstm",
 ):
     """
     Plot a JoyPy ridge plot showing monthly distributions for a single model variable
@@ -2478,7 +2477,8 @@ def plot_monthly_joyplot_single(
     plt.gca().set_yticklabels(month_order)
 
     # --- Legend ---
-    model_name = variable.replace("mb_", "").upper()
+    # model_name = variable.replace("mb_", "").upper()
+    model_name = model_name.upper()
     legend_patches = [
         Patch(facecolor=color_model, label=model_name, alpha=alpha, edgecolor="k"),
         Patch(facecolor=color_glamos, label="GLAMOS", alpha=alpha, edgecolor="k"),
