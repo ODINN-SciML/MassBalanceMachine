@@ -196,8 +196,8 @@ def permutation_feature_importance_mbm_monthly_parallel(
     ]
     n_months = len(month_names)
 
-    # all_features = MONTHLY_COLS + STATIC_COLS
-    all_features = MONTHLY_COLS
+    all_features = MONTHLY_COLS + STATIC_COLS
+    # all_features = MONTHLY_COLS
 
     tasks = [
         (feat, m_idx, r)

@@ -120,6 +120,17 @@ def process_glacier_year(
         keep = [c for c in df_grid_monthly.columns if c in needed]
         df_grid_monthly = df_grid_monthly[keep]
 
+        if "POINT_BALANCE" not in df_grid_monthly.columns:
+            df_grid_monthly["POINT_BALANCE"] = 0.0  # dummy target
+
+        # If the grid starts at aug_ need to set PMB at NaN for
+        # aug_ and sep_
+        extrapolate_months = ["aug_", "sep_"]
+        df_grid_monthly.loc[
+            df_grid_monthly["MONTHS"].str.lower().isin(extrapolate_months),
+            "POINT_BALANCE",
+        ] = np.nan
+
         winter_months = ["sep", "oct", "nov", "dec", "jan", "feb", "mar", "apr"]
         df_grid_monthly_w = (
             df_grid_monthly[df_grid_monthly["MONTHS"].str.lower().isin(winter_months)]
@@ -145,7 +156,7 @@ def process_glacier_year(
             job.STATIC_COLS,
             months_tail_pad=job.months_tail_pad,
             months_head_pad=job.months_head_pad,
-            expect_target=False,
+            expect_target=True,
             show_progress=False,
         )
         test_gl_dl_a = mbm.data_processing.MBSequenceDataset.make_test_loader(
@@ -403,8 +414,9 @@ def run_glacier_mb(
         def write(self, *args, **kwargs):
             return 0
 
-    with redirect_stdout(_Devnull()):  # keep stderr so tqdm is visible
+    with redirect_stdout(_Devnull()):  # silence workers and tqdm stdout
         ok = skip = err = 0
+        errors = []
         with ProcessPoolExecutor(
             max_workers=max_workers,
             initializer=lambda: worker_init_quiet(job.cpu_only),
@@ -412,6 +424,7 @@ def run_glacier_mb(
         ) as ex:
             fn = partial(process_glacier_year, job=job)
             futures = [ex.submit(fn, t) for t in tasks]
+
             for fut in tqdm(
                 as_completed(futures),
                 total=len(futures),
@@ -424,5 +437,16 @@ def run_glacier_mb(
                     skip += 1
                 else:
                     err += 1
+                    errors.append((g, y, msg))
 
+    # ----------- OUTSIDE redirect_stdout, printing now works -----------
+
+    if errors:
+        print("\n❌ Errors:")
+        for g, y, msg in errors[:25]:
+            print(f"{g} {y} → {msg}")
+        if len(errors) > 25:
+            print(f"... ({len(errors) - 25} more errors not shown)")
+
+    print("\nSUMMARY:", dict(ok=ok, skip=skip, err=err, total=len(tasks)))
     return dict(ok=ok, skip=skip, err=err, total=len(tasks))

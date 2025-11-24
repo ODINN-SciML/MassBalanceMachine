@@ -827,6 +827,8 @@ def plot_mass_balance_comparison(
     import xarray as xr
     import matplotlib.pyplot as plt
     import seaborn as sns
+    import bokeh.palettes
+    import matplotlib
 
     # ---- Filter stake data for glacier, year, and period ----
     stakes_data = df_stakes[
@@ -863,6 +865,8 @@ def plot_mass_balance_comparison(
     else:
         raise ValueError(f"Unknown coordinate system: {coord_system}")
 
+    da_glamos_wgs84 = apply_gaussian_filter(da_glamos_wgs84, variable_name=None)
+
     # ---- Load LSTM predictions ----
     mbm_file_lstm = os.path.join(
         path_pred_lstm, glacier_name, f"{glacier_name}_{year}_{period}.zarr"
@@ -898,6 +902,7 @@ def plot_mass_balance_comparison(
         float(da_glamos_wgs84.max().item()),
         float(ds_mbm["pred_masked"].max().item()),
     )
+
     cmap, norm = get_color_maps(
         vmin,
         vmax,
@@ -910,13 +915,14 @@ def plot_mass_balance_comparison(
     # ======================
     # GLAMOS panel
     # ======================
-    da_glamos_wgs84.plot.imshow(
+    mappable = da_glamos_wgs84.plot.imshow(
         ax=axes[0],
         cmap=cmap,
         norm=norm,
         cbar_kwargs={"label": "Mass Balance [m w.e.]"},
     )
     axes[0].set_title(f"GLAMOS ({period.capitalize()})")
+    mappable.colorbar.ax.set_ylim(vmin, vmax)
 
     if not stakes_data.empty:
         sns.scatterplot(
@@ -957,12 +963,13 @@ def plot_mass_balance_comparison(
     # ======================
     # MBM/LSTM panel
     # ======================
-    ds_mbm["pred_masked"].plot.imshow(
+    mappable = ds_mbm["pred_masked"].plot.imshow(
         ax=axes[1],
         cmap=cmap,
         norm=norm,
         cbar_kwargs={"label": "Mass Balance [m w.e.]"},
     )
+    mappable.colorbar.ax.set_ylim(vmin, vmax)
     axes[1].set_title(f"MBM LSTM ({period.capitalize()})")
 
     if not stakes_data.empty:
@@ -1002,14 +1009,6 @@ def plot_mass_balance_comparison(
         va="top",
         fontsize=fontsize_text,
     )
-
-    # ---- Global title ----
-    # plt.suptitle(
-    #     f"{glacier_name.capitalize()} Glacier – {period.capitalize()} MB Comparison ({year})",
-    #     fontsize=18,
-    # )
-    # plt.tight_layout()
-    # plt.show()
 
 
 def plot_scatter_comparison(
@@ -2036,6 +2035,7 @@ def plot_2glaciers_2years_glamos_vs_lstm(
             if pair_mappable is not None:
                 cb = fig.colorbar(pair_mappable, cax=ax_cb)
                 cb.set_label("Mass Balance [m w.e.]", fontsize=16)
+                cb.ax.set_ylim(vmin, vmax)
 
             # tidy labels
             if j == 0:

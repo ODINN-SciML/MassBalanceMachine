@@ -105,30 +105,56 @@ def get_GLAMOS_glwmb(glacier_name, cfg):
     return df
 
 
-def apply_gaussian_filter(ds, variable_name="pred_masked", sigma: float = 1):
-    # Get the DataArray for the specified variable
-    data_array = ds[variable_name]
+def apply_gaussian_filter(obj, variable_name="pred_masked", sigma: float = 1):
+    """
+    Apply Gaussian smoothing to either:
+      - an xarray.Dataset + variable name
+      - an xarray.DataArray directly
 
-    # Step 1: Create a mask of valid data (non-NaN values)
+    Returns the same type as provided (Dataset or DataArray).
+    """
+
+    # --- Case 1: Input is a Dataset ---
+    if isinstance(obj, xr.Dataset):
+
+        if variable_name is None:
+            raise ValueError("variable_name must be provided when passing a Dataset.")
+
+        data_array = obj[variable_name]
+        is_dataset = True
+
+    # --- Case 2: Input is a DataArray ---
+    elif isinstance(obj, xr.DataArray):
+        data_array = obj
+        is_dataset = False
+
+    else:
+        raise TypeError("Input must be an xarray.Dataset or xarray.DataArray.")
+
+    # Step 1: mask of valid data
     mask = ~np.isnan(data_array)
 
-    # Step 2: Replace NaNs with zero (or a suitable neutral value)
+    # Step 2: replace NaNs
     filled_data = data_array.fillna(0)
 
-    # Step 3: Apply Gaussian filter to the filled data
-    smoothed_data = gaussian_filter(filled_data, sigma=sigma)
+    # Step 3: Gaussian filter
+    smoothed_np = gaussian_filter(filled_data.data, sigma=sigma)
 
-    # Step 4: Restore NaNs to their original locations
-    smoothed_data = xr.DataArray(
-        smoothed_data,
+    # Step 4: restore coords / dims / attrs + mask NaNs back
+    smoothed_da = xr.DataArray(
+        smoothed_np,
         dims=data_array.dims,
         coords=data_array.coords,
         attrs=data_array.attrs,
-    ).where(
-        mask
-    )  # Apply the mask to restore NaNs
-    ds[variable_name] = smoothed_data
-    return ds
+    ).where(mask)
+
+    # --- Return in the same structure as input ---
+    if is_dataset:
+        out = obj.copy()
+        out[variable_name] = smoothed_da
+        return out
+    else:
+        return smoothed_da
 
 
 def convert_to_xarray_geodata(grid_data, metadata):
@@ -690,12 +716,7 @@ def get_rgi_sgi_ids(cfg, glacier_name):
     return sgi_id, rgi_id, rgi_shp
 
 
-def create_glacier_grid_SGI(
-    glacierName,
-    year,
-    rgi_id,
-    ds,
-):
+def create_glacier_grid_SGI(glacierName, year, rgi_id, ds, start_month="10"):
     glacier_indices = np.where(ds["glacier_mask"].values == 1)
 
     # Glacier mask as boolean array:
@@ -730,7 +751,7 @@ def create_glacier_grid_SGI(
     df_grid["GLACIER"] = glacierName
     # Add the 'year' and date columns to the DataFrame
     df_grid["YEAR"] = np.tile(year, len(df_grid))
-    df_grid["FROM_DATE"] = df_grid["YEAR"].apply(lambda x: str(x) + "1001")
+    df_grid["FROM_DATE"] = df_grid["YEAR"].apply(lambda x: str(x) + f"{start_month}01")
     df_grid["TO_DATE"] = df_grid["YEAR"].apply(lambda x: str(x + 1) + "0930")
 
     return df_grid

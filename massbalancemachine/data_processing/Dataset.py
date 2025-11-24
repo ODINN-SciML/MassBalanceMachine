@@ -887,16 +887,58 @@ class MBSequenceDataset(Dataset):
             # target
             target = float(subm["POINT_BALANCE"].mean()) if expect_target else np.nan
 
+            # Currently this function doesn't work without POINT_BALANCE,
+            # so we set a dummy value for mask logic below
+            # Need to fix this at some point...
+            if not expect_target:
+                subm["POINT_BALANCE"] = 0.0  # dummy for mask logic below
+
             # ---- per-sample seasonal masks (flexible windows) ----
             per_l = str(per).strip().lower()
+            # if per_l == "winter":
+            #     mw_sample = mv.copy()
+            #     ma_sample = np.zeros(T, dtype=np.float32)
+            # elif per_l == "annual":
+            #     mw_sample = np.zeros(T, dtype=np.float32)
+            #     ma_sample = mv.copy()
+            # else:
+            #     raise ValueError(f"Unexpected PERIOD: {per}")
+
+            # FULL with padded from AUG:
+            # Real measurement months: POINT_BALANCE not NaN
+            # pb = subm["POINT_BALANCE"].to_numpy()
+            # valid_loss_mask = ~np.isnan(pb)
+
+            # # Build month-wise mask for the whole T-length sequence
+            # loss_mask = np.zeros(T, dtype=np.float32)
+            # for _, r in subm.iterrows():
+            #     m = str(r["MONTHS"]).strip().lower()
+            #     pos = pos_map[m]
+            #     if not np.isnan(r["POINT_BALANCE"]):
+            #         loss_mask[pos] = 1.0
+
+            # if per_l == "winter":
+            #     mw_sample = loss_mask
+            #     ma_sample = np.zeros(T, dtype=np.float32)
+            # elif per_l == "annual":
+            #     mw_sample = np.zeros(T, dtype=np.float32)
+            #     ma_sample = loss_mask
+
+            # ---- Seasonal loss masks ----
+            # loss_mask = 1 for months where POINT_BALANCE is available
+            loss_mask = np.zeros(T, dtype=np.float32)
+            for _, r in subm.iterrows():
+                m = str(r["MONTHS"]).strip().lower()
+                pos = pos_map[m]
+                if not np.isnan(r["POINT_BALANCE"]):
+                    loss_mask[pos] = 1.0
+
             if per_l == "winter":
-                mw_sample = mv.copy()
+                mw_sample = loss_mask
                 ma_sample = np.zeros(T, dtype=np.float32)
             elif per_l == "annual":
                 mw_sample = np.zeros(T, dtype=np.float32)
-                ma_sample = mv.copy()
-            else:
-                raise ValueError(f"Unexpected PERIOD: {per}")
+                ma_sample = loss_mask
 
             # append once per group
             X_monthly.append(mat)
