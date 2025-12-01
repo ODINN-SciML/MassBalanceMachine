@@ -2211,131 +2211,27 @@ def plot_glacier_monthly_series_lstm_sharedcmap_center0(
     return fig
 
 
-def prepare_monthly_long_df(df_lstm, df_nn, df_glamos_w, df_glamos_a, month_order=None):
-    """
-    Convert LSTM, NN, and GLAMOS glacier-month DataFrames into a long-format DataFrame
-    for plotting.
-    GLAMOS winter contains April data, GLAMOS annual contains September data.
-
-    Parameters
-    ----------
-    df_lstm : pd.DataFrame
-        Monthly LSTM results with columns ['glacier', 'year', ...months...].
-    df_nn : pd.DataFrame
-        Monthly NN results with columns ['glacier', 'year', ...months...].
-    df_glamos_w : pd.DataFrame
-        GLAMOS winter data with ['glacier', 'year', 'apr'].
-    df_glamos_a : pd.DataFrame
-        GLAMOS annual data with ['glacier', 'year', 'sep'].
-    month_order : list, optional
-        Ordered list of months in hydrological order (default: Oct–Sep).
-
-    Returns
-    -------
-    pd.DataFrame
-        Long-format DataFrame with columns:
-        ['glacier', 'year', 'Month', 'mb_nn', 'mb_lstm', 'mb_glamos'].
-        'mb_glamos' is NaN for all months except April (winter) and September (annual).
-    """
-
-    if month_order is None:
-        month_order = [
-            "oct",
-            "nov",
-            "dec",
-            "jan",
-            "feb",
-            "mar",
-            "apr",
-            "may",
-            "jun",
-            "jul",
-            "aug",
-            "sep",
-        ]
-
-    common_cols = ["glacier", "year"]
-
-    # Keep only glaciers/years that exist in at least one GLAMOS dataset
-    valid_pairs = pd.concat(
-        [df_glamos_w[common_cols], df_glamos_a[common_cols]], ignore_index=True
-    ).drop_duplicates()
-
-    df_lstm = df_lstm.merge(valid_pairs, on=common_cols, how="inner")
-    df_nn = df_nn.merge(valid_pairs, on=common_cols, how="inner")
-
-    # --- Prepare long-format arrays ---
-    array_nn, array_lstm, months, glaciers, years = [], [], [], [], []
-
-    for col in month_order:
-        array_nn.append(df_nn[col].values)
-        array_lstm.append(df_lstm[col].values)
-        months.append(np.tile(col, len(df_nn)))
-        glaciers.append(df_nn["glacier"].values)
-        years.append(df_nn["year"].values)
-
-    df_long = pd.DataFrame(
-        {
-            "glacier": np.concatenate(glaciers),
-            "year": np.concatenate(years),
-            "mb_nn": np.concatenate(array_nn),
-            "mb_lstm": np.concatenate(array_lstm),
-            "Month": np.concatenate(months),
-        }
-    )
-
-    # ---- Add a single mb_glamos column ----
-    df_long["mb_glamos"] = np.nan
-
-    # Merge winter (April)
-    if "apr" in df_glamos_w.columns:
-        apr_mask = df_long["Month"] == "apr"
-        df_apr = df_long.loc[apr_mask, ["glacier", "year"]].merge(
-            df_glamos_w[["glacier", "year", "apr"]], on=["glacier", "year"], how="left"
-        )
-        df_long.loc[apr_mask, "mb_glamos"] = df_apr["apr"].values
-
-    # Merge annual (September)
-    if "sep" in df_glamos_a.columns:
-        sep_mask = df_long["Month"] == "sep"
-        df_sep = df_long.loc[sep_mask, ["glacier", "year"]].merge(
-            df_glamos_a[["glacier", "year", "sep"]], on=["glacier", "year"], how="left"
-        )
-        df_long.loc[sep_mask, "mb_glamos"] = df_sep["sep"].values
-
-    # ---- Order months ----
-    cat_month = CategoricalDtype(month_order, ordered=True)
-    df_long["Month"] = df_long["Month"].astype(cat_month)
-
-    return df_long
-
-
 def plot_monthly_joyplot(
     df_long,
     month_order=None,
-    color_annual="tab:blue",
-    color_winter="tab:orange",
+    color_lstm="tab:blue",
+    color_nn="tab:orange",
+    color_xgb="tab:green",
+    color_glamos="gray",
     figsize_cm=(12, 14),
     x_range=(-2.2, 2.2),
     alpha=1,
 ):
     """
-    Plot a JoyPy ridge plot comparing LSTM and NN monthly MB distributions.
+    Plot a JoyPy ridge plot comparing monthly MB distributions for
+    LSTM, NN, XGB, and GLAMOS.
 
     Parameters
     ----------
     df_long : pd.DataFrame
         Long-format dataframe from `prepare_monthly_long_df`.
-    month_order : list, optional
-        Ordered list of months (default: hydrological year Oct–Sep).
-    color_annual, color_winter : str
-        Colors for LSTM and NN models respectively.
-    figsize_cm : tuple
-        Figure size in centimeters.
-    x_range : tuple
-        x-axis range for MB (m w.e.).
-    alpha : float
-        Transparency for lines and legend patches.
+    month_order : list
+        Ordered months (default: Oct–Sep hydrological order).
     """
 
     if month_order is None:
@@ -2355,12 +2251,15 @@ def plot_monthly_joyplot(
         ]
 
     cm = 1 / 2.54
-    model_colors = [color_annual, color_winter, "gray"]
+
+    model_cols = ["mb_lstm", "mb_nn", "mb_xgb", "mb_glamos"]
+    model_labels = ["LSTM", "NN", "XGB", "GLAMOS"]
+    model_colors = [color_lstm, color_nn, color_xgb, color_glamos]
 
     fig, ax = joypy.joyplot(
         df_long,
         by="Month",
-        column=["mb_lstm", "mb_nn", "mb_glamos"],
+        column=model_cols,
         alpha=0.8,
         overlap=0,
         fill=False,
@@ -2374,14 +2273,18 @@ def plot_monthly_joyplot(
         ylim="own",
     )
 
+    # Zero-line
     plt.axvline(x=0, color="grey", alpha=0.5, linewidth=1)
+
+    # Axis labels & ticks
     plt.xlabel("Mass balance (m w.e.)", fontsize=8.5)
     plt.yticks(ticks=range(1, 13), labels=month_order, fontsize=8.5)
     plt.gca().set_yticklabels(month_order)
 
+    # Legend
     legend_patches = [
-        Patch(facecolor=color, label=model, alpha=alpha, edgecolor="k")
-        for model, color in zip(["LSTM", "NN", "GLAMOS"], model_colors)
+        Patch(facecolor=color, label=label, alpha=alpha, edgecolor="k")
+        for label, color in zip(model_labels, model_colors)
     ]
 
     plt.legend(
@@ -2394,7 +2297,6 @@ def plot_monthly_joyplot(
         columnspacing=1,
     )
 
-    # plt.tight_layout()
     plt.show()
     return fig
 
@@ -2461,8 +2363,8 @@ def plot_monthly_joyplot_single(
         overlap=0,
         fill=False,
         linewidth=1.5,
-        xlabelsize=8.5,
-        ylabelsize=8.5,
+        xlabelsize=10,
+        ylabelsize=10,
         x_range=x_range,
         grid=False,
         color=[color_model, color_glamos],
@@ -2488,7 +2390,7 @@ def plot_monthly_joyplot_single(
         loc="upper center",
         bbox_to_anchor=(0.48, -0.1),
         ncol=2,
-        fontsize=8.5,
+        fontsize=10,
         handletextpad=0.5,
         columnspacing=1,
     )

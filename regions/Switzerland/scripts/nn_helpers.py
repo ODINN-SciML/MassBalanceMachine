@@ -8,6 +8,7 @@ import pandas as pd
 import torch
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+from pandas.api.types import CategoricalDtype
 
 import massbalancemachine as mbm
 from regions.Switzerland.scripts.plots import *
@@ -533,3 +534,238 @@ def compute_seasonal_scores(df, target_col="target", pred_col="pred"):
         scores_season["Bias"] = scores_season.pop("bias")
         scores[season] = scores_season
     return scores["annual"], scores["winter"]
+
+
+def prepare_monthly_long_df(
+    df_lstm, df_nn, df_xgb, df_glamos_w, df_glamos_a, month_order=None
+):
+    """
+    Convert LSTM, NN, XGB, and GLAMOS glacier–month DataFrames into a long-format DataFrame
+    for plotting.
+
+    GLAMOS winter contains April data, GLAMOS annual contains September data.
+
+    Parameters
+    ----------
+    df_lstm : pd.DataFrame
+    df_nn   : pd.DataFrame
+    df_xgb  : pd.DataFrame
+    df_glamos_w : pd.DataFrame   # ['glacier', 'year', 'apr']
+    df_glamos_a : pd.DataFrame   # ['glacier', 'year', 'sep']
+    month_order : list, optional
+
+    Returns
+    -------
+    pd.DataFrame with columns:
+    ['glacier', 'year', 'Month', 'mb_nn', 'mb_lstm', 'mb_xgb', 'mb_glamos']
+    """
+
+    if month_order is None:
+        month_order = [
+            "oct",
+            "nov",
+            "dec",
+            "jan",
+            "feb",
+            "mar",
+            "apr",
+            "may",
+            "jun",
+            "jul",
+            "aug",
+            "sep",
+        ]
+
+    common_cols = ["glacier", "year"]
+
+    # Keep only glacier–year pairs present in GLAMOS
+    valid_pairs = pd.concat(
+        [df_glamos_w[common_cols], df_glamos_a[common_cols]], ignore_index=True
+    ).drop_duplicates()
+
+    df_lstm = df_lstm.merge(valid_pairs, on=common_cols, how="inner")
+    df_nn = df_nn.merge(valid_pairs, on=common_cols, how="inner")
+    df_xgb = df_xgb.merge(valid_pairs, on=common_cols, how="inner")
+
+    # --- arrays to populate long DF ---
+    array_nn, array_lstm, array_xgb = [], [], []
+    months, glaciers, years = [], [], []
+
+    for col in month_order:
+        array_nn.append(df_nn[col].values)
+        array_lstm.append(df_lstm[col].values)
+        array_xgb.append(df_xgb[col].values)
+
+        months.append(np.tile(col, len(df_nn)))
+        glaciers.append(df_nn["glacier"].values)
+        years.append(df_nn["year"].values)
+
+    # Build long-format DataFrame
+    df_long = pd.DataFrame(
+        {
+            "glacier": np.concatenate(glaciers),
+            "year": np.concatenate(years),
+            "Month": np.concatenate(months),
+            "mb_nn": np.concatenate(array_nn),
+            "mb_lstm": np.concatenate(array_lstm),
+            "mb_xgb": np.concatenate(array_xgb),
+            "mb_glamos": np.nan,
+        }
+    )
+
+    # ---- Inject GLAMOS observations ----
+    # April → winter balance
+    if "apr" in df_glamos_w.columns:
+        mask = df_long["Month"] == "apr"
+        df_apr = df_long.loc[mask, ["glacier", "year"]].merge(
+            df_glamos_w[["glacier", "year", "apr"]],
+            on=["glacier", "year"],
+            how="left",
+        )
+        df_long.loc[mask, "mb_glamos"] = df_apr["apr"].values
+
+    # September → annual balance
+    if "sep" in df_glamos_a.columns:
+        mask = df_long["Month"] == "sep"
+        df_sep = df_long.loc[mask, ["glacier", "year"]].merge(
+            df_glamos_a[["glacier", "year", "sep"]],
+            on=["glacier", "year"],
+            how="left",
+        )
+        df_long.loc[mask, "mb_glamos"] = df_sep["sep"].values
+
+    # ---- Order categorical month column ----
+    df_long["Month"] = df_long["Month"].astype(
+        CategoricalDtype(month_order, ordered=True)
+    )
+
+    return df_long
+
+
+# <---------- LSTM DATASET HELPERS ---------->
+def build_combined_LSTM_dataset(
+    df_loss,
+    df_full,
+    monthly_cols,
+    static_cols,
+    months_head_pad,
+    months_tail_pad,
+    normalize_target=True,
+    expect_target=True,
+):
+    # Clean copies
+    df_loss = df_loss.copy()
+    df_full = df_full.copy()
+    df_loss["PERIOD"] = df_loss["PERIOD"].str.lower().str.strip()
+    df_full["PERIOD"] = df_full["PERIOD"].str.lower().str.strip()
+
+    # --------------------------------------
+    # STEP 1 — Remove POINT_BALANCE from df_full
+    # --------------------------------------
+    df_full_clean = df_full.drop(columns=["POINT_BALANCE", "y"], errors="ignore")
+
+    # --------------------------------------
+    # STEP 2 — Keep only the POINT_BALANCE information from df_loss
+    # --------------------------------------
+    df_loss_reduced = df_loss[
+        ["GLACIER", "YEAR", "ID", "PERIOD", "MONTHS", "POINT_BALANCE"]
+    ].copy()
+
+    # --------------------------------------
+    # STEP 3 — Merge
+    # padded months will have POINT_BALANCE = NaN
+    # --------------------------------------
+    df_combined = df_full_clean.merge(
+        df_loss_reduced, on=["GLACIER", "YEAR", "ID", "PERIOD", "MONTHS"], how="left"
+    )
+
+    # --------------------------------------
+    # STEP 4 — Build dataset
+    # --------------------------------------
+    ds = mbm.data_processing.MBSequenceDataset.from_dataframe(
+        df=df_combined,
+        monthly_cols=monthly_cols,
+        static_cols=static_cols,
+        months_head_pad=months_head_pad,
+        months_tail_pad=months_tail_pad,
+        expect_target=expect_target,
+        normalize_target=normalize_target,
+    )
+
+    return ds
+
+
+def inspect_LSTM_sample(ds, idx, month_labels=None):
+    """
+    Visualize a dataset sample:
+    - Monthly climate inputs (Xm)
+    - Masks mv, mw, ma
+    - Show which months count toward the loss
+    """
+    x_m = ds.Xm[idx].numpy()
+    mv = ds.mv[idx].numpy()
+    mw = ds.mw[idx].numpy()
+    ma = ds.ma[idx].numpy()
+    key = ds.keys[idx]
+
+    if month_labels is None:
+        # Infer from dataset order: (MONTHS => pos_map) → sorted by pos
+        month_labels = [f"m{i}" for i in range(x_m.shape[0])]
+
+    df = pd.DataFrame(
+        {"Month": month_labels, "mv(valid)": mv, "mw(winter)": mw, "ma(annual)": ma}
+    )
+
+    print("=== Sample info ===")
+    print("Key:", key)
+    print("Target y:", float(ds.y[idx].numpy()))
+    print()
+    print(df)
+
+    # Plot masks
+    fig, ax = plt.subplots(figsize=(10, 3))
+    ax.plot(mv, label="mv (valid inputs)")
+    ax.plot(mw, label="mw (winter MB loss mask)")
+    ax.plot(ma, label="ma (annual MB loss mask)")
+    ax.set_title(
+        f"Masks for sample {idx} (GLACIER={key[0]}, YEAR={key[1]}, PERIOD={key[3]})"
+    )
+    ax.set_xticks(range(len(month_labels)))
+    ax.set_xticklabels(month_labels, rotation=45)
+    ax.legend()
+    plt.show()
+
+
+# mv = 1   → the input exists (so the LSTM sees the climate features)
+# ma = 0   → the month is excluded from the annual loss
+# mw = 0   → (also excluded from winter loss)
+
+
+def inspect_LSTM_padded_months(ds, n_samples=5, tol_zero=1e-6):
+    """
+    Inspect climate inputs and masks for padded vs true months.
+    Shows: valid mask (mv), winter mask (mw), annual mask (ma),
+           mean of features, whether NaN, whether all-zero.
+    """
+    Xm = ds.Xm.detach().cpu().numpy()  # (B, T, Fm)
+    mv = ds.mv.detach().cpu().numpy()  # (B, T)
+    mw = ds.mw.detach().cpu().numpy()  # (B, T)
+    ma = ds.ma.detach().cpu().numpy()  # (B, T)
+
+    B, T, F = Xm.shape
+    idxs = random.sample(range(B), min(n_samples, B))
+
+    print(f"Inspecting {len(idxs)} random samples")
+    for i in idxs:
+        print("\n────────────────────────────────────")
+        print(f"Sample {i} — {ds.keys[i]}")
+        print("MONTH | mv | mw | ma | mean(X) | has_NaN | all_zero")
+        for t in range(T):
+            x = Xm[i, t, :]
+            mean_val = float(np.nanmean(x))
+            nan_mask = np.isnan(x).any()
+            zero_mask = np.all(np.abs(x) < tol_zero)
+            print(
+                f"{t:2d} | {int(mv[i, t])}  | {int(mw[i, t])}  | {int(ma[i, t])}  | "
+                f"{mean_val:7.3f} |  {nan_mask}  |  {zero_mask}"
+            )
