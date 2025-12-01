@@ -241,8 +241,8 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         Returns:
             array-like: The predicted values (in monthly format).
         """
-        # Check if the model is fitted
-        check_is_fitted(self)
+        # # Check if the model is fitted
+        # check_is_fitted(self)
 
         return super().predict(features)
 
@@ -303,8 +303,8 @@ class CustomNeuralNetRegressor(NeuralNetRegressor):
         Returns:
             np.ndarray: The predicted values.
         """
-        # Check if the model is fitted
-        check_is_fitted(self)
+        # # Check if the model is fitted
+        # check_is_fitted(self)
 
         # Predictions in monthly format
         y_pred = self.predict(features)

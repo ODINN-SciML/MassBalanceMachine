@@ -252,8 +252,8 @@ class CustomXGBoostRegressor(XGBRegressor):
         Returns:
             array-like: The predicted values (in monthly format).
         """
-        # Check if the model is fitted
-        check_is_fitted(self)
+        # # Check if the model is fitted
+        # check_is_fitted(self)
 
         return super().predict(features)
 
@@ -310,8 +310,8 @@ class CustomXGBoostRegressor(XGBRegressor):
         Returns:
             array-like: The predicted values (in monthly format).
         """
-        # Check if the model is fitted
-        check_is_fitted(self)
+        # # Check if the model is fitted
+        # check_is_fitted(self)
 
         # Predictions in monthly format
         y_pred = super().predict(features)
