@@ -47,7 +47,7 @@ Windows
 """""""
 
 Windows users need to manually install PyTorch with GPU support.
-You can refer to the [installation instructions of PyTorch](https://pytorch.org/get-started/locally/) and run commands similar to:
+You can refer to the `installation instructions of PyTorch <https://pytorch.org/get-started/locally/>` and run commands similar to:
 
 .. code-block:: bash
 
@@ -105,7 +105,7 @@ Additional Installation for Windows Users
 .. note::
     Topographical features are retrieved using OGGM in the data processing stage, which, for now, requires a Unix environment. **However, the model training and evaluation are not required to run in a remote environment**. Window users can either choose to work with the :code:`MassBalanceMachine` for the entire project in a Unix environment or just for the data processing part (this requires two times installing the Conda environment)
 
-If you haven't already, please consult [How to install Linux on Windows with WSL](https://learn.microsoft.com/en-us/windows/wsl/install). A list of steps is provided for Windows users to run this code on their local machine in a remote environment:
+If you haven't already, please consult `How to install Linux on Windows with WSL <https://learn.microsoft.com/en-us/windows/wsl/install>`. A list of steps is provided for Windows users to run this code on their local machine in a remote environment:
 
 1. Please see one of the following links, depending on your editor of choice, how to connect WSL as a remote environment:
 
