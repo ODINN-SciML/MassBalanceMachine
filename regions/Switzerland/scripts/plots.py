@@ -24,20 +24,22 @@ color_annual = colors[0]
 color_winter = "#c51b7d"
 
 
-def plotHeatmap(test_glaciers, data_glamos, glacierCap, period="annual"):
+def plotHeatmap(
+    test_glaciers, data_glamos, glacierCap, period="annual", var_to_plot="POINT_BALANCE"
+):
     # Heatmap of mean mass balance per glacier:
     # Get the mean mass balance per glacier
     data_with_pot = data_glamos[data_glamos.PERIOD == period]
     data_with_pot["GLACIER"] = data_glamos["GLACIER"].apply(lambda x: glacierCap[x])
 
     mean_mb_per_glacier = (
-        data_with_pot.groupby(["GLACIER", "YEAR", "PERIOD"])["POINT_BALANCE"]
+        data_with_pot.groupby(["GLACIER", "YEAR", "PERIOD"])[var_to_plot]
         .mean()
         .reset_index()
     )
     mean_mb_per_glacier = mean_mb_per_glacier[mean_mb_per_glacier["PERIOD"] == period]
     matrix = mean_mb_per_glacier.pivot(
-        index="GLACIER", columns="YEAR", values="POINT_BALANCE"
+        index="GLACIER", columns="YEAR", values=var_to_plot
     ).sort_values(by="GLACIER")
 
     # get elevation of glaciers:

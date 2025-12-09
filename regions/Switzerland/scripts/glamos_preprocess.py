@@ -288,35 +288,56 @@ def check_point_ids_contain_glacier(dataframe):
 
 
 def process_dat_fileGLWMB(fileName, path_dat, path_csv):
-    # crate path_csv if does not exist
+    """
+    Convert a GLWMB .dat file to .csv, keeping only:
+    MB_ID; date0; date_f; date_s; date1; Winter Balance; Annual.Balance;
+    ELA; AAR; Area; Minimum Elevation; Maximum Elevation
+
+    Additionally extracts the year from date1 into a new column 'year'.
+    """
+
     if not os.path.exists(path_csv):
         os.makedirs(path_csv)
 
-    with open(path_dat + fileName + ".dat", "r", encoding="latin-1") as dat_file:
-        with open(
-            path_csv + fileName + ".csv", "w", newline="", encoding="latin-1"
-        ) as csv_file:
-            for num_rows, row in enumerate(dat_file):
-                if num_rows == 0:
-                    row = [value.strip() for value in row.split(";")]
-                    num_el_bands = row[4]
-                if num_rows == 1:
-                    row = [value.strip() for value in row.split(";")]
-                    # Add columns for each el band
-                    # b_w_eb_i  :  n columns with area-mean winter balance of each elevation band  [mm w.e.]
-                    # b_a_eb_i  :  n columns with area-mean annual balance of each elevation band  [mm w.e.]
-                    # A_eb_i    :  n columns with area of each elevation band  [km2]
-                    row += ["b_w_eb_" + str(i) for i in range(int(num_el_bands))]
-                    row += ["b_a_eb" + str(i) for i in range(int(num_el_bands))]
-                    row += ["A_eb_" + str(i) for i in range(int(num_el_bands))]
-                    csv_file.write(",".join(row[:-1]) + "\n")
-                if num_rows > 3:
-                    row = [value.strip() for value in row.split(" ")]
-                    # replace commas if there are any otherwise will create bug:
-                    row = [value.replace(",", "-") for value in row]
-                    # remove empty spaces
-                    row = [i for i in row if i]
-                    csv_file.write(",".join(row) + "\n")
+    dat_path = os.path.join(path_dat, fileName + ".dat")
+    csv_path = os.path.join(path_csv, fileName + ".csv")
+
+    with (
+        open(dat_path, "r", encoding="latin-1") as dat_file,
+        open(csv_path, "w", newline="", encoding="latin-1") as csv_file,
+    ):
+
+        header_written = False
+
+        for line in dat_file:
+            line = line.strip()
+            if not line:
+                continue
+
+            # HEADER
+            if line.startswith("#"):
+                if "MB_ID" in line and ";" in line and not header_written:
+                    cols = [v.strip() for v in line.lstrip("#").split(";")]
+                    cols = cols[:12]
+                    cols.append("YEAR")
+                    csv_file.write(",".join(cols) + "\n")
+                    header_written = True
+                continue
+
+            # DATA
+            parts = line.split()
+            parts = [p.replace(",", "-") for p in parts]
+            parts = parts[:12]
+
+            if len(parts) >= 5:
+                date1 = parts[4]
+                year = date1[:4]
+            else:
+                year = ""
+
+            parts.append(year)
+
+            csv_file.write(",".join(parts) + "\n")
 
 
 def convert_to_xarray(grid_data, metadata, num_months):
@@ -1031,11 +1052,23 @@ def merge_pmb_with_oggm_data(
             y=xr.DataArray(y_stake, dims="points"),
             method="nearest",
         )
-        stake_var_df = stake[variables_of_interest].to_dataframe()
+
+        # # if all variables:
+        # stake_var_df = stake[variables_of_interest].to_dataframe()
+        # variables that actually exist in the dataset
+        present_vars = [v for v in variables_of_interest if v in stake.data_vars]
+        missing_vars = [v for v in variables_of_interest if v not in stake.data_vars]
+
+        # warn globally
+        if missing_vars:
+            if verbose:
+                log.warning(f"Missing variables for {rgi_id}: {missing_vars}")
+
+        # extract only the existing variables
+        stake_var_df = stake[present_vars].to_dataframe()
 
         # Assign to original DataFrame
-        for var in variables_of_interest:
-            df_pmb.loc[group.index, var] = stake_var_df[var].values
+        df_pmb.loc[group.index, present_vars] = stake_var_df[present_vars].values
 
         df_pmb.loc[points_in_glacier.index, "within_glacier_shape"] = True
 
