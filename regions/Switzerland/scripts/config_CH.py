@@ -75,6 +75,12 @@ vois_units = {
     "pcsr": "J m-2",
     "u10": "m s-1",
     "v10": "m s-1",
+    "aspect_sgi": "rad",
+    "slope_sgi": "rad",
+    "aspect": "rad",
+    "slope": "rad",
+    "svf": "",
+    "ELEVATION_DIFFERENCE": "m",
 }
 
 TEST_GLACIERS = [

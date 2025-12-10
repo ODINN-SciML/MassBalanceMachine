@@ -25,7 +25,12 @@ color_winter = "#c51b7d"
 
 
 def plotHeatmap(
-    test_glaciers, data_glamos, glacierCap, period="annual", var_to_plot="POINT_BALANCE"
+    test_glaciers,
+    data_glamos,
+    glacierCap,
+    period="annual",
+    var_to_plot="POINT_BALANCE",
+    cbar_label="[m w.e. $a^{-1}$]",
 ):
     # Heatmap of mean mass balance per glacier:
     # Get the mean mass balance per glacier
@@ -55,7 +60,7 @@ def plotHeatmap(
         data=matrix,
         center=0,
         cmap=cm.vik_r,
-        cbar_kws={"label": "[m w.e. $a^{-1}$]"},
+        cbar_kws={"label": cbar_label},
         ax=ax,
     )
     ax.set_xlabel("")
