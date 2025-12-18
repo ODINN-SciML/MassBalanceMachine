@@ -53,7 +53,7 @@ with open(f"{pathFolder}/params.json", "r") as f:
 featuresInpModel = params["model"]["inputs"]
 sourceData = params["training"]["source_data"]
 
-metaData = getMetaData(featuresInpModel)
+metaData = getMetaData(featuresInpModel, sourceData)
 
 
 if sourceData == "switzerland":

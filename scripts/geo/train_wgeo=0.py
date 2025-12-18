@@ -10,12 +10,12 @@ import massbalancemachine as mbm
 from massbalancemachine.dataloader.GeoDataLoader import GeoDataLoader
 
 from scripts.common import (
-    trainTestGlaciers,
-    getTrainTestSetsSwitzerland,
-    _default_input,
-    seed_all,
+    # trainTestGlaciers,
+    # getTrainTestSetsSwitzerland,
+    # seed_all,
     loadParams,
 )
+from scripts.nongeo.utils import setFeatures, trainValData, testData
 
 
 parser = argparse.ArgumentParser()
@@ -24,8 +24,11 @@ args = parser.parse_args()
 
 params = loadParams(args.modelType)
 featuresInpModel = params["model"]["inputs"]
+source_data = params["training"].get("source_data", "iceland")
 
-featuresToRemove = list(set(_default_input) - set(featuresInpModel))
+featuresToRemove = list(
+    set(mbm.dataloader._default_input(source_data)) - set(featuresInpModel)
+)
 metaData = list(
     set(
         [
@@ -48,60 +51,28 @@ cfg = mbm.SwitzerlandConfig(
     metaData=metaData,
     notMetaDataNotFeatures=["POINT_BALANCE"],
 )
-seed_all(cfg.seed)
+# seed_all(cfg.seed)
 
 
-train_glaciers, test_glaciers = trainTestGlaciers(params)
-
-# switzerland dependent
-train_set, test_set, data_glamos, months_head_pad, months_tail_pad = (
-    getTrainTestSetsSwitzerland(
-        train_glaciers,
-        test_glaciers,
-        params,
-        cfg,
-        "CH_wgms_dataset_monthly_NN_geo.csv",
-        process=False,
-    )
+datasetManager = mbm.dataloader.VeryPoorlyNamedClassSwitzerland(
+    cfg, params, test_split_on="GLACIER"
 )
+
+train_set, test_set, months_head_pad, months_tail_pad = datasetManager.train_test_sets()
 
 
 # Validation and train split:
 data_train = train_set["df_X"]
 data_train["y"] = train_set["y"]
-dataloader = mbm.dataloader.DataLoader(cfg, data=data_train)
 
-feature_columns = list(
-    data_train.columns.difference(cfg.metaData)
-    .drop(cfg.notMetaDataNotFeatures)
-    .drop("y")
+feature_columns = setFeatures(cfg, data_train, featuresInpModel)
+df_X_train, y_train, df_X_val, y_val = trainValData(cfg, train_set, feature_columns)
+
+
+print(
+    "Shape of testing dataset:",
+    test_set["df_X"][cfg.featureColumns + cfg.fieldsNotFeatures].shape,
 )
-assert set(feature_columns) == set(
-    featuresInpModel
-), f"Asked features are {featuresInpModel} but the one obtained from the dataframe are {feature_columns}"
-cfg.setFeatures(feature_columns)
-
-
-train_itr, val_itr = dataloader.set_train_test_split(test_size=0.2)
-
-# Get all indices of the training and valing dataset at once from the iterators. Once called, the iterators are empty.
-train_indices, val_indices = list(train_itr), list(val_itr)
-
-df_X_train = data_train.iloc[train_indices]
-y_train = df_X_train["POINT_BALANCE"].values
-
-# Get val set
-df_X_val = data_train.iloc[val_indices]
-y_val = df_X_val["POINT_BALANCE"].values
-
-assert all(data_train.POINT_BALANCE == train_set["y"])
-
-
-all_columns = feature_columns + cfg.fieldsNotFeatures
-print("Shape of training dataset:", df_X_train[all_columns].shape)
-print("Shape of validation dataset:", df_X_val[all_columns].shape)
-print("Shape of testing dataset:", test_set["df_X"][all_columns].shape)
-print("Running with features:", feature_columns)
 
 
 glaciers = list(data_train.GLACIER.unique())
@@ -147,9 +118,9 @@ else:
     raise ValueError(f"Scheduler {schedulerType} is not supported.")
 
 
-data_test = test_set["df_X"]
-data_test["y"] = test_set["y"]
+data_test = testData(cfg, test_set, feature_columns)
 
+test_glaciers = list(data_test.GLACIER.unique())
 gdl_test = GeoDataLoader(
     cfg,
     test_glaciers,

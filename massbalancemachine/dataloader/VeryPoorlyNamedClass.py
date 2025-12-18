@@ -32,9 +32,6 @@ from regions.Switzerland.scripts.helpers import (
 
 ###
 
-import pdb
-
-
 _default_test_glaciers_switzerland = [
     "tortin",
     "plattalva",
@@ -96,13 +93,21 @@ _default_vois_topographical = [
     "consensus_ice_thickness",
     "millan_v",
 ]
-_default_input = (
+_default_input_switzerland = (
     _default_additional_var + _default_vois_climate + _default_vois_topographical
 )
 
-
 _default_test_glaciers_iceland = []
 _default_train_glaciers_iceland = ["RGI60-06.00228", "RGI60-06.00232"]
+
+
+def _default_input(sourceData):
+    if sourceData == "switzerland":
+        return _default_input_switzerland
+    elif sourceData == "iceland":
+        return []
+    else:
+        raise ValueError(f"source_data={sourceData} is unknown")
 
 
 class VeryPoorlyNamedClass:

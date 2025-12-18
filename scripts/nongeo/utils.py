@@ -10,32 +10,53 @@ import torch
 import torch.nn as nn
 from skorch.helper import SliceDataset
 
-from scripts.common import _default_input
-
 # from regions.Switzerland.scripts.helpers import get_cmap_hex
 
 # warnings.filterwarnings('ignore')
 
 
-def getMetaData(featuresInpModel):
-    featuresToRemove = list(set(_default_input) - set(featuresInpModel))
-    metaData = list(
-        set(
-            [
-                "RGIId",
-                "POINT_ID",
-                "ID",
-                "GLWD_ID",
-                "N_MONTHS",
-                "MONTHS",
-                "PERIOD",
-                "GLACIER",
-                "YEAR",
-                "POINT_LAT",
-                "POINT_LON",
-            ]
-        ).union(set(featuresToRemove))
+def getMetaData(featuresInpModel, sourceData):
+    featuresToRemove = list(
+        set(mbm.dataloader._default_input(sourceData)) - set(featuresInpModel)
     )
+    if sourceData == "switzerland":
+        metaData = list(
+            set(
+                [
+                    "RGIId",
+                    "POINT_ID",
+                    "ID",
+                    "GLWD_ID",
+                    "N_MONTHS",
+                    "MONTHS",
+                    "PERIOD",
+                    "GLACIER",
+                    "YEAR",
+                    "POINT_LAT",
+                    "POINT_LON",
+                ]
+            ).union(set(featuresToRemove))
+        )
+    elif sourceData == "iceland":
+        metaData = list(
+            set(
+                [
+                    "RGIId",
+                    "POINT_ID",
+                    "ID",
+                    "GLWD_ID",
+                    "N_MONTHS",
+                    "MONTHS",
+                    "PERIOD",
+                    "GLACIER",
+                    "YEAR",
+                    "POINT_LAT",
+                    "POINT_LON",
+                ]
+            ).union(set(featuresToRemove))
+        )
+    else:
+        raise ValueError(f"source_data={sourceData} is unknown")
     return metaData
 
 

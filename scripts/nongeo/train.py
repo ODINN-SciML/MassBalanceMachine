@@ -58,7 +58,7 @@ params = loadParams(args.modelType)
 featuresInpModel = params["model"]["inputs"]
 sourceData = params["training"]["source_data"]
 
-metaData = getMetaData(featuresInpModel)
+metaData = getMetaData(featuresInpModel, sourceData)
 
 
 if sourceData == "switzerland":
