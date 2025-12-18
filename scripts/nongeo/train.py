@@ -18,18 +18,15 @@ from skorch.helper import SliceDataset
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.tensorboard import SummaryWriter
 
-from scripts.common import (
-    trainTestGlaciers,
-    getTrainTestSetsSwitzerland,
-    seed_all,
-    loadParams,
-)
+from regions.Switzerland.scripts.helpers import seed_all
+from scripts.common import loadParams
 from scripts.nongeo.utils import (
     getMetaData,
     getDatasets,
     buildArgs,
     trainValData,
     setFeatures,
+    getLogDir,
 )
 
 from regions.Switzerland.scripts.helpers import get_cmap_hex
@@ -59,14 +56,22 @@ runOnGpu = args.gpu
 suffix = args.suffix
 params = loadParams(args.modelType)
 featuresInpModel = params["model"]["inputs"]
+sourceData = params["training"]["source_data"]
 
 metaData = getMetaData(featuresInpModel)
 
 
-cfg = mbm.SwitzerlandConfig(
-    metaData=metaData,
-    notMetaDataNotFeatures=["POINT_BALANCE"],
-)
+if sourceData == "switzerland":
+    cfg = mbm.SwitzerlandConfig(
+        metaData=metaData,
+        notMetaDataNotFeatures=["POINT_BALANCE"],
+    )
+elif sourceData == "iceland":
+    cfg = mbm.Config(
+        metaData=["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD"]
+    )
+else:
+    raise ValueError(f"source_data={sourceData} is unknown")
 seed_all(cfg.seed)
 
 
@@ -89,18 +94,17 @@ else:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 
 print(params)
-train_glaciers, test_glaciers = trainTestGlaciers(params)
 
-train_set, test_set, data_glamos, months_head_pad, months_tail_pad = (
-    getTrainTestSetsSwitzerland(
-        train_glaciers,
-        test_glaciers,
-        params,
-        cfg,
-        "CH_wgms_dataset_monthly_NN_nongeo.csv",
-        process=False,
+
+if sourceData == "switzerland":
+    datasetManager = mbm.dataloader.VeryPoorlyNamedClassSwitzerland(
+        cfg, params, test_split_on="GLACIER"
     )
-)
+elif sourceData == "iceland":
+    datasetManager = mbm.dataloader.VeryPoorlyNamedClassIceland(
+        cfg, params, test_split_on="RGIId"
+    )
+train_set, test_set, months_head_pad, months_tail_pad = datasetManager.train_test_sets()
 
 data_train = train_set["df_X"]
 data_train["y"] = train_set["y"]
@@ -202,7 +206,7 @@ class TensorBoardMetricLogger(Callback):
 logdir = getLogDir(suffix)
 
 
-def annual_winter_func(model, dataset):
+def period_func(model, dataset):
     Xval = SliceDataset(dataset, idx=0)
     yval = SliceDataset(dataset, idx=1)
     Mval = [dataset.getMetadata(i) for i in range(len(dataset))]
@@ -212,12 +216,15 @@ def annual_winter_func(model, dataset):
     posPeriod = dataset.metadataColumns.index("PERIOD")
     indAnnual = []
     indWinter = []
+    indSummer = []
     for i in range(len(Mval)):
         period = Mval[i][0, posPeriod]
         if period == "annual":
             indAnnual.append(i)
         elif period == "winter":
             indWinter.append(i)
+        elif period == "summer":
+            indSummer.append(i)
         else:
             raise ValueError(f"Period {period} is unknown.")
 
@@ -233,6 +240,8 @@ def annual_winter_func(model, dataset):
     y_true_annual = y_true[indAnnual]
     y_pred_winter = y_pred[indWinter]
     y_true_winter = y_true[indWinter]
+    y_pred_summer = y_pred[indSummer]
+    y_true_summer = y_true[indSummer]
 
     mse_annual, rmse_annual, mae_annual, pearson_annual, r2_annual, bias_annual = (
         model.evalMetrics(y_pred_annual, y_true_annual)
@@ -253,12 +262,21 @@ def annual_winter_func(model, dataset):
         "bias_annual/val": bias_annual,
         "bias_winter/val": bias_winter,
     }
+    if len(indSummer) > 0:
+        mse_summer, rmse_summer, mae_summer, pearson_summer, r2_summer, bias_summer = (
+            model.evalMetrics(y_pred_summer, y_true_summer)
+        )
+        scores["RMSE_summer/val"] = rmse_summer
+        scores["MAE_summer/val"] = mae_summer
+        scores["Pearson_summer/val"] = pearson_summer
+        scores["R2_summer/val"] = r2_summer
+        scores["bias_summer/val"] = bias_summer
     return scores
 
 
 additional_scores_funcs = {
-    10: annual_winter_func
-}  # Compute the annual/winter scores every 10 epochs
+    10: period_func
+}  # Compute the annual/winter/summer scores every 10 epochs
 logger = TensorBoardMetricLogger(
     logdir, additional_scores_funcs=additional_scores_funcs
 )
@@ -285,7 +303,6 @@ dataset, dataset_val = getDatasets(
     months_head_pad,
     months_tail_pad,
 )
-
 
 custom_nn.seed_all()
 

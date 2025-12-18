@@ -53,6 +53,7 @@ seed_all(cfg.seed)
 
 train_glaciers, test_glaciers = trainTestGlaciers(params)
 
+# switzerland dependent
 train_set, test_set, data_glamos, months_head_pad, months_tail_pad = (
     getTrainTestSetsSwitzerland(
         train_glaciers,

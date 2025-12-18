@@ -9,84 +9,12 @@ import pandas as pd
 import massbalancemachine as mbm
 from regions.Switzerland.scripts.glamos_preprocess import getStakesData, get_geodetic_MB
 from regions.Switzerland.scripts.geodata import build_periods_per_glacier
-from regions.Switzerland.scripts.config_CH import (
-    path_PMB_GLAMOS_csv,
-    path_ERA5_raw,
-    path_pcsr,
-)
 from regions.Switzerland.scripts.xgb_helpers import (
     transform_df_to_seasonal,
 )
-from regions.Switzerland.scripts.helpers import (
-    seed_all,
-    process_or_load_data,
-    get_CV_splits,
-)
 
 
-_default_test_glaciers = [
-    "tortin",
-    "plattalva",
-    "sanktanna",
-    "schwarzberg",
-    "hohlaub",
-    "pizol",
-    "corvatsch",
-    "tsanfleuron",
-    "forno",
-]
-_default_train_glaciers = [
-    "clariden",
-    "oberaar",
-    "otemma",
-    "gietro",
-    "rhone",
-    "silvretta",
-    "gries",
-    "sexrouge",
-    "allalin",
-    "corbassiere",
-    "aletsch",
-    "joeri",
-    "basodino",
-    "morteratsch",
-    "findelen",
-    "albigna",
-    "gorner",
-    "murtel",
-    "plainemorte",
-    "adler",
-    "limmern",
-    "schwarzbach",
-]
-
-_default_additional_var = [
-    "ALTITUDE_CLIMATE",
-    "ELEVATION_DIFFERENCE",
-    "POINT_ELEVATION",
-    "pcsr",
-]
-_default_vois_climate = [
-    "t2m",
-    "tp",
-    "slhf",
-    "sshf",
-    "ssrd",
-    "fal",
-    "str",
-    "u10",
-    "v10",
-]
-_default_vois_topographical = [
-    "aspect_sgi",
-    "slope_sgi",
-    "hugonnet_dhdt",
-    "consensus_ice_thickness",
-    "millan_v",
-]
-_default_input = (
-    _default_additional_var + _default_vois_climate + _default_vois_topographical
-)
+_default_input = mbm.dataloader.VeryPoorlyNamedClass._default_input
 
 
 def parseParams(params):
@@ -104,6 +32,7 @@ def parseParams(params):
     weight_decay = float(params["training"].get("weight_decay", 0.0))
     downscale = params["model"].get("downscale", None)
     scalingStakes = params["training"].get("scalingStakes", "glacier")
+    source_data = params["training"].get("source_data", "iceland")
     return {
         "model": {
             "type": params["model"]["type"],
@@ -112,6 +41,7 @@ def parseParams(params):
             "downscale": downscale,
         },
         "training": {
+            "source_data": source_data,
             "lr": lr,
             "momentum": momentum,
             "beta1": beta1,

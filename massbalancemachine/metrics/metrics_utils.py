@@ -39,3 +39,16 @@ def scores(true, pred):
         "r2": r2_score(true, pred),  # R2 regression score
         "bias": np.mean(pred - true),  # Model bias
     }
+
+
+def seasonal_scores(grouped_ids, target_col="target", pred_col="pred"):
+    seas_scores = {}
+    periods = grouped_ids.PERIOD.unique()
+    for season in periods:
+        df_season = grouped_ids[grouped_ids["PERIOD"] == season]
+        if len(df_season) > 0:
+            y_true = df_season[target_col]
+            y_pred = df_season[pred_col]
+            scores_season = scores(y_true, y_pred)
+            seas_scores[season] = scores_season
+    return seas_scores

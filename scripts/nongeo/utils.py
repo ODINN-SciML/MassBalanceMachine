@@ -10,11 +10,7 @@ import torch
 import torch.nn as nn
 from skorch.helper import SliceDataset
 
-from scripts.common import (
-    getTrainTestSetsSwitzerland,
-    _default_input,
-    seed_all,
-)
+from scripts.common import _default_input
 
 # from regions.Switzerland.scripts.helpers import get_cmap_hex
 
