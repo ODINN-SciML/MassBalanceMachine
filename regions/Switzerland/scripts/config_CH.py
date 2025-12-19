@@ -1,3 +1,110 @@
+# <------------------ MODEL INFO: ------------------>
+
+TEST_GLACIERS = [
+    "tortin",
+    "plattalva",
+    "schwarzberg",
+    "hohlaub",
+    "sanktanna",
+    "corvatsch",
+    "tsanfleuron",
+    "forno",
+]
+
+# Saved models
+LSTM_OOS_NORM_Y = "models/lstm_model_2025-12-16_OOS_norm_y.pt"
+LSTM_IS_NORM_Y = "models/lstm_model_2025-12-16_IS_norm_y.pt"
+LSTM_IS_ORIGIN_Y = "models/lstm_model_2025-12-16_IS_orig_y.pt"
+
+LSTM_OOS_NORM_Y_PAST = "models/lstm_model_2025-12-18_OOS_norm_y_past.pt"
+LSTM_IS_NORM_Y_PAST = "models/lstm_model_2025-12-18_IS_norm_y_past.pt"
+LSTM_IS_ORIGIN_Y_PAST = "models/lstm_model_2025-12-18_IS_orig_y_past.pt"
+
+VOIS_CLIMATE = [
+    "t2m",
+    "tp",
+    "slhf",
+    "sshf",
+    "ssrd",
+    "fal",
+    "str",
+]
+
+VOIS_TOPOGRAPHICAL = ["aspect_sgi", "slope_sgi", "svf"]
+
+# Model parameters
+PARAMS_LSTM_OOS = {
+    "lr": 0.001,
+    "weight_decay": 0.0001,
+    "hidden_size": 128,
+    "num_layers": 2,
+    "dropout": 0.2,
+    "head_dropout": 0.0,
+    "static_layers": 2,
+    "static_hidden": [128, 64],
+    "static_dropout": 0.1,
+    "Fm": 9,
+    "Fs": 3,
+    "bidirectional": False,
+    "loss_name": "neutral",
+    "loss_spec": None,
+    "two_heads": False,
+}
+
+PARAMS_LSTM_IS = {
+    "lr": 0.001,
+    "weight_decay": 0.0,
+    "hidden_size": 128,
+    "num_layers": 2,
+    "dropout": 0.1,
+    "head_dropout": 0.1,
+    "static_layers": 2,
+    "static_hidden": [128, 64],
+    "static_dropout": 0.1,
+    "Fm": 9,
+    "Fs": 3,
+    "bidirectional": False,
+    "loss_name": "neutral",
+    "loss_spec": None,
+    "two_heads": False,
+}
+
+PARAMS_LSTM_OOS_PAST = {
+    "Fm": 9,
+    "Fs": 3,
+    "hidden_size": 128,
+    "num_layers": 2,
+    "bidirectional": False,
+    "dropout": 0.2,
+    "static_layers": 2,
+    "static_hidden": [128, 64],
+    "static_dropout": 0.1,
+    "lr": 0.001,
+    "weight_decay": 0.0,
+    "loss_name": "neutral",
+    "two_heads": False,
+    "head_dropout": 0.0,
+    "loss_spec": None,
+}
+
+PARAMS_LSTM_IS_past = {
+    "Fm": 9,
+    "Fs": 3,
+    "hidden_size": 128,
+    "num_layers": 2,
+    "bidirectional": False,
+    "dropout": 0.1,
+    "static_layers": 2,
+    "static_hidden": [128, 64],
+    "static_dropout": 0.1,
+    "lr": 0.001,
+    "weight_decay": 0.0001,
+    "loss_name": "neutral",
+    "two_heads": False,
+    "head_dropout": 0.1,
+    "loss_spec": None,
+}
+
 # <------------------ GLAMOS DATA: ------------------>
 # Point data
 path_PMB_GLAMOS_raw = "GLAMOS/point/point_raw/"
@@ -83,13 +190,5 @@ vois_units = {
     "ELEVATION_DIFFERENCE": "m",
 }
 
-TEST_GLACIERS = [
-    "tortin",
-    "plattalva",
-    "schwarzberg",
-    "hohlaub",
-    "sanktanna",
-    "corvatsch",
-    "tsanfleuron",
-    "forno",
-]
+COLOR_ANNUAL = "#c51b7d"
+COLOR_WINTER = "#011959"

@@ -660,7 +660,9 @@ def PlotIndividualGlacierPredVsTruth(
         else:
             area = np.round(area, 1)
 
-        ax1.set_title(f"{test_gl.capitalize()} ({area} km2, {gl_elv} m)", fontsize=24)
+        ax1.set_title(
+            f"{test_gl.capitalize()} ({area} km$^2$, {gl_elv} m a.s.l.)", fontsize=20
+        )
 
     return ax_flat
 
@@ -745,7 +747,7 @@ def plot_predictions_summary(
             % (scores_annual["rmse"], scores_winter["rmse"]),
             r"$\mathrm{R^2_a}=%.3f$, $\mathrm{R^2_w}=%.3f$"
             % (scores_annual["R2"], scores_winter["R2"]),
-            r"$\mathrm{B_a}=%.3f$, $\mathrm{B_w}=%.3f$"
+            r"$\mathrm{Bias_a}=%.3f$, $\mathrm{Bias_w}=%.3f$"
             % (scores_annual["Bias"], scores_winter["Bias"]),
         ]
     )

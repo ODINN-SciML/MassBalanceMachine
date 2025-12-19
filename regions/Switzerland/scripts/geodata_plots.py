@@ -2090,6 +2090,276 @@ def plot_2glaciers_2years_glamos_vs_lstm(
     return fig, map_axes
 
 
+# -----------------------------------------------------------
+# Shared helper
+# -----------------------------------------------------------
+def lonlat_names(obj):
+    coords = getattr(obj, "coords", {})
+    if "lon" in coords and "lat" in coords:
+        return "lon", "lat"
+    if "longitude" in coords and "latitude" in coords:
+        return "longitude", "latitude"
+    return "lon", "lat"
+
+
+# -----------------------------------------------------------
+# Stake extraction for scatter plots
+# -----------------------------------------------------------
+def extract_stake_scatter_points(
+    df_stakes,
+    glacier,
+    year,
+    period="annual",
+):
+    """
+    Returns arrays:
+    obs_stake (x), obs_stake (y)
+    """
+
+    if df_stakes is None:
+        return None, None
+
+    sub = df_stakes[(df_stakes.GLACIER == glacier) & (df_stakes.YEAR == year)].copy()
+
+    if period == "annual" and "PERIOD" in sub.columns:
+        sub = sub[sub.PERIOD == "annual"]
+
+    if sub.empty or "POINT_BALANCE" not in sub.columns:
+        return None, None
+
+    obs = sub["POINT_BALANCE"].values
+    obs = obs[np.isfinite(obs)]
+
+    if obs.size == 0:
+        return None, None
+
+    return obs, obs
+
+
+# -----------------------------------------------------------
+# Single glacier–year scatter plot
+# -----------------------------------------------------------
+def plot_glamos_vs_mbm_pixel_scatter(
+    glacier,
+    year,
+    cfg,
+    path_distributed_mb,
+    path_pred_lstm,
+    period="annual",
+    apply_smoothing_fn=None,
+    ax=None,
+    df_stakes=None,
+):
+    """
+    Scatter plot of GLAMOS vs MBM (LSTM) mass balance
+    for overlapping pixels only, with optional stake overlay.
+    """
+
+    # ---------- helpers ----------
+    def pick_file_glamos(glacier, year, period="annual"):
+        suffix = "ann" if period == "annual" else "win"
+        base = os.path.join(cfg.dataPath, path_distributed_mb, "GLAMOS", glacier)
+        cand_lv95 = os.path.join(base, f"{year}_{suffix}_fix_lv95.grid")
+        cand_lv03 = os.path.join(base, f"{year}_{suffix}_fix_lv03.grid")
+        if os.path.exists(cand_lv95):
+            return cand_lv95, "lv95"
+        if os.path.exists(cand_lv03):
+            return cand_lv03, "lv03"
+        return None, None
+
+    def load_glamos_wgs84(glacier, year):
+        path, cs = pick_file_glamos(glacier, year, period)
+        if path is None:
+            return None
+        meta, arr = load_grid_file(path)
+        da = convert_to_xarray_geodata(arr, meta)
+        if cs == "lv03":
+            return transform_xarray_coords_lv03_to_wgs84(da)
+        if cs == "lv95":
+            return transform_xarray_coords_lv95_to_wgs84(da)
+        return None
+
+    def load_lstm_ds(glacier, year):
+        zpath = os.path.join(path_pred_lstm, glacier, f"{glacier}_{year}_{period}.zarr")
+        if not os.path.exists(zpath):
+            return None
+        ds = xr.open_zarr(zpath)
+        if apply_smoothing_fn is not None:
+            ds = apply_smoothing_fn(ds)
+        return ds
+
+    # ---------- load data ----------
+    da_g = load_glamos_wgs84(glacier, year)
+    ds_m = load_lstm_ds(glacier, year)
+
+    if da_g is None or ds_m is None or "pred_masked" not in ds_m:
+        raise ValueError(f"No overlapping data for {glacier} {year}")
+
+    # ---------- interpolate MBM → GLAMOS grid ----------
+    lon_g, lat_g = lonlat_names(da_g)
+    lon_m, lat_m = lonlat_names(ds_m)
+
+    mbm_interp = ds_m["pred_masked"].interp(
+        {lon_m: da_g[lon_g], lat_m: da_g[lat_g]},
+        method="nearest",
+    )
+
+    # ---------- overlap mask ----------
+    mask = np.isfinite(da_g.values) & np.isfinite(mbm_interp.values)
+
+    glamos_vals = da_g.values[mask]
+    mbm_vals = mbm_interp.values[mask]
+
+    if glamos_vals.size == 0:
+        raise ValueError(f"No overlapping valid pixels for {glacier} {year}")
+
+    # ---------- plot ----------
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(6, 6))
+
+    sns.scatterplot(
+        x=glamos_vals,
+        y=mbm_vals,
+        s=6,
+        alpha=0.35,
+        edgecolor=None,
+        ax=ax,
+    )
+
+    # ---------- stake overlay ----------
+    g_s = m_s = None
+    if df_stakes is not None:
+        obs_x, obs_y = extract_stake_scatter_points(
+            df_stakes,
+            glacier,
+            year,
+            period=period,
+        )
+
+        if obs_x is not None and len(obs_x) > 0:
+            ax.scatter(
+                obs_x,
+                obs_y,
+                c="red",
+                s=70,
+                marker="x",
+                linewidths=1.8,
+                label="Stakes (observations)",
+                zorder=6,
+            )
+            ax.legend(frameon=True, loc="lower right")
+
+    # ---------- 1:1 line ----------
+    lims = [
+        min(glamos_vals.min(), mbm_vals.min()),
+        max(glamos_vals.max(), mbm_vals.max()),
+    ]
+    ax.plot(lims, lims, "k--", lw=1)
+
+    # ---------- statistics ----------
+    r = np.corrcoef(glamos_vals, mbm_vals)[0, 1]
+    r2 = r**2
+
+    # ---------- formatting ----------
+    ax.set_title(f"{glacier.capitalize()} – {year}")
+    ax.set_xlabel("GLAMOS MB [m w.e.]")
+    ax.set_ylabel("MBM MB [m w.e.]")
+    ax.set_aspect("equal", adjustable="box")
+    ax.grid(True, alpha=0.3)
+
+    ax.text(
+        0.05,
+        0.95,
+        f"N = {glamos_vals.size}\n" f"r = {r:.2f}\n" f"R² = {r2:.2f}",
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+        fontsize=14,
+        bbox=dict(facecolor="white", alpha=0.7, edgecolor="none"),
+    )
+
+    return ax, glamos_vals, mbm_vals
+
+
+# -----------------------------------------------------------
+# 2 glaciers × 2 years figure
+# -----------------------------------------------------------
+def plot_2glaciers_2years_glamos_vs_mbm_scatter(
+    glacier_names,
+    years_by_glacier,
+    cfg,
+    path_distributed_mb,
+    path_pred_lstm,
+    period="annual",
+    apply_smoothing_fn=None,
+    df_stakes=None,
+):
+    """
+    Scatter plots of GLAMOS vs MBM (pixel-wise overlap)
+    Layout: 2 rows × 2 columns (glacier × year)
+    """
+
+    assert len(glacier_names) == 2
+    assert len(years_by_glacier) == 2
+    assert all(len(y) == 2 for y in years_by_glacier)
+
+    fig, axes = plt.subplots(
+        nrows=2,
+        ncols=2,
+        figsize=(12, 12),
+        sharex=True,
+        sharey=True,
+    )
+
+    axes = np.atleast_2d(axes)
+    all_axes = []
+
+    for r, glacier in enumerate(glacier_names):
+        for c, year in enumerate(years_by_glacier[r]):
+            ax = axes[r, c]
+
+            try:
+                plot_glamos_vs_mbm_pixel_scatter(
+                    glacier=glacier,
+                    year=year,
+                    cfg=cfg,
+                    path_distributed_mb=path_distributed_mb,
+                    path_pred_lstm=path_pred_lstm,
+                    period=period,
+                    apply_smoothing_fn=apply_smoothing_fn,
+                    ax=ax,
+                    df_stakes=df_stakes,
+                )
+            except Exception:
+                ax.text(
+                    0.5,
+                    0.5,
+                    f"No data\n{glacier} {year}",
+                    ha="center",
+                    va="center",
+                    transform=ax.transAxes,
+                )
+                ax.set_axis_off()
+
+            if r == 0:
+                ax.set_title(f"{glacier.capitalize()} – {year}")
+            if c == 0:
+                ax.set_ylabel("MBM MB [m w.e.]")
+            if r == 1:
+                ax.set_xlabel("GLAMOS MB [m w.e.]")
+
+            all_axes.append(ax)
+
+    # ---------- synchronize limits ----------
+    lims = all_axes[0].get_xlim()
+    for ax in all_axes:
+        ax.set_xlim(lims)
+        ax.set_ylim(lims)
+
+    plt.tight_layout()
+    return fig, all_axes
+
+
 def plot_glacier_monthly_series_lstm_sharedcmap_center0(
     glacier_name: str,
     year: int,
@@ -2312,28 +2582,11 @@ def plot_monthly_joyplot_single(
     alpha=1,
     show=True,
     model_name="lstm",
+    y_offset=0.3,
 ):
     """
     Plot a JoyPy ridge plot showing monthly distributions for a single model variable
-    alongside GLAMOS reference data.
-
-    Parameters
-    ----------
-    df_long : pd.DataFrame
-        Long-format dataframe from `prepare_monthly_long_df`.
-        Must include columns 'Month', `variable`, and 'mb_glamos'.
-    variable : str
-        Name of the model variable column to plot (e.g. 'mb_lstm' or 'mb_nn').
-    month_order : list, optional
-        Ordered list of months (default: hydrological year Oct–Sep).
-    color_model, color_glamos : str
-        Line colors for the model and GLAMOS distributions.
-    figsize_cm : tuple
-        Figure size in centimeters.
-    x_range : tuple
-        x-axis range for MB (m w.e.).
-    alpha : float
-        Transparency for lines and legend patches.
+    alongside GLAMOS reference data, with monthly overlap coefficients annotated.
     """
 
     if month_order is None:
@@ -2379,7 +2632,6 @@ def plot_monthly_joyplot_single(
     plt.gca().set_yticklabels(month_order)
 
     # --- Legend ---
-    # model_name = variable.replace("mb_", "").upper()
     model_name = model_name.upper()
     legend_patches = [
         Patch(facecolor=color_model, label=model_name, alpha=alpha, edgecolor="k"),
@@ -2395,7 +2647,97 @@ def plot_monthly_joyplot_single(
         columnspacing=1,
     )
 
+    # --- Compute monthly overlap coefficients ---
+    overlap_by_month = monthly_overlap_coefficients(
+        df_long,
+        model_col=variable,
+        x_range=x_range,
+    )
+    bias_by_month = monthly_mean_bias(
+        df_long,
+        model_col=variable,
+    )
+
+    # --- Annotate overlap on plot ---
+    # x_text = x_range[1] * 0.96  # right-hand side
+    x_text = x_range[0]  # + 0.01 * (x_range[1] - x_range[0])
+
+    for i, month in enumerate(month_order):
+        ov = overlap_by_month.get(month)
+
+        if ov is None or not np.isfinite(ov):
+            continue
+
+        ax[i].text(
+            x_text,
+            y_offset,  # y=0 is the ridge baseline in each axis
+            f"OVL={ov:.2f}, Δμ={bias_by_month[month]:+.2f}",
+            ha="left",
+            va="center",
+            fontsize=9,
+            color="black",
+        )
+
     if show:
         plt.show()
 
     return fig
+
+
+from scipy.stats import gaussian_kde
+
+
+def monthly_overlap_coefficients(
+    df_long,
+    model_col,
+    glamos_col="mb_glamos",
+    month_col="Month",
+    x_range=(-2.2, 2.2),
+    n_grid=1000,
+):
+    """
+    Compute overlap coefficient between model and GLAMOS
+    distributions for each month.
+    """
+    overlaps = {}
+
+    x = np.linspace(x_range[0], x_range[1], n_grid)
+
+    for month, df_m in df_long.groupby(month_col):
+        model_vals = df_m[model_col].dropna().values
+        glamos_vals = df_m[glamos_col].dropna().values
+
+        # skip months with too little data
+        if len(model_vals) < 5 or len(glamos_vals) < 5:
+            overlaps[month] = np.nan
+            continue
+
+        kde_model = gaussian_kde(model_vals)
+        kde_glamos = gaussian_kde(glamos_vals)
+
+        overlap = np.trapz(np.minimum(kde_model(x), kde_glamos(x)), x)
+
+        overlaps[month] = overlap
+
+    return overlaps
+
+
+def monthly_mean_bias(
+    df_long,
+    model_col,
+    glamos_col="mb_glamos",
+    month_col="Month",
+):
+    bias = {}
+
+    for month, df_m in df_long.groupby(month_col):
+        model_vals = df_m[model_col].dropna()
+        glamos_vals = df_m[glamos_col].dropna()
+
+        if len(model_vals) == 0 or len(glamos_vals) == 0:
+            bias[month] = np.nan
+            continue
+
+        bias[month] = model_vals.mean() - glamos_vals.mean()
+
+    return bias
