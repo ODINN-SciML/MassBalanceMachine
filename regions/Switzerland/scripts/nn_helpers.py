@@ -277,13 +277,11 @@ def get_best_params_for_lstm(
     minimize: bool = True,
 ) -> Dict[str, Any]:
     """
-    Return best hyperparameters with original names (incl. 'two_heads' & 'head_dropout').
-    - Parses types (bools, floats, ints, list-like strings).
-    - If 'two_heads' missing but 'simple' present, sets two_heads = not simple.
-      'simple' is NOT included in the output.
-    - 'static_hidden' becomes list[int] or None (treat "0", 0, "", "none", NaN as None).
-    - 'loss_spec' parsed to Python object or None. If loss_name == "weighted" and
-      loss_spec is missing/empty, defaults to ("weighted", {}).
+    Return best hyperparameters with original names.
+
+    IMPORTANT:
+    - static_hidden is returned as int or None (NOT a list)
+    - This matches the actual LSTM_MB model API
     """
 
     def _as_bool(x):
@@ -293,22 +291,21 @@ def get_best_params_for_lstm(
             return bool(int(x))
         return str(x).strip().lower() in {"1", "true", "t", "yes", "y"}
 
-    def _as_opt_list(x):
-        # map "0", 0, "", "none", NaN -> None
+    def _as_opt_int(x):
+        """
+        Parse optional integer hyperparameters.
+        Maps: None, NaN, "", "none", "nan", "0" -> None
+        Maps: 128, 128.0, "128" -> 128
+        """
         if x is None or (isinstance(x, float) and pd.isna(x)):
             return None
-        s = str(x).strip()
-        if s.lower() in {"", "none", "nan", "0"}:
+        s = str(x).strip().lower()
+        if s in {"", "none", "nan", "0"}:
             return None
         try:
-            val = ast.literal_eval(s)
-            if isinstance(val, (list, tuple)):
-                return [int(v) for v in val]
-            if isinstance(val, int):
-                return [val]
+            return int(float(x))
         except Exception:
-            pass
-        return None
+            return None
 
     def _as_opt_float(x):
         if x is None or (isinstance(x, float) and pd.isna(x)):
@@ -330,6 +327,9 @@ def get_best_params_for_lstm(
             return s
 
     log_path = Path(log_path)
+    if not log_path.exists():
+        raise FileNotFoundError(f"Grid-search log file not found: {log_path}")
+
     df = pd.read_csv(log_path)
 
     if select_by == "avg_test_loss":
@@ -348,16 +348,18 @@ def get_best_params_for_lstm(
     idx = df[select_by].idxmin() if minimize else df[select_by].idxmax()
     r = df.loc[idx].to_dict()
 
-    # Print a quick summary if columns exist
+    # Print summary
     def _fmt(name):
         return f"{r[name]:.4f}" if name in r and pd.notna(r[name]) else "n/a"
 
     print(f"Best run {idx} by '{select_by}' (value: {_fmt(select_by)}):")
     print(
-        f"  test_rmse_a: {_fmt('test_rmse_a')}  |  test_rmse_w: {_fmt('test_rmse_w')}  |  valid_loss: {_fmt('valid_loss')}"
+        f"  test_rmse_a: {_fmt('test_rmse_a')}  |  "
+        f"test_rmse_w: {_fmt('test_rmse_w')}  |  "
+        f"valid_loss: {_fmt('valid_loss')}"
     )
 
-    # Core params
+    # Core params (MATCH MODEL API)
     best_params: Dict[str, Any] = {
         "Fm": int(r["Fm"]),
         "Fs": int(r["Fs"]),
@@ -366,12 +368,11 @@ def get_best_params_for_lstm(
         "bidirectional": _as_bool(r["bidirectional"]),
         "dropout": float(r["dropout"]),
         "static_layers": int(r["static_layers"]),
-        "static_hidden": _as_opt_list(r.get("static_hidden")),
+        "static_hidden": _as_opt_int(r.get("static_hidden")),
         "static_dropout": _as_opt_float(r.get("static_dropout")),
         "lr": float(r["lr"]),
         "weight_decay": float(r["weight_decay"]),
         "loss_name": str(r.get("loss_name", "neutral")),
-        # 'loss_spec' handled below
     }
 
     # two_heads & head_dropout
@@ -380,7 +381,7 @@ def get_best_params_for_lstm(
     elif "simple" in r and pd.notna(r["simple"]):
         two_heads = not _as_bool(r["simple"])
     else:
-        two_heads = False  # conservative default if not logged
+        two_heads = False
 
     head_dropout = _as_opt_float(r.get("head_dropout"))
     if head_dropout is None:

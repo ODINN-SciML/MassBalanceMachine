@@ -14,12 +14,12 @@ import os
 
 """
 Model diagram:
-    Monthly inputs (B×15×Fm) ──► LSTM ──────────┐
+    Monthly inputs (B×16×Fm) ──► LSTM ──────────┐
                                                 │
     Static inputs (B×Fs) ──► Static MLP ──► repeat ─► concat ─► Dropout ─► [Head(s)]
                                                 │
                                                 ▼
-                                    Per-month MB predictions (B×15)
+                                    Per-month MB predictions (B×16)
 
             ▼ masks mv, mw, ma
     Winter MB (B)    Annual MB (B)
@@ -75,7 +75,7 @@ class LSTM_MB(nn.Module):
             dropout=dropout if num_layers > 1 else 0.0,  # applied between LSTM layers
         )
 
-        # Output shape of LSTM block: (B, 15, H) where H = hidden_size × (2 if bidirectional else 1)
+        # Output shape of LSTM block: (B, 16, H) where H = hidden_size × (2 if bidirectional else 1)
         H = hidden_size * (2 if bidirectional else 1)
 
         if static_dropout is None:
@@ -140,12 +140,12 @@ class LSTM_MB(nn.Module):
     # ----------------
     def forward(self, x_m, x_s, mv, mw, ma, debug=False):
         """
-        x_m: (B, 15, Fm) | x_s: (B, Fs) | mv, mw, ma: (B, 15)
+        x_m: (B, 16, Fm) | x_s: (B, Fs) | mv, mw, ma: (B, 16)
         Returns: y_month, y_w, y_a
         """
 
         # ---- Dynamic path ----
-        out, (h_n, c_n) = self.lstm(x_m)  # (B, 15, H or 2H)
+        out, (h_n, c_n) = self.lstm(x_m)  # (B, 16, H or 2H)
         if debug:
             print(f"[LSTM out] {tuple(out.shape)}  (H={out.shape[-1]})")
             print(f"[LSTM h_n] {tuple(h_n.shape)}")
@@ -157,7 +157,7 @@ class LSTM_MB(nn.Module):
             print(f"[Static MLP out] {tuple(s.shape)}  (static_out_dim={s.shape[-1]})")
 
         # ---- Fusion layer ----
-        s_rep = s.unsqueeze(1).expand(-1, out.size(1), -1)  # (B, 15, static_out_dim)
+        s_rep = s.unsqueeze(1).expand(-1, out.size(1), -1)  # (B, 16, static_out_dim)
         if debug:
             print(f"[Static repeated] {tuple(s_rep.shape)}")
 
@@ -169,8 +169,8 @@ class LSTM_MB(nn.Module):
 
         # ---- Heads ----
         if self.two_heads:
-            y_month_w = self.head_w(z).squeeze(-1)  # (B, 15)
-            y_month_a = self.head_a(z).squeeze(-1)  # (B, 15)
+            y_month_w = self.head_w(z).squeeze(-1)  # (B, 16)
+            y_month_a = self.head_a(z).squeeze(-1)  # (B, 16)
 
             if debug:
                 print(f"[Head W out] {tuple(y_month_w.shape)}")
@@ -191,7 +191,7 @@ class LSTM_MB(nn.Module):
             return y_month_a, y_w, y_a
 
         else:
-            y_month = self.head(z).squeeze(-1)  # (B, 15)
+            y_month = self.head(z).squeeze(-1)  # (B, 16)
             if debug:
                 print(f"[Head shared out] {tuple(y_month.shape)}")
 

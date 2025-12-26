@@ -16,9 +16,9 @@ LSTM_OOS_NORM_Y = "models/lstm_model_2025-12-16_OOS_norm_y.pt"
 LSTM_IS_NORM_Y = "models/lstm_model_2025-12-16_IS_norm_y.pt"
 LSTM_IS_ORIGIN_Y = "models/lstm_model_2025-12-16_IS_orig_y.pt"
 
-LSTM_OOS_NORM_Y_PAST = "models/lstm_model_2025-12-18_OOS_norm_y_past.pt"
-LSTM_IS_NORM_Y_PAST = "models/lstm_model_2025-12-18_IS_norm_y_past.pt"
-LSTM_IS_ORIGIN_Y_PAST = "models/lstm_model_2025-12-18_IS_orig_y_past.pt"
+LSTM_OOS_NORM_Y_PAST = "models/lstm_model_2025-12-23_OOS_norm_y_past.pt"
+LSTM_IS_NORM_Y_PAST = "models/lstm_model_2025-12-23_IS_norm_y_past.pt"
+LSTM_IS_ORIGIN_Y_PAST = "models/lstm_model_2025-12-23_IS_orig_y_past.pt"
 
 VOIS_CLIMATE = [
     "t2m",
@@ -72,36 +72,36 @@ PARAMS_LSTM_IS = {
 PARAMS_LSTM_OOS_PAST = {
     "Fm": 9,
     "Fs": 3,
-    "hidden_size": 128,
+    "hidden_size": 64,
     "num_layers": 2,
     "bidirectional": False,
-    "dropout": 0.2,
+    "dropout": 0.1,
     "static_layers": 2,
-    "static_hidden": [128, 64],
-    "static_dropout": 0.1,
-    "lr": 0.001,
-    "weight_decay": 0.0,
+    "static_hidden": 128,
+    "static_dropout": 0.2,
+    "lr": 0.002,
+    "weight_decay": 0.0001,
     "loss_name": "neutral",
     "two_heads": False,
-    "head_dropout": 0.0,
+    "head_dropout": 0.1,
     "loss_spec": None,
 }
 
 PARAMS_LSTM_IS_past = {
     "Fm": 9,
     "Fs": 3,
-    "hidden_size": 128,
+    "hidden_size": 64,
     "num_layers": 2,
     "bidirectional": False,
     "dropout": 0.1,
     "static_layers": 2,
-    "static_hidden": [128, 64],
+    "static_hidden": 32,
     "static_dropout": 0.1,
-    "lr": 0.001,
-    "weight_decay": 0.0001,
+    "lr": 0.0005,
+    "weight_decay": 1e-05,
     "loss_name": "neutral",
     "two_heads": False,
-    "head_dropout": 0.1,
+    "head_dropout": 0.0,
     "loss_spec": None,
 }
 
