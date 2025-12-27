@@ -1098,3 +1098,117 @@ def plot_tsne_overlap(
     plt.tight_layout()
     plt.show()
     return fig
+
+
+def plot_predictions_three_models_side_by_side(
+    grouped_ids_lstm,
+    grouped_ids_nn,
+    grouped_ids_xgb,
+    scores_annual_lstm,
+    scores_winter_lstm,
+    scores_annual_nn,
+    scores_winter_nn,
+    scores_annual_xgb,
+    scores_winter_xgb,
+    ax_xlim=(-8, 6),
+    ax_ylim=(-8, 6),
+    color_annual=COLOR_ANNUAL,
+    color_winter=COLOR_WINTER,
+):
+    """
+    Produces a 3-panel summary figure:
+    LSTM ─ NN ─ XGBoost (each: predictions vs truth),
+    with a single shared legend underneath.
+    """
+
+    model_labels = ["LSTM", "MLP", "XGBoost"]
+    subplot_labels = ["(a)", "(b)", "(c)"]
+    grouped_inputs = [grouped_ids_lstm, grouped_ids_nn, grouped_ids_xgb]
+    scores_annuals = [scores_annual_lstm, scores_annual_nn, scores_annual_xgb]
+    scores_winters = [scores_winter_lstm, scores_winter_nn, scores_winter_xgb]
+
+    # --- Figure ---
+    fig, axes = plt.subplots(1, 3, figsize=(22, 6), sharex=True, sharey=True)
+    plt.subplots_adjust(wspace=0.20)
+
+    for ax, grouped, label, sl, scores_annual, scores_winter in zip(
+        axes,
+        grouped_inputs,
+        model_labels,
+        subplot_labels,
+        scores_annuals,
+        scores_winters,
+    ):
+        # Predictions vs Truth panel
+        predVSTruth(
+            ax,
+            grouped,
+            scores_annual,
+            hue="PERIOD",
+            add_legend=False,
+            palette=[color_annual, color_winter],
+            ax_xlim=ax_xlim,
+            ax_ylim=ax_ylim,
+        )
+
+        # Title
+        ax.set_title(label, fontsize=20)
+
+        # Subplot label (a, b, c)
+        ax.text(
+            0.03,
+            0.97,
+            sl,
+            transform=ax.transAxes,
+            fontsize=20,
+            verticalalignment="top",
+            horizontalalignment="left",
+        )
+
+        # Score box
+        legend_str = "\n".join(
+            [
+                r"$\mathrm{RMSE_a}=%.3f$, $\mathrm{RMSE_w}=%.3f$"
+                % (scores_annual["rmse"], scores_winter["rmse"]),
+                r"$\mathrm{R^2_a}=%.3f$, $\mathrm{R^2_w}=%.3f$"
+                % (scores_annual["R2"], scores_winter["R2"]),
+                r"$\mathrm{B_a}=%.3f$, $\mathrm{B_w}=%.3f$"
+                % (scores_annual["Bias"], scores_winter["Bias"]),
+            ]
+        )
+        ax.text(
+            0.98,  # near the right edge
+            0.03,  # near the bottom
+            legend_str,
+            transform=ax.transAxes,
+            fontsize=16,
+            verticalalignment="bottom",
+            horizontalalignment="right",
+            bbox=dict(boxstyle="round", facecolor="white", alpha=0.60),
+        )
+
+        # remove legend
+        ax.legend().remove()
+
+    # Common axis label
+    axes[0].set_ylabel("Predicted PMB (m w.e.)", fontsize=18)
+
+    # ---------- Shared legend BELOW subplots ----------
+    from matplotlib.patches import Patch
+
+    handles = [
+        Patch(color=COLOR_ANNUAL, label="Annual"),
+        Patch(color=COLOR_WINTER, label="Winter"),
+    ]
+    fig.legend(
+        handles=handles,
+        loc="lower center",
+        ncol=2,
+        fontsize=16,
+        frameon=True,
+        bbox_to_anchor=(0.5, -0.04),  # move down if needed
+    )
+    # --------------------------------------------------
+
+    fig.tight_layout(rect=(0, 0.05, 1, 1))  # leave room at bottom for legend
+    return fig
