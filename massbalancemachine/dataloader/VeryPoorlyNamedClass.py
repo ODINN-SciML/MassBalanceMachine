@@ -13,6 +13,11 @@ mbm_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 sys.path.append(mbm_path)  # Add root of repo to import MBM
 
 import pandas as pd
+import numpy as np
+import datetime
+import urllib
+import json
+import git
 
 from data_processing.Dataset import Dataset
 from data_processing.utils import build_head_tail_pads_from_monthly_df, get_hash
@@ -100,11 +105,37 @@ _default_input_switzerland = (
 _default_test_glaciers_iceland = []
 _default_train_glaciers_iceland = ["RGI60-06.00228", "RGI60-06.00232"]
 
+# TODO: design that split properly
+_default_test_glaciers_norway = [
+    "RGI60-08.02436",
+    "RGI60-08.02458",
+    "RGI60-08.00287",
+    "RGI60-08.01657",
+    "RGI60-08.00295",
+]
+_default_train_glaciers_norway = [
+    "RGI60-08.02666",
+    "RGI60-08.02017",
+    "RGI60-08.01126",
+    "RGI60-08.01186",
+    "RGI60-08.01217",
+    "RGI60-08.00868",
+    "RGI60-08.00987",
+    "RGI60-08.00966",
+    "RGI60-08.01779",
+    "RGI60-08.02966",
+    "RGI60-08.02963",
+    "RGI60-08.02962",
+    "RGI60-08.02643",
+]
+
 
 def _default_input(sourceData):
     if sourceData == "switzerland":
         return _default_input_switzerland
     elif sourceData == "iceland":
+        return []
+    elif sourceData == "norway":
         return []
     else:
         raise ValueError(f"source_data={sourceData} is unknown")
@@ -145,7 +176,11 @@ class VeryPoorlyNamedClass:
         ].unique()
         self.mean_stakes_elevation = (
             data_monthly.groupby("GLACIER" if self.glacierNamesProvided else "RGIId")[
-                "POINT_ELEVATION"
+                (
+                    "POINT_ELEVATION"
+                    if "POINT_ELEVATION" in data_monthly.keys()
+                    else "ELEVATION_DIFFERENCE"
+                )
             ]
             .mean()
             .to_dict()
@@ -266,6 +301,10 @@ class VeryPoorlyNamedClassIceland(VeryPoorlyNamedClass):
             )
         )
 
+        data["aspect"] = 180 * data["aspect"] / np.pi
+        data["slope"] = 180 * data["slope"] / np.pi
+        data["t2m"] = data["t2m"] - 273.15
+
         ### Add period column ###
         data = data.assign(PERIOD="")
         for ID in data[data.N_MONTHS <= 8].ID.unique():
@@ -321,3 +360,99 @@ class VeryPoorlyNamedClassIceland(VeryPoorlyNamedClass):
     #     random_state=cfg.seed,
     # )
     # return train_set, test_set, months_head_pad, months_tail_pad
+
+
+class VeryPoorlyNamedClassNorway(VeryPoorlyNamedClass):
+    def __init__(self, cfg, params, *args, **kwargs):
+        self.train_glaciers = (
+            params["training"].get("train_glaciers") or _default_train_glaciers_norway
+        )
+        self.test_glaciers = (
+            params["training"].get("test_glaciers") or _default_test_glaciers_norway
+        )
+        super().__init__(cfg, params, *args, **kwargs)
+
+        url_monthly_dataset = "https://raw.githubusercontent.com/khsjursen/ML_MB_Norway/refs/heads/main/src/Data/2023-08-28_stake_mb_norway_cleaned_ids_latlon_wattributes_climate_svf_monthly.csv"
+        folder_csv = os.path.abspath(os.path.join(mbm_path, ".data/norway/"))
+        self.path_csv = os.path.abspath(
+            os.path.join(
+                folder_csv,
+                "2023-08-28_stake_mb_norway_cleaned_ids_latlon_wattributes_climate_svf_monthly.csv",
+            )
+        )
+        repo = git.Repo(search_parent_directories=True)
+        commit_hash = repo.head.object.hexsha
+        path_info_download = os.path.abspath(os.path.join(folder_csv, "checksum.json"))
+        commit_match = False
+        if os.path.isfile(path_info_download):
+            with open(path_info_download, "r") as f:
+                d = json.load(f)
+                if d.get("commit_hash") == commit_hash:
+                    commit_match = True
+        if not os.path.isfile(self.path_csv) or not commit_match:
+            print("Downloading monthly CSV file")
+            if not os.path.isdir(folder_csv):
+                os.makedirs(folder_csv, exist_ok=True)
+            urllib.request.urlretrieve(url_monthly_dataset, self.path_csv)
+
+            info = {
+                "commit_hash": commit_hash,
+                "date": datetime.datetime.now(tz=datetime.timezone.utc).strftime(
+                    "%Y-%m-%dT%H:%M:%S%z"
+                ),
+            }
+            with open(path_info_download, "w") as f:
+                json.dump(info, f, indent=4, sort_keys=True)
+
+    def load_stakes_data(self):
+        data = pd.read_csv(self.path_csv)
+        data.drop("Unnamed: 0", axis=1, inplace=True)
+        data.rename(
+            columns={
+                "id": "ID",
+                "RGIID": "RGIId",
+                "year": "YEAR",
+                "altitude_diff": "ELEVATION_DIFFERENCE",
+                "balance": "POINT_BALANCE",
+                "skyview_factor": "svf",
+                "n_months": "N_MONTHS",
+                "month": "MONTHS",
+            },
+            inplace=True,
+        )
+
+        data["aspect"] = 180 * data["aspect"] / np.pi
+        data["slope"] = 180 * data["slope"] / np.pi
+        data["t2m"] = data["t2m"] - 273.15
+
+        ### Add period column ###
+        data = data.assign(PERIOD="")
+        for ID in data[data.N_MONTHS <= 8].ID.unique():
+            sub = data[data.ID == ID]
+            months = sub.MONTHS.to_numpy()
+            if "jan" in months:
+                data.loc[data.ID == ID, "PERIOD"] = "winter"
+            elif "jul" in months:
+                data.loc[data.ID == ID, "PERIOD"] = "summer"
+        data.loc[data.N_MONTHS > 8, "PERIOD"] = "annual"
+        assert data.PERIOD.nunique() == 3
+        #########################
+
+        existing_glaciers = set(data.RGIId.unique())
+        missing_glaciers = [g for g in self.test_glaciers if g not in existing_glaciers]
+        if missing_glaciers:
+            print(
+                f"Warning: The following test glaciers are not in the dataset: {missing_glaciers}"
+            )
+
+        train_glaciers = [i for i in existing_glaciers if i not in self.test_glaciers]
+
+        dataloader = DataLoader(
+            self.cfg,
+            data=data,
+            random_seed=self.cfg.seed,
+            meta_data_columns=self.cfg.metaData,
+        )
+        data_monthly = dataloader.data
+
+        return data_monthly

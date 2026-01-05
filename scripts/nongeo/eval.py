@@ -65,6 +65,11 @@ elif sourceData == "iceland":
     cfg = mbm.Config(
         metaData=["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD"]
     )
+elif sourceData == "norway":
+    cfg = mbm.Config(
+        metaData=["RGIId", "ID", "N_MONTHS", "MONTHS", "PERIOD"],
+        notMetaDataNotFeatures=["POINT_BALANCE", "YEAR", "BREID"],
+    )
 else:
     raise ValueError(f"source_data={sourceData} is unknown")
 seed_all(cfg.seed)
@@ -100,6 +105,10 @@ elif sourceData == "iceland":
     # params["training"]["test_glaciers"] = test_glaciers ## hack to test the code
 
     datasetManager = mbm.dataloader.VeryPoorlyNamedClassIceland(
+        cfg, params, test_split_on=keyGlacier
+    )
+elif sourceData == "norway":
+    datasetManager = mbm.dataloader.VeryPoorlyNamedClassNorway(
         cfg, params, test_split_on=keyGlacier
     )
 train_set, test_set, months_head_pad, months_tail_pad = datasetManager.train_test_sets()

@@ -55,6 +55,19 @@ def getMetaData(featuresInpModel, sourceData):
                 ]
             ).union(set(featuresToRemove))
         )
+    elif sourceData == "norway":
+        metaData = list(
+            set(
+                [
+                    "RGIId",
+                    "ID",
+                    "N_MONTHS",
+                    "MONTHS",
+                    "PERIOD",
+                    "YEAR",
+                ]
+            ).union(set(featuresToRemove))
+        )
     else:
         raise ValueError(f"source_data={sourceData} is unknown")
     return metaData
