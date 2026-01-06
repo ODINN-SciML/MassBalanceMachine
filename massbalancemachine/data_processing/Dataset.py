@@ -69,7 +69,7 @@ class Dataset:
         data: pd.DataFrame,
         region_name: str,
         region_id: int,
-        data_path: str,
+        data_path: str = None,
         months_tail_pad=None,  #: List[str] = ['aug_', 'sep_'], # before 'oct'
         months_head_pad=None,  #: List[str] = ['oct_'], # after 'sep'
     ):
@@ -79,7 +79,7 @@ class Dataset:
         self.region_id = region_id
         self.data_dir = data_path
         self.RGIIds = self.data["RGIId"]
-        if not os.path.isdir(self.data_dir):
+        if self.data_dir is not None and not os.path.isdir(self.data_dir):
             os.makedirs(self.data_dir, exist_ok=True)
 
         # Padding to allow for flexible month ranges (customize freely)
@@ -156,6 +156,7 @@ class Dataset:
         """
         Fetch monthly clear-sky radiation for each glacier and add padded-month
         columns according to self.months_tail_pad / self.months_head_pad.
+        Works only with the Swiss dataset.
 
         Parameters
         ----------
@@ -213,45 +214,59 @@ class Dataset:
         )
 
     def get_glacier_mask(
-        self, custom_working_dir: str = ""
+        self,
+        custom_working_dir: str = "",
+        rgi_id: str = None,
     ) -> tuple[xr.Dataset, tuple[np.array, np.array], oggm.GlacierDirectory]:
         """Creates an xarray that contains different variables from OGGM,
             mapped over the glacier outline. The glacier mask is also returned.
 
         Args:
             custom_working_dir (str, optional): working directory for the OGGM data. Defaults to ''.
+            rgi_id (str, optional): RGI ID of the glacier to get the mask from. If not provided, this method uses the dataframe of the dataset to retrieve the RGI ID.
+
         Returns:
             ds (xr.Dataset): the glacier data from OGGM masked over the glacier outline
             glacier_indices (np.array): indices of glacier pixels in OGGM grid
             gdir (oggm.GlacierDirectory): the OGGM glacier directory
-
         """
+
+        if rgi_id is None:
+            rgi_ids = self.data.RGIId.unique()
+            assert len(rgi_ids) == 1
+            rgi_id = rgi_ids[0]
+
         ds, glacier_indices, gdir = get_glacier_mask(
-            self.data, custom_working_dir, self.cfg
+            rgi_id, custom_working_dir, self.cfg
         )
         return ds, glacier_indices, gdir
 
-    def create_glacier_grid_RGI(self, custom_working_dir: str = "") -> pd.DataFrame:
+    def create_glacier_grid_RGI(
+        self, custom_working_dir: str = "", rgi_id: str = None, years=range(1951, 2024)
+    ) -> pd.DataFrame:
         """Creates a dataframe with the glacier grid data from RGI v.6,
             which contains the glacier data from OGGM mapped over the glacier outline in yearly format.
 
         Args:
             custom_working_dir (str, optional): working directory for the OGGM data. Defaults to ''.
+            rgi_id (str, optional): RGI ID of the glacier to get the mask from. If not provided, this method uses the dataframe of the dataset to retrieve the RGI ID.
+            years: Time range of the generated grid. Defaults to the fixed time range `range(1951, 2024)` because we want the grid from the beginning of climate data to end.
 
         Returns:
             df_grid (pd.DataFrame): yearly dataframe with the glacier grid data.
         """
+
+        if rgi_id is None:
+            rgi_ids = self.data.RGIId.unique()
+            assert len(rgi_ids) == 1
+            rgi_id = rgi_ids[0]
+
         # Get glacier mask from OGGM
         ds, glacier_indices, gdir = get_glacier_mask(
-            self.data, custom_working_dir, self.cfg
+            rgi_id, custom_working_dir, self.cfg
         )
-        # years_stake = self.data['YEAR'].unique()
 
-        # Fixed time range because we want the grid from the beginning
-        # of climate data to end (not just when there are stake measurements)
-        years = range(1951, 2024)
-        rgi_gl = self.data["RGIId"].unique()[0]
-        df_grid = create_glacier_grid_RGI(ds, years, glacier_indices, gdir, rgi_gl)
+        df_grid = create_glacier_grid_RGI(ds, years, glacier_indices, gdir, rgi_id)
         return df_grid
 
     def _get_output_filename(self, feature_type: str) -> str:
@@ -264,7 +279,10 @@ class Dataset:
         Returns:
             str: The full path to the output file
         """
-        return os.path.join(self.data_dir, f"{self.region}_{feature_type}.csv")
+        if self.data_dir is None:
+            return None
+        else:
+            return os.path.join(self.data_dir, f"{self.region}_{feature_type}.csv")
 
     def _copy_padded_month_columns(
         self, df: pd.DataFrame, prefixes=("pcsr",), overwrite: bool = False

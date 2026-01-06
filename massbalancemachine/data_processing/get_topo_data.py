@@ -82,27 +82,27 @@ def get_topographical_features(
             "RGIIDs are correct, and your coordinates are in the correct CRS."
         )
 
-    data.to_csv(output_fname, index=False)
+    if output_fname is not None:
+        data.to_csv(output_fname, index=False)
 
     return data
 
 
-def get_glacier_mask(df: pd.DataFrame, custom_working_dir: str, cfg: config.Config):
-    """Gets glacier xarray from OGGM and masks it over the glacier outline."""
+def get_glacier_mask(rgi_id: str, custom_working_dir: str, cfg: config.Config):
+    """Given a `rgi_id` gets glacier xarray from OGGM and masks it over the glacier outline."""
 
     # Initialize the OGGM Config
     _initialize_oggm_config(custom_working_dir)
 
-    # Initialize the OGGM Glacier Directory, given the available RGI IDs
-    rgi_id = df.RGIId.unique()
-    gdirs = _initialize_glacier_directories(rgi_id, cfg)
+    # Initialize the OGGM Glacier Directory, given the RGI ID
+    gdirs = _initialize_glacier_directories([rgi_id], cfg)
 
     # Get oggm data for that RGI ID
     oggm_rgis = [gdir.rgi_id for gdir in gdirs]
-    if rgi_id[0] not in oggm_rgis:
-        raise ValueError("RGI ID not found in OGGM data")
+    if rgi_id not in oggm_rgis:
+        raise ValueError(f"RGI ID {rgi_id} not found in OGGM data")
     for gdir in gdirs:
-        if gdir.rgi_id == rgi_id[0]:
+        if gdir.rgi_id == rgi_id:
             break
     with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
         ds = ds.load()

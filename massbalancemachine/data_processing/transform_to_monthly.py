@@ -52,7 +52,8 @@ def transform_to_monthly(
     # Create the final dataframe with the new exploded climate data
     result_df = _create_result_dataframe(df_exploded, column_names, vois_climate)
 
-    result_df.to_csv(output_fname, index=False)
+    if output_fname is not None:
+        result_df.to_csv(output_fname, index=False)
 
     return result_df
 

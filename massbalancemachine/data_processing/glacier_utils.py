@@ -2,6 +2,7 @@ import numpy as np
 import salem
 import pyproj
 import pandas as pd
+import geopandas as gpd
 import xarray as xr
 import oggm
 
