@@ -64,9 +64,12 @@ class DataLoader:
         self.test_indices = None
         self.meta_data_columns = meta_data_columns or cfg.metaData
 
-    
     def set_train_test_split(
-        self, *, test_size: float = None, type_fold: str = "group-meas-id", randomness : bool = False
+        self,
+        *,
+        test_size: float = None,
+        type_fold: str = "group-meas-id",
+        random_state: bool = False,
     ) -> Tuple[Iterator[Any], Iterator[Any]]:
         """
         Split the dataset into training and testing sets.
@@ -93,19 +96,22 @@ class DataLoader:
         X, y, glacier_ids, stake_meas_id, regions = self._prepare_data_for_cv(
             self.data, self.meta_data_columns
         )
-        if randomness == False:
+        if random_state == False:
             gss = GroupShuffleSplit(
-                n_splits=1, test_size=test_size,
-                random_state=self.random_seed #commenting this improve randomness
+                n_splits=1,
+                test_size=test_size,
+                random_state=self.random_seed,  # commenting this improve randomness
             )
-        elif randomness == True:
+        elif random_state == True:
             gss = GroupShuffleSplit(
-                n_splits=1, test_size=test_size,
-                # random_state=self.random_seed #commenting this improve randomness
+                n_splits=1,
+                test_size=test_size,
             )
-        groups = {"group-meas-id": stake_meas_id, "group-rgi": glacier_ids, "group-c_region": regions}.get(
-            type_fold
-        )
+        groups = {
+            "group-meas-id": stake_meas_id,
+            "group-rgi": glacier_ids,
+            "group-c_region": regions,
+        }.get(type_fold)
         train_indices, test_indices = next(gss.split(X, y, groups))
 
         # Check that the intersection train and test ids is empty
@@ -117,19 +123,18 @@ class DataLoader:
         self.train_indices = train_indices
         self.test_indices = test_indices
         return iter(self.train_indices), iter(self.test_indices)
-    
-    def assign_train_test_indices(self,train_indices, test_indices, test_size):
-        """ 
+
+    def assign_train_test_indices(self, train_indices, test_indices, test_size):
+        """
         Dividing train and test ensemble based on subregion require to make the sampling N times and then choose the
         train-test division closest to the 70-30 repartition. At each iteration the Dataloader object is redifined as well as
-        self.train_indices and self.test_indices meaning that the information in the Dataloader object are those of the last iterations 
+        self.train_indices and self.test_indices meaning that the information in the Dataloader object are those of the last iterations
         and not those of the  train-test division chosen after comparing to the 70-30 repartition.
-        This function aims to correct this
+        This function aims to correct this by reassigning the indices of the chosen sampling.
         """
         self.train_indices = train_indices
         self.test_indices = test_indices
         self.test_size = test_size
-
 
     def set_custom_train_test_indices(
         self, train_indices: np.array, test_indices: np.array
@@ -183,7 +188,7 @@ class DataLoader:
 
         # Create the cross validation splits
         splits = self._create_group_kfold_splits(
-            X, y, glacier_ids, stake_meas_id, type_fold
+            X, y, glacier_ids, stake_meas_id, regions, type_fold
         )
         self.cv_split = splits
 
@@ -259,9 +264,11 @@ class DataLoader:
         y = train_data["POINT_BALANCE"]
         glacier_ids = train_data["RGIId"].values
         stake_meas_id = train_data["ID"].values  # unique value per stake measurement
-        regions = train_data["C_REGION"].values
+        try:
+            regions = train_data["C_REGION"].values
+        except:
+            regions = type(np.array([]))
         return X, y, glacier_ids, stake_meas_id, regions
-   
 
     def _create_group_kfold_splits(
         self,
@@ -269,6 +276,7 @@ class DataLoader:
         y: pd.Series,
         glacier_ids: np.ndarray,
         stake_meas_id: np.ndarray,
+        regions: np.ndarray,
         type_fold: str,
     ) -> List[Tuple[np.ndarray, np.ndarray]]:
         """
@@ -290,6 +298,7 @@ class DataLoader:
         fold_types = {
             "group-rgi": (GroupKFold, glacier_ids),
             "group-meas-id": (GroupKFold, stake_meas_id),
+            "group-c_region": (GroupKFold, regions),
         }
 
         FoldClass, groups = fold_types.get(type_fold, (KFold, None))
