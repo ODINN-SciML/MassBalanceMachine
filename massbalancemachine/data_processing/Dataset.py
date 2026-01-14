@@ -59,9 +59,9 @@ class Dataset:
         region_id (str): The region ID, for saving the files accordingly and eventually downloading them if needed
         data_dir (str): Path to the directory containing the raw data, and save intermediate results
         RGIIds (pd.Series): Series of RGI IDs from the data
+        output_format (str): csv or parquet
         months_tail_pad (list of str): Months to pad the start of the hydrological year
         months_head_pad (list of str): Months to pad the end of the hydrological year
-        output_format (str): csv or parquet
     """
 
     def __init__(
@@ -71,7 +71,7 @@ class Dataset:
         region_name: str,
         region_id: int,
         data_path: str,
-        output_format:str='csv',
+        output_format: str = "csv",
         months_tail_pad=None,  #: List[str] = ['aug_', 'sep_'], # before 'oct'
         months_head_pad=None,  #: List[str] = ['oct_'], # after 'sep'
     ):
@@ -83,8 +83,8 @@ class Dataset:
         self.RGIIds = self.data["RGIId"]
         if not os.path.isdir(self.data_dir):
             os.makedirs(self.data_dir, exist_ok=True)
-        assert output_format in ['csv','parquet'] , "format must be csv or parquet"
-        self.output_format =  output_format
+        assert output_format in ["csv", "parquet"], "format must be csv or parquet"
+        self.output_format = output_format
         # Padding to allow for flexible month ranges (customize freely)
         assert (months_head_pad is None) == (
             months_tail_pad is None
@@ -104,7 +104,9 @@ class Dataset:
             vois (list[str]): A string containing the topographical variables of interest
             custom_working_dir (str, optional): The path to the custom working directory for OGGM data. Default to ''
         """
-        output_fname = self._get_output_filename("topographical_features",self.output_format)
+        output_fname = self._get_output_filename(
+            "topographical_features", self.output_format
+        )
         self.data = get_topographical_features(
             self.data, output_fname, vois, self.RGIIds, custom_working_dir, self.cfg
         )
@@ -127,7 +129,7 @@ class Dataset:
             change_units (bool, optional): A boolean indicating whether to change the units of the climate data. Default to False.
             smoothing_vois (dict, optional): A dictionary containing the variables of interest for smoothing climate artifacts. Default to None.
         """
-        output_fname = self._get_output_filename("climate_features",self.output_format)
+        output_fname = self._get_output_filename("climate_features", self.output_format)
 
         smoothing_vois = smoothing_vois or {}  # Safely default to empty dict
         vois_climate = smoothing_vois.get("vois_climate")
@@ -198,7 +200,7 @@ class Dataset:
         self,
         vois_climate: list[str],
         vois_topographical: list[str],
-        meta_data_columns: list[str] = None
+        meta_data_columns: list[str] = None,
     ) -> None:
         """
         Converts a variable period for the SMB target data measurement to a monthly time resolution.
@@ -210,9 +212,14 @@ class Dataset:
         """
         if meta_data_columns is None:
             meta_data_columns = self.cfg.metaData
-        output_fname = self._get_output_filename("monthly_dataset",self.output_format)
+        output_fname = self._get_output_filename("monthly_dataset", self.output_format)
         self.data = transform_to_monthly(
-            self.data, meta_data_columns, vois_climate, vois_topographical, output_fname, self.output_format
+            self.data,
+            meta_data_columns,
+            vois_climate,
+            vois_topographical,
+            output_fname,
+            self.output_format,
         )
 
     def get_glacier_mask(
@@ -267,7 +274,9 @@ class Dataset:
         Returns:
             str: The full path to the output file
         """
-        return os.path.join(self.data_dir, f"{self.region}_{feature_type}.{output_format}")
+        return os.path.join(
+            self.data_dir, f"{self.region}_{feature_type}.{output_format}"
+        )
 
     def _copy_padded_month_columns(
         self, df: pd.DataFrame, prefixes=("pcsr",), overwrite: bool = False
@@ -383,7 +392,6 @@ class AggregatedDataset(torch.utils.data.Dataset):
         self.metadata = metadata
         self.metadataColumns = metadataColumns or self.cfg.metaData
         self.targets = targets
-        # print(features)
         assert len(self.features) > 0, "The features variable is empty."
 
         _, self.month_pos = _rebuild_month_index(months_head_pad, months_tail_pad)
@@ -394,28 +402,23 @@ class AggregatedDataset(torch.utils.data.Dataset):
                 for i in range(len(self.metadata))
             ]
         )
-        # self.uniqueID = np.unique(self.ID)
-        # self.maxConcatNb = max(
-        #     [len(np.argwhere(self.ID == id)[:, 0]) for id in self.uniqueID]
-        # ) #take a lot of time with a lot of data, replaced with the 2 following lines
         self.uniqueID, counts = np.unique(self.ID, return_counts=True)
         self.maxConcatNb = counts.max()
         self.nbFeatures = self.features.shape[1]
         self.nbMetadata = self.metadata.shape[1]
         self.norm = Normalizer({k: cfg.bnds[k] for k in cfg.featureColumns})
-    def return_id(self):
-        return self.ID
+
     def mapSplitsToDataset(
         self, splits: list[tuple[np.ndarray, np.ndarray]]
     ) -> list[tuple[np.ndarray, np.ndarray]]:
         """
         Maps split indices (usually the result of DataLoader.get_cv_split) to the
         indices used by the AggregatedDataset class.
-    
+
         Args:
             splits (list of tuple): List containing the splits indices for the cross
                 validation groups
-    
+
         Returns:
             list[tuple[np.ndarray, np.ndarray]]: List with the same number of tuples
                 as the input. Each tuple contains numpy arrays which provide the
@@ -423,19 +426,23 @@ class AggregatedDataset(torch.utils.data.Dataset):
                 the input splits variable.
         """
         # Precompute the mapping of unique IDs to indices
-        uniqueID_to_indices = {uid: np.where(self.uniqueID == uid)[0] for uid in np.unique(self.uniqueID)}
-        # iii = 0
+        uniqueID_to_indices = {
+            uid: np.where(self.uniqueID == uid)[0] for uid in self.uniqueID
+        }
         ret = []
         for split in splits:
             t = []
             for e in split:
                 uniqueSelectedId = np.unique(self.ID[e])  # Get the unique selected IDs
                 # Use the precomputed mapping for fast lookups
-                ind = np.concatenate([uniqueID_to_indices[uid] for uid in uniqueSelectedId])
+                ind = np.concatenate(
+                    [uniqueID_to_indices[uid] for uid in uniqueSelectedId]
+                )
                 assert all(uniqueSelectedId == self.uniqueID[ind])
                 t.append(ind)
             ret.append(tuple(t))
         return ret
+
     def __len__(self) -> int:
         return len(self.uniqueID)
 
