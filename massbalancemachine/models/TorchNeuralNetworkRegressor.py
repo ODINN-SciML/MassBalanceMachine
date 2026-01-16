@@ -132,14 +132,13 @@ class CustomTorchNeuralNetRegressor(nn.Module):
 
         Returns an aggregated pd.DataFrame.
         """
-        metadataAggrId = metadata.groupby(groupByCol).agg(
-            {
-                "YEAR": "first",
-                "POINT_LAT": "first",
-                "POINT_LON": "first",
-                "GLWD_ID_int": "first",
-            }
-        )
+        metadataKeys = metadata.keys()
+        aggMap = {"YEAR": "first", "GLWD_ID_int": "first"}
+        if "POINT_LAT" in metadataKeys:
+            aggMap["POINT_LAT"] = "first"
+        if "POINT_LON" in metadataKeys:
+            aggMap["POINT_LON"] = "first"
+        metadataAggrId = metadata.groupby(groupByCol).agg(aggMap)
         return metadataAggrId
 
     def aggrMetadataGlwdId(self, metadata, groupByCol):

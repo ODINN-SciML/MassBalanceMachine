@@ -68,7 +68,7 @@ elif sourceData == "iceland":
 elif sourceData == "norway":
     cfg = mbm.Config(
         metaData=["RGIId", "ID", "N_MONTHS", "MONTHS", "PERIOD"],
-        notMetaDataNotFeatures=["POINT_BALANCE", "YEAR", "BREID"],
+        notMetaDataNotFeatures=["POINT_BALANCE", "YEAR"],
     )
 else:
     raise ValueError(f"source_data={sourceData} is unknown")

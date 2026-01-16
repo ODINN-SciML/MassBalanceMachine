@@ -10,7 +10,7 @@ from data_processing.glacier_utils import get_region_area_bounds
 def path_climate_data(region):
     if not isinstance(region, str):
         region = f"{region:02d}"
-    return f".data/{region}/"
+    return f".data/ERA5/{region}/"
 
 
 def download_climate_ERA5(region):
@@ -63,7 +63,9 @@ def download_climate_ERA5(region):
 
     c = cdsapi.Client()
 
-    print("Downloading climate data")
+    print(
+        "Downloading climate data, please wait for the processing on the Copernicus server finishes..."
+    )
     c.retrieve("reanalysis-era5-land-monthly-means", request_climate, path_climate_zip)
     with zipfile.ZipFile(path_climate_zip, "r") as zip:
         zip.extractall(path_region)
@@ -74,7 +76,9 @@ def download_climate_ERA5(region):
     )  # Coordinates have changed recently in the API, this is to keep compatibility with our code
     dc2.to_netcdf(path_climate)
 
-    print("Downloading geopotential data")
+    print(
+        "Downloading geopotential data, please wait for the processing on the Copernicus server finishes..."
+    )
     c.retrieve(
         "reanalysis-era5-land-monthly-means", request_geopotential, path_geopot_zip
     )

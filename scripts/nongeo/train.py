@@ -73,7 +73,7 @@ elif sourceData == "iceland":
 elif sourceData == "norway":
     cfg = mbm.Config(
         metaData=["RGIId", "ID", "N_MONTHS", "MONTHS", "PERIOD"],
-        notMetaDataNotFeatures=["POINT_BALANCE", "YEAR", "BREID"],
+        notMetaDataNotFeatures=["POINT_BALANCE", "YEAR"],
     )
 else:
     raise ValueError(f"source_data={sourceData} is unknown")
@@ -297,6 +297,12 @@ callbacks = [
 ]
 args = buildArgs(cfg, params, model, my_train_split, callbacks=callbacks)
 
+# Save params
+repo = git.Repo(search_parent_directories=True)
+params["commit_hash"] = repo.head.object.hexsha
+with open(os.path.join(logdir, "params.json"), "w") as f:
+    json.dump(params, f, indent=4, sort_keys=True)
+
 
 custom_nn = mbm.models.CustomNeuralNetRegressor(cfg, **args, **param_init)
 
@@ -328,8 +334,3 @@ custom_nn.save_model(model_dir=logdir)
 plot_training_history(custom_nn.history, skip_first_n=5, save=False)
 plt.savefig(os.path.join(logdir, "training_history.pdf"))
 plt.close()
-
-repo = git.Repo(search_parent_directories=True)
-params["commit_hash"] = repo.head.object.hexsha
-with open(os.path.join(logdir, "params.json"), "w") as f:
-    json.dump(params, f, indent=4, sort_keys=True)

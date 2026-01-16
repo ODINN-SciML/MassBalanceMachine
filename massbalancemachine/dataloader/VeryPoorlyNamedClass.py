@@ -373,7 +373,7 @@ class VeryPoorlyNamedClassNorway(VeryPoorlyNamedClass):
         super().__init__(cfg, params, *args, **kwargs)
 
         url_monthly_dataset = "https://raw.githubusercontent.com/khsjursen/ML_MB_Norway/refs/heads/main/src/Data/2023-08-28_stake_mb_norway_cleaned_ids_latlon_wattributes_climate_svf_monthly.csv"
-        folder_csv = os.path.abspath(os.path.join(mbm_path, ".data/norway/"))
+        folder_csv = os.path.abspath(os.path.join(mbm_path, ".data/stakes/norway/"))
         self.path_csv = os.path.abspath(
             os.path.join(
                 folder_csv,
@@ -406,7 +406,7 @@ class VeryPoorlyNamedClassNorway(VeryPoorlyNamedClass):
 
     def load_stakes_data(self):
         data = pd.read_csv(self.path_csv)
-        data.drop("Unnamed: 0", axis=1, inplace=True)
+        data.drop(["Unnamed: 0", "BREID"], axis=1, inplace=True)
         data.rename(
             columns={
                 "id": "ID",

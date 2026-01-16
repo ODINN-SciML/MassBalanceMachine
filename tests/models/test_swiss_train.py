@@ -123,6 +123,7 @@ def test_swiss_train_geo():
         train_set["df_X"],
         months_head_pad=months_head_pad,
         months_tail_pad=months_tail_pad,
+        geodeticOggm=False,
     )
 
     nInp = len(feature_columns)
@@ -137,7 +138,7 @@ def test_swiss_train_geo():
     optim = torch.optim.SGD(model.parameters(), lr=1e-4)
 
     trainCfg = {"Nepochs": 1}
-    mbm.training.train_geo(model, gdl, optim, trainCfg)
+    mbm.training.train_geo(model, gdl, optim, trainCfg, {})
 
 
 if __name__ == "__main__":

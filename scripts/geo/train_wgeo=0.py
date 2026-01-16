@@ -10,12 +10,10 @@ import massbalancemachine as mbm
 from massbalancemachine.dataloader.GeoDataLoader import GeoDataLoader
 
 from scripts.common import (
-    # trainTestGlaciers,
-    # getTrainTestSetsSwitzerland,
     # seed_all,
     loadParams,
 )
-from scripts.nongeo.utils import setFeatures, trainValData, testData
+from scripts.nongeo.utils import getMetaData, setFeatures, trainValData, testData
 
 
 parser = argparse.ArgumentParser()
@@ -24,40 +22,42 @@ args = parser.parse_args()
 
 params = loadParams(args.modelType)
 featuresInpModel = params["model"]["inputs"]
-source_data = params["training"].get("source_data", "iceland")
+sourceData = params["training"]["source_data"]
 
-featuresToRemove = list(
-    set(mbm.dataloader._default_input(source_data)) - set(featuresInpModel)
-)
-metaData = list(
-    set(
-        [
-            "RGIId",
-            "POINT_ID",
-            "ID",
-            "GLWD_ID",
-            "N_MONTHS",
-            "MONTHS",
-            "PERIOD",
-            "GLACIER",
-            "YEAR",
-            "POINT_LAT",
-            "POINT_LON",
-        ]
-    ).union(set(featuresToRemove))
-)
+metaData = getMetaData(featuresInpModel, sourceData)
 
-cfg = mbm.SwitzerlandConfig(
-    metaData=metaData,
-    notMetaDataNotFeatures=["POINT_BALANCE"],
-)
+if sourceData == "switzerland":
+    cfg = mbm.SwitzerlandConfig(
+        metaData=metaData,
+        notMetaDataNotFeatures=["POINT_BALANCE"],
+    )
+elif sourceData == "iceland":
+    cfg = mbm.Config(
+        metaData=["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD"]
+    )
+elif sourceData == "norway":
+    cfg = mbm.Config(
+        metaData=["RGIId", "ID", "N_MONTHS", "MONTHS", "PERIOD", "YEAR"],
+        notMetaDataNotFeatures=["POINT_BALANCE", "svf"],
+    )
+else:
+    raise ValueError(f"source_data={sourceData} is unknown")
 # seed_all(cfg.seed)
 
 
-datasetManager = mbm.dataloader.VeryPoorlyNamedClassSwitzerland(
-    cfg, params, test_split_on="GLACIER"
-)
-
+keyGlacier = "GLACIER" if sourceData == "switzerland" else "RGIId"
+if sourceData == "switzerland":
+    datasetManager = mbm.dataloader.VeryPoorlyNamedClassSwitzerland(
+        cfg, params, test_split_on=keyGlacier
+    )
+elif sourceData == "iceland":
+    datasetManager = mbm.dataloader.VeryPoorlyNamedClassIceland(
+        cfg, params, test_split_on=keyGlacier
+    )
+elif sourceData == "norway":
+    datasetManager = mbm.dataloader.VeryPoorlyNamedClassNorway(
+        cfg, params, test_split_on=keyGlacier
+    )
 train_set, test_set, months_head_pad, months_tail_pad = datasetManager.train_test_sets()
 
 
@@ -75,7 +75,10 @@ print(
 )
 
 
-glaciers = list(data_train.GLACIER.unique())
+if sourceData == "switzerland":
+    glaciers = list(data_train.GLACIER.unique())
+elif sourceData in ["iceland", "norway"]:
+    glaciers = list(data_train.RGIId.unique())
 gdl = GeoDataLoader(
     cfg,
     glaciers,
@@ -83,6 +86,7 @@ gdl = GeoDataLoader(
     months_head_pad=months_head_pad,
     months_tail_pad=months_tail_pad,
     valStakesDf=df_X_val,
+    keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
 )
 
 
@@ -120,13 +124,17 @@ else:
 
 data_test = testData(cfg, test_set, feature_columns)
 
-test_glaciers = list(data_test.GLACIER.unique())
+if sourceData == "switzerland":
+    test_glaciers = list(data_test.GLACIER.unique())
+elif sourceData in ["iceland", "norway"]:
+    test_glaciers = list(data_test.RGIId.unique())
 gdl_test = GeoDataLoader(
     cfg,
     test_glaciers,
     trainStakesDf=data_test,
     months_head_pad=months_head_pad,
     months_tail_pad=months_tail_pad,
+    keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
 )
 
 trainCfg = {
@@ -140,6 +148,7 @@ ret = mbm.training.train_geo(
     gdl,
     optim,
     trainCfg,
+    params,
     scheduler=scheduler,
     geodataloader_test=gdl_test,
 )
@@ -148,7 +157,10 @@ print()
 bestModelPath = mbm.training.loadBestModel(ret["misc"]["log_dir"], model)
 print(f"Best model is {bestModelPath}")
 
-resTest = mbm.training.assessOnTest(ret["misc"]["log_dir"], model, gdl_test)
+model.eval()
+with torch.no_grad():
+    print("Computing performance on test set")
+    resTest = mbm.training.assessOnTest(ret["misc"]["log_dir"], model, gdl_test)
 print("Performance:")
 print(
     json.dumps(

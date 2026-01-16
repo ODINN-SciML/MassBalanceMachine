@@ -88,6 +88,32 @@ def get_topographical_features(
     return data
 
 
+def glacier_cell_area(rgi_id: str, custom_working_dir: str, cfg: config.Config):
+    """Given a `rgi_id` gets the cell area of the grid used to discretize the glacier in OGGM."""
+
+    # Initialize the OGGM Config
+    _initialize_oggm_config(custom_working_dir)
+
+    # Initialize the OGGM Glacier Directory, given the RGI ID
+    gdirs = _initialize_glacier_directories([rgi_id], cfg)
+
+    # Get oggm data for that RGI ID
+    oggm_rgis = [gdir.rgi_id for gdir in gdirs]
+    if rgi_id not in oggm_rgis:
+        raise ValueError(f"RGI ID {rgi_id} not found in OGGM data")
+    for gdir in gdirs:
+        if gdir.rgi_id == rgi_id:
+            break
+    with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
+        ds = ds.load()
+    glacier_mask = np.where(
+        ds["glacier_mask"].values == 0, np.nan, ds["glacier_mask"].values
+    )
+
+    cell_area = abs(np.diff(ds.x).mean() * np.diff(ds.y).mean())
+    return cell_area
+
+
 def get_glacier_mask(rgi_id: str, custom_working_dir: str, cfg: config.Config):
     """Given a `rgi_id` gets glacier xarray from OGGM and masks it over the glacier outline."""
 

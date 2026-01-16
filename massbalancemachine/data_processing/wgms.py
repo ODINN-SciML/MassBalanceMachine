@@ -4,7 +4,7 @@ import zipfile
 import pandas as pd
 
 wgms_zip_file = "DOI-WGMS-FoG-2025-02b.zip"
-data_path = ".data"
+data_path = ".data/WGMS"
 
 wgms_source_data_link = f"https://wgms.ch/downloads/{wgms_zip_file}"
 local_path_wgms = f"{data_path}/{wgms_zip_file}"

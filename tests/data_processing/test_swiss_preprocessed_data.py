@@ -145,6 +145,7 @@ def test_geodataloader():
         train_set["df_X"],
         months_head_pad=months_head_pad,
         months_tail_pad=months_tail_pad,
+        geodeticOggm=False,
     )
     for g in gdl.glaciers():
         print(f"Glacier {g}")
@@ -154,10 +155,10 @@ def test_geodataloader():
     assert s.shape == (nRows, 16)
     assert m.shape == (nRows, 8)
     assert gt.shape == (nRows,)
-    x, m, y = gdl.geo(g)
+    x, m, y, _ = gdl.geo(g)
     nRows = 227604
     assert x.shape == (nRows, 16)
-    assert m.shape == (nRows, 8)
+    assert m.shape == (nRows, 15)
     assert y.shape == (60,)
 
 

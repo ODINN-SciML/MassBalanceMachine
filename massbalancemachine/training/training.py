@@ -10,6 +10,8 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import glob
 import warnings
+import json
+import git
 
 from plots import predVSTruth
 
@@ -99,9 +101,11 @@ def timeWindowGeodeticLoss(
     ), f"Size of the ground truth is {geoTarget.shape} but doesn't match with the number of geodetic periods which is {len(geod_periods)}"
     yearsPred = metadataAggrYear.YEAR.values
 
-    geodetic_MB_pred = torch.zeros(len(geod_periods))
+    geodetic_MB_err = torch.zeros(len(geod_periods))
     for e, (start_year, end_year) in enumerate(geod_periods):
-        geodetic_range = range(start_year, end_year + 1)
+        geodetic_range = range(
+            start_year, end_year
+        )  # end_year is 2021 when the end date is 2021-01-01
 
         # Ensure years exist in index before selection
         valid_years = [yr for yr in geodetic_range if yr in yearsPred]
@@ -112,9 +116,61 @@ def timeWindowGeodeticLoss(
                 valid_years.append(yr)
                 indSlice.append(np.argwhere(yearsPred == yr)[0, 0])
         if valid_years:
-            geodetic_MB_pred[e] = (
+            geodetic_MB_err[e] = (
                 torch.mean(predSumAnnualGlwd[indSlice]) - geoTarget[e]
             ) ** 2
+        else:
+            geodetic_MB_err[e] = np.nan  # Handle missing years
+    return geodetic_MB_err
+
+
+def predict_gridded(model, geoGrid, metadata):
+    # Make prediction
+    geoGridTorch = torch.tensor(geoGrid.astype(np.float32))
+    pred = model.forward(geoGridTorch)[:, 0]
+
+    # Aggregate per point on the grid
+    grouped_ids = model.aggrMetadataId(metadata, "ID_int")
+    predSumAnnual = model.aggrPredict(pred, metadata["ID_int"].values)
+
+    return grouped_ids, predSumAnnual
+
+
+def predict_geo(model, geoGrid, metadata, ygeo, geod_periods):
+    # Make prediction and aggregate per point on the grid
+    grouped_ids, predSumAnnual = predict_gridded(model, geoGrid, metadata)
+
+    # Aggregate glacier wide
+    metadataAggrYear = model.aggrMetadataGlwdId(grouped_ids, "GLWD_ID_int")
+    predSumAnnualGlwd = model.aggrPredictGlwd(
+        predSumAnnual, grouped_ids["GLWD_ID_int"].values
+    )
+
+    geoTarget = torch.tensor(ygeo.astype(np.float32))
+
+    # TODO: remove the loop since the grid should already correspond to the geodetic period
+
+    assert len(geoTarget) == len(
+        geod_periods
+    ), f"Size of the ground truth is {geoTarget.shape} but doesn't match with the number of geodetic periods which is {len(geod_periods)}"
+    yearsPred = metadataAggrYear.YEAR.values
+
+    geodetic_MB_pred = torch.zeros(len(geod_periods))
+    for e, (start_year, end_year) in enumerate(geod_periods):
+        geodetic_range = range(
+            start_year, end_year
+        )  # end_year is 2021 when the end date is 2021-01-01
+
+        # Ensure years exist in index before selection
+        valid_years = [yr for yr in geodetic_range if yr in yearsPred]
+        valid_years = []
+        indSlice = []
+        for yr in geodetic_range:
+            if yr in yearsPred:
+                valid_years.append(yr)
+                indSlice.append(np.argwhere(yearsPred == yr)[0, 0])
+        if valid_years:
+            geodetic_MB_pred[e] = torch.mean(predSumAnnualGlwd[indSlice])
         else:
             geodetic_MB_pred[e] = np.nan  # Handle missing years
     return geodetic_MB_pred
@@ -169,7 +225,7 @@ def scores(pred: torch.Tensor, target: torch.Tensor):
     return mse, rmse, mae, pearson_corr, r2, bias
 
 
-def assessOnTest(log_dir, model, geodataloader_test):
+def assessOnTest(log_dir, model, geodataloader_test, light=False):
     targetAll = torch.zeros(0)
     predAll = torch.zeros(0)
     periodAll = torch.zeros(0, dtype=torch.int)
@@ -205,6 +261,52 @@ def assessOnTest(log_dir, model, geodataloader_test):
 
     # Make plots
     plot_pred_vs_obs(log_dir, targetAll, predAll, {"rmse": rmse, "mae": mae})
+
+    if not light:
+        # Geodetic prediction
+        geoPred = {}
+        geoTarget = {}
+        geoErr = {}
+        for g in geodataloader_test.glaciers():
+            print(f"{g=}")
+            if geodataloader_test.hasGeo(g):
+                geoGrid, metadata, ygeo, errgeo = geodataloader_test.geo(g)
+                geod_periods = geodataloader_test.periods_per_glacier[g]
+                geoPred[g] = predict_geo(model, geoGrid, metadata, ygeo, geod_periods)
+                geoTarget[g] = ygeo
+                geoErr[g] = errgeo
+
+        fig = plt.figure()
+        ax = plt.subplot(1, 1, 1)
+        for g in geoPred.keys():
+            plt.plot(geoTarget[g], geoPred[g], "bo", label=g)
+            plt.text(geoTarget[g] * 1.01, geoPred[g] * 1.01, g, fontsize=12)
+
+        # Diagonal line
+        pt = (0, 0)
+        ax.axline(pt, slope=1, color="grey", linestyle="-", linewidth=0.2)
+        ax.axvline(0, color="grey", linestyle="-", linewidth=1)
+        ax.axhline(0, color="grey", linestyle="-", linewidth=1)
+
+        ax.grid()
+        ax.set_title("Geodetic MB", fontsize=20)
+
+        # # Set axes limits
+        # if ax_xlim is not None:
+        #     ax.set_xlim(ax_xlim)
+        # if ax_ylim is not None:
+        #     ax.set_ylim(ax_ylim)
+
+        xlabel = "Observed mean MB / year [m w.e.]"
+        ylabel = "Predicted mean MB / year [m w.e.]"
+
+        ax.set_xlabel(xlabel, fontsize=20)
+        ax.set_ylabel(ylabel, fontsize=20)
+
+        plt.tight_layout()
+
+        plt.savefig(os.path.join(log_dir, "geodetic.png"))
+        plt.close(fig)
 
     return {
         "mse": mse.item(),
@@ -279,6 +381,7 @@ def train_geo(
     geodataloader,
     optim,
     trainCfg,
+    params,  # this argument is here just because it is easier to save them when we define the tensorboard logger
     scheduler=None,
     geodataloader_test=None,
 ):
@@ -319,6 +422,12 @@ def train_geo(
     )
     os.makedirs(log_dir, exist_ok=True)
 
+    # Save params
+    repo = git.Repo(search_parent_directories=True)
+    params["commit_hash"] = repo.head.object.hexsha
+    with open(os.path.join(log_dir, "params.json"), "w") as f:
+        json.dump(params, f, indent=4, sort_keys=True)
+
     print(f"Training over {Nepochs} epochs and logging in {log_dir}")
 
     writer = SummaryWriter(log_dir=log_dir)
@@ -340,241 +449,260 @@ def train_geo(
             statsVal[metric + suffix] = []
     top_models = []  # Heap of (val_loss, filepath) to store top 5 models
 
-    for epoch in tqdm(
-        range(Nepochs), desc="Epochs", position=0, leave=True, ncols=nColsProgressBar
-    ):
+    try:
 
-        avg_training_loss = 0.0
-        model.train()
-        with tqdm(
-            total=iterPerEpoch,
-            desc=f"Batch",
-            position=1,
-            leave=False,
+        for epoch in tqdm(
+            range(Nepochs),
+            desc="Epochs",
+            position=0,
+            leave=True,
             ncols=nColsProgressBar,
-        ) as batch_bar:
-            for batch_idx, g in enumerate(geodataloader.glaciers()):
-                optim.zero_grad()
+        ):
 
-                stakes, metadata, point_balance = geodataloader.stakes(g)
-                lossStake, _ = compute_stake_loss(
-                    model, stakes, metadata, point_balance
-                )
-
-                valScalingStakes = stakes.shape[0] if scalingStakes == "meas" else 1.0
-                lossStake = lossStake * valScalingStakes
-                if wGeo > 0 and geodataloader.hasGeo(g):
-                    geoGrid, metadata, ygeo = geodataloader.geo(g)
-                    geod_periods = geodataloader.periods_per_glacier[g]
-                    lossGeo = compute_geo_loss(
-                        model, geoGrid, metadata, ygeo, geod_periods
-                    )
-
-                    loss = lossStake + wGeo * lossGeo
-                else:
-                    lossGeo = torch.tensor(torch.nan)
-                    loss = lossStake
-
-                loss.backward()
-                optim.step()
-
-                lr = optim.param_groups[0]["lr"]
-                statsTraining["lossStake"].append(lossStake.item())
-                statsTraining["lossGeo"].append(lossGeo.item())
-                statsTraining["loss"].append(loss.item())
-                statsTraining["lr"].append(lr)
-                avg_training_loss += statsTraining["loss"][-1]
-
-                # Log to TensorBoard
-                globalStep = iterPerEpoch * epoch + batch_idx
-                writer.add_scalar("Loss/train", loss.item(), globalStep)
-                writer.add_scalar("LossStake/train", lossStake.item(), globalStep)
-                writer.add_scalar("LossGeo/train", lossGeo.item(), globalStep)
-                writer.add_scalar("Step", optim.param_groups[0]["lr"], globalStep)
-
-                batch_bar.set_postfix(
-                    loss=f"{statsTraining['loss'][-1]:.4f}",
-                    lossStake=f"{statsTraining['lossStake'][-1]:.4f}",
-                    lossGeo=f"{statsTraining['lossGeo'][-1]:.4f}",
-                )
-                batch_bar.update(1)
-
-        avg_training_loss /= iterPerEpoch
-        if scheduler is not None:
-            scheduler.step()
-
-        if freqVal:
-            model.eval()
-            with torch.no_grad():
-                cntStake = 0
-                cntGeo = 0
-                lossStake = 0.0
-                lossGeo = 0.0
-                targetAll = torch.zeros(0)
-                predAll = torch.zeros(0)
-                periodAll = torch.zeros(0, dtype=torch.int)
-                for g in geodataloader.glaciers():
+            avg_training_loss = 0.0
+            model.train()
+            with tqdm(
+                total=iterPerEpoch,
+                desc=f"Batch",
+                position=1,
+                leave=False,
+                ncols=nColsProgressBar,
+            ) as batch_bar:
+                for batch_idx, g in enumerate(geodataloader.glaciers()):
+                    optim.zero_grad()
 
                     stakes, metadata, point_balance = geodataloader.stakes(g)
-                    l, ret = compute_stake_loss(
-                        model, stakes, metadata, point_balance, returnPred=True
-                    )
-                    target = ret["target"]
-                    pred = ret["pred"]
-                    targetAll = torch.concatenate((targetAll, target))
-                    predAll = torch.concatenate((predAll, pred))
-                    grouped_ids = metadata.groupby("ID_int").agg(
-                        {"PERIOD_int": "first"}
-                    )
-                    periodAll = torch.concatenate(
-                        (periodAll, torch.tensor(grouped_ids["PERIOD_int"].values))
+                    lossStake, _ = compute_stake_loss(
+                        model, stakes, metadata, point_balance
                     )
 
                     valScalingStakes = (
                         stakes.shape[0] if scalingStakes == "meas" else 1.0
                     )
-                    l = l * valScalingStakes
-
-                    lossStake += l
-
+                    lossStake = lossStake * valScalingStakes
                     if wGeo > 0 and geodataloader.hasGeo(g):
-                        geoGrid, metadata, ygeo = geodataloader.geo(g)
+                        geoGrid, metadata, ygeo, errgeo = geodataloader.geo(g)
                         geod_periods = geodataloader.periods_per_glacier[g]
-                        lossGeo += compute_geo_loss(
+                        lossGeo = compute_geo_loss(
                             model, geoGrid, metadata, ygeo, geod_periods
                         )
-                        cntGeo += 1
 
-                    cntStake += valScalingStakes
-                lossStake /= cntStake
-                if wGeo > 0 and cntGeo > 0:
-                    lossGeo /= cntGeo
-                    loss = lossStake + wGeo * lossGeo
-                else:
-                    lossGeo = torch.tensor(torch.nan)
-                    loss = lossStake
-                mse, rmse, mae, pearson_corr, r2, bias = scores(predAll, targetAll)
+                        loss = lossStake + wGeo * lossGeo
+                    else:
+                        lossGeo = torch.tensor(torch.nan)
+                        loss = lossStake
 
-                indAnnual = torch.argwhere(
-                    periodAll == geodataloader.periodToInt["annual"]
-                )[:, 0]
-                indWinter = torch.argwhere(
-                    periodAll == geodataloader.periodToInt["winter"]
-                )[:, 0]
-                predAnnual = predAll[indAnnual]
-                targetAnnual = targetAll[indAnnual]
-                predWinter = predAll[indWinter]
-                targetWinter = targetAll[indWinter]
-                (
-                    mse_annual,
-                    rmse_annual,
-                    mae_annual,
-                    pearson_corr_annual,
-                    r2_annual,
-                    bias_annual,
-                ) = scores(predAnnual, targetAnnual)
-                (
-                    mse_winter,
-                    rmse_winter,
-                    mae_winter,
-                    pearson_corr_winter,
-                    r2_winter,
-                    bias_winter,
-                ) = scores(predWinter, targetWinter)
+                    loss.backward()
+                    optim.step()
 
-                statsVal["lossValStake"].append(lossStake.item())
-                statsVal["lossValGeo"].append(lossGeo.item())
-                statsVal["lossVal"].append(loss.item())
-                statsVal["mse"].append(mse.item())
-                statsVal["rmse"].append(rmse.item())
-                statsVal["mae"].append(mae.item())
-                statsVal["pearson"].append(pearson_corr.item())
-                statsVal["r2"].append(r2.item())
-                statsVal["bias"].append(bias.item())
-                statsVal["mse_annual"].append(mse_annual.item())
-                statsVal["rmse_annual"].append(rmse_annual.item())
-                statsVal["mae_annual"].append(mae_annual.item())
-                statsVal["pearson_annual"].append(pearson_corr_annual.item())
-                statsVal["r2_annual"].append(r2_annual.item())
-                statsVal["bias_annual"].append(bias_annual.item())
-                statsVal["mse_winter"].append(mse_winter.item())
-                statsVal["rmse_winter"].append(rmse_winter.item())
-                statsVal["mae_winter"].append(mae_winter.item())
-                statsVal["pearson_winter"].append(pearson_corr_winter.item())
-                statsVal["r2_winter"].append(r2_winter.item())
-                statsVal["bias_winter"].append(bias_winter.item())
+                    lr = optim.param_groups[0]["lr"]
+                    statsTraining["lossStake"].append(lossStake.item())
+                    statsTraining["lossGeo"].append(lossGeo.item())
+                    statsTraining["loss"].append(loss.item())
+                    statsTraining["lr"].append(lr)
+                    avg_training_loss += statsTraining["loss"][-1]
 
-                # Log to TensorBoard
-                writer.add_scalar("LossStake/val", lossStake.item(), epoch)
-                writer.add_scalar("LossGeo/val", lossGeo.item(), epoch)
-                writer.add_scalar("Loss/val", loss.item(), epoch)
-                writer.add_scalar("RMSE/val", rmse.item(), epoch)
-                writer.add_scalar("RMSE_annual/val", rmse_annual.item(), epoch)
-                writer.add_scalar("RMSE_winter/val", rmse_winter.item(), epoch)
-                writer.add_scalar("MAE/val", mae.item(), epoch)
-                writer.add_scalar("MAE_annual/val", mae_annual.item(), epoch)
-                writer.add_scalar("MAE_winter/val", mae_winter.item(), epoch)
-                writer.add_scalar("Pearson/val", pearson_corr.item(), epoch)
-                writer.add_scalar(
-                    "Pearson_annual/val", pearson_corr_annual.item(), epoch
-                )
-                writer.add_scalar(
-                    "Pearson_winter/val", pearson_corr_winter.item(), epoch
-                )
-                writer.add_scalar("R2/val", r2.item(), epoch)
-                writer.add_scalar("R2_annual/val", r2_annual.item(), epoch)
-                writer.add_scalar("R2_winter/val", r2_winter.item(), epoch)
-                writer.add_scalar("bias/val", bias.item(), epoch)
-                writer.add_scalar("bias_annual/val", bias_annual.item(), epoch)
-                writer.add_scalar("bias_winter/val", bias_winter.item(), epoch)
+                    # Log to TensorBoard
+                    globalStep = iterPerEpoch * epoch + batch_idx
+                    writer.add_scalar("Loss/train", loss.item(), globalStep)
+                    writer.add_scalar("LossStake/train", lossStake.item(), globalStep)
+                    writer.add_scalar("LossGeo/train", lossGeo.item(), globalStep)
+                    writer.add_scalar("Step", optim.param_groups[0]["lr"], globalStep)
 
-                # Check if current model is among the top 5
-                scalarBestModelCriterion = (
-                    statsVal[bestModelCriterion][-1]
-                    if len(statsVal[bestModelCriterion]) > 0
-                    else np.nan
-                )
-                higherBetterCriterion = (
-                    1
-                    if any(crit in bestModelCriterion for crit in _maxCriterion)
-                    else -1
-                )
-                model_path = os.path.join(
-                    log_dir,
-                    f"model_epoch{epoch}_{bestModelCriterion}{scalarBestModelCriterion:.4f}.pt",
-                )
-
-                if (
-                    len(top_models) < 5
-                    or scalarBestModelCriterion
-                    < higherBetterCriterion * top_models[0][0]
-                ):
-
-                    if len(top_models) >= 5:
-                        # Pop the worst among top 5
-                        _, worst_path = heapq.heappop(top_models)
-                        if os.path.exists(worst_path):
-                            os.remove(worst_path)
-
-                    # Save the new model
-                    # Use -scalarBestModelCriterion for max-heap
-                    heapq.heappush(
-                        top_models,
-                        (higherBetterCriterion * scalarBestModelCriterion, model_path),
+                    batch_bar.set_postfix(
+                        loss=f"{statsTraining['loss'][-1]:.4f}",
+                        lossStake=f"{statsTraining['lossStake'][-1]:.4f}",
+                        lossGeo=f"{statsTraining['lossGeo'][-1]:.4f}",
                     )
-                    torch.save(model.state_dict(), model_path)
+                    batch_bar.update(1)
 
-                    if geodataloader_test is not None:
-                        assessOnTest(log_dir, model, geodataloader_test)
+            avg_training_loss /= iterPerEpoch
+            if scheduler is not None:
+                scheduler.step()
 
-        rmse = statsVal["rmse"][-1] if len(statsVal["rmse"]) > 0 else np.nan
-        pearson = statsVal["pearson"][-1] if len(statsVal["pearson"]) > 0 else np.nan
-        loss = statsVal["lossVal"][-1] if len(statsVal["lossVal"]) > 0 else np.nan
+            if freqVal:
+                model.eval()
+                with torch.no_grad():
+                    cntStake = 0
+                    cntGeo = 0
+                    lossStake = 0.0
+                    lossGeo = 0.0
+                    targetAll = torch.zeros(0)
+                    predAll = torch.zeros(0)
+                    periodAll = torch.zeros(0, dtype=torch.int)
+                    for g in geodataloader.glaciers():
 
-        # Show progress bar
-        tqdm.write(
-            f"[Epoch {epoch+1} / {Nepochs}] Avg training loss: {avg_training_loss:.3f}, Val loss: {loss:.3f}, RMSE: {rmse:.3f}, Pearson: {pearson:.3f}"
-        )
+                        stakes, metadata, point_balance = geodataloader.stakes(g)
+                        l, ret = compute_stake_loss(
+                            model, stakes, metadata, point_balance, returnPred=True
+                        )
+                        target = ret["target"]
+                        pred = ret["pred"]
+                        targetAll = torch.concatenate((targetAll, target))
+                        predAll = torch.concatenate((predAll, pred))
+                        grouped_ids = metadata.groupby("ID_int").agg(
+                            {"PERIOD_int": "first"}
+                        )
+                        periodAll = torch.concatenate(
+                            (periodAll, torch.tensor(grouped_ids["PERIOD_int"].values))
+                        )
+
+                        valScalingStakes = (
+                            stakes.shape[0] if scalingStakes == "meas" else 1.0
+                        )
+                        l = l * valScalingStakes
+
+                        lossStake += l
+
+                        if wGeo > 0 and geodataloader.hasGeo(g):
+                            geoGrid, metadata, ygeo, errgeo = geodataloader.geo(g)
+                            geod_periods = geodataloader.periods_per_glacier[g]
+                            lossGeo += compute_geo_loss(
+                                model, geoGrid, metadata, ygeo, geod_periods
+                            )
+                            cntGeo += 1
+
+                        cntStake += valScalingStakes
+                    lossStake /= cntStake
+                    if wGeo > 0 and cntGeo > 0:
+                        lossGeo /= cntGeo
+                        loss = lossStake + wGeo * lossGeo
+                    else:
+                        lossGeo = torch.tensor(torch.nan)
+                        loss = lossStake
+                    mse, rmse, mae, pearson_corr, r2, bias = scores(predAll, targetAll)
+
+                    indAnnual = torch.argwhere(
+                        periodAll == geodataloader.periodToInt["annual"]
+                    )[:, 0]
+                    indWinter = torch.argwhere(
+                        periodAll == geodataloader.periodToInt["winter"]
+                    )[:, 0]
+                    predAnnual = predAll[indAnnual]
+                    targetAnnual = targetAll[indAnnual]
+                    predWinter = predAll[indWinter]
+                    targetWinter = targetAll[indWinter]
+                    (
+                        mse_annual,
+                        rmse_annual,
+                        mae_annual,
+                        pearson_corr_annual,
+                        r2_annual,
+                        bias_annual,
+                    ) = scores(predAnnual, targetAnnual)
+                    (
+                        mse_winter,
+                        rmse_winter,
+                        mae_winter,
+                        pearson_corr_winter,
+                        r2_winter,
+                        bias_winter,
+                    ) = scores(predWinter, targetWinter)
+
+                    statsVal["lossValStake"].append(lossStake.item())
+                    statsVal["lossValGeo"].append(lossGeo.item())
+                    statsVal["lossVal"].append(loss.item())
+                    statsVal["mse"].append(mse.item())
+                    statsVal["rmse"].append(rmse.item())
+                    statsVal["mae"].append(mae.item())
+                    statsVal["pearson"].append(pearson_corr.item())
+                    statsVal["r2"].append(r2.item())
+                    statsVal["bias"].append(bias.item())
+                    statsVal["mse_annual"].append(mse_annual.item())
+                    statsVal["rmse_annual"].append(rmse_annual.item())
+                    statsVal["mae_annual"].append(mae_annual.item())
+                    statsVal["pearson_annual"].append(pearson_corr_annual.item())
+                    statsVal["r2_annual"].append(r2_annual.item())
+                    statsVal["bias_annual"].append(bias_annual.item())
+                    statsVal["mse_winter"].append(mse_winter.item())
+                    statsVal["rmse_winter"].append(rmse_winter.item())
+                    statsVal["mae_winter"].append(mae_winter.item())
+                    statsVal["pearson_winter"].append(pearson_corr_winter.item())
+                    statsVal["r2_winter"].append(r2_winter.item())
+                    statsVal["bias_winter"].append(bias_winter.item())
+
+                    # Log to TensorBoard
+                    writer.add_scalar("LossStake/val", lossStake.item(), epoch)
+                    writer.add_scalar("LossGeo/val", lossGeo.item(), epoch)
+                    writer.add_scalar("Loss/val", loss.item(), epoch)
+                    writer.add_scalar("RMSE/val", rmse.item(), epoch)
+                    writer.add_scalar("RMSE_annual/val", rmse_annual.item(), epoch)
+                    writer.add_scalar("RMSE_winter/val", rmse_winter.item(), epoch)
+                    writer.add_scalar("MAE/val", mae.item(), epoch)
+                    writer.add_scalar("MAE_annual/val", mae_annual.item(), epoch)
+                    writer.add_scalar("MAE_winter/val", mae_winter.item(), epoch)
+                    writer.add_scalar("Pearson/val", pearson_corr.item(), epoch)
+                    writer.add_scalar(
+                        "Pearson_annual/val", pearson_corr_annual.item(), epoch
+                    )
+                    writer.add_scalar(
+                        "Pearson_winter/val", pearson_corr_winter.item(), epoch
+                    )
+                    writer.add_scalar("R2/val", r2.item(), epoch)
+                    writer.add_scalar("R2_annual/val", r2_annual.item(), epoch)
+                    writer.add_scalar("R2_winter/val", r2_winter.item(), epoch)
+                    writer.add_scalar("bias/val", bias.item(), epoch)
+                    writer.add_scalar("bias_annual/val", bias_annual.item(), epoch)
+                    writer.add_scalar("bias_winter/val", bias_winter.item(), epoch)
+
+                    # Check if current model is among the top 5
+                    scalarBestModelCriterion = (
+                        statsVal[bestModelCriterion][-1]
+                        if len(statsVal[bestModelCriterion]) > 0
+                        else np.nan
+                    )
+                    higherBetterCriterion = (
+                        1
+                        if any(crit in bestModelCriterion for crit in _maxCriterion)
+                        else -1
+                    )
+                    model_path = os.path.join(
+                        log_dir,
+                        f"model_epoch{epoch}_{bestModelCriterion}{scalarBestModelCriterion:.4f}.pt",
+                    )
+
+                    if (
+                        len(top_models) < 5
+                        or scalarBestModelCriterion
+                        < higherBetterCriterion * top_models[0][0]
+                    ):
+
+                        if len(top_models) >= 5:
+                            # Pop the worst among top 5
+                            _, worst_path = heapq.heappop(top_models)
+                            if os.path.exists(worst_path):
+                                os.remove(worst_path)
+
+                        # Save the new model
+                        # Use -scalarBestModelCriterion for max-heap
+                        heapq.heappush(
+                            top_models,
+                            (
+                                higherBetterCriterion * scalarBestModelCriterion,
+                                model_path,
+                            ),
+                        )
+                        torch.save(model.state_dict(), model_path)
+
+                        if (
+                            geodataloader_test is not None
+                            and len(geodataloader_test) > 0
+                        ):
+                            assessOnTest(log_dir, model, geodataloader_test, light=True)
+
+            rmse = statsVal["rmse"][-1] if len(statsVal["rmse"]) > 0 else np.nan
+            pearson = (
+                statsVal["pearson"][-1] if len(statsVal["pearson"]) > 0 else np.nan
+            )
+            loss = statsVal["lossVal"][-1] if len(statsVal["lossVal"]) > 0 else np.nan
+
+            # Show progress bar
+            tqdm.write(
+                f"[Epoch {epoch+1} / {Nepochs}] Avg training loss: {avg_training_loss:.3f}, Val loss: {loss:.3f}, RMSE: {rmse:.3f}, Pearson: {pearson:.3f}"
+            )
+
+    except KeyboardInterrupt:
+        print("Stopping training after KeyboardInterrupt...")
 
     # Close TensorBoard
     writer.close()
