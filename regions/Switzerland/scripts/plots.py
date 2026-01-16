@@ -423,8 +423,8 @@ def predVSTruth(
     if add_legend:
         legend_xgb = "\n".join(
             (
-                (r"$\mathrm{RMSE}=%.3f$," % (scores["rmse"],)),
-                (r"$\mathrm{\rho}=%.3f$" % (scores["pearson_corr"],)),
+                (r"$\mathrm{RMSE}=%.2f$," % (scores["rmse"],)),
+                (r"$\mathrm{\rho}=%.2f$" % (scores["pearson_corr"],)),
             )
         )
         ax.text(
@@ -509,7 +509,7 @@ def plotMeanPred(
     mae = scores["mae"]
     rmse = scores["rmse"]
     pearson_corr = scores["pearson_corr"]
-    legend_text = "\n".join((rf"$\mathrm{{RMSE}}={rmse:.3f}$",))
+    legend_text = "\n".join((rf"$\mathrm{{RMSE}}={rmse:.2f}$",))
     ax.text(0.055, 0.96, legend_text, transform=ax.transAxes, va="top", fontsize=20)
 
     ax.legend(fontsize=20, loc="lower right")
@@ -743,11 +743,11 @@ def plot_predictions_summary(
 
     legend_NN = "\n".join(
         [
-            r"$\mathrm{RMSE_a}=%.3f$, $\mathrm{RMSE_w}=%.3f$"
+            r"$\mathrm{RMSE_a}=%.2f$, $\mathrm{RMSE_w}=%.2f$"
             % (scores_annual["rmse"], scores_winter["rmse"]),
-            r"$\mathrm{R^2_a}=%.3f$, $\mathrm{R^2_w}=%.3f$"
+            r"$\mathrm{R^2_a}=%.2f$, $\mathrm{R^2_w}=%.2f$"
             % (scores_annual["R2"], scores_winter["R2"]),
-            r"$\mathrm{Bias_a}=%.3f$, $\mathrm{Bias_w}=%.3f$"
+            r"$\mathrm{Bias_a}=%.2f$, $\mathrm{Bias_w}=%.2f$"
             % (scores_annual["Bias"], scores_winter["Bias"]),
         ]
     )
@@ -849,7 +849,7 @@ def plot_scatter_geodetic_MB(df_all, hue, size, ax, y_col, rmse, corr):
 
     # RMSE and correlation annotation
     legend_text = "\n".join(
-        (r"$\mathrm{RMSE}=%.3f$" % rmse, r"$\mathrm{\rho}=%.3f$" % corr)
+        (r"$\mathrm{RMSE}=%.2f$" % rmse, r"$\mathrm{\rho}=%.2f$" % corr)
     )
     props = dict(boxstyle="round", facecolor="white", alpha=0.5)
     ax.text(
@@ -1168,11 +1168,11 @@ def plot_predictions_three_models_side_by_side(
         # Score box
         legend_str = "\n".join(
             [
-                r"$\mathrm{RMSE_a}=%.3f$, $\mathrm{RMSE_w}=%.3f$"
+                r"$\mathrm{RMSE_a}=%.2f$, $\mathrm{RMSE_w}=%.2f$"
                 % (scores_annual["rmse"], scores_winter["rmse"]),
-                r"$\mathrm{R^2_a}=%.3f$, $\mathrm{R^2_w}=%.3f$"
+                r"$\mathrm{R^2_a}=%.2f$, $\mathrm{R^2_w}=%.2f$"
                 % (scores_annual["R2"], scores_winter["R2"]),
-                r"$\mathrm{B_a}=%.3f$, $\mathrm{B_w}=%.3f$"
+                r"$\mathrm{B_a}=%.2f$, $\mathrm{B_w}=%.2f$"
                 % (scores_annual["Bias"], scores_winter["Bias"]),
             ]
         )

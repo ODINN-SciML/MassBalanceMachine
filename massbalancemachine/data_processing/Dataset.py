@@ -895,49 +895,31 @@ class MBSequenceDataset(Dataset):
 
             # ---- per-sample seasonal masks (flexible windows) ----
             per_l = str(per).strip().lower()
-            # if per_l == "winter":
-            #     mw_sample = mv.copy()
-            #     ma_sample = np.zeros(T, dtype=np.float32)
-            # elif per_l == "annual":
-            #     mw_sample = np.zeros(T, dtype=np.float32)
-            #     ma_sample = mv.copy()
-            # else:
-            #     raise ValueError(f"Unexpected PERIOD: {per}")
 
-            # FULL with padded from AUG:
-            # Real measurement months: POINT_BALANCE not NaN
-            # pb = subm["POINT_BALANCE"].to_numpy()
-            # valid_loss_mask = ~np.isnan(pb)
-
-            # # Build month-wise mask for the whole T-length sequence
+            # ---- Seasonal loss masks ----
+            # # loss_mask = 1 for months where POINT_BALANCE is available
             # loss_mask = np.zeros(T, dtype=np.float32)
             # for _, r in subm.iterrows():
             #     m = str(r["MONTHS"]).strip().lower()
             #     pos = pos_map[m]
             #     if not np.isnan(r["POINT_BALANCE"]):
             #         loss_mask[pos] = 1.0
-
             # if per_l == "winter":
             #     mw_sample = loss_mask
             #     ma_sample = np.zeros(T, dtype=np.float32)
             # elif per_l == "annual":
             #     mw_sample = np.zeros(T, dtype=np.float32)
             #     ma_sample = loss_mask
-
-            # ---- Seasonal loss masks ----
-            # loss_mask = 1 for months where POINT_BALANCE is available
-            loss_mask = np.zeros(T, dtype=np.float32)
+            loss_mask = np.zeros(T)
             for _, r in subm.iterrows():
-                m = str(r["MONTHS"]).strip().lower()
-                pos = pos_map[m]
                 if not np.isnan(r["POINT_BALANCE"]):
-                    loss_mask[pos] = 1.0
+                    loss_mask[pos_map[r["MONTHS"]]] = 1
 
             if per_l == "winter":
                 mw_sample = loss_mask
-                ma_sample = np.zeros(T, dtype=np.float32)
+                ma_sample = np.zeros(T)
             elif per_l == "annual":
-                mw_sample = np.zeros(T, dtype=np.float32)
+                mw_sample = np.zeros(T)
                 ma_sample = loss_mask
 
             # append once per group
@@ -1167,6 +1149,36 @@ class MBSequenceDataset(Dataset):
         return MBSequenceDataset(data_dict, normalize_target=ds_src.normalize_target)
 
     # ---------- Utilities ----------
+    @staticmethod
+    def _clone_for_permutation(ds_src: "MBSequenceDataset") -> "MBSequenceDataset":
+        """
+        Clone a *transformed* dataset for safe permutation.
+
+        Keeps fitted scalers and normalized tensors intact.
+        """
+        data_dict = dict(
+            X_monthly=ds_src.Xm.detach().cpu().numpy().copy(),
+            X_static=ds_src.Xs.detach().cpu().numpy().copy(),
+            mask_valid=ds_src.mv.detach().cpu().numpy().copy(),
+            mask_w=ds_src.mw.detach().cpu().numpy().copy(),
+            mask_a=ds_src.ma.detach().cpu().numpy().copy(),
+            y=ds_src.y.detach().cpu().numpy().copy(),
+            is_winter=ds_src.iw.detach().cpu().numpy().copy(),
+            is_annual=ds_src.ia.detach().cpu().numpy().copy(),
+            keys=list(ds_src.keys),
+        )
+
+        ds_new = MBSequenceDataset(data_dict, normalize_target=ds_src.normalize_target)
+
+        # copy fitted scalers
+        ds_new.month_mean = ds_src.month_mean.clone()
+        ds_new.month_std = ds_src.month_std.clone()
+        ds_new.static_mean = ds_src.static_mean.clone()
+        ds_new.static_std = ds_src.static_std.clone()
+        ds_new.y_mean = ds_src.y_mean.clone()
+        ds_new.y_std = ds_src.y_std.clone()
+
+        return ds_new
 
     @staticmethod
     def split_indices(

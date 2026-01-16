@@ -16,9 +16,10 @@ LSTM_OOS_NORM_Y = "models/lstm_model_2025-12-16_OOS_norm_y.pt"
 LSTM_IS_NORM_Y = "models/lstm_model_2025-12-16_IS_norm_y.pt"
 LSTM_IS_ORIGIN_Y = "models/lstm_model_2025-12-16_IS_orig_y.pt"
 
-LSTM_OOS_NORM_Y_PAST = "models/lstm_model_2025-12-23_OOS_norm_y_past.pt"
-LSTM_IS_NORM_Y_PAST = "models/lstm_model_2025-12-23_IS_norm_y_past.pt"
-LSTM_IS_ORIGIN_Y_PAST = "models/lstm_model_2025-12-23_IS_orig_y_past.pt"
+LSTM_OOS_NORM_Y_PAST = "models/lstm_model_2026-01-02_OOS_norm_y_past.pt"
+LSTM_IS_NORM_Y_PAST = "models/lstm_model_2026-01-02_IS_norm_y_past.pt"
+LSTM_IS_ORIGIN_Y_PAST = "models/lstm_model_2026-01-02_IS_orig_y_past.pt"
+
 
 VOIS_CLIMATE = [
     "t2m",
@@ -75,28 +76,28 @@ PARAMS_LSTM_OOS_PAST = {
     "hidden_size": 64,
     "num_layers": 2,
     "bidirectional": False,
-    "dropout": 0.1,
+    "dropout": 0.2,
     "static_layers": 2,
     "static_hidden": 128,
     "static_dropout": 0.2,
-    "lr": 0.002,
-    "weight_decay": 0.0001,
+    "lr": 0.001,
+    "weight_decay": 1e-05,
     "loss_name": "neutral",
     "two_heads": False,
-    "head_dropout": 0.1,
+    "head_dropout": 0.05,
     "loss_spec": None,
 }
 
 PARAMS_LSTM_IS_past = {
     "Fm": 9,
     "Fs": 3,
-    "hidden_size": 64,
+    "hidden_size": 96,
     "num_layers": 2,
     "bidirectional": False,
-    "dropout": 0.1,
-    "static_layers": 2,
-    "static_hidden": 32,
-    "static_dropout": 0.1,
+    "dropout": 0.2,
+    "static_layers": 1,
+    "static_hidden": 128,
+    "static_dropout": 0.3,
     "lr": 0.0005,
     "weight_decay": 1e-05,
     "loss_name": "neutral",
@@ -148,8 +149,8 @@ path_rgi_outlines = (
 
 # <------------------OTHER USEFUL FUNCTIONS & ATTRIBUTES: ------------------>
 vois_climate_long_name = {
-    "t2m": "Temp.",
-    "tp": "Precip.",
+    "t2m": "Temperature",
+    "tp": "Precipitation",
     "slhf": "Surf. latent heat flux",
     "sshf": "Surf. sensible heat flux",
     "ssrd": "Surf. solar rad. down.",

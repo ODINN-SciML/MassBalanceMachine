@@ -910,7 +910,7 @@ def plot_mass_balance_comparison(
 
     # ---- Plot setup ----
     # fig, axes = plt.subplots(1, 2, figsize=(14, 7))
-    fontsize_text = 14
+    fontsize_text = 16
 
     # ======================
     # GLAMOS panel
@@ -952,7 +952,7 @@ def plot_mass_balance_comparison(
 
     axes[0].text(
         0.05,
-        0.15,
+        0.2,
         text_glamos,
         transform=axes[0].transAxes,
         ha="left",
@@ -981,7 +981,7 @@ def plot_mass_balance_comparison(
             palette=cmap,
             hue_norm=norm,
             ax=axes[1],
-            s=25,
+            s=30,
             legend=False,
         )
 
@@ -1002,13 +1002,284 @@ def plot_mass_balance_comparison(
 
     axes[1].text(
         0.05,
-        0.15,
+        0.2,
         text_mbm,
         transform=axes[1].transAxes,
         ha="left",
         va="top",
         fontsize=fontsize_text,
     )
+
+
+def plot_mass_balance_comparison_cropped(
+    glacier_name,
+    year,
+    cfg,
+    df_stakes,
+    fig,
+    axes,
+    path_distributed_mb,  # base for GLAMOS grids
+    path_pred_lstm,  # base for LSTM/XGB zarrs
+    period="annual",
+    crop_pad_px=2,
+    crop_source="mbm",  # "mbm" (default) or "glamos"
+):
+    """
+    Same as plot_mass_balance_comparison, but crops the plotted map extent to the
+    glacier footprint (non-NaN region) to reduce empty space.
+
+    Cropping is done in index-space (pixels) using a valid-data mask and applied
+    consistently to the plotted rasters and stake-point axis limits.
+    """
+
+    import os
+    import numpy as np
+    import xarray as xr
+    import seaborn as sns
+
+    # ---- Filter stake data for glacier, year, and period ----
+    stakes_data = df_stakes[
+        (df_stakes.GLACIER == glacier_name)
+        & (df_stakes.YEAR == year)
+        & (df_stakes.PERIOD == period)
+    ].copy()
+
+    # ---- Locate GLAMOS grid (ann/win, LV03/LV95) ----
+    def pick_file(cfg, glacier_name, year, period="annual"):
+        suffix = "ann" if period == "annual" else "win"
+        base = os.path.join(cfg.dataPath, path_distributed_mb, "GLAMOS", glacier_name)
+        cand_lv95 = os.path.join(base, f"{year}_{suffix}_fix_lv95.grid")
+        cand_lv03 = os.path.join(base, f"{year}_{suffix}_fix_lv03.grid")
+        if os.path.exists(cand_lv95):
+            return cand_lv95, "lv95"
+        if os.path.exists(cand_lv03):
+            return cand_lv03, "lv03"
+        return None, None
+
+    grid_path, coord_system = pick_file(cfg, glacier_name, year, period)
+    if grid_path is None:
+        raise FileNotFoundError(
+            f"No GLAMOS {period} grid found for {glacier_name} {year}"
+        )
+
+    # ---- Load and transform GLAMOS data ----
+    metadata, grid_data = load_grid_file(grid_path)
+    da_glamos = convert_to_xarray_geodata(grid_data, metadata)
+    if coord_system == "lv03":
+        da_glamos_wgs84 = transform_xarray_coords_lv03_to_wgs84(da_glamos)
+    elif coord_system == "lv95":
+        da_glamos_wgs84 = transform_xarray_coords_lv95_to_wgs84(da_glamos)
+    else:
+        raise ValueError(f"Unknown coordinate system: {coord_system}")
+
+    da_glamos_wgs84 = apply_gaussian_filter(da_glamos_wgs84, variable_name=None)
+
+    # ---- Load LSTM predictions ----
+    mbm_file_lstm = os.path.join(
+        path_pred_lstm, glacier_name, f"{glacier_name}_{year}_{period}.zarr"
+    )
+    if not os.path.exists(mbm_file_lstm):
+        raise FileNotFoundError(f"Missing MBM zarr: {mbm_file_lstm}")
+
+    ds_mbm = apply_gaussian_filter(xr.open_zarr(mbm_file_lstm))
+
+    # ---- Determine coordinate names ----
+    lon_name = "lon" if "lon" in ds_mbm.coords else "longitude"
+    lat_name = "lat" if "lat" in ds_mbm.coords else "latitude"
+
+    # ---- Sample model and GLAMOS values at stake points ----
+    if not stakes_data.empty:
+        stakes_data["Predicted_MB_LSTM"] = stakes_data.apply(
+            lambda row: get_predicted_mb(lon_name, lat_name, row, ds_mbm), axis=1
+        )
+        stakes_data["GLAMOS_MB"] = stakes_data.apply(
+            lambda row: get_predicted_mb_glamos(
+                lon_name, lat_name, row, da_glamos_wgs84
+            ),
+            axis=1,
+        )
+        stakes_data.dropna(subset=["Predicted_MB_LSTM", "GLAMOS_MB"], inplace=True)
+
+    # ---- Color range ----
+    vmin = min(
+        float(da_glamos_wgs84.min().item()), float(ds_mbm["pred_masked"].min().item())
+    )
+    vmax = max(
+        float(da_glamos_wgs84.max().item()), float(ds_mbm["pred_masked"].max().item())
+    )
+    cmap, norm = get_color_maps(vmin, vmax)
+
+    fontsize_text = 16
+
+    # ------------------------------------------------------------------
+    # Cropping helper: find bounding box of valid pixels, then slice
+    # ------------------------------------------------------------------
+    def crop_da(da, pad_px=2):
+        """
+        Crop a 2D DataArray to the bounding box of non-NaN values.
+        Returns (da_cropped, (xmin, xmax, ymin, ymax)) in coordinate space.
+        """
+        # Ensure we target the last two dims (assumed spatial)
+        if da.ndim != 2:
+            raise ValueError(f"Expected 2D DataArray for cropping, got {da.ndim}D")
+
+        valid = np.isfinite(da.values)
+        if not np.any(valid):
+            # no valid data: return as-is
+            xmin, xmax = float(da[da.dims[1]].min()), float(da[da.dims[1]].max())
+            ymin, ymax = float(da[da.dims[0]].min()), float(da[da.dims[0]].max())
+            return da, (xmin, xmax, ymin, ymax)
+
+        iy, ix = np.where(valid)
+        y0, y1 = iy.min(), iy.max()
+        x0, x1 = ix.min(), ix.max()
+
+        y0 = max(y0 - pad_px, 0)
+        x0 = max(x0 - pad_px, 0)
+        y1 = min(y1 + pad_px, valid.shape[0] - 1)
+        x1 = min(x1 + pad_px, valid.shape[1] - 1)
+
+        ydim, xdim = da.dims[0], da.dims[1]
+        da_c = da.isel({ydim: slice(y0, y1 + 1), xdim: slice(x0, x1 + 1)})
+
+        # Coordinate-space bounds for consistent axis limits
+        xcoord = da_c[xdim].values
+        ycoord = da_c[ydim].values
+        xmin, xmax = float(np.min(xcoord)), float(np.max(xcoord))
+        ymin, ymax = float(np.min(ycoord)), float(np.max(ycoord))
+
+        return da_c, (xmin, xmax, ymin, ymax)
+
+    # Choose cropping mask source
+    if crop_source.lower() == "glamos":
+        da_for_crop = da_glamos_wgs84
+    else:
+        da_for_crop = ds_mbm["pred_masked"]
+
+    da_crop_ref, bounds = crop_da(da_for_crop, pad_px=crop_pad_px)
+    xmin, xmax, ymin, ymax = bounds
+
+    # Crop both rasters with the same bounds by slicing their coords
+    # (more robust than reusing pixel indices when grids match but names differ)
+    def crop_to_bounds(da, bounds):
+        xmin, xmax, ymin, ymax = bounds
+        ydim, xdim = da.dims[0], da.dims[1]
+        # handle ascending/descending coords
+        y = da[ydim].values
+        x = da[xdim].values
+        y_slice = slice(ymin, ymax) if y[0] < y[-1] else slice(ymax, ymin)
+        x_slice = slice(xmin, xmax) if x[0] < x[-1] else slice(xmax, xmin)
+        return da.sel({ydim: y_slice, xdim: x_slice})
+
+    da_glamos_plot = crop_to_bounds(da_glamos_wgs84, bounds)
+    da_mbm_plot = crop_to_bounds(ds_mbm["pred_masked"], bounds)
+
+    # ======================
+    # GLAMOS panel
+    # ======================
+    mappable = da_glamos_plot.plot.imshow(
+        ax=axes[0],
+        cmap=cmap,
+        norm=norm,
+        cbar_kwargs={"label": "Mass Balance [m w.e.]"},
+    )
+    axes[0].set_title(f"GLAMOS ({period.capitalize()})")
+    mappable.colorbar.ax.set_ylim(vmin, vmax)
+
+    if not stakes_data.empty:
+        sns.scatterplot(
+            data=stakes_data,
+            x="POINT_LON",
+            y="POINT_LAT",
+            hue="POINT_BALANCE",
+            palette=cmap,
+            hue_norm=norm,
+            ax=axes[0],
+            s=25,
+            legend=False,
+        )
+
+    # Apply consistent map extent (also trims point view)
+    axes[0].set_xlim(xmin, xmax)
+    axes[0].set_ylim(ymin, ymax)
+
+    mean_glamos = float(da_glamos_wgs84.mean().item())
+    var_glamos = float(da_glamos_wgs84.var().item())
+    rmse_glamos = (
+        root_mean_squared_error(stakes_data.POINT_BALANCE, stakes_data.GLAMOS_MB)
+        if not stakes_data.empty
+        else None
+    )
+
+    text_glamos = ""
+    if rmse_glamos is not None:
+        text_glamos += f"RMSE: {rmse_glamos:.2f}\n"
+    text_glamos += f"mean MB: {mean_glamos:.2f}\nvar: {var_glamos:.2f}"
+
+    axes[0].text(
+        0.05,
+        0.2,
+        text_glamos,
+        transform=axes[0].transAxes,
+        ha="left",
+        va="top",
+        fontsize=fontsize_text,
+    )
+
+    # ======================
+    # MBM/LSTM panel
+    # ======================
+    mappable = da_mbm_plot.plot.imshow(
+        ax=axes[1],
+        cmap=cmap,
+        norm=norm,
+        cbar_kwargs={"label": "Mass Balance [m w.e.]"},
+    )
+    mappable.colorbar.ax.set_ylim(vmin, vmax)
+    axes[1].set_title(f"MBM LSTM ({period.capitalize()})")
+
+    if not stakes_data.empty:
+        sns.scatterplot(
+            data=stakes_data,
+            x="POINT_LON",
+            y="POINT_LAT",
+            hue="POINT_BALANCE",
+            palette=cmap,
+            hue_norm=norm,
+            ax=axes[1],
+            s=30,
+            legend=False,
+        )
+
+    axes[1].set_xlim(xmin, xmax)
+    axes[1].set_ylim(ymin, ymax)
+
+    mean_mbm = float(ds_mbm["pred_masked"].mean().item())
+    var_mbm = float(ds_mbm["pred_masked"].var().item())
+    rmse_mbm = (
+        root_mean_squared_error(
+            stakes_data.POINT_BALANCE, stakes_data.Predicted_MB_LSTM
+        )
+        if not stakes_data.empty
+        else None
+    )
+
+    text_mbm = ""
+    if rmse_mbm is not None:
+        text_mbm += f"RMSE: {rmse_mbm:.2f}\n"
+    text_mbm += f"mean MB: {mean_mbm:.2f}\nvar: {var_mbm:.2f}"
+
+    axes[1].text(
+        0.05,
+        0.2,
+        text_mbm,
+        transform=axes[1].transAxes,
+        ha="left",
+        va="top",
+        fontsize=fontsize_text,
+    )
+
+    return da_glamos_plot, da_mbm_plot, bounds
 
 
 def plot_scatter_comparison(
@@ -1895,6 +2166,27 @@ def plot_2glaciers_2years_glamos_vs_lstm(
                 if ds_lstm is not None
                 else np.nan
             )
+
+        # ---------- PRINT STAKE VALUES ----------
+        if "POINT_BALANCE" in sub.columns:
+            print("\n" + "-" * 70)
+            print(
+                f"{which} STAKES | Glacier: {glacier} | Year: {year} | Period: {period}"
+            )
+            print("-" * 70)
+            print(
+                sub[["POINT_LON", "POINT_LAT", "POINT_BALANCE", "FIELD"]]
+                .rename(
+                    columns={
+                        "POINT_LON": "lon",
+                        "POINT_LAT": "lat",
+                        "POINT_BALANCE": "obs_MB",
+                    }
+                )
+                .round(3)
+                .to_string(index=False)
+            )
+            print("-" * 70)
 
         hue_col = "POINT_BALANCE" if "POINT_BALANCE" in sub.columns else "FIELD"
         sns.scatterplot(

@@ -696,6 +696,58 @@ def build_combined_LSTM_dataset(
     return ds
 
 
+def build_combined_LSTM_dataset_2(
+    df_loss,
+    df_full,
+    monthly_cols,
+    static_cols,
+    months_head_pad,
+    months_tail_pad,
+    normalize_target=True,
+    expect_target=True,
+):
+    # Clean copies
+    df_loss = df_loss.copy()
+    df_full = df_full.copy()
+    df_loss["PERIOD"] = df_loss["PERIOD"].str.lower().str.strip()
+    df_full["PERIOD"] = df_full["PERIOD"].str.lower().str.strip()
+
+    # --------------------------------------
+    # STEP 1 — Remove POINT_BALANCE from df_full
+    # --------------------------------------
+    df_full_clean = df_full.drop(columns=["POINT_BALANCE", "y"], errors="ignore")
+
+    # --------------------------------------
+    # STEP 2 — Keep only the POINT_BALANCE information from df_loss
+    # --------------------------------------
+    df_loss_reduced = df_loss[
+        ["GLACIER", "YEAR", "ID", "PERIOD", "MONTHS", "POINT_BALANCE"]
+    ].copy()
+
+    # --------------------------------------
+    # STEP 3 — Merge
+    # padded months will have POINT_BALANCE = NaN
+    # --------------------------------------
+    df_combined = df_full_clean.merge(
+        df_loss_reduced, on=["GLACIER", "YEAR", "ID", "PERIOD", "MONTHS"], how="left"
+    )
+
+    # --------------------------------------
+    # STEP 4 — Build dataset
+    # --------------------------------------
+    ds = mbm.data_processing.MBSequenceDataset_2.from_dataframe(
+        df=df_combined,
+        monthly_cols=monthly_cols,
+        static_cols=static_cols,
+        months_head_pad=months_head_pad,
+        months_tail_pad=months_tail_pad,
+        expect_target=expect_target,
+        normalize_target=normalize_target,
+    )
+
+    return ds
+
+
 def inspect_LSTM_sample(ds, idx, month_labels=None):
     """
     Visualize a dataset sample:
