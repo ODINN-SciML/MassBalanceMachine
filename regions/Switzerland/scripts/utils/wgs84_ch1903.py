@@ -156,7 +156,7 @@ class GPSConverter(object):
         )
         return y
 
-    def LV03toWGS84(self, east, north, height):
+    def LV03_to_WGS84(self, east, north, height):
         """
         Convert LV03 to WGS84 Return a array of double that contain lat, long,
         and height
