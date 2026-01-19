@@ -57,7 +57,8 @@ def compute_stake_loss(model, stakes, metadata, point_balance, returnPred=False)
     Returns a scalar torch value that corresponds to the stake loss term and
     optionally statistics in a dictionary.
     """
-    idAggr = metadata["ID_int"].values
+    idAggr = metadata["ID"].values
+    int_id, unique_id = pd.factorize(idAggr)
 
     # Make prediction
     stakesTorch = torch.tensor(stakes.astype(np.float32))
@@ -65,15 +66,15 @@ def compute_stake_loss(model, stakes, metadata, point_balance, returnPred=False)
 
     # Aggregate per stake and periods
     groundTruthTorch = torch.tensor(point_balance.astype(np.float32))
-    trueMean = model.aggrPredict(groundTruthTorch, idAggr, reduce="mean")
-    predSum = model.aggrPredict(pred, idAggr)
+    trueMean = model.aggrPredict(groundTruthTorch, int_id, reduce="mean")
+    predSum = model.aggrPredict(pred, int_id)
 
     mse = nn.functional.mse_loss(predSum, trueMean, reduction="mean")
     ret = {}
     if returnPred:
         ret["target"] = trueMean.detach()
         ret["pred"] = predSum.detach()
-    return mse, ret
+    return mse, ret, int_id
 
 
 def timeWindowGeodeticLoss(
@@ -129,6 +130,10 @@ def predict_gridded(model, geoGrid, metadata):
     geoGridTorch = torch.tensor(geoGrid.astype(np.float32))
     pred = model.forward(geoGridTorch)[:, 0]
 
+    idAggr = metadata["ID"].values
+    int_id, unique_id = pd.factorize(idAggr)
+    metadata = metadata.assign(ID_int=int_id)
+
     # Aggregate per point on the grid
     grouped_ids = model.aggrMetadataId(metadata, "ID_int")
     predSumAnnual = model.aggrPredict(pred, metadata["ID_int"].values)
@@ -139,6 +144,11 @@ def predict_gridded(model, geoGrid, metadata):
 def predict_geo(model, geoGrid, metadata, ygeo, geod_periods):
     # Make prediction and aggregate per point on the grid
     grouped_ids, predSumAnnual = predict_gridded(model, geoGrid, metadata)
+
+    # Create ID to aggregate glacier wide
+    idGlwdAggr = grouped_ids["GLWD_ID"].values
+    int_id_glwd, _ = pd.factorize(idGlwdAggr)
+    grouped_ids = grouped_ids.assign(GLWD_ID_int=int_id_glwd)
 
     # Aggregate glacier wide
     metadataAggrYear = model.aggrMetadataGlwdId(grouped_ids, "GLWD_ID_int")
@@ -228,35 +238,38 @@ def scores(pred: torch.Tensor, target: torch.Tensor):
 def assessOnTest(log_dir, model, geodataloader_test, light=False):
     targetAll = torch.zeros(0)
     predAll = torch.zeros(0)
-    periodAll = torch.zeros(0, dtype=torch.int)
+    periodAll = np.zeros(
+        0, dtype=np.array(list(geodataloader_test.periodToInt.keys())).dtype
+    )  # Initialize with correct dtype
     for g in geodataloader_test.glaciers():
         stakes, metadata, point_balance = geodataloader_test.stakes(g)
-        l, ret = compute_stake_loss(
+        l, ret, int_id = compute_stake_loss(
             model, stakes, metadata, point_balance, returnPred=True
         )
         targetAll = torch.concatenate((targetAll, ret["target"]))
         predAll = torch.concatenate((predAll, ret["pred"]))
-        grouped_ids = metadata.groupby("ID_int").agg({"PERIOD_int": "first"})
-        periodAll = torch.concatenate(
-            (periodAll, torch.tensor(grouped_ids["PERIOD_int"].values))
-        )
+        metadata = metadata.assign(ID_int=int_id)
+        grouped_ids = metadata.groupby("ID_int").agg({"PERIOD": "first"})
+        periodAll = np.concatenate((periodAll, np.array(grouped_ids["PERIOD"].values)))
     mse, rmse, mae, pearson_corr, r2, bias = scores(predAll, targetAll)
 
-    indAnnual = torch.argwhere(periodAll == geodataloader_test.periodToInt["annual"])[
-        :, 0
-    ]
-    indWinter = torch.argwhere(periodAll == geodataloader_test.periodToInt["winter"])[
-        :, 0
-    ]
+    indAnnual = np.argwhere(periodAll == "annual")[:, 0]
+    indWinter = np.argwhere(periodAll == "winter")[:, 0]
+    indSummer = np.argwhere(periodAll == "summer")[:, 0]
     predAnnual = predAll[indAnnual]
     targetAnnual = targetAll[indAnnual]
     predWinter = predAll[indWinter]
     targetWinter = targetAll[indWinter]
+    predSummer = predAll[indSummer]
+    targetSummer = targetAll[indSummer]
     mse_annual, rmse_annual, mae_annual, pearson_corr_annual, r2_annual, bias_annual = (
         scores(predAnnual, targetAnnual)
     )
     mse_winter, rmse_winter, mae_winter, pearson_corr_winter, r2_winter, bias_winter = (
         scores(predWinter, targetWinter)
+    )
+    mse_summer, rmse_summer, mae_summer, pearson_corr_summer, r2_summer, bias_summer = (
+        scores(predSummer, targetSummer)
     )
 
     # Make plots
@@ -297,8 +310,8 @@ def assessOnTest(log_dir, model, geodataloader_test, light=False):
         # if ax_ylim is not None:
         #     ax.set_ylim(ax_ylim)
 
-        xlabel = "Observed mean MB / year [m w.e.]"
-        ylabel = "Predicted mean MB / year [m w.e.]"
+        xlabel = "Observed mean SMB / year [m w.e.]"
+        ylabel = "Predicted mean SMB / year [m w.e.]"
 
         ax.set_xlabel(xlabel, fontsize=20)
         ax.set_ylabel(ylabel, fontsize=20)
@@ -327,6 +340,12 @@ def assessOnTest(log_dir, model, geodataloader_test, light=False):
         "pearson_winter": pearson_corr_winter.item(),
         "r2_winter": r2_winter.item(),
         "bias_winter": bias_winter.item(),
+        "mse_summer": mse_summer.item(),
+        "rmse_summer": rmse_summer.item(),
+        "mae_summer": mae_summer.item(),
+        "pearson_summer": pearson_corr_summer.item(),
+        "r2_summer": r2_summer.item(),
+        "bias_summer": bias_summer.item(),
     }
 
 
@@ -472,7 +491,7 @@ def train_geo(
                     optim.zero_grad()
 
                     stakes, metadata, point_balance = geodataloader.stakes(g)
-                    lossStake, _ = compute_stake_loss(
+                    lossStake, _, _ = compute_stake_loss(
                         model, stakes, metadata, point_balance
                     )
 
@@ -529,22 +548,25 @@ def train_geo(
                     lossGeo = 0.0
                     targetAll = torch.zeros(0)
                     predAll = torch.zeros(0)
-                    periodAll = torch.zeros(0, dtype=torch.int)
+                    periodAll = np.zeros(
+                        0, dtype=np.array(list(geodataloader.periodToInt.keys())).dtype
+                    )  # Initialize with correct dtype
                     for g in geodataloader.glaciers():
 
                         stakes, metadata, point_balance = geodataloader.stakes(g)
-                        l, ret = compute_stake_loss(
+                        l, ret, int_id = compute_stake_loss(
                             model, stakes, metadata, point_balance, returnPred=True
                         )
                         target = ret["target"]
                         pred = ret["pred"]
                         targetAll = torch.concatenate((targetAll, target))
                         predAll = torch.concatenate((predAll, pred))
+                        metadata = metadata.assign(ID_int=int_id)
                         grouped_ids = metadata.groupby("ID_int").agg(
-                            {"PERIOD_int": "first"}
+                            {"PERIOD": "first"}
                         )
-                        periodAll = torch.concatenate(
-                            (periodAll, torch.tensor(grouped_ids["PERIOD_int"].values))
+                        periodAll = np.concatenate(
+                            (periodAll, np.array(grouped_ids["PERIOD"].values))
                         )
 
                         valScalingStakes = (
@@ -572,12 +594,8 @@ def train_geo(
                         loss = lossStake
                     mse, rmse, mae, pearson_corr, r2, bias = scores(predAll, targetAll)
 
-                    indAnnual = torch.argwhere(
-                        periodAll == geodataloader.periodToInt["annual"]
-                    )[:, 0]
-                    indWinter = torch.argwhere(
-                        periodAll == geodataloader.periodToInt["winter"]
-                    )[:, 0]
+                    indAnnual = np.argwhere(periodAll == "annual")[:, 0]
+                    indWinter = np.argwhere(periodAll == "winter")[:, 0]
                     predAnnual = predAll[indAnnual]
                     targetAnnual = targetAll[indAnnual]
                     predWinter = predAll[indWinter]

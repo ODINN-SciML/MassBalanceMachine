@@ -203,8 +203,10 @@ def predVSTruthPerGlacier(
     if axs is None:
         N = len(custom_order)
         n = np.sqrt(N / 2.0)
-        nRows = int(np.floor(n))  # Scales as 2n
-        nCols = int(np.ceil(N / nRows))  # Scales as n
+        nRows = int(np.ceil(n))  # Scales as 2n
+        nCols = int(np.floor(N / nRows))  # Scales as n
+        if nCols * nRows < N:
+            nCols += 1
         fig, axs = plt.subplots(
             nRows, nCols, figsize=(20 * nCols / 3, 30 * nRows / 8), sharex=False
         )
@@ -221,7 +223,7 @@ def predVSTruthPerGlacier(
             x="target",
             y="pred",
             ax=ax,
-            hue_order=["annual", "winter"],
+            hue_order=["annual", "winter", "summer"],
             **kwargs,
         )
 

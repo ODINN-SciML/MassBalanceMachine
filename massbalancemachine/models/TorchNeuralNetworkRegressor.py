@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
+import pandas as pd
 import yaml
 
 
@@ -133,11 +134,15 @@ class CustomTorchNeuralNetRegressor(nn.Module):
         Returns an aggregated pd.DataFrame.
         """
         metadataKeys = metadata.keys()
-        aggMap = {"YEAR": "first", "GLWD_ID_int": "first"}
+        aggMap = {"YEAR": "first", "ID": "first", "RGIId": "first"}
+        if "GLWD_ID" in metadataKeys:
+            aggMap["GLWD_ID"] = "first"
         if "POINT_LAT" in metadataKeys:
             aggMap["POINT_LAT"] = "first"
         if "POINT_LON" in metadataKeys:
             aggMap["POINT_LON"] = "first"
+        if "PERIOD" in metadataKeys:
+            aggMap["PERIOD"] = "first"
         metadataAggrId = metadata.groupby(groupByCol).agg(aggMap)
         return metadataAggrId
 
@@ -157,3 +162,46 @@ class CustomTorchNeuralNetRegressor(nn.Module):
             YEAR=("YEAR", "first")  # Assumes YEAR is unique per GEOD_ID
         )  # .set_index('YEAR')
         return metadataAggrYear
+
+    def evaluate_group_pred(self, geodataloader):
+        grouped_ids = pd.DataFrame()
+        with torch.no_grad():
+            for g in geodataloader.glaciers():
+                # Get input features, metadata and ground truth
+                stakes, metadata, point_balance = geodataloader.stakes(g)
+                idAggr = metadata["ID"].values
+
+                # Make prediction
+                stakesTorch = torch.tensor(stakes.astype(np.float32))
+                pred = self.forward(stakesTorch)[:, 0]
+
+                # Aggregate per stake and periods
+                groundTruthTorch = torch.tensor(point_balance.astype(np.float32))
+                int_id, unique_id = pd.factorize(idAggr)
+                trueMean = self.aggrPredict(groundTruthTorch, int_id, reduce="mean")
+                predSum = self.aggrPredict(pred, int_id)
+                metadata = metadata.assign(ID_int=int_id)
+                grouped_ids_glacier = self.aggrMetadataId(metadata, "ID_int")
+
+                # Create grouped prediction DataFrame
+                assert grouped_ids_glacier.index.name == "ID_int"
+                grouped_ids_glacier = pd.DataFrame(
+                    {
+                        "target": trueMean,
+                        "ID_int": grouped_ids_glacier.index,
+                        "pred": predSum,
+                        "PERIOD": grouped_ids_glacier.PERIOD,
+                        "YEAR": grouped_ids_glacier.YEAR,
+                        "RGIId": grouped_ids_glacier.RGIId,
+                    }
+                )
+
+                grouped_ids = pd.concat(
+                    [grouped_ids, grouped_ids_glacier], ignore_index=True
+                )
+
+        if grouped_ids.shape[0] > 0:
+            # ID_int does not make sense since it is used only to perform the aggregation with PyTorch, the variable to use is ID instead
+            grouped_ids.drop(columns=["ID_int"], inplace=True)
+
+        return grouped_ids

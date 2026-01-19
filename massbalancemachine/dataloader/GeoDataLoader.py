@@ -54,7 +54,7 @@ class GeoDataLoader:
         self.glacierList = glacierList.copy()  # Copy for shuffling
         random.shuffle(self.glacierList)
         self.indGlacier = 0
-        self.periodToInt = {"annual": 0, "winter": 1}
+        self.periodToInt = {"annual": 0, "winter": 1, "summer": 2}
 
         _, self.month_pos = _rebuild_month_index(months_head_pad, months_tail_pad)
 
@@ -62,6 +62,8 @@ class GeoDataLoader:
         self.valStakesDf = valStakesDf
         self.geodeticOggm = geodeticOggm
         self.keyGlacierSel = keyGlacierSel
+
+        # Prepare geodetic data
         self.prepareGeoData()
         if ignoreStakesWithoutGeo:
             self.glacierList = self.glaciersWithGeo
@@ -182,7 +184,7 @@ class GeoDataLoader:
         groundTruth = X.POINT_BALANCE.values
 
         features = self.normalizer.normalize(features)
-        metadata = self._mapStrColToInt(metadata)
+        # metadata = self._mapStrColToInt(metadata, True)
 
         return features, metadata, groundTruth
 
@@ -280,7 +282,7 @@ class GeoDataLoader:
         features = df_X_geod[feature_columns].values
 
         features = self.normalizer.normalize(features)
-        metadata = self._mapStrColToInt(metadata)
+        # metadata = self._mapStrColToInt(metadata, False)
 
         return (
             features,
@@ -289,32 +291,35 @@ class GeoDataLoader:
             self.err_target_geo.get(glacierName),
         )
 
-    def _mapStrColToInt(self, metadata):
-        """
-        Maps columns that contain string values to new ones with integer values.
-        Non-numeric columns are replaced by numerical equivalents where each ID has
-        been replaced by values ranging from 0 to N-1 where N is the number of
-        unique values for a given column. If a column is named "ID", the column in
-        the returned dataframe is named "ID_int" where "_int" stands for integer.
-        """
-        metadata = metadata.copy()
-        stringCol = ["RGIId", "ID", "GLWD_ID", "MONTHS", "PERIOD", self.keyGlacierSel]
-        colToRemove = []
-        for col in stringCol:
-            if col in metadata.keys():
-                colToRemove.append(col)
-                if col == "MONTHS":
-                    string_to_index = {
-                        s: i - 1 for s, i in self.month_pos.items()  # index starts at 0
-                    }
-                    col_int = metadata[col].map(string_to_index)
-                elif col == "PERIOD":
-                    # Ensure always the same convention
-                    # Otherwise glacier with only winter data could result in winter
-                    # being 0 instead of 1
-                    col_int = metadata[col].map(self.periodToInt)
-                else:
-                    col_int, unique_val = pd.factorize(metadata[col])
-                metadata[col + "_int"] = col_int
-        metadata.drop(colToRemove, axis=1, inplace=True)
-        return metadata
+    # def _mapStrColToInt(self, metadata, usePrecomputed):
+    #     """
+    #     Maps columns that contain string values to new ones with integer values.
+    #     Non-numeric columns are replaced by numerical equivalents where each ID has
+    #     been replaced by values ranging from 0 to N-1 where N is the number of
+    #     unique values for a given column. If a column is named "ID", the column in
+    #     the returned dataframe is named "ID_int" where "_int" stands for integer.
+    #     """
+    #     metadata = metadata.copy()
+    #     stringCol = np.unique(["RGIId", "ID", "GLWD_ID", "MONTHS", "PERIOD", self.keyGlacierSel])
+    #     colToRemove = []
+    #     for col in stringCol:
+    #         if col in metadata.keys():
+    #             colToRemove.append(col)
+    #             if col == "MONTHS":
+    #                 string_to_index = {
+    #                     s: i - 1 for s, i in self.month_pos.items()  # index starts at 0
+    #                 }
+    #                 col_int = metadata[col].map(string_to_index)
+    #             elif col == "PERIOD":
+    #                 # Ensure always the same convention
+    #                 # Otherwise glacier with only winter data could result in winter
+    #                 # being 0 instead of 1
+    #                 col_int = metadata[col].map(self.periodToInt)
+    #             else:
+    #                 if usePrecomputed:
+    #                     col_int = [self.strColToIntMapping[col].index(e) for e in metadata[col]]
+    #                 else:
+    #                     col_int, unique_val = pd.factorize(metadata[col])
+    #             metadata[col + "_int"] = col_int
+    #     metadata.drop(colToRemove, axis=1, inplace=True)
+    #     return metadata

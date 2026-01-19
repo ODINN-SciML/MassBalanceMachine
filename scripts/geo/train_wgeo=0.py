@@ -7,7 +7,6 @@ import torch
 import json
 import argparse
 import massbalancemachine as mbm
-from massbalancemachine.dataloader.GeoDataLoader import GeoDataLoader
 
 from scripts.common import (
     # seed_all,
@@ -79,7 +78,7 @@ if sourceData == "switzerland":
     glaciers = list(data_train.GLACIER.unique())
 elif sourceData in ["iceland", "norway"]:
     glaciers = list(data_train.RGIId.unique())
-gdl = GeoDataLoader(
+gdl = mbm.dataloader.GeoDataLoader(
     cfg,
     glaciers,
     trainStakesDf=df_X_train,
@@ -128,7 +127,7 @@ if sourceData == "switzerland":
     test_glaciers = list(data_test.GLACIER.unique())
 elif sourceData in ["iceland", "norway"]:
     test_glaciers = list(data_test.RGIId.unique())
-gdl_test = GeoDataLoader(
+gdl_test = mbm.dataloader.GeoDataLoader(
     cfg,
     test_glaciers,
     trainStakesDf=data_test,
