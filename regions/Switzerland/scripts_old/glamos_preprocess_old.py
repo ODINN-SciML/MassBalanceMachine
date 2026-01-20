@@ -216,22 +216,3 @@ def create_sgi_topo_masks_parallel(
 
     print(f"Done. ok={ok}  skip={skip}  err={err}  total={n}")
     return results
-
-
-def getStakesData(cfg):
-    data_glamos = pd.read_csv(
-        cfg.dataPath + path_PMB_GLAMOS_csv + "CH_wgms_dataset_all.csv"
-    )
-
-    # Glaciers with data of potential clear sky radiation
-    # Format to same names as stakes:
-    glDirect = np.sort(
-        [
-            re.search(r"xr_direct_(.*?)\.zarr", f).group(1)
-            for f in os.listdir(cfg.dataPath + path_pcsr + "zarr/")
-        ]
-    )
-
-    # Filter out glaciers without data:
-    data_glamos = data_glamos[data_glamos.GLACIER.isin(glDirect)]
-    return data_glamos

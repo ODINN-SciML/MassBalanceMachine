@@ -28,6 +28,53 @@ def process_dem_to_netcdf(
     asvf_level=1,
     asvf_dir=315,
 ) -> None:
+    """
+    Compute sky-view factor (SVF), anisotropic SVF (ASVF), and openness from a DEM
+    and write the results to a compressed NetCDF file.
+
+    The function reads a raster DEM, extracts its spatial metadata using rasterio,
+    computes terrain visibility metrics using the Relief Visualization Toolbox (RVT),
+    and exports the resulting grids as an xarray Dataset in NetCDF format with
+    correct georeferencing.
+
+    Parameters
+    ----------
+    dem_path : str
+        Path to the input DEM raster file (e.g., GeoTIFF) in a projected metric CRS.
+    out_path : str
+        Path where the output NetCDF file will be written.
+    svf_n_dir : int, optional
+        Number of directions used for SVF computation (default: 16).
+    svf_r_max : int or float, optional
+        Maximum search radius in pixels for SVF computation (default: 10).
+    svf_noise : float, optional
+        Noise parameter for RVT SVF computation (default: 0).
+    asvf_level : int, optional
+        Level parameter for anisotropic SVF computation (default: 1).
+    asvf_dir : int, optional
+        Direction parameter (in degrees) for anisotropic SVF (default: 315).
+
+    Returns
+    -------
+    None
+        The function writes output directly to disk and returns nothing.
+
+    Raises
+    ------
+    ValueError
+        If the DEM appears to be in geographic (degree) coordinates instead of a
+        projected metric CRS.
+
+    Notes
+    -----
+    - The input DEM must be in a metric coordinate reference system (e.g., LV95).
+      SVF calculations in degrees are not meaningful.
+    - Output NetCDF variables include:
+        * svf  – sky-view factor
+        * asvf – anisotropic sky-view factor
+        * opns – positive openness
+    - Compression is applied when possible using h5netcdf or netcdf4 engines.
+    """
     # --- open with rasterio for authoritative geoinfo ---
     with rasterio.open(dem_path) as src:
         transform: Affine = src.transform
@@ -124,9 +171,30 @@ def process_dem_to_netcdf(
 
 def _affine_from_coords(x, y):
     """
-    Build an Affine transform from 1D x/y center coordinates.
-    Assumes x increases to the right; y typically decreases downward.
+    Construct an affine geotransform from 1D coordinate vectors.
+
+    This helper function derives an Affine transform assuming that the provided
+    x and y arrays represent center-of-pixel coordinates on a regular grid.
+    The resulting transform follows the north-up raster convention.
+
+    Parameters
+    ----------
+    x : xarray.DataArray
+        1D array of x-coordinates (increasing to the right).
+    y : xarray.DataArray
+        1D array of y-coordinates (typically decreasing downward).
+
+    Returns
+    -------
+    rasterio.transform.Affine
+        Affine transformation mapping pixel indices to spatial coordinates.
+
+    Notes
+    -----
+    - Assumes uniform spacing in both x and y directions.
+    - Designed for grids following standard GIS raster orientation.
     """
+
     resx = float(np.median(np.diff(x.values)))
     resy = float(np.median(np.diff(y.values)))
     pix_h = -abs(resy)  # north-up convention
@@ -138,6 +206,49 @@ def _affine_from_coords(x, y):
 def reproject_file_to_latlon(
     nc_in: str, nc_out: str, data_vars, src_crs, dst_crs
 ) -> None:
+    """
+    Reproject selected variables from a projected NetCDF grid to latitude/longitude.
+
+    This function opens a NetCDF file containing gridded data in a projected
+    coordinate system (e.g., LV95), reprojects specified variables to a target CRS
+    (typically WGS84), and writes the result to a new NetCDF file.
+
+    Reprojection is performed using rioxarray with rasterio under the hood,
+    ensuring correct spatial alignment and coordinate transformation.
+
+    Parameters
+    ----------
+    nc_in : str
+        Path to the input NetCDF file containing x/y coordinates.
+    nc_out : str
+        Path to the output NetCDF file to be written.
+    data_vars : list of str
+        Names of data variables in the input file that should be reprojected.
+    src_crs : str or rasterio.crs.CRS
+        Source coordinate reference system (e.g., "EPSG:2056").
+    dst_crs : str or rasterio.crs.CRS
+        Target coordinate reference system (e.g., "EPSG:4326").
+
+    Returns
+    -------
+    None
+        The function writes a new NetCDF file and returns nothing.
+
+    Raises
+    ------
+    ValueError
+        If the input dataset does not contain x/y coordinates or if none of the
+        requested data variables are present.
+
+    Notes
+    -----
+    - The function preserves variable attributes and applies float32 encoding.
+    - Output coordinates are renamed to "lon" and "lat".
+    - Compression is applied when supported by the available NetCDF engine.
+    - All variables are aligned to the grid of the first valid variable to ensure
+      consistent spatial resolution.
+    - Designed primarily for DEM-derived products such as SVF, ASVF, and openness.
+    """
     # Open/close cleanly so we don't leave files locked
     with xr.open_dataset(nc_in) as ds:
         # Check coords

@@ -21,22 +21,6 @@ from tqdm.notebook import tqdm
 from regions.Switzerland.scripts.config_CH import *
 
 
-def getDfAggregatePred(test_set, y_pred_agg, all_columns):
-    # Aggregate predictions to annual or winter:
-    df_pred = test_set["df_X"][all_columns].copy()
-    df_pred["target"] = test_set["y"]
-    grouped_ids = df_pred.groupby("ID").agg(
-        {"target": "mean", "YEAR": "first", "POINT_ID": "first"}
-    )
-    grouped_ids["pred"] = y_pred_agg
-    grouped_ids["PERIOD"] = (
-        test_set["df_X"][all_columns].groupby("ID")["PERIOD"].first()
-    )
-    grouped_ids["GLACIER"] = grouped_ids["POINT_ID"].apply(lambda x: x.split("_")[0])
-
-    return grouped_ids
-
-
 def correct_for_biggest_grid(df, group_columns, value_column="value"):
     """
     Assign the most frequent value in the specified column to all rows in each group
