@@ -15,8 +15,11 @@ from dateutil.relativedelta import relativedelta
 from tqdm.notebook import tqdm
 from rasterio.transform import from_bounds
 
+import massbalancemachine as mbm
+
 from regions.Switzerland.scripts.config_CH import *
 from regions.Switzerland.scripts.utils import *
+from regions.Switzerland.scripts.geo_data.svf import merge_svf_into_ds
 
 
 # --------------------------- Pure geospatial/raster utilities --------------------------- #
@@ -842,70 +845,6 @@ def load_grid_file(filepath):
     return metadata, grid_data
 
 
-def merge_svf_into_ds(ds_latlon, sgi_id, path_xr_svf):
-    """
-    Merge SVF-related variables into a glacier lat/lon dataset.
-
-    Loads `<path_xr_svf>/<sgi_id>_svf_latlon.nc` if present, interpolates to the
-    grid of `ds_latlon` if needed, and adds masked versions (`masked_*`) when
-    `glacier_mask` exists.
-
-    Parameters
-    ----------
-    ds_latlon : xarray.Dataset
-        Dataset on a lat/lon grid (must contain `lat` and `lon` coords).
-    sgi_id : str
-        SGI glacier identifier used to locate the SVF file.
-    path_xr_svf : str
-        Folder containing `*_svf_latlon.nc` files.
-
-    Returns
-    -------
-    xarray.Dataset
-        Dataset with SVF variables added if available; otherwise unchanged.
-    """
-    svf_path = os.path.join(path_xr_svf, f"{sgi_id}_svf_latlon.nc")
-    if not os.path.exists(svf_path):
-        print(f"SVF not found for {sgi_id}: {svf_path}")
-        return ds_latlon
-
-    ds_svf = xr.open_dataset(svf_path)
-
-    # sort for interpolation stability
-    if ds_latlon.lon[0] > ds_latlon.lon[-1]:
-        ds_latlon = ds_latlon.sortby("lon")
-    if ds_latlon.lat[0] > ds_latlon.lat[-1]:
-        ds_latlon = ds_latlon.sortby("lat")
-    if ds_svf.lon[0] > ds_svf.lon[-1]:
-        ds_svf = ds_svf.sortby("lon")
-    if ds_svf.lat[0] > ds_svf.lat[-1]:
-        ds_svf = ds_svf.sortby("lat")
-
-    svf_vars = [v for v in ["svf", "asvf", "opns"] if v in ds_svf.data_vars]
-    if not svf_vars:
-        return ds_latlon
-
-    # exact match vs. interpolation
-    if np.array_equal(ds_latlon.lon.values, ds_svf.lon.values) and np.array_equal(
-        ds_latlon.lat.values, ds_svf.lat.values
-    ):
-        ds_latlon = xr.merge([ds_latlon, ds_svf[svf_vars]])
-    else:
-        svf_on_grid = ds_svf[svf_vars].interp(
-            lon=ds_latlon.lon, lat=ds_latlon.lat, method="linear"
-        )
-        for v in svf_vars:
-            svf_on_grid[v] = svf_on_grid[v].astype("float32")
-        ds_latlon = ds_latlon.assign(**{v: svf_on_grid[v] for v in svf_vars})
-
-    # masked versions (if glacier_mask exists)
-    if "glacier_mask" in ds_latlon:
-        gmask = xr.where(ds_latlon["glacier_mask"] == 1, 1.0, np.nan)
-        for v in svf_vars:
-            ds_latlon[f"masked_{v}"] = gmask * ds_latlon[v]
-    return ds_latlon
-
-
 def create_sgi_topo_masks(
     cfg,
     iterator,
@@ -1009,3 +948,117 @@ def create_sgi_topo_masks(
             except Exception:
                 pass
             print(f"Error saving dataset for {item}: {e}")
+
+
+def xr_GLAMOS_masked_topo(cfg, sgi_id, ds_gl):
+    """
+    Build a glacier-masked topographic dataset (aspect, slope, elevation) for a GLAMOS glacier.
+
+    This function loads SGI topographic raster grids (aspect and slope) corresponding to
+    a given SGI glacier identifier, converts them from LV95 projected coordinates to
+    WGS84 geographic coordinates, resamples them to the resolution of an existing
+    glacier mask dataset, and applies that mask.
+
+    The resulting dataset contains glacier-masked versions of aspect, slope, and
+    elevation on a common lat/lon grid.
+
+    Processing steps:
+    -----------------
+    1. Locate and load SGI aspect and slope `.grid` files for the provided `sgi_id`.
+    2. Convert the raw grid data to xarray DataArrays using metadata information.
+    3. Transform LV95 (EPSG:2056) coordinates to WGS84 lat/lon.
+    4. Resample aspect and slope to match the resolution of `ds_gl["glacier_mask"]`.
+    5. Apply the glacier mask to aspect, slope, and DEM values.
+    6. Remove negative DEM values (treated as erroneous).
+    7. Return a unified masked topography dataset.
+
+    Parameters
+    ----------
+    cfg : object
+        Configuration object containing at least:
+        - `dataPath`: base directory for SGI topography data.
+        - `path_SGI_topo`: relative path to the SGI topography folder.
+    sgi_id : str
+        SGI glacier identifier used to select the correct SGI grid files.
+    ds_gl : xarray.Dataset
+        Existing glacier dataset that must contain:
+        - `glacier_mask` : 2D mask array (1 = glacier, 0 = non-glacier)
+        - `dem`          : elevation field on the same grid as the mask
+
+    Returns
+    -------
+    xarray.Dataset
+        Dataset on the same grid as `ds_gl` containing:
+        - `masked_aspect` : aspect values masked to glacier area
+        - `masked_slope`  : slope values masked to glacier area
+        - `masked_elev`   : DEM values masked to glacier area
+        - `glacier_mask`  : original glacier mask
+
+    Raises
+    ------
+    FileNotFoundError
+        If SGI aspect or slope grid files for the given `sgi_id` cannot be found.
+    KeyError
+        If required variables are missing from `ds_gl`.
+    IndexError
+        If multiple or zero SGI files match the given `sgi_id`.
+
+    Notes
+    -----
+    - Input SGI rasters are assumed to be in LV95 coordinates and are transformed
+      to WGS84 using `transform_xarray_coords_lv95_to_wgs84`.
+    - Resampling to the glacier mask grid is performed using nearest-neighbor
+      interpolation to preserve categorical characteristics.
+    - Elevation values below 0 m are set to NaN as a basic quality filter.
+    """
+    path_aspect = os.path.join(cfg.dataPath, path_SGI_topo, "aspect")
+    path_slope = os.path.join(cfg.dataPath, path_SGI_topo, "slope")
+
+    # Load SGI topo files
+    aspect_gl = [f for f in os.listdir(path_aspect) if sgi_id in f][0]
+    slope_gl = [f for f in os.listdir(path_slope) if sgi_id in f][0]
+
+    metadata_aspect, grid_data_aspect = load_grid_file(join(path_aspect, aspect_gl))
+    metadata_slope, grid_data_slope = load_grid_file(join(path_slope, slope_gl))
+
+    # Convert to xarray
+    aspect = convert_to_xarray_geodata(grid_data_aspect, metadata_aspect)
+    slope = convert_to_xarray_geodata(grid_data_slope, metadata_slope)
+
+    # Transform to WGS84
+    aspect_wgs84 = transform_xarray_coords_lv95_to_wgs84(aspect)
+    slope_wgs84 = transform_xarray_coords_lv95_to_wgs84(slope)
+
+    # Compute original resolution (for checking)
+    dx_m, dy_m = get_res_from_degrees(aspect_wgs84)
+    # print(f"aspect resolution: {dx_m} x {dy_m} meters")
+
+    # Step 1: Downsample aspect & slope to glacier mask resolution
+    aspect_resampled = aspect_wgs84.interp_like(ds_gl["glacier_mask"], method="nearest")
+    slope_resampled = slope_wgs84.interp_like(ds_gl["glacier_mask"], method="nearest")
+
+    # Compute new resolution (after downsampling)
+    dx_m, dy_m = get_res_from_degrees(ds_gl["glacier_mask"])
+    # print(f"New resolution (after downsampling): {dx_m} x {dy_m} meters")
+
+    # Step 2: Apply the glacier mask
+    masked_aspect = aspect_resampled.where(ds_gl["glacier_mask"] == 1, np.nan)
+    masked_slope = slope_resampled.where(ds_gl["glacier_mask"] == 1, np.nan)
+
+    # Resample DEM to the same resolution
+    dem_resampled = ds_gl["dem"].interp_like(ds_gl["glacier_mask"], method="nearest")
+
+    # Create a new dataset
+    ds = xr.Dataset(
+        {
+            "masked_aspect": masked_aspect,
+            "masked_elev": dem_resampled,
+            "masked_slope": masked_slope,
+            "glacier_mask": ds_gl["glacier_mask"],
+        }
+    )
+
+    # Mask elevations below 0 (to remove erroneous values)
+    ds["masked_elev"] = ds.masked_elev.where(ds.masked_elev >= 0, np.nan)
+
+    return ds
