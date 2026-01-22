@@ -34,42 +34,6 @@ VOIS_CLIMATE = [
 VOIS_TOPOGRAPHICAL = ["aspect_sgi", "slope_sgi", "svf"]
 
 # Model parameters
-PARAMS_LSTM_OOS = {
-    "lr": 0.001,
-    "weight_decay": 0.0001,
-    "hidden_size": 128,
-    "num_layers": 2,
-    "dropout": 0.2,
-    "head_dropout": 0.0,
-    "static_layers": 2,
-    "static_hidden": [128, 64],
-    "static_dropout": 0.1,
-    "Fm": 9,
-    "Fs": 3,
-    "bidirectional": False,
-    "loss_name": "neutral",
-    "loss_spec": None,
-    "two_heads": False,
-}
-
-PARAMS_LSTM_IS = {
-    "lr": 0.001,
-    "weight_decay": 0.0,
-    "hidden_size": 128,
-    "num_layers": 2,
-    "dropout": 0.1,
-    "head_dropout": 0.1,
-    "static_layers": 2,
-    "static_hidden": [128, 64],
-    "static_dropout": 0.1,
-    "Fm": 9,
-    "Fs": 3,
-    "bidirectional": False,
-    "loss_name": "neutral",
-    "loss_spec": None,
-    "two_heads": False,
-}
-
 PARAMS_LSTM_OOS_PAST = {
     "Fm": 9,
     "Fs": 3,

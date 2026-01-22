@@ -1,7 +1,35 @@
 # scripts/parallel_mb.py
 
+"""
+Parallel LSTM-based glacier mass balance inference.
+
+This module runs gridded glacier mass balance (MB) inference using a trained
+LSTM model for many glacier–year combinations in parallel.
+
+High-level workflow
+-------------------
+1. Build (glacier, year) tasks from available parquet grid files, optionally
+   restricted to geodetic years.
+2. For each worker process:
+   - Initialize with quiet stdout/stderr and restricted thread counts.
+   - Load the LSTM model once (cached per process).
+3. For each glacier-year:
+   - Read monthly grid parquet, prepare annual and winter subsets.
+   - Fit scalers using the provided training dataset indices.
+   - Run annual prediction, save to per-year DEM grid (zarr).
+   - Optionally compute and save cumulative monthly products.
+   - Run winter prediction (if winter months exist), save outputs.
+
+All functions are suffixed with `_lstm` (or contain `lstm`) to avoid name
+collisions with other parallel inference scripts (e.g., NN, XGB).
+"""
+
 from __future__ import annotations
-import os, sys, io, warnings, logging, multiprocessing as mp
+
+import os
+import sys
+import io
+import multiprocessing as mp
 from dataclasses import dataclass
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from contextlib import redirect_stdout
@@ -13,9 +41,8 @@ import pandas as pd
 import torch
 import xarray as xr
 
-# add near the other imports
 import massbalancemachine as mbm
-from regions.Switzerland.scripts.helpers import *
+from regions.Switzerland.scripts.utils import *
 
 # 3rd party progress bar is optional; caller can pass a shim
 try:
@@ -28,26 +55,74 @@ except Exception:  # pragma: no cover
 
 # ----------------- dataclass config -----------------
 @dataclass(frozen=True)
-class MBJobConfig:
+class MBJobConfig_lstm:
+    """
+    Configuration container for parallel LSTM glacier MB inference.
+
+    Attributes
+    ----------
+    cfg : Any
+        Configuration object used by massbalancemachine (e.g., SwitzerlandConfig).
+    MONTHLY_COLS : list of str
+        Monthly (time-varying) feature column names.
+    STATIC_COLS : list of str
+        Static (time-invariant) feature column names.
+    fields_not_features : list of str
+        Extra metadata fields that must be kept but are not model features
+        (e.g., cfg.fieldsNotFeatures).
+    model_filename : str
+        Path to a saved LSTM model state dict.
+    custom_params : dict
+        Model hyperparameters used by `mbm.models.LSTM_MB.build_model_from_params`.
+    ds_train : Any
+        Untransformed training dataset used to fit scalers.
+    train_idx : Iterable[int]
+        Indices of training samples used when fitting scalers.
+    months_head_pad : int
+        Number of padded months at the beginning of each sequence.
+    months_tail_pad : int
+        Number of padded months at the end of each sequence.
+    data_path : str
+        Base data path (often cfg.dataPath).
+    path_glacier_grid_glamos : str
+        Relative path to glacier parquet grid files.
+    path_xr_grids : str
+        Path to per-glacier per-year DEM grids (zarr).
+    path_save_glw : str
+        Output directory where glacier-wide products are written.
+    seed : int, optional
+        Random seed for loader reproducibility.
+    max_workers : int, optional
+        Maximum number of parallel worker processes.
+    cpu_only : bool, optional
+        If True, force CPU-only execution.
+    ONLY_GEODETIC : bool, optional
+        If True, only process years within the geodetic range for each glacier.
+    save_monthly : bool, optional
+        If True, also save cumulative monthly products.
+    denorm : bool, optional
+        If True, denormalize monthly predictions when supported by the model helper.
+    """
+
     # Required: external objects / constants
-    cfg: Any  # mbm.SwitzerlandConfig or similar
+    cfg: Any
     MONTHLY_COLS: List[str]
     STATIC_COLS: List[str]
-    fields_not_features: List[str]  # cfg.fieldsNotFeatures in your setup
+    fields_not_features: List[str]
 
     # Model/artifacts
     model_filename: str
     custom_params: Dict[str, Any]
-    ds_train: Any  # Untransformed training dataset
-    train_idx: Iterable[int]  # indices for scaler fitting
+    ds_train: Any
+    train_idx: Iterable[int]
     months_head_pad: int
     months_tail_pad: int
 
     # Data sources / destinations
-    data_path: str  # cfg.dataPath
+    data_path: str
     path_glacier_grid_glamos: str
-    path_xr_grids: str  # e.g. .../xr_masked_grids
-    path_save_glw: str  # output folder
+    path_xr_grids: str
+    path_save_glw: str
 
     # Misc
     seed: int = 0
@@ -59,7 +134,18 @@ class MBJobConfig:
 
 
 # ----------------- worker init (quiet + CPU threads cap) -----------------
-def worker_init_quiet(cpu_only: bool = True):
+def worker_init_quiet_lstm(cpu_only: bool = True) -> None:
+    """
+    Initialize a worker process for LSTM inference.
+
+    Suppresses stdout/stderr and caps thread usage to reduce oversubscription.
+    Optionally disables CUDA to enforce CPU-only inference.
+
+    Parameters
+    ----------
+    cpu_only : bool, optional
+        If True, disable GPU usage by setting CUDA_VISIBLE_DEVICES.
+    """
     sys.stdout = open(os.devnull, "w")
     sys.stderr = open(os.devnull, "w")
     if cpu_only:
@@ -75,13 +161,37 @@ def worker_init_quiet(cpu_only: bool = True):
 
 
 # ----------------- per-process model cache -----------------
-_MODEL = None  # one per process
+_LSTM_MODEL = None  # one per process
 
 
-def get_model_cpu(cfg, params_used, model_filename):
-    """Build+load the model once per worker (cached)."""
-    global _MODEL
-    if _MODEL is None:
+def get_lstm_model_cpu_cached(
+    cfg: Any, params_used: Dict[str, Any], model_filename: str
+):
+    """
+    Build, load, and cache the LSTM model once per worker (CPU).
+
+    The first call in a worker process:
+    - builds the model from params
+    - loads a state_dict from `model_filename`
+    - puts it into eval() mode
+    Subsequent calls reuse the cached model.
+
+    Parameters
+    ----------
+    cfg : Any
+        massbalancemachine configuration object.
+    params_used : dict
+        Hyperparameter dictionary for model construction.
+    model_filename : str
+        Path to a serialized PyTorch state_dict.
+
+    Returns
+    -------
+    torch.nn.Module
+        The cached LSTM model on CPU in eval mode.
+    """
+    global _LSTM_MODEL
+    if _LSTM_MODEL is None:
         device = torch.device("cpu")
         model = mbm.models.LSTM_MB.build_model_from_params(
             cfg, params_used, device, verbose=False
@@ -89,15 +199,37 @@ def get_model_cpu(cfg, params_used, model_filename):
         state = torch.load(model_filename, map_location=device)
         model.load_state_dict(state)
         model.eval()
-        _MODEL = model
-    return _MODEL
+        _LSTM_MODEL = model
+    return _LSTM_MODEL
 
 
 # ----------------- one glacier-year task -----------------
-def process_glacier_year(
+def process_glacier_year_lstm(
     args: Tuple[str, int],
-    job: MBJobConfig,
+    job: MBJobConfig_lstm,
 ) -> Tuple[str, str, int, str]:
+    """
+    Run LSTM gridded MB prediction for a single (glacier, year).
+
+    The function loads the parquet grid for the glacier-year, constructs
+    annual and winter sequence datasets, fits scalers using the provided
+    training dataset, runs predictions, and writes outputs.
+
+    Parameters
+    ----------
+    args : tuple (str, int)
+        (glacier_name, year) task identifier.
+    job : MBJobConfig_lstm
+        Job configuration object.
+
+    Returns
+    -------
+    tuple
+        (status, glacier_name, year, message), where status is one of:
+        - "ok"   : success
+        - "skip" : missing input data (parquet/DEM/etc.)
+        - "err"  : an exception occurred
+    """
     glacier_name, year = args
     try:
         # paths
@@ -123,8 +255,7 @@ def process_glacier_year(
         if "POINT_BALANCE" not in df_grid_monthly.columns:
             df_grid_monthly["POINT_BALANCE"] = 0.0  # dummy target
 
-        # If the grid starts at aug_ need to set PMB at NaN for
-        # aug_ and sep_
+        # If the grid starts at aug_ need to set PMB at NaN for aug_ and sep_
         extrapolate_months = ["aug_", "sep_"]
         df_grid_monthly.loc[
             df_grid_monthly["MONTHS"].str.lower().isin(extrapolate_months),
@@ -164,7 +295,9 @@ def process_glacier_year(
         )
 
         # Model
-        model = get_model_cpu(job.cfg, job.custom_params, job.model_filename)
+        model = get_lstm_model_cpu_cached(
+            job.cfg, job.custom_params, job.model_filename
+        )
         device = torch.device("cpu")
 
         # Predict annual
@@ -212,7 +345,6 @@ def process_glacier_year(
 
         if job.save_monthly:
             # --- Compute and save cumulative monthly predictions ---
-            # Define hydrological months (customize as needed)
             hydro_months = [
                 "oct",
                 "nov",
@@ -228,17 +360,15 @@ def process_glacier_year(
                 "sep",
             ]
 
-            # Get raw monthly predictions from LSTM
             df_preds_monthly = model.predict_monthly_with_keys(
                 device,
                 test_gl_dl_a,
                 ds_gl_a,
                 month_names=None,
                 denorm=job.denorm,
-                consistent_denorm=job.denorm,  # only relevant if normalized
+                consistent_denorm=job.denorm,
             )
 
-            # Pivot to wide format (one column per month)
             df_wide = (
                 df_preds_monthly.pivot_table(
                     index="ID",
@@ -256,23 +386,19 @@ def process_glacier_year(
                 .reset_index()
             )
 
-            # Merge spatial metadata (ID, lon, lat)
             df_wide = df_wide.merge(
                 df_grid_monthly_a[["ID", "POINT_LON", "POINT_LAT"]].drop_duplicates(),
                 on="ID",
                 how="left",
             )
 
-            # Compute cumulative sum over months (only once!)
             df_cumulative = df_wide.copy()
             df_cumulative[hydro_months] = df_cumulative[hydro_months].cumsum(axis=1)
 
-            # Reorder columns for clarity
             df_cumulative = df_cumulative[
                 ["ID", "POINT_LON", "POINT_LAT"] + hydro_months
             ]
 
-            # ---- Save one file per month ----
             for month in hydro_months:
                 df_month = df_cumulative[["ID", "POINT_LON", "POINT_LAT"]].copy()
                 df_month["pred"] = df_wide[month].values
@@ -342,20 +468,42 @@ def process_glacier_year(
         return ("ok", glacier_name, year, "")
 
     except Exception as e:
-        print(e)
         return ("err", glacier_name, year, str(e))
 
 
 # ----------------- task builder -----------------
-def build_tasks(
+def build_tasks_lstm(
     glacier_list: List[str],
     periods_per_glacier: Dict[str, Iterable[int]],
     data_path: str,
     path_glacier_grid_glamos: str,
     ONLY_GEODETIC: bool,
 ) -> List[Tuple[str, int]]:
+    """
+    Build a list of (glacier, year) tasks for LSTM inference.
+
+    Tasks are determined from available parquet files and optionally
+    restricted to each glacier's geodetic year range.
+
+    Parameters
+    ----------
+    glacier_list : list of str
+        Glaciers to consider.
+    periods_per_glacier : dict
+        Mapping glacier -> iterable of years defining the geodetic range.
+    data_path : str
+        Base data directory.
+    path_glacier_grid_glamos : str
+        Relative path to glacier parquet grids.
+    ONLY_GEODETIC : bool
+        If True, filter years to the geodetic range.
+
+    Returns
+    -------
+    list of tuple
+        List of (glacier_name, year) tasks.
+    """
     tasks: List[Tuple[str, int]] = []
-    print(glacier_list)
     for glacier_name in glacier_list:
         glacier_path = os.path.join(data_path + path_glacier_grid_glamos, glacier_name)
         if not os.path.exists(glacier_path):
@@ -369,13 +517,13 @@ def build_tasks(
         )
         if not glacier_files:
             continue
+
         geodetic_range = range(
             np.min(periods_per_glacier[glacier_name]),
             np.max(periods_per_glacier[glacier_name]) + 1,
         )
         years = [int(f.split("_")[2].split(".")[0]) for f in glacier_files]
 
-        # Process only geodetic years if specified
         if ONLY_GEODETIC:
             years = [y for y in years if y in geodetic_range]
         for y in years:
@@ -384,19 +532,35 @@ def build_tasks(
 
 
 # ----------------- main entry point -----------------
-def run_glacier_mb(
-    job: MBJobConfig,
+def run_glacier_mb_lstm_parallel(
+    job: MBJobConfig_lstm,
     glacier_list: List[str],
     periods_per_glacier: Dict[str, Iterable[int]],
     tqdm=_tqdm_default,
 ) -> Dict[str, int]:
-    """Run parallel glacier-year MB inference & save. Returns summary counts."""
-    # ensure output folder exists & is empty if desired
+    """
+    Run parallel LSTM glacier-year MB inference and save outputs.
+
+    Parameters
+    ----------
+    job : MBJobConfig_lstm
+        LSTM inference job configuration.
+    glacier_list : list of str
+        Glaciers to process.
+    periods_per_glacier : dict
+        Mapping glacier -> iterable of years defining geodetic range.
+    tqdm : callable, optional
+        Progress wrapper (defaults to tqdm.auto.tqdm if available).
+
+    Returns
+    -------
+    dict
+        Summary counts: {"ok": int, "skip": int, "err": int, "total": int}.
+    """
     os.makedirs(job.path_save_glw, exist_ok=True)
     emptyfolder(job.path_save_glw)
-    # caller can empty it beforehand if they want
 
-    tasks = build_tasks(
+    tasks = build_tasks_lstm(
         glacier_list,
         periods_per_glacier,
         job.data_path,
@@ -410,25 +574,25 @@ def run_glacier_mb(
     max_workers = job.max_workers or min(max(1, (os.cpu_count() or 2) - 1), 32)
 
     class _Devnull(io.StringIO):
-
         def write(self, *args, **kwargs):
             return 0
 
+    ok = skip = err = 0
+    errors = []
+
     with redirect_stdout(_Devnull()):  # silence workers and tqdm stdout
-        ok = skip = err = 0
-        errors = []
         with ProcessPoolExecutor(
             max_workers=max_workers,
-            initializer=lambda: worker_init_quiet(job.cpu_only),
+            initializer=lambda: worker_init_quiet_lstm(job.cpu_only),
             mp_context=ctx,
         ) as ex:
-            fn = partial(process_glacier_year, job=job)
+            fn = partial(process_glacier_year_lstm, job=job)
             futures = [ex.submit(fn, t) for t in tasks]
 
             for fut in tqdm(
                 as_completed(futures),
                 total=len(futures),
-                desc=f"Predicting ({max_workers} workers)",
+                desc=f"LSTM Predict ({max_workers} workers)",
             ):
                 status, g, y, msg = fut.result()
                 if status == "ok":
@@ -440,9 +604,8 @@ def run_glacier_mb(
                     errors.append((g, y, msg))
 
     # ----------- OUTSIDE redirect_stdout, printing now works -----------
-
     if errors:
-        print("\n❌ Errors:")
+        print("\nErrors:")
         for g, y, msg in errors[:25]:
             print(f"{g} {y} → {msg}")
         if len(errors) > 25:

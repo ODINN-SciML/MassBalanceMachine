@@ -1,4 +1,12 @@
-# scripts/parallel_mb_nn.py
+"""
+Parallel neural-network-based glacier mass balance prediction.
+
+This script runs gridded mass balance predictions using a trained neural
+network model for multiple glacier–year combinations in parallel. It
+handles model loading, per-glacier/year processing, and multiprocessing
+execution with controlled resource usage.
+"""
+
 from __future__ import annotations
 import os, sys, io, warnings, logging, multiprocessing as mp
 from dataclasses import dataclass
@@ -13,7 +21,7 @@ import torch
 import xarray as xr
 
 import massbalancemachine as mbm
-from regions.Switzerland.scripts.helpers import *
+from regions.Switzerland.scripts.utils import *
 
 try:
     from tqdm.auto import tqdm as _tqdm_default
@@ -25,7 +33,46 @@ except Exception:
 
 # ----------------- Config -----------------
 @dataclass(frozen=True)
-class NNJobConfig:
+class NNMbJobConfig:
+    """
+    Configuration container for parallel NN glacier mass balance jobs.
+
+    Attributes
+    ----------
+    cfg : Any
+        Global configuration object used to load the trained model.
+    model_filename : str
+        Filename of the trained neural network model.
+    args : dict
+        Model initialization arguments.
+    param_init : dict
+        Initial model parameters (e.g. weights, architecture settings).
+    all_columns : list of str
+        List of feature columns required for NN prediction.
+    months_head_pad : int
+        Number of months to ignore at the beginning of each time series.
+    months_tail_pad : int
+        Number of months to ignore at the end of each time series.
+    data_path : str
+        Base path to input data.
+    path_glacier_grid_glamos : str
+        Relative path to glacier gridded parquet files.
+    path_xr_grids : str
+        Path to xarray/zarr DEM grids.
+    path_save_glw : str
+        Output directory for predicted glacier-wide mass balance.
+    seed : int, optional
+        Random seed for reproducibility.
+    max_workers : int, optional
+        Maximum number of parallel worker processes.
+    cpu_only : bool, optional
+        If True, force CPU-only execution.
+    ONLY_GEODETIC : bool, optional
+        If True, restrict processing to geodetic periods only.
+    save_monthly_pred : bool, optional
+        If True, save monthly gridded predictions.
+    """
+
     cfg: Any
     model_filename: str
     args: Dict[str, Any]
@@ -45,7 +92,21 @@ class NNJobConfig:
 
 
 # ----------------- Worker Init -----------------
-def worker_init_quiet(cpu_only: bool = True):
+def worker_init_quiet_nn(cpu_only: bool = True):
+    """
+    Initialize a worker process for NN inference with minimal output and
+    restricted resources.
+
+    This function:
+    - Suppresses stdout and stderr
+    - Optionally disables CUDA
+    - Limits the number of threads used by BLAS, MKL, OpenMP, and PyTorch
+
+    Parameters
+    ----------
+    cpu_only : bool, optional
+        If True, disable GPU usage by setting CUDA_VISIBLE_DEVICES.
+    """
     sys.stdout = open(os.devnull, "w")
     sys.stderr = open(os.devnull, "w")
     if cpu_only:
@@ -61,13 +122,35 @@ def worker_init_quiet(cpu_only: bool = True):
 
 
 # ----------------- Model cache -----------------
-_MODEL = None
+_NN_MODEL = None
 
 
-def get_nn_model(model_filename, args, param_init, cfg):
-    """Load the NN model once per worker and keep it cached in memory."""
-    global _MODEL
-    if _MODEL is None:
+def load_nn_model_cached(model_filename, args, param_init, cfg):
+    """
+    Load and cache the neural network model once per worker.
+
+    The model is loaded on first call within a worker process and then
+    reused for subsequent glacier-year evaluations to avoid redundant
+    disk I/O and initialization overhead.
+
+    Parameters
+    ----------
+    model_filename : str
+        Filename of the trained NN model.
+    args : dict
+        Model loading arguments.
+    param_init : dict
+        Model initialization parameters.
+    cfg : Any
+        Global configuration object.
+
+    Returns
+    -------
+    CustomNeuralNetRegressor
+        Loaded neural network model on CPU.
+    """
+    global _NN_MODEL
+    if _NN_MODEL is None:
         loaded_model = mbm.models.CustomNeuralNetRegressor.load_model(
             cfg,
             model_filename,
@@ -75,15 +158,31 @@ def get_nn_model(model_filename, args, param_init, cfg):
         )
         loaded_model = loaded_model.set_params(device="cpu")
         loaded_model = loaded_model.to("cpu")
-        _MODEL = loaded_model
-    return _MODEL
+        _NN_MODEL = loaded_model
+    return _NN_MODEL
 
 
 # ----------------- Per glacier-year -----------------
-def process_glacier_year(
+def process_glacier_year_nn(
     args: Tuple[str, int],
-    job: NNJobConfig,
+    job: NNMbJobConfig,
 ) -> Tuple[str, str, int, str]:
+    """
+    Run NN mass balance prediction for a single glacier and year.
+
+    Parameters
+    ----------
+    args : tuple (str, int)
+        Glacier name and year.
+    job : NNMbJobConfig
+        Job configuration object.
+
+    Returns
+    -------
+    tuple
+        (status, glacier_name, year, message), where status is one of
+        {"ok", "skip", "err"}.
+    """
     glacier_name, year = args
     try:
         glacier_path = os.path.join(
@@ -106,7 +205,9 @@ def process_glacier_year(
         if not os.path.exists(path_glacier_dem):
             return ("skip", glacier_name, year, "DEM zarr missing")
 
-        model = get_nn_model(job.model_filename, job.args, job.param_init, job.cfg)
+        model = load_nn_model_cached(
+            job.model_filename, job.args, job.param_init, job.cfg
+        )
 
         geoData = mbm.geodata.GeoData(
             df_grid_monthly,
@@ -133,13 +234,34 @@ def process_glacier_year(
 
 
 # ----------------- Task Builder -----------------
-def build_tasks(
+def build_nn_tasks(
     glacier_list: List[str],
     periods_per_glacier: Dict[str, Iterable[int]],
     data_path: str,
     path_glacier_grid_glamos: str,
     ONLY_GEODETIC: bool,
 ) -> List[Tuple[str, int]]:
+    """
+    Build a list of (glacier, year) tasks for NN inference.
+
+    Parameters
+    ----------
+    glacier_list : list of str
+        List of glacier identifiers.
+    periods_per_glacier : dict
+        Mapping of glacier name to iterable of geodetic years.
+    data_path : str
+        Base data directory.
+    path_glacier_grid_glamos : str
+        Relative path to glacier parquet data.
+    ONLY_GEODETIC : bool
+        If True, restrict years to geodetic range.
+
+    Returns
+    -------
+    list of tuple
+        List of (glacier_name, year) tasks.
+    """
     tasks: List[Tuple[str, int]] = []
     for glacier_name in glacier_list:
         glacier_path = os.path.join(data_path + path_glacier_grid_glamos, glacier_name)
@@ -164,16 +286,36 @@ def build_tasks(
 
 
 # ----------------- Main -----------------
-def run_glacier_mb_nn(
-    job: NNJobConfig,
+def run_glacier_mb_nn_parallel(
+    job: NNMbJobConfig,
     glacier_list: List[str],
     periods_per_glacier: Dict[str, Iterable[int]],
     tqdm=_tqdm_default,
 ) -> Dict[str, int]:
+    """
+    Run parallel NN-based mass balance predictions for multiple glaciers.
+
+    Parameters
+    ----------
+    job : NNMbJobConfig
+        Job configuration object.
+    glacier_list : list of str
+        List of glaciers to process.
+    periods_per_glacier : dict
+        Mapping of glacier name to iterable of geodetic years.
+    tqdm : callable, optional
+        Progress bar wrapper (default: tqdm.auto.tqdm).
+
+    Returns
+    -------
+    dict
+        Dictionary with counts of successful, skipped, and failed tasks:
+        {"ok", "skip", "err", "total"}.
+    """
     os.makedirs(job.path_save_glw, exist_ok=True)
     emptyfolder(job.path_save_glw)
 
-    tasks = build_tasks(
+    tasks = build_nn_tasks(
         glacier_list,
         periods_per_glacier,
         job.data_path,
@@ -189,10 +331,10 @@ def run_glacier_mb_nn(
     ok = skip = err = 0
     with ProcessPoolExecutor(
         max_workers=max_workers,
-        initializer=lambda: worker_init_quiet(job.cpu_only),
+        initializer=lambda: worker_init_quiet_nn(job.cpu_only),
         mp_context=ctx,
     ) as ex:
-        fn = partial(process_glacier_year, job=job)
+        fn = partial(process_glacier_year_nn, job=job)
         futures = [ex.submit(fn, t) for t in tasks]
         for fut in tqdm(
             as_completed(futures),
