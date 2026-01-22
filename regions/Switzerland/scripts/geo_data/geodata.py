@@ -66,7 +66,7 @@ def LV03_to_WGS84(df):
     return df
 
 
-def LV03toWGS84(df):
+def LV03_to_WGS84(df):
     """
     Convert coordinates from the Swiss LV03 system (CH1903) to WGS84 latitude/longitude.
 
@@ -111,7 +111,7 @@ def LV03toWGS84(df):
     - The input DataFrame is modified in place.
     """
     converter = GPSConverter()
-    lat, lon, height = converter.LV03toWGS84(df["x_pos"], df["y_pos"], df["z_pos"])
+    lat, lon, height = converter.LV03_to_WGS84(df["x_pos"], df["y_pos"], df["z_pos"])
     df["lat"] = lat
     df["lon"] = lon
     df["height"] = height
@@ -310,7 +310,7 @@ def transform_xarray_coords_lv03_to_wgs84(data_array):
     It performs the following steps:
 
     1. Flattens the 2D grid values and corresponding LV03 x/y coordinates.
-    2. Converts all grid coordinates from LV03 to WGS84 using `LV03toWGS84`.
+    2. Converts all grid coordinates from LV03 to WGS84 using `LV03_to_WGS84`.
     3. Reshapes the transformed longitude and latitude arrays back to the original
        grid shape.
     4. Assigns new 1D longitude and latitude coordinates to the DataArray.
@@ -345,7 +345,7 @@ def transform_xarray_coords_lv03_to_wgs84(data_array):
       (EPSG:21781). If the data are in LV95 instead, a different converter
       should be used.
     - The conversion is performed by flattening the grid to a table of points,
-      transforming them using `LV03toWGS84`, and then reconstructing the grid.
+      transforming them using `LV03_to_WGS84`, and then reconstructing the grid.
     - The function does not modify data values—only the coordinate system.
     """
     # Flatten the DataArray (values) and extract x and y coordinates for each time step
@@ -367,8 +367,7 @@ def transform_xarray_coords_lv03_to_wgs84(data_array):
     df["z_pos"] = 0
 
     # Convert to lat/lon
-    df = LV03toWGS84(df)
-    # df = LV95toWGS84(df)
+    df = LV03_to_WGS84(df)
 
     # Transform LV95 to WGS84 (lat, lon)
     lon, lat = df.lon.values, df.lat.values
