@@ -14,12 +14,16 @@ from scipy.ndimage import gaussian_filter
 from dateutil.relativedelta import relativedelta
 from tqdm.notebook import tqdm
 from rasterio.transform import from_bounds
+import glob
 
 import massbalancemachine as mbm
 
 from regions.Switzerland.scripts.config_CH import *
 from regions.Switzerland.scripts.utils import *
-from regions.Switzerland.scripts.geo_data.svf import merge_svf_into_ds
+
+# Somehow the GPSConverter class import fails with relative imports
+# so we use the full path here.
+from regions.Switzerland.scripts.utils.wgs84_ch1903 import GPSConverter
 
 
 # --------------------------- Pure geospatial/raster utilities --------------------------- #
@@ -56,59 +60,6 @@ def LV03_to_WGS84(df):
     ------
     KeyError
         If required columns are missing.
-    """
-    converter = GPSConverter()
-    lat, lon, height = converter.LV03_to_WGS84(df["x_pos"], df["y_pos"], df["z_pos"])
-    df["lat"] = lat
-    df["lon"] = lon
-    df["height"] = height
-    df.drop(["x_pos", "y_pos", "z_pos"], axis=1, inplace=True)
-    return df
-
-
-def LV03_to_WGS84(df):
-    """
-    Convert coordinates from the Swiss LV03 system (CH1903) to WGS84 latitude/longitude.
-
-    This function transforms planar Swiss grid coordinates (x/y/z in LV03)
-    into geographic coordinates in the WGS84 reference system using the
-    `GPSConverter` utility.
-
-    The input DataFrame is expected to contain LV03 coordinates in columns
-    named `x_pos`, `y_pos`, and `z_pos`. After conversion, these columns
-    are replaced by new columns:
-
-        - `lat`  : latitude in degrees (WGS84)
-        - `lon`  : longitude in degrees (WGS84)
-        - `height` : height in meters (WGS84 ellipsoidal height)
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        DataFrame containing Swiss LV03 coordinates with the following required columns:
-        - `x_pos` : float, easting in LV03 coordinates
-        - `y_pos` : float, northing in LV03 coordinates
-        - `z_pos` : float, elevation in meters
-
-    Returns
-    -------
-    pandas.DataFrame
-        The same DataFrame with LV03 coordinate columns removed and replaced by:
-        - `lat`
-        - `lon`
-        - `height`
-
-    Raises
-    ------
-    KeyError
-        If any of the required columns (`x_pos`, `y_pos`, `z_pos`) are missing.
-
-    Notes
-    -----
-    - The conversion relies on the `GPSConverter` class, which implements
-      the official transformation between Swiss CH1903/LV03 and WGS84.
-    - The transformation is applied element-wise to all rows of the DataFrame.
-    - The input DataFrame is modified in place.
     """
     converter = GPSConverter()
     lat, lon, height = converter.LV03_to_WGS84(df["x_pos"], df["y_pos"], df["z_pos"])
@@ -1061,3 +1012,91 @@ def xr_GLAMOS_masked_topo(cfg, sgi_id, ds_gl):
     ds["masked_elev"] = ds.masked_elev.where(ds.masked_elev >= 0, np.nan)
 
     return ds
+
+
+def apply_gaussian_filter(obj, variable_name="pred_masked", sigma: float = 1):
+    """
+    Apply Gaussian smoothing to an xarray Dataset or DataArray.
+
+    The function applies a Gaussian filter to spatial data while preserving
+    the original coordinates, dimensions, and attributes. Missing values
+    (NaNs) are handled by temporarily filling them with zeros prior to
+    smoothing and restoring the original NaN mask afterward.
+
+    Parameters
+    ----------
+    obj : xarray.Dataset or xarray.DataArray
+        Input data to be smoothed. If a Dataset is provided, the variable to
+        smooth is specified by `variable_name`.
+    variable_name : str, optional
+        Name of the variable within the Dataset to which the Gaussian filter
+        is applied. Required when `obj` is a Dataset and ignored when `obj`
+        is a DataArray.
+    sigma : float, optional
+        Standard deviation of the Gaussian kernel, in grid-cell units.
+        Larger values produce stronger smoothing.
+
+    Returns
+    -------
+    xarray.Dataset or xarray.DataArray
+        Smoothed output with the same type as the input. Coordinates,
+        dimensions, and attributes are preserved. NaN values in the input
+        remain NaN in the output.
+
+    Raises
+    ------
+    ValueError
+        If `obj` is an xarray.Dataset and `variable_name` is not provided.
+    TypeError
+        If `obj` is not an xarray.Dataset or xarray.DataArray.
+
+    Notes
+    -----
+    - The Gaussian filter is applied using `scipy.ndimage.gaussian_filter`
+      on the underlying NumPy array.
+    - NaN handling is conservative: NaNs do not influence nearby values
+      after smoothing, but this approach may slightly dampen values near
+      masked regions.
+    """
+
+    # --- Case 1: Input is a Dataset ---
+    if isinstance(obj, xr.Dataset):
+
+        if variable_name is None:
+            raise ValueError("variable_name must be provided when passing a Dataset.")
+
+        data_array = obj[variable_name]
+        is_dataset = True
+
+    # --- Case 2: Input is a DataArray ---
+    elif isinstance(obj, xr.DataArray):
+        data_array = obj
+        is_dataset = False
+
+    else:
+        raise TypeError("Input must be an xarray.Dataset or xarray.DataArray.")
+
+    # Step 1: mask of valid data
+    mask = ~np.isnan(data_array)
+
+    # Step 2: replace NaNs
+    filled_data = data_array.fillna(0)
+
+    # Step 3: Gaussian filter
+    smoothed_np = gaussian_filter(filled_data.data, sigma=sigma)
+
+    # Step 4: restore coords / dims / attrs + mask NaNs back
+    smoothed_da = xr.DataArray(
+        smoothed_np,
+        dims=data_array.dims,
+        coords=data_array.coords,
+        attrs=data_array.attrs,
+    ).where(mask)
+
+    # --- Return in the same structure as input ---
+    if is_dataset:
+        out = obj.copy()
+        out[variable_name] = smoothed_da
+        return out
+    else:
+        return smoothed_da

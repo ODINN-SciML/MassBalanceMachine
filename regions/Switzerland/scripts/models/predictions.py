@@ -15,6 +15,7 @@ from sklearn.model_selection import (
 import massbalancemachine as mbm
 from regions.Switzerland.scripts.config_CH import *
 from regions.Switzerland.scripts.utils import *
+from regions.Switzerland.scripts.geo_data import *
 
 
 def get_df_aggregate_pred(test_set, y_pred_agg, all_columns):
@@ -555,3 +556,348 @@ def prepare_monthly_long_df(
     )
 
     return df_long
+
+
+def aggregate_gridded_mb_lstm_glamos_by_glacier(
+    glacier_name, path_pred_lstm, cfg, period="annual"
+):
+    """
+    Aggregate gridded LSTM predictions and GLAMOS reference grids across all available years.
+
+    The function detects available years from LSTM Zarr files, loads the matching
+    GLAMOS grid and LSTM prediction for each year, processes them into tidy
+    DataFrames (via `process_year`), and concatenates results over time. It
+    returns separate DataFrames for LSTM and GLAMOS and an optional combined
+    table with a 'SOURCE' column.
+
+    Parameters
+    ----------
+    glacier_name : str
+        Glacier identifier used in filenames and folder structure.
+    path_pred_lstm : str
+        Base directory containing LSTM prediction Zarr files.
+    cfg : object
+        Configuration object providing at least `dataPath` (used to locate GLAMOS files).
+    period : {"annual", "winter"}, optional
+        Mass-balance period to process.
+
+    Returns
+    -------
+    df_all_years_lstm : pandas.DataFrame
+        Concatenated LSTM predictions across years (SOURCE='LSTM' if non-empty).
+    df_all_years_glamos : pandas.DataFrame
+        Concatenated GLAMOS values across years (SOURCE='GLAMOS' if non-empty).
+    df_all_years : pandas.DataFrame
+        Combined DataFrame containing both sources (drops 'x'/'y' if present).
+        Empty if no valid data were found.
+    """
+    years = list_years_from_lstm(glacier_name, path_pred_lstm, period=period)
+    dfs_lstm, dfs_glamos = [], []
+
+    def validate_paths(year, grid_path, mbm_file):
+        if grid_path is None:
+            print(
+                f"[skip] {glacier_name} {year}: GLAMOS grid file not found at: {grid_path}"
+            )
+            return False
+        if not os.path.exists(grid_path):
+            print(f"[skip] {glacier_name} {year}: GLAMOS grid missing at: {grid_path}")
+            return False
+        if mbm_file is None:
+            print(f"[skip] {glacier_name} {year}: LSTM zarr path not provided.")
+            return False
+        if not os.path.exists(mbm_file):
+            print(f"[skip] {glacier_name} {year}: LSTM zarr missing: {mbm_file}")
+            return False
+        return True
+
+    for y in years:
+        grid_path, mbm_file = paths_for_year(
+            path_pred_lstm, glacier_name, y, cfg, period=period
+        )
+        if not validate_paths(y, grid_path, mbm_file):
+            continue
+
+        try:
+            df_pred_lstm, df_pred_glamos = process_year(
+                glacier_name, path_pred_lstm, y, cfg, period=period
+            )
+            if df_pred_lstm is not None and len(df_pred_lstm):
+                dfs_lstm.append(df_pred_lstm)
+            else:
+                print(f"[warn] {y}: empty LSTM dataframe.")
+
+            if df_pred_glamos is not None and len(df_pred_glamos):
+                dfs_glamos.append(df_pred_glamos)
+            else:
+                print(f"[warn] {y}: empty GLAMOS dataframe.")
+        except Exception as e:
+            print(f"[error years] {y}: {e}")
+
+    df_all_years_lstm = (
+        pd.concat(dfs_lstm, ignore_index=True) if dfs_lstm else pd.DataFrame()
+    )
+    df_all_years_glamos = (
+        pd.concat(dfs_glamos, ignore_index=True) if dfs_glamos else pd.DataFrame()
+    )
+
+    if not df_all_years_lstm.empty:
+        df_all_years_lstm = df_all_years_lstm.assign(SOURCE="LSTM")
+    if not df_all_years_glamos.empty and "SOURCE" not in df_all_years_glamos.columns:
+        df_all_years_glamos = df_all_years_glamos.assign(SOURCE="GLAMOS")
+
+    if not df_all_years_lstm.empty or not df_all_years_glamos.empty:
+        df_all_years = pd.concat(
+            [df_all_years_lstm, df_all_years_glamos], ignore_index=True
+        ).drop(columns=["x", "y"], errors="ignore")
+    else:
+        df_all_years = pd.DataFrame()
+
+    return df_all_years_lstm, df_all_years_glamos, df_all_years
+
+
+def list_years_from_lstm(glacier_name, path_pred_lstm, period="annual"):
+    """
+    List available prediction years from LSTM Zarr files for a glacier and period.
+
+    The function searches for files matching:
+        {path_pred_lstm}/{glacier_name}/{glacier_name}_{YYYY}_{period}.zarr
+    and returns the extracted years.
+
+    Parameters
+    ----------
+    glacier_name : str
+        Glacier identifier used in filenames.
+    path_pred_lstm : str
+        Base directory containing glacier subfolders with prediction Zarr files.
+    period : {"annual", "winter", "ann", "win", "yearly"}, optional
+        Period selector mapped to LSTM filename tags via `_period_tags`.
+
+    Returns
+    -------
+    list of int
+        Sorted unique years found for the requested glacier and period.
+    """
+    lstm_tag, _ = _period_tags(period)
+    base_lstm = os.path.join(path_pred_lstm, glacier_name)
+    pattern = os.path.join(base_lstm, f"*_{lstm_tag}.zarr")
+    years = []
+    for f in glob.glob(pattern):
+        # e.g. aletsch_2010_annual.zarr OR aletsch_2010_winter.zarr
+        m = re.match(r".*[\\/](\D+)?(\d{4})_" + re.escape(lstm_tag) + r"\.zarr$", f)
+        if m:
+            years.append(int(m.group(2)))
+    return sorted(set(years))
+
+
+def paths_for_year(path_pred_lstm, glacier_name, year, cfg, period="annual"):
+    """
+    Resolve file paths for GLAMOS grid and LSTM prediction for a given year.
+
+    GLAMOS is searched in LV95 first, then LV03, using the period-specific
+    tag ('ann' or 'win'). The LSTM Zarr path is constructed directly.
+
+    Parameters
+    ----------
+    path_pred_lstm : str
+        Base directory containing LSTM prediction Zarr files.
+    glacier_name : str
+        Glacier identifier used in filenames.
+    year : int
+        Year to resolve.
+    cfg : object
+        Configuration object providing at least `dataPath`.
+    period : {"annual", "winter", "ann", "win", "yearly"}, optional
+        Period selector mapped to filename tags via `_period_tags`.
+
+    Returns
+    -------
+    grid_path : str or None
+        Path to the GLAMOS grid file if found, otherwise None.
+    mbm_file_lstm : str
+        Expected path to the LSTM prediction Zarr file (may not exist).
+    """
+    lstm_tag, glamos_tag = _period_tags(period)
+
+    # look for GLAMOS in lv95 then lv03
+    base_gl = os.path.join(
+        cfg.dataPath, path_distributed_MB_glamos, "GLAMOS", glacier_name
+    )
+    cand_lv95 = os.path.join(base_gl, f"{year}_{glamos_tag}_fix_lv95.grid")
+    cand_lv03 = os.path.join(base_gl, f"{year}_{glamos_tag}_fix_lv03.grid")
+    grid_path = (
+        cand_lv95
+        if os.path.exists(cand_lv95)
+        else (cand_lv03 if os.path.exists(cand_lv03) else None)
+    )
+
+    # LSTM file
+    mbm_file_lstm = os.path.join(
+        path_pred_lstm, glacier_name, f"{glacier_name}_{year}_{lstm_tag}.zarr"
+    )
+
+    return grid_path, mbm_file_lstm  # grid_path may be None
+
+
+def _period_tags(period: str):
+    """
+    Map a period name to filename tags used by LSTM and GLAMOS.
+
+    Parameters
+    ----------
+    period : str
+        Period identifier (e.g. 'annual', 'winter', 'ann', 'win', 'yearly').
+
+    Returns
+    -------
+    tuple of (str, str)
+        (lstm_tag, glamos_tag), where lstm_tag is used in Zarr filenames
+        and glamos_tag is used in GLAMOS grid filenames.
+
+    Raises
+    ------
+    ValueError
+        If `period` is not recognized.
+    """
+    p = period.lower()
+    if p in ("annual", "ann", "yearly"):
+        return "annual", "ann"
+    if p in ("winter", "win"):
+        return "winter", "win"
+    raise ValueError(f"Unknown period: {period}")
+
+
+def process_year(glacier_name, path_pred_lstm, year, cfg, period="annual"):
+    """
+    Load and harmonize one year of LSTM predictions and GLAMOS grid data.
+
+    Steps performed:
+      - Load GLAMOS grid (.grid), convert to xarray, transform to WGS84.
+      - Load LSTM prediction Zarr and apply Gaussian smoothing.
+      - Convert both sources to tidy DataFrames with columns including
+        'lat', 'lon', 'pred', 'POINT_ELEVATION', 'YEAR', 'PERIOD'.
+      - Assign elevation to GLAMOS points by interpolating LSTM masked_elev
+        to the GLAMOS grid (nearest-neighbor).
+      - Bin both datasets into 100 m elevation intervals using the LSTM-derived
+        bin edges and map bins to their center elevations for comparability.
+
+    Parameters
+    ----------
+    glacier_name : str
+        Glacier identifier used in filenames and folder structure.
+    path_pred_lstm : str
+        Base directory containing LSTM prediction Zarr files.
+    year : int
+        Year to process.
+    cfg : object
+        Configuration object providing at least `dataPath` (used to locate GLAMOS files).
+    period : {"annual", "winter"}, optional
+        Mass-balance period to process.
+
+    Returns
+    -------
+    df_pred_lstm : pandas.DataFrame
+        Tidy LSTM predictions with elevation and 100 m elevation binning.
+        Columns typically include: ['lat', 'lon', 'pred', 'POINT_ELEVATION',
+        'altitude_interval', 'YEAR', 'PERIOD'].
+    df_pred_glamos : pandas.DataFrame
+        Tidy GLAMOS values sampled onto the LSTM elevation field and binned using
+        the same 100 m intervals. Includes 'SOURCE'='GLAMOS'.
+    """
+    grid_path, mbm_file_lstm = paths_for_year(
+        path_pred_lstm, glacier_name, year, cfg, period=period
+    )
+
+    # ---- GLAMOS (load + WGS84) ----
+    metadata, grid_data = load_grid_file(grid_path)
+    ds_glamos = convert_to_xarray_geodata(grid_data, metadata)
+
+    # decide transform from filename suffix
+    if grid_path.endswith("_lv03.grid"):
+        ds_glamos_wgs84 = transform_xarray_coords_lv03_to_wgs84(ds_glamos)
+    else:
+        ds_glamos_wgs84 = transform_xarray_coords_lv95_to_wgs84(ds_glamos)
+
+    # ---- LSTM (load + smooth) ----
+    ds_mbm_lstm = apply_gaussian_filter(xr.open_dataset(mbm_file_lstm, engine="zarr"))
+
+    # ---- coord name resolution ----
+    lon_lstm = "lon" if "lon" in ds_mbm_lstm.coords else "longitude"
+    lat_lstm = "lat" if "lat" in ds_mbm_lstm.coords else "latitude"
+
+    lon_gl = "lon" if "lon" in ds_glamos_wgs84.coords else "longitude"
+    lat_gl = "lat" if "lat" in ds_glamos_wgs84.coords else "latitude"
+
+    # ---- LSTM: raster -> dataframe + elevation merge ----
+    df_pred_lstm = (
+        ds_mbm_lstm["pred_masked"]
+        .to_dataframe()
+        .reset_index()
+        .drop(["x", "y"], axis=1, errors="ignore")
+        .merge(
+            ds_mbm_lstm["masked_elev"]
+            .to_dataframe()
+            .reset_index()
+            .drop(["x", "y"], axis=1, errors="ignore"),
+            on=[lat_lstm, lon_lstm],
+            how="left",
+        )
+        .dropna()
+        .rename(
+            columns={
+                "pred_masked": "pred",
+                "masked_elev": "POINT_ELEVATION",
+                lat_lstm: "lat",
+                lon_lstm: "lon",
+            }
+        )
+    )
+    df_pred_lstm["YEAR"] = year
+    df_pred_lstm["PERIOD"] = _period_tags(period)[0]  # 'annual' or 'winter'
+
+    # ---- 100 m binning (LSTM) ----
+    min_alt = np.floor(df_pred_lstm["POINT_ELEVATION"].min() / 100) * 100
+    max_alt = np.ceil(df_pred_lstm["POINT_ELEVATION"].max() / 100) * 100
+    bins = np.arange(min_alt, max_alt + 100, 100)
+    df_pred_lstm["altitude_interval"] = pd.cut(
+        df_pred_lstm["POINT_ELEVATION"], bins=bins, right=False
+    )
+    centers = {
+        iv: round((iv.left + iv.right) / 2)
+        for iv in df_pred_lstm["altitude_interval"].cat.categories
+    }
+    df_pred_lstm["altitude_interval"] = df_pred_lstm["altitude_interval"].map(centers)
+
+    # ---- GLAMOS: sample elevation from LSTM masked_elev (nearest) ----
+    elev_da = ds_mbm_lstm["masked_elev"].rename({lat_lstm: "lat", lon_lstm: "lon"})
+    glamos_da = ds_glamos_wgs84.rename({lat_gl: "lat", lon_gl: "lon"})
+
+    elev_on_glamos = elev_da.interp(
+        lat=glamos_da["lat"], lon=glamos_da["lon"], method="nearest"
+    )
+
+    df_pred_glamos = (
+        glamos_da.to_dataframe(name="pred")
+        .reset_index()
+        .drop(["x", "y"], axis=1, errors="ignore")
+        .merge(
+            elev_on_glamos.to_dataframe(name="POINT_ELEVATION").reset_index(),
+            on=["lat", "lon"],
+            how="left",
+        )
+        .dropna(subset=["POINT_ELEVATION"])
+    )
+    df_pred_glamos["YEAR"] = year
+    df_pred_glamos["PERIOD"] = _period_tags(period)[0]  # 'annual' or 'winter'
+    df_pred_glamos["SOURCE"] = "GLAMOS"
+
+    # same bins as LSTM for comparability
+    df_pred_glamos["altitude_interval"] = pd.cut(
+        df_pred_glamos["POINT_ELEVATION"], bins=bins, right=False
+    )
+    df_pred_glamos = df_pred_glamos.dropna(subset=["altitude_interval"]).copy()
+    df_pred_glamos["altitude_interval"] = df_pred_glamos["altitude_interval"].map(
+        centers
+    )
+
+    return df_pred_lstm, df_pred_glamos

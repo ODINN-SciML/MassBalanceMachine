@@ -5,9 +5,6 @@ import gc
 import os
 import shutil
 
-from matplotlib import pyplot as plt
-from matplotlib.colors import to_hex
-
 
 def seed_all(seed=None):
     # Python
@@ -34,25 +31,6 @@ def free_up_cuda():
     gc.collect()  # Run garbage collection
     torch.cuda.empty_cache()  # Free unused cached memory
     torch.cuda.ipc_collect()  # Collect inter-process memory
-
-
-def get_cmap_hex(cmap, length):
-    """
-    Function to get a get a list of colours as hex codes
-
-    :param cmap:    name of colourmap
-    :type cmap:     str
-
-    :return:        list of hex codes
-    :rtype:         list
-    """
-    # Get cmap
-    rgb = plt.get_cmap(cmap)(np.linspace(0, 1, length))
-
-    # Convert to hex
-    hex_codes = [to_hex(rgb[i, :]) for i in range(rgb.shape[0])]
-
-    return hex_codes
 
 
 def emptyfolder(path):

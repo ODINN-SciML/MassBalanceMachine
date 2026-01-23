@@ -3,6 +3,7 @@ import re
 from tqdm.notebook import tqdm
 import xarray as xr
 import pandas as pd
+import warnings
 
 from regions.Switzerland.scripts.config_CH import *
 from regions.Switzerland.scripts.utils import *
@@ -154,3 +155,113 @@ def process_dat_file_glwd_mb(fileName, path_dat, path_csv):
             parts.append(year)
 
             csv_file.write(",".join(parts) + "\n")
+
+
+def get_GLAMOS_glwmb(glacier_name, cfg):
+    """
+    Load glacier-wide annual mass balance from GLAMOS grid files.
+
+    For a given glacier, the function searches for available annual GLAMOS
+    grid files (LV95 or LV03), loads them, converts them to WGS84 coordinates,
+    and computes the glacier-wide mean annual mass balance for each year.
+
+    Parameters
+    ----------
+    glacier_name : str
+        Glacier identifier used in the GLAMOS directory structure.
+    cfg : object
+        Configuration object providing at least the attribute `dataPath`
+        and used by GLAMOS helper functions.
+
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame indexed by year with a single column 'GLAMOS Balance'
+        containing glacier-wide annual mass balance values (m w.e.).
+        If no valid files are found, the DataFrame may be empty.
+    """
+    years = get_glwd_glamos_years(cfg, glacier_name)
+    if years == []:
+        print(f"Warning: No GLAMOS data found for {glacier_name}.")
+
+    def pick_ann_file(cfg, glacier_name, year):
+        base = os.path.join(
+            cfg.dataPath, path_distributed_MB_glamos, "GLAMOS", glacier_name
+        )
+        cand_lv95 = os.path.join(base, f"{year}_ann_fix_lv95.grid")
+        cand_lv03 = os.path.join(base, f"{year}_ann_fix_lv03.grid")
+        if os.path.exists(cand_lv95):
+            return cand_lv95, "lv95"
+        if os.path.exists(cand_lv03):
+            return cand_lv03, "lv03"
+        return None, None
+
+    glamos_glwd_mb = []
+    for year in years:
+        grid_path_ann, proj = pick_ann_file(cfg, glacier_name, year)
+        if grid_path_ann is None:
+            warnings.warn(
+                f"No ann file found for {glacier_name} {year} (lv95/lv03). Skipping."
+            )
+            continue
+
+        metadata_ann, grid_data_ann = load_grid_file(grid_path_ann)
+        ds_glamos_ann = convert_to_xarray_geodata(grid_data_ann, metadata_ann)
+
+        if proj == "lv03":
+            ds_glamos_wgs84_ann = transform_xarray_coords_lv03_to_wgs84(ds_glamos_ann)
+        elif proj == "lv95":
+            ds_glamos_wgs84_ann = transform_xarray_coords_lv95_to_wgs84(ds_glamos_ann)
+        else:
+            raise RuntimeError(f"Unknown projection for {grid_path_ann}")
+
+        glamos_glwd_mb.append(float(ds_glamos_wgs84_ann.mean().values))
+
+    df = pd.DataFrame({"GLAMOS Balance": glamos_glwd_mb, "YEAR": years})
+
+    # set index years
+    df.set_index("YEAR", inplace=True)
+    return df
+
+
+def get_glwd_glamos_years(cfg, glacier_name):
+    """
+    Retrieve available years of GLAMOS glacier-wide annual mass balance data.
+
+    The function scans the GLAMOS directory for a given glacier and returns
+    all years for which an annual mass balance grid file is available
+    (either LV95 or LV03 projection).
+
+    Parameters
+    ----------
+    cfg : object
+        Configuration object providing at least the attribute `dataPath`.
+    glacier_name : str
+        Glacier identifier used in the GLAMOS directory structure.
+
+    Returns
+    -------
+    list of int
+        Sorted list of years for which GLAMOS annual grid files are available.
+        Returns an empty list if the glacier folder does not exist or no files
+        are found.
+    """
+    folder = os.path.join(
+        cfg.dataPath, path_distributed_MB_glamos, "GLAMOS", glacier_name
+    )
+    if not os.path.exists(folder):
+        print(f"Warning: Folder {folder} does not exist.")
+        return []
+
+    # Match: 2005_ann_fix_lv95.grid OR 2005_ann_fix_lv03.grid
+    pattern = re.compile(r"^(\d{4})_ann_fix_lv(?:95|03)\.grid$")
+
+    years = []
+    for filename in os.listdir(folder):
+        match = pattern.match(filename)
+        if match:
+            years.append(int(match.group(1)))  # Extract the year as an integer
+
+    years = np.unique(years).tolist()
+    years.sort()
+    return years
