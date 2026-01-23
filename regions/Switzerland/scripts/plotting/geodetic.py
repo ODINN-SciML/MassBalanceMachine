@@ -34,9 +34,64 @@ def plot_mbm_vs_geodetic_by_area_bin(
     errorbar_capsize=2.0,  # <-- NEW
 ):
     """
-    Scatter MBM MB vs observed geodetic MB by area bin, with x-error bars showing
-    GLAMOS geodetic MB uncertainties (sigma). Expects a column named
-    `geodetic_sigma_col` (default: "Geodetic MB sigma").
+    Compare MBM and geodetic glacier-wide mass balance across glacier area bins.
+
+    This function creates a multi-panel scatter plot where each panel corresponds
+    to one glacier area class (defined by ``bins``/``labels``). Within each panel,
+    points show modelled MB (MBM) versus observed geodetic MB. If available, x-error
+    bars represent geodetic uncertainty (sigma).
+
+    Panels share x/y limits and include a 1:1 reference line and zero lines. Optionally,
+    each panel is annotated with RMSE (MBM - Geodetic) and Pearson correlation.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Input table containing at least the following columns:
+        - ``'Area'`` : float, glacier area (km²) used for binning
+        - ``'Geodetic MB'`` : float, observed geodetic mass balance (m w.e.)
+        - ``'MBM MB'`` : float, modelled mass balance from MBM (m w.e.)
+        Optionally:
+        - ``geodetic_sigma_col`` (default ``'Geodetic MB sigma'``): float, 1-sigma
+          uncertainty on geodetic MB used for x-error bars
+        - ``'GLACIER'`` : str, used to color/style points within each panel
+    bins : list of float, optional
+        Bin edges for glacier area classes (km²). Default bins create five classes.
+    labels : list of str, optional
+        Labels for the area bins. Must be one shorter than ``bins``.
+    max_bins : int, optional
+        Maximum number of area-bin panels to plot (starting from the smallest bins).
+    figsize : tuple, optional
+        Figure size passed to ``plt.subplots``.
+    annotate_rmse : bool, optional
+        If True, annotate each panel with RMSE and Pearson r when enough points exist.
+    rmse_box : bool, optional
+        If True, draw a semi-transparent text box behind the RMSE annotation.
+    geodetic_sigma_col : str, optional
+        Column name for geodetic uncertainties (used for x-error bars). If missing,
+        the function falls back to plotting without uncertainties.
+    errorbar_alpha : float, optional
+        Alpha value for the x-error bars.
+    errorbar_elinewidth : float, optional
+        Line width for the x-error bars.
+    errorbar_capsize : float, optional
+        Capsize for the x-error bars.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The created figure containing the area-bin panels.
+
+    Raises
+    ------
+    ValueError
+        If no rows fall into the specified area bins.
+
+    Notes
+    -----
+    - Axis limits are computed globally across the plotted bins and expanded to
+      include geodetic uncertainties so that error bars are not clipped.
+    - If ``'GLACIER'`` is present, a per-panel legend is placed below the subplot.
     """
     subplot_labels = ["(a)", "(b)", "(c)", "(d)"]
     df = df.copy().replace([np.inf, -np.inf], np.nan)
@@ -220,6 +275,44 @@ def plot_mbm_vs_geodetic_by_area_bin(
 def plot_scatter_comparison(
     ax, df, glacier_name, color_mbm, color_glamos, title_suffix=""
 ):
+    """
+    Plot a per-glacier comparison of MBM and GLAMOS mass balance against geodetic MB.
+
+    This helper overlays two scatter series on a provided axis:
+      - MBM MB vs geodetic MB
+      - GLAMOS MB vs geodetic MB
+
+    It also adds a 1:1 reference line, horizontal/vertical zero lines, a grid,
+    and axis labels/title.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        Axis to draw into.
+    df : pandas.DataFrame
+        Input data containing the following columns:
+        - ``'Geodetic MB'`` : float, observed geodetic mass balance (m w.e.)
+        - ``'MBM MB'`` : float, MBM modelled mass balance (m w.e.)
+        - ``'GLAMOS MB'`` : float, GLAMOS mass balance (m w.e.)
+    glacier_name : str
+        Glacier name used in the plot title.
+    color_mbm : str or tuple
+        Color used for the MBM scatter series.
+    color_glamos : str or tuple
+        Color used for the GLAMOS scatter series.
+    title_suffix : str, optional
+        Extra string appended to the title (e.g., period or time span).
+
+    Returns
+    -------
+    None
+        Modifies the provided axis in place.
+
+    Notes
+    -----
+    - This function always creates a legend and uses fixed marker styles:
+      circles for MBM and squares for GLAMOS.
+    """
     sns.scatterplot(
         df,
         x="Geodetic MB",

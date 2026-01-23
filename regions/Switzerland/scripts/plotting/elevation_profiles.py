@@ -369,8 +369,55 @@ def plot_mb_by_elevation_periods_combined(
     color_winter=COLOR_WINTER,
 ):
     """
-    Reproduces the original plot: LSTM (band+mean), GLAMOS (mean only),
-    and stakes, for annual & winter.
+    Plot glacier mass balance versus elevation for annual and winter periods,
+    combining model results (LSTM), reference data (GLAMOS), and stake observations.
+
+    This function produces a single elevation-profile plot that overlays:
+      - LSTM model results:
+          * mean mass balance per elevation bin
+          * min–max envelope across years (shaded band)
+      - GLAMOS reference data:
+          * mean mass balance per elevation bin (no envelope)
+      - Stake observations:
+          * mean observed balance per elevation bin, shown as markers
+
+    Annual and winter periods are plotted simultaneously using distinct colors.
+    Stake observations are restricted to elevation bins that are present in the
+    model/reference outputs to ensure visual comparability.
+
+    Parameters
+    ----------
+    df_all_a : pandas.DataFrame
+        Aggregated annual-period data containing at least the columns:
+        ``['SOURCE', 'altitude_interval', 'YEAR', 'PERIOD', 'pred']``.
+        Must include rows for ``SOURCE == 'LSTM'`` and/or ``'GLAMOS'``.
+    df_all_w : pandas.DataFrame
+        Same as ``df_all_a`` but for the winter period.
+    df_stakes : pandas.DataFrame
+        Stake observation data with columns:
+        ``['GLACIER', 'PERIOD', 'YEAR', 'POINT_ELEVATION', 'POINT_BALANCE']``.
+    glacier_name : str
+        Name of the glacier to select stake observations.
+    ax : matplotlib.axes.Axes, optional
+        Axes to plot into. If ``None``, a new figure and axes are created.
+    color_annual : str or tuple, optional
+        Color used for annual-period curves and markers.
+    color_winter : str or tuple, optional
+        Color used for winter-period curves and markers.
+
+    Returns
+    -------
+    matplotlib.axes.Axes
+        The axes containing the combined elevation–mass balance plot.
+
+    Notes
+    -----
+    - This function is a high-level wrapper that delegates plotting to:
+      ``plot_lstm_by_elevation_periods``,
+      ``plot_glamos_by_elevation_periods``,
+      and ``plot_stakes_by_elevation_periods``.
+    - The resulting plot is suitable for direct comparison between modeled,
+      reference, and observed mass balances along the glacier elevation profile.
     """
     if ax is None:
         fig, ax = plt.subplots(figsize=(5, 6))

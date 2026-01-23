@@ -51,144 +51,6 @@ def plot_2glaciers_2years_glamos_vs_lstm(
     ), "years_by_glacier must be ((y1a,y1b),(y2a,y2b))"
     assert path_distributed_mb and path_pred_lstm
 
-    # ---------- helpers ----------
-    def pick_file_glamos(glacier, year, period="annual"):
-        suffix = "ann" if period == "annual" else "win"
-        base = os.path.join(cfg.dataPath, path_distributed_mb, "GLAMOS", glacier)
-        cand_lv95 = os.path.join(base, f"{year}_{suffix}_fix_lv95.grid")
-        cand_lv03 = os.path.join(base, f"{year}_{suffix}_fix_lv03.grid")
-        if os.path.exists(cand_lv95):
-            return cand_lv95, "lv95"
-        if os.path.exists(cand_lv03):
-            return cand_lv03, "lv03"
-        return None, None
-
-    def load_glamos_wgs84(glacier, year):
-        path, cs = pick_file_glamos(glacier, year, period)
-        if path is None:
-            return None
-        meta, arr = load_grid_file(path)
-        da = convert_to_xarray_geodata(arr, meta)
-        if cs == "lv03":
-            return transform_xarray_coords_lv03_to_wgs84(da)
-        if cs == "lv95":
-            return transform_xarray_coords_lv95_to_wgs84(da)
-        return None
-
-    def load_lstm_ds(glacier, year):
-        zpath = os.path.join(path_pred_lstm, glacier, f"{glacier}_{year}_{period}.zarr")
-        if not os.path.exists(zpath):
-            return None
-        ds = xr.open_zarr(zpath)
-        if apply_smoothing_fn is not None:
-            ds = apply_smoothing_fn(ds)
-        return ds
-
-    def lonlat_names(obj):
-        coords = getattr(obj, "coords", {})
-        if "lon" in coords and "lat" in coords:
-            return "lon", "lat"
-        if "longitude" in coords and "latitude" in coords:
-            return "longitude", "latitude"
-        return "lon", "lat"
-
-    def stake_overlay_rmse(ax, glacier, year, cmap, norm, da_glamos, ds_lstm, which):
-        if df_stakes is None:
-            return None
-        sub = df_stakes[
-            (df_stakes.GLACIER == glacier) & (df_stakes.YEAR == year)
-        ].copy()
-        if period == "annual" and "PERIOD" in sub.columns:
-            sub = sub[sub.PERIOD == "annual"].copy()
-        if sub.empty:
-            return None
-
-        lx, ly = lonlat_names(
-            ds_lstm if which == "LSTM" and ds_lstm is not None else da_glamos
-        )
-
-        # Function to extract mass balance for each stake
-        def _get_predicted_mb(lon_name, lat_name, row, ds):
-            try:
-                return ds.sel(
-                    {lon_name: row.POINT_LON, lat_name: row.POINT_LAT}, method="nearest"
-                ).pred_masked.item()  # Convert to scalar
-            except Exception:
-                print(
-                    f"Warning: Stake at ({row.POINT_LON}, {row.POINT_LAT}) is out of bounds."
-                )
-                return np.nan
-
-        def _get_predicted_mb_glamos(lon_name, lat_name, row, ds):
-            try:
-                return ds.sel(
-                    {lon_name: row.POINT_LON, lat_name: row.POINT_LAT}, method="nearest"
-                ).item()  # Convert to scalar
-            except Exception:
-                print(
-                    f"Warning: Stake at ({row.POINT_LON}, {row.POINT_LAT}) is out of bounds."
-                )
-                return np.nan
-
-        def _safe_pred(ds, row):
-            try:
-                return _get_predicted_mb(lx, ly, row, ds)
-            except Exception:
-                return np.nan
-
-        def _safe_glamos(row):
-            try:
-                return _get_predicted_mb_glamos(lx, ly, row, da_glamos)
-            except Exception:
-                return np.nan
-
-        if which == "GLAMOS":
-            sub["FIELD"] = sub.apply(_safe_glamos, axis=1)
-        else:
-            sub["FIELD"] = (
-                sub.apply(lambda r: _safe_pred(ds_lstm, r), axis=1)
-                if ds_lstm is not None
-                else np.nan
-            )
-
-        # ---------- PRINT STAKE VALUES ----------
-        if "POINT_BALANCE" in sub.columns:
-            print("\n" + "-" * 70)
-            print(
-                f"{which} STAKES | Glacier: {glacier} | Year: {year} | Period: {period}"
-            )
-            print("-" * 70)
-            print(
-                sub[["POINT_LON", "POINT_LAT", "POINT_BALANCE", "FIELD"]]
-                .rename(
-                    columns={
-                        "POINT_LON": "lon",
-                        "POINT_LAT": "lat",
-                        "POINT_BALANCE": "obs_MB",
-                    }
-                )
-                .round(3)
-                .to_string(index=False)
-            )
-            print("-" * 70)
-
-        hue_col = "POINT_BALANCE" if "POINT_BALANCE" in sub.columns else "FIELD"
-        sns.scatterplot(
-            data=sub,
-            x="POINT_LON",
-            y="POINT_LAT",
-            hue=hue_col,
-            palette=cmap,
-            hue_norm=norm,
-            ax=ax,
-            s=18,
-            legend=False,
-        )
-
-        if "POINT_BALANCE" in sub.columns and not np.all(np.isnan(sub["FIELD"])):
-            return root_mean_squared_error(sub["POINT_BALANCE"], sub["FIELD"])
-        return None
-
     # ---------- figure & gridspec (2 rows × 6 columns with CB slots) ----------
     fig = plt.figure(figsize=(28, 15))
     gs = gridspec.GridSpec(
@@ -213,8 +75,10 @@ def plot_2glaciers_2years_glamos_vs_lstm(
             ax_m = fig.add_subplot(gs[r, col_base + 1], sharey=first_ax_in_row[r])
             ax_cb = fig.add_subplot(gs[r, col_base + 2])
 
-            da_g = load_glamos_wgs84(glacier, year)
-            ds_m = load_lstm_ds(glacier, year)
+            da_g = _load_glamos_wgs84(glacier, year, cfg, path_distributed_mb, period)
+            ds_m = _load_lstm_ds(
+                glacier, year, path_pred_lstm, period, apply_smoothing_fn
+            )
 
             vals = []
             if da_g is not None:
@@ -256,8 +120,17 @@ def plot_2glaciers_2years_glamos_vs_lstm(
                 ax_g.set_title(f"{glacier.capitalize()} – GLAMOS ({year})", fontsize=16)
                 mean_g = float(da_g.mean().item())
                 var_g = float(da_g.var().item())
-                rmse_g = stake_overlay_rmse(
-                    ax_g, glacier, year, cmap, norm, da_g, ds_m, which="GLAMOS"
+                rmse_g = _stake_overlay_rmse(
+                    ax_g,
+                    glacier,
+                    year,
+                    cmap,
+                    norm,
+                    da_g,
+                    ds_m,
+                    which="GLAMOS",
+                    df_stakes=df_stakes,
+                    period=period,
                 )
                 text_g = (
                     f"RMSE: {rmse_g:.2f}\n" if rmse_g is not None else ""
@@ -288,8 +161,17 @@ def plot_2glaciers_2years_glamos_vs_lstm(
                 ax_m.set_title(f"{glacier.capitalize()} – MBM ({year})", fontsize=16)
                 mean_m = float(ds_m["pred_masked"].mean().item())
                 var_m = float(ds_m["pred_masked"].var().item())
-                rmse_m = stake_overlay_rmse(
-                    ax_m, glacier, year, cmap, norm, da_g, ds_m, which="LSTM"
+                rmse_m = _stake_overlay_rmse(
+                    ax_m,
+                    glacier,
+                    year,
+                    cmap,
+                    norm,
+                    da_g,
+                    ds_m,
+                    which="LSTM",
+                    period=period,
+                    df_stakes=df_stakes,
                 )
                 text_m = (
                     f"RMSE: {rmse_m:.2f}\n" if rmse_m is not None else ""
@@ -364,6 +246,147 @@ def plot_2glaciers_2years_glamos_vs_lstm(
     plt.show()
 
     return fig, map_axes
+
+
+# ---------- helpers ----------
+def _pick_file_glamos(cfg, glacier, year, path_distributed_mb, period="annual"):
+    suffix = "ann" if period == "annual" else "win"
+    base = os.path.join(cfg.dataPath, path_distributed_mb, "GLAMOS", glacier)
+    cand_lv95 = os.path.join(base, f"{year}_{suffix}_fix_lv95.grid")
+    cand_lv03 = os.path.join(base, f"{year}_{suffix}_fix_lv03.grid")
+    if os.path.exists(cand_lv95):
+        return cand_lv95, "lv95"
+    if os.path.exists(cand_lv03):
+        return cand_lv03, "lv03"
+    return None, None
+
+
+def _load_glamos_wgs84(glacier, year, cfg, path_distributed_mb, period):
+    path, cs = _pick_file_glamos(cfg, glacier, year, path_distributed_mb, period)
+    if path is None:
+        return None
+    meta, arr = load_grid_file(path)
+    da = convert_to_xarray_geodata(arr, meta)
+    if cs == "lv03":
+        return transform_xarray_coords_lv03_to_wgs84(da)
+    if cs == "lv95":
+        return transform_xarray_coords_lv95_to_wgs84(da)
+    return None
+
+
+def _load_lstm_ds(glacier, year, path_pred_lstm, period, apply_smoothing_fn=None):
+    zpath = os.path.join(path_pred_lstm, glacier, f"{glacier}_{year}_{period}.zarr")
+    if not os.path.exists(zpath):
+        return None
+    ds = xr.open_zarr(zpath)
+    if apply_smoothing_fn is not None:
+        ds = apply_smoothing_fn(ds)
+    return ds
+
+
+def _lonlat_names(obj):
+    coords = getattr(obj, "coords", {})
+    if "lon" in coords and "lat" in coords:
+        return "lon", "lat"
+    if "longitude" in coords and "latitude" in coords:
+        return "longitude", "latitude"
+    return "lon", "lat"
+
+
+def _stake_overlay_rmse(
+    ax, glacier, year, cmap, norm, da_glamos, ds_lstm, which, df_stakes, period
+):
+    if df_stakes is None:
+        return None
+    sub = df_stakes[(df_stakes.GLACIER == glacier) & (df_stakes.YEAR == year)].copy()
+    if period == "annual" and "PERIOD" in sub.columns:
+        sub = sub[sub.PERIOD == "annual"].copy()
+    if sub.empty:
+        return None
+
+    lx, ly = _lonlat_names(
+        ds_lstm if which == "LSTM" and ds_lstm is not None else da_glamos
+    )
+
+    # Function to extract mass balance for each stake
+    def _get_predicted_mb(lon_name, lat_name, row, ds):
+        try:
+            return ds.sel(
+                {lon_name: row.POINT_LON, lat_name: row.POINT_LAT}, method="nearest"
+            ).pred_masked.item()  # Convert to scalar
+        except Exception:
+            print(
+                f"Warning: Stake at ({row.POINT_LON}, {row.POINT_LAT}) is out of bounds."
+            )
+            return np.nan
+
+    def _get_predicted_mb_glamos(lon_name, lat_name, row, ds):
+        try:
+            return ds.sel(
+                {lon_name: row.POINT_LON, lat_name: row.POINT_LAT}, method="nearest"
+            ).item()  # Convert to scalar
+        except Exception:
+            print(
+                f"Warning: Stake at ({row.POINT_LON}, {row.POINT_LAT}) is out of bounds."
+            )
+            return np.nan
+
+    def _safe_pred(ds, row):
+        try:
+            return _get_predicted_mb(lx, ly, row, ds)
+        except Exception:
+            return np.nan
+
+    def _safe_glamos(row):
+        try:
+            return _get_predicted_mb_glamos(lx, ly, row, da_glamos)
+        except Exception:
+            return np.nan
+
+    if which == "GLAMOS":
+        sub["FIELD"] = sub.apply(_safe_glamos, axis=1)
+    else:
+        sub["FIELD"] = (
+            sub.apply(lambda r: _safe_pred(ds_lstm, r), axis=1)
+            if ds_lstm is not None
+            else np.nan
+        )
+
+    # ---------- PRINT STAKE VALUES ----------
+    if "POINT_BALANCE" in sub.columns:
+        print("\n" + "-" * 70)
+        print(f"{which} STAKES | Glacier: {glacier} | Year: {year} | Period: {period}")
+        print("-" * 70)
+        print(
+            sub[["POINT_LON", "POINT_LAT", "POINT_BALANCE", "FIELD"]]
+            .rename(
+                columns={
+                    "POINT_LON": "lon",
+                    "POINT_LAT": "lat",
+                    "POINT_BALANCE": "obs_MB",
+                }
+            )
+            .round(3)
+            .to_string(index=False)
+        )
+        print("-" * 70)
+
+    hue_col = "POINT_BALANCE" if "POINT_BALANCE" in sub.columns else "FIELD"
+    sns.scatterplot(
+        data=sub,
+        x="POINT_LON",
+        y="POINT_LAT",
+        hue=hue_col,
+        palette=cmap,
+        hue_norm=norm,
+        ax=ax,
+        s=18,
+        legend=False,
+    )
+
+    if "POINT_BALANCE" in sub.columns and not np.all(np.isnan(sub["FIELD"])):
+        return root_mean_squared_error(sub["POINT_BALANCE"], sub["FIELD"])
+    return None
 
 
 def plot_mass_balance_comparison(
@@ -872,3 +895,192 @@ def plot_mass_balance_comparison_cropped(
     )
 
     return da_glamos_plot, da_mbm_plot, bounds
+
+
+import string
+
+
+def plot_mbm_grids_only(
+    glacier_name,
+    years,
+    cfg,
+    path_pred_lstm,
+    df_stakes,
+    path_distributed_MB_glamos,
+    period="annual",
+    apply_smoothing=True,
+    cm=1 / 2.54,
+    ncols=4,
+    text_size=8,
+    figsize_y=9,
+):
+    """
+    Plot only LSTM MB grids across years, overlay stakes, annotate RMSE/mean,
+    add panel labels, and produce a *separate* truncated colorbar figure.
+    """
+
+    # ---- gather prediction datasets ----
+    datasets = []
+    year_list = []
+    for year in years:
+        zpath = os.path.join(
+            path_pred_lstm, glacier_name, f"{glacier_name}_{year}_{period}.zarr"
+        )
+        if not os.path.exists(zpath):
+            continue
+        ds = xr.open_zarr(zpath)
+        if apply_smoothing:
+            ds = apply_gaussian_filter(ds)
+        if "pred_masked" not in ds:
+            continue
+        datasets.append(ds["pred_masked"])
+        year_list.append(year)
+
+    if len(datasets) == 0:
+        raise RuntimeError("No LSTM MB grids found.")
+
+    # ---- global min/max across all maps ----
+    global_vmin = min(float(da.min()) for da in datasets)
+    global_vmax = max(float(da.max()) for da in datasets)
+    cmap, norm = get_color_maps(global_vmin, global_vmax)
+
+    # truncation for colorbar display only
+    vmin_display = max(global_vmin, -12)
+    vmax_display = min(global_vmax, 5)
+
+    # ---- plot layout ----
+    n = len(datasets)
+    nrows = math.ceil(n / ncols)
+    fig, axes = plt.subplots(
+        nrows,
+        ncols,
+        # figsize=(ncols * figsize_y * cm, nrows * 6 * cm),
+        figsize=(ncols * figsize_y * cm, nrows * 8 * cm),
+        constrained_layout=True,
+        dpi=200,
+    )
+    if nrows == 1:
+        axes = axes.reshape(1, -1)
+
+    mappable_for_cb = None
+    label_iter = iter(string.ascii_lowercase)  # panel letters a, b, c...
+
+    # ---- per-year loop ----
+    for idx, (da_lstm, year) in enumerate(zip(datasets, year_list)):
+        r = idx // ncols
+        c = idx % ncols
+        ax = axes[r, c]
+
+        mappable_for_cb = da_lstm.plot.imshow(
+            ax=ax, cmap=cmap, norm=norm, add_colorbar=False
+        )
+        ax.set_aspect("auto")
+        ax.set_title(
+            f"{glacier_name.capitalize()} – MBM ({year})", fontsize=text_size + 1
+        )
+
+        # load GLAMOS + full LSTM for stake evaluation
+        da_glamos = _load_glamos_wgs84(
+            glacier=glacier_name,
+            year=year,
+            cfg=cfg,
+            path_distributed_mb=path_distributed_MB_glamos,
+            period=period,
+        )
+        ds_lstm_full = _load_lstm_ds(
+            glacier=glacier_name,
+            year=year,
+            path_pred_lstm=path_pred_lstm,
+            period=period,
+            apply_smoothing_fn=apply_gaussian_filter if apply_smoothing else None,
+        )
+
+        rmse_m = _stake_overlay_rmse(
+            ax=ax,
+            glacier=glacier_name,
+            year=year,
+            cmap=cmap,
+            norm=norm,
+            da_glamos=da_glamos,
+            ds_lstm=ds_lstm_full,
+            df_stakes=df_stakes,
+            period=period,
+            which="LSTM",
+        )
+
+        mean_m = float(da_lstm.mean())
+        annotation = (
+            f"RMSE: {rmse_m:.2f}\n" if rmse_m else ""
+        ) + f"mean MB: {mean_m:.2f}"
+
+        if glacier_name.lower() == "gries":
+            x_txt, y_txt = 0.96, 0.04
+            ha_txt = "right"
+        else:
+            x_txt, y_txt = 0.04, 0.03
+            ha_txt = "left"
+
+        ax.text(
+            x_txt,
+            y_txt,
+            annotation,
+            transform=ax.transAxes,
+            fontsize=text_size,
+            ha=ha_txt,
+            va="bottom",
+        )
+
+        # PANEL LABEL ✔
+        panel_label = next(label_iter)
+        ax.text(
+            0.03,
+            0.97,
+            f"({panel_label})",
+            transform=ax.transAxes,
+            ha="left",
+            va="top",
+            fontsize=text_size,
+        )
+
+        ax.grid(alpha=0.2)
+        ax.tick_params(axis="both", labelsize=9)
+        ax.set_xlabel("")
+        ax.set_ylabel("")
+
+    # ---- turn off unused axes ----
+    for j in range(idx + 1, nrows * ncols):
+        axes[j // ncols, j % ncols].set_axis_off()
+
+    # =====================================================
+    # COLORBAR figure (separate)
+    # =====================================================
+    fig_cb = plt.figure(figsize=(1.5 * cm, 12 * cm), dpi=200)
+    ax_cb = fig_cb.add_axes([0.25, 0.05, 0.35, 0.90])
+    cb = fig_cb.colorbar(mappable_for_cb, cax=ax_cb)
+    cb.ax.set_ylim(vmin_display, vmax_display)
+
+    # up/down arrows if truncated
+    if global_vmin < vmin_display:
+        ax_cb.plot(
+            [0.5],
+            [-0.02],
+            marker="v",
+            color="black",
+            markersize=4,
+            transform=ax_cb.transAxes,
+            clip_on=False,
+        )
+    if global_vmax > vmax_display:
+        ax_cb.plot(
+            [0.5],
+            [1.02],
+            marker="^",
+            color="black",
+            markersize=4,
+            transform=ax_cb.transAxes,
+            clip_on=False,
+        )
+
+    cb.set_label("Mass Balance [m w.e.]")
+
+    return fig, fig_cb
