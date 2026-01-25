@@ -170,13 +170,13 @@ def geodetic_target(rgi_ids, cfg):
         density_ice = 916.7  # kg/m³
         density_water = 1000  # kg/m³
         area = data.area  # glacier area m²
-        print(f"{area=}")
+        # print(f"{area=}")
         dmdtda = data.dmdtda  # m.w.e. / year
-        print(f"{dmdtda=}")
+        # print(f"{dmdtda=}")
         V_water = dmdtda * area * period_range  # m³ of water equivalent
-        print(f"{V_water=}")
+        # print(f"{V_water=}")
         m = V_water * density_water  # kg
-        print(m)
+        # print(m)
 
         # # 2. Retrieve the cell area of the geodetic grid
         # cell_area = glacier_cell_area(rgi_id, "", cfg)

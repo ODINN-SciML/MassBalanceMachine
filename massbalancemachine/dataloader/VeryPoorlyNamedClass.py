@@ -420,6 +420,9 @@ class VeryPoorlyNamedClassNorway(VeryPoorlyNamedClass):
             },
             inplace=True,
         )
+        # In the Norway data altitude_diff is the opposite of what we are actually computing with ELEVATION_DIFFERENCE in MBM
+        # See https://github.com/khsjursen/ML_MB_Norway/blob/32d8175adab27963c6ca2766f2420f24cdb72a6b/src/scripts/data_processing.py#L96
+        data["ELEVATION_DIFFERENCE"] = -data["ELEVATION_DIFFERENCE"]
 
         data["aspect"] = 180 * data["aspect"] / np.pi
         data["slope"] = 180 * data["slope"] / np.pi

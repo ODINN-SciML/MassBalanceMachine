@@ -143,6 +143,8 @@ class CustomTorchNeuralNetRegressor(nn.Module):
             aggMap["POINT_LON"] = "first"
         if "PERIOD" in metadataKeys:
             aggMap["PERIOD"] = "first"
+        if "POINT_ELEVATION" in metadataKeys:
+            aggMap["POINT_ELEVATION"] = "first"
         metadataAggrId = metadata.groupby(groupByCol).agg(aggMap)
         return metadataAggrId
 

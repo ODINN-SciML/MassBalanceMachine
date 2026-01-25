@@ -542,6 +542,9 @@ class Normalizer:
         """Unnormalize data, the opposite operation of normalize"""
         return self._map(x, self._unorm)
 
+    def export_bounds(self):
+        return [(self.bnds[k][0], self.bnds[k][1]) for k in self.bnds]
+
 
 class SliceDatasetBinding(Dataset):
     def __init__(

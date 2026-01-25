@@ -286,6 +286,53 @@ def predVSTruthPerGlacier(
     return fig  # To log figure during training
 
 
+def predVSTruthGeodetic(
+    geoTarget,
+    geoPred,
+    geoErr,
+    ax=None,
+    title="Geodetic MB",
+    ax_xlim=(-1.7, 0.5),
+    ax_ylim=(-1.7, 0.5),
+):
+
+    if ax is None:
+        fig, ax = plt.subplots(1, 1)
+    else:
+        fig = None
+
+    for g in geoPred.keys():
+        ax.errorbar(
+            geoTarget[g], geoPred[g], xerr=geoErr[g], label=g, fmt="o", color="blue"
+        )
+        plt.text(geoTarget[g] + 0.02, geoPred[g] + 0.02, g, fontsize=10)
+
+    # Diagonal line
+    pt = (0, 0)
+    ax.axline(pt, slope=1, color="grey", linestyle="-", linewidth=0.2)
+    ax.axvline(0, color="grey", linestyle="-", linewidth=1)
+    ax.axhline(0, color="grey", linestyle="-", linewidth=1)
+
+    ax.grid()
+    ax.set_title(title, fontsize=20)
+
+    # Set axes limits
+    if ax_xlim is not None:
+        ax.set_xlim(ax_xlim)
+    if ax_ylim is not None:
+        ax.set_ylim(ax_ylim)
+
+    xlabel = "Observed mean SMB / year [m w.e.]"
+    ylabel = "Predicted mean SMB / year [m w.e.]"
+
+    ax.set_xlabel(xlabel, fontsize=20)
+    ax.set_ylabel(ylabel, fontsize=20)
+
+    plt.tight_layout()
+
+    return fig
+
+
 def plotMeanPred(
     grouped_ids,
     ax,
