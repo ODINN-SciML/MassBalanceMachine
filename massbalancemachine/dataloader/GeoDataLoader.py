@@ -48,6 +48,7 @@ class GeoDataLoader:
         valStakesDf: pd.DataFrame = None,
         ignoreStakesWithoutGeo: bool = False,
         geodeticOggm: bool = True,
+        preloadGeodetic: bool = False,
         keyGlacierSel: str = "GLACIER",
     ) -> None:
         self.cfg = cfg
@@ -61,6 +62,7 @@ class GeoDataLoader:
         self.trainStakesDf = trainStakesDf
         self.valStakesDf = valStakesDf
         self.geodeticOggm = geodeticOggm
+        self.preloadGeodetic = preloadGeodetic
         self.keyGlacierSel = keyGlacierSel
 
         # Prepare geodetic data
@@ -79,7 +81,13 @@ class GeoDataLoader:
                 to_seasonal=False,
             )
         else:
-            self.df_X_geod = None
+            if self.geodeticOggm and self.preloadGeodetic:
+                print("Preloading geodetic grids")
+                self.df_X_geod = {}
+                for rgi_id in self.glaciersWithGeo:
+                    self.df_X_geod[rgi_id] = geodetic_input(rgi_id)
+            else:
+                self.df_X_geod = None
 
         self.normalizer = Normalizer({k: cfg.bnds[k] for k in cfg.featureColumns})
 
@@ -244,7 +252,10 @@ class GeoDataLoader:
                     self.cfg, glacierName, self.periods_per_glacier, to_seasonal=False
                 )
         else:
-            df_X_geod = self.df_X_geod
+            if self.preloadGeodetic:
+                df_X_geod = self.df_X_geod[glacierName]
+            else:
+                df_X_geod = self.df_X_geod
 
         # NaN values are in aspect_sgi and slope_sgi columns
         # That's because the GLAMOS and SGI grids don't match exactly on the borders

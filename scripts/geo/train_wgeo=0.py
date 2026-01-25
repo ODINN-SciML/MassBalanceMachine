@@ -17,9 +17,11 @@ from scripts.nongeo.utils import getMetaData, setFeatures, trainValData, testDat
 
 parser = argparse.ArgumentParser()
 parser.add_argument("modelType", type=str, help="Type of model to train")
+parser.add_argument("--load", type=str, default="", help="Model to load")
 args = parser.parse_args()
 
 params = loadParams(args.modelType)
+modelToLoad = args.load
 featuresInpModel = params["model"]["inputs"]
 sourceData = params["training"]["source_data"]
 
@@ -86,12 +88,18 @@ gdl = mbm.dataloader.GeoDataLoader(
     months_tail_pad=months_tail_pad,
     valStakesDf=df_X_val,
     keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
+    preloadGeodetic=True,
 )
 
 
 network = mbm.models.buildModel(cfg, params=params)
 
 model = mbm.models.CustomTorchNeuralNetRegressor(network)
+
+if modelToLoad != "":
+    bestModelPath = mbm.training.loadBestModel(os.path.join("logs", modelToLoad), model)
+    print(f"Loaded model {bestModelPath}")
+
 optimType = params["training"]["optim"]
 schedulerType = params["training"]["scheduler"]
 lr = params["training"]["lr"]
@@ -134,12 +142,15 @@ gdl_test = mbm.dataloader.GeoDataLoader(
     months_head_pad=months_head_pad,
     months_tail_pad=months_tail_pad,
     keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
+    preloadGeodetic=True,
 )
 
 trainCfg = {
     "Nepochs": Nepochs,
-    "wGeo": 0,
-    "log_suffix": "wgeo=0_scaling",
+    # "wGeo": 0,
+    # "log_suffix": "wgeo=0_scaling",
+    "wGeo": 10,
+    "log_suffix": "wgeo=10_scaling_clamp_debug",
     "scalingStakes": params["training"]["scalingStakes"],
 }
 ret = mbm.training.train_geo(

@@ -13,8 +13,7 @@ import json
 import argparse
 import pandas as pd
 import numpy as np
-
-import pdb
+import tqdm
 
 from regions.Switzerland.scripts.helpers import seed_all
 from scripts.nongeo.utils import (
@@ -26,10 +25,6 @@ from scripts.nongeo.utils import (
 )
 
 from regions.Switzerland.scripts.helpers import get_cmap_hex
-from regions.Switzerland.scripts.plots import (
-    plot_predictions_summary,
-    PlotIndividualGlacierPredVsTruth,
-)
 
 warnings.filterwarnings("ignore")
 
@@ -78,8 +73,8 @@ seed_all(cfg.seed)
 
 
 # Plot styles:
-path_style_sheet = "regions/Switzerland/scripts/example.mplstyle"
-plt.style.use(path_style_sheet)
+# path_style_sheet = "regions/Switzerland/scripts/example.mplstyle"
+# plt.style.use(path_style_sheet)
 colors = get_cmap_hex(cm.batlow, 10)
 color_dark_blue = colors[0]
 color_pink = "#c51b7d"
@@ -134,6 +129,7 @@ model = mbm.models.CustomTorchNeuralNetRegressor(network)
 
 # Load model and set to CPU
 bestModelPath = mbm.training.loadBestModel(pathFolder, model)
+print(f"Loaded model {bestModelPath}")
 # loaded_model = mbm.models.CustomNeuralNetRegressor.load_model(
 #     cfg,
 #     pathFolder,
@@ -229,6 +225,10 @@ if len(df_X_test_subset) > 0:
         plt.show()
     plt.close(fig)
 
+    # Geodetic performance
+    with torch.no_grad():
+        resTest = mbm.training.assessOnTest(pathFolder, model, test_gdl)
+
 
 if sourceData == "switzerland":
     train_glaciers = list(data_train.GLACIER.unique())
@@ -318,6 +318,48 @@ fig = mbm.plots.predVSTruthPerGlacier(
     hue="PERIOD",
 )
 fig.savefig(f"{pathFolder}/individual_glaciers_train_PMB.pdf")
+if plot:
+    plt.show()
+plt.close(fig)
+
+
+geoPred = {}
+geoTarget = {}
+geoErr = {}
+df_gridded = pd.DataFrame()
+with torch.no_grad():
+    pbar = tqdm.tqdm(train_gdl.glaciers(), total=len(train_gdl))
+    for g in pbar:
+        pbar.set_description("Making geodetic pred for %s" % (g), refresh=True)
+        if train_gdl.hasGeo(g):
+            geoGrid, metadata, ygeo, errgeo = train_gdl.geo(g)
+            geod_periods = train_gdl.periods_per_glacier[g]
+            geoPred[g] = mbm.training.training.predict_geo(
+                model, geoGrid, metadata, ygeo, geod_periods
+            )
+            geoTarget[g] = ygeo
+            geoErr[g] = errgeo
+
+            grouped_ids, predSumAnnual = mbm.training.training.predict_gridded(
+                model, geoGrid, metadata
+            )
+            grouped_ids["pred"] = predSumAnnual
+            df_gridded = pd.concat([df_gridded, grouped_ids])
+
+
+# Geodetic performance
+fig = mbm.plots.predVSTruthGeodetic(
+    geoTarget, geoPred, geoErr, title="Geodetic MB on train"
+)
+plt.savefig(os.path.join(pathFolder, "geodetic_train.png"))
+if plot:
+    plt.show()
+plt.close(fig)
+
+
+# Plot MB profile
+fig = mbm.plots.profilePerGlacier(df_gridded)  # , df_stakes=data_train)
+fig.savefig(f"{pathFolder}/PMB_profile_individual_glaciers_train.pdf")
 if plot:
     plt.show()
 plt.close(fig)
