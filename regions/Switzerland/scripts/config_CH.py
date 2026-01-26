@@ -1,3 +1,75 @@
+# <------------------ MODEL INFO: ------------------>
+
+TEST_GLACIERS = [
+    "tortin",
+    "plattalva",
+    "schwarzberg",
+    "hohlaub",
+    "sanktanna",
+    "corvatsch",
+    "tsanfleuron",
+    "forno",
+]
+
+# Saved models
+LSTM_OOS_NORM_Y = "models/lstm_model_2025-12-16_OOS_norm_y.pt"
+LSTM_IS_NORM_Y = "models/lstm_model_2025-12-16_IS_norm_y.pt"
+LSTM_IS_ORIGIN_Y = "models/lstm_model_2025-12-16_IS_orig_y.pt"
+
+LSTM_OOS_NORM_Y_PAST = "models/lstm_model_2026-01-02_OOS_norm_y_past.pt"
+LSTM_IS_NORM_Y_PAST = "models/lstm_model_2026-01-02_IS_norm_y_past.pt"
+LSTM_IS_ORIGIN_Y_PAST = "models/lstm_model_2026-01-02_IS_orig_y_past.pt"
+
+
+VOIS_CLIMATE = [
+    "t2m",
+    "tp",
+    "slhf",
+    "sshf",
+    "ssrd",
+    "fal",
+    "str",
+]
+
+VOIS_TOPOGRAPHICAL = ["aspect_sgi", "slope_sgi", "svf"]
+
+# Model parameters
+PARAMS_LSTM_OOS_PAST = {
+    "Fm": 9,
+    "Fs": 3,
+    "hidden_size": 64,
+    "num_layers": 2,
+    "bidirectional": False,
+    "dropout": 0.2,
+    "static_layers": 2,
+    "static_hidden": 128,
+    "static_dropout": 0.2,
+    "lr": 0.001,
+    "weight_decay": 1e-05,
+    "loss_name": "neutral",
+    "two_heads": False,
+    "head_dropout": 0.05,
+    "loss_spec": None,
+}
+
+PARAMS_LSTM_IS_past = {
+    "Fm": 9,
+    "Fs": 3,
+    "hidden_size": 96,
+    "num_layers": 2,
+    "bidirectional": False,
+    "dropout": 0.2,
+    "static_layers": 1,
+    "static_hidden": 128,
+    "static_dropout": 0.3,
+    "lr": 0.0005,
+    "weight_decay": 1e-05,
+    "loss_name": "neutral",
+    "two_heads": False,
+    "head_dropout": 0.0,
+    "loss_spec": None,
+}
+
 # <------------------ GLAMOS DATA: ------------------>
 # Point data
 path_PMB_GLAMOS_raw = "GLAMOS/point/point_raw/"
@@ -41,8 +113,8 @@ path_rgi_outlines = (
 
 # <------------------OTHER USEFUL FUNCTIONS & ATTRIBUTES: ------------------>
 vois_climate_long_name = {
-    "t2m": "Temp.",
-    "tp": "Precip.",
+    "t2m": "Temperature",
+    "tp": "Precipitation",
     "slhf": "Surf. latent heat flux",
     "sshf": "Surf. sensible heat flux",
     "ssrd": "Surf. solar rad. down.",
@@ -57,6 +129,9 @@ vois_climate_long_name = {
     "millan_v": "Millan ice velocity",
     "aspect_sgi": "Aspect",
     "slope_sgi": "Slope",
+    "svf": "Sky view factor",
+    "aspect": "Aspect",
+    "slope": "Slope",
 }
 
 vois_units = {
@@ -72,16 +147,13 @@ vois_units = {
     "pcsr": "J m-2",
     "u10": "m s-1",
     "v10": "m s-1",
+    "aspect_sgi": "rad",
+    "slope_sgi": "rad",
+    "aspect": "rad",
+    "slope": "rad",
+    "svf": "",
+    "ELEVATION_DIFFERENCE": "m",
 }
 
-TEST_GLACIERS = [
-    "tortin",
-    "plattalva",
-    "albigna",
-    "schwarzberg",
-    "hohlaub",
-    "sanktanna",
-    "corvatsch",
-    "tsanfleuron",
-    "forno",
-]
+COLOR_ANNUAL = "#c51b7d"
+COLOR_WINTER = "#011959"

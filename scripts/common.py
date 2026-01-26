@@ -5,24 +5,22 @@ sys.path.append(mbm_path)  # Add root of repo to import MBM
 
 import yaml
 import pandas as pd
+from sklearn.model_selection import train_test_split
 
 import massbalancemachine as mbm
-from regions.Switzerland.scripts.glamos_preprocess import getStakesData, get_geodetic_MB
-from regions.Switzerland.scripts.geodata import build_periods_per_glacier
+from regions.Switzerland.scripts.geodetic.geodetic_processing import get_geodetic_MB
 from regions.Switzerland.scripts.config_CH import (
     path_PMB_GLAMOS_csv,
     path_ERA5_raw,
     path_pcsr,
 )
-from regions.Switzerland.scripts.xgb_helpers import (
-    transform_df_to_seasonal,
-)
-from regions.Switzerland.scripts.helpers import (
-    seed_all,
+
+from regions.Switzerland.scripts.dataset.data_loader import (
     process_or_load_data,
     get_CV_splits,
+    get_stakes_data,
 )
-
+from regions.Switzerland.scripts.utils import seed_all
 
 _default_test_glaciers = [
     "tortin",
@@ -246,7 +244,7 @@ def getTrainTestSetsSwitzerland(
     target_train_glaciers, test_glaciers, params, cfg, csvFileName, process=False
 ):
 
-    data_glamos = getStakesData(cfg)
+    data_glamos = get_stakes_data(cfg)
     data_glamos.drop(
         data_glamos[data_glamos.GLACIER == "taelliboden"].index, inplace=True
     )
