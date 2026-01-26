@@ -17,7 +17,6 @@ from scripts.common import (
     loadParams,
 )
 
-
 parser = argparse.ArgumentParser()
 parser.add_argument("modelType", type=str, help="Type of model to train")
 args = parser.parse_args()
