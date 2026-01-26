@@ -136,10 +136,15 @@ def timeWindowGeodeticLoss(
     return geodetic_MB_err
 
 
-def predict_gridded(model, geoGrid, metadata):
+def predict_monthly_gridded(model, geoGrid, metadata):
     # Make prediction
     geoGridTorch = torch.tensor(geoGrid.astype(np.float32))
     pred = model.forward(geoGridTorch)[:, 0]
+    return pred
+
+
+def predict_annual_gridded(model, geoGrid, metadata):
+    pred = predict_monthly_gridded(model, geoGrid, metadata)
 
     idAggr = metadata["ID"].values
     int_id, unique_id = pd.factorize(idAggr)
@@ -152,9 +157,38 @@ def predict_gridded(model, geoGrid, metadata):
     return grouped_ids, predSumAnnual
 
 
+def eval_geodetic(model, geo_dataloader, return_grid_pred=False):
+    geoPred = {}
+    geoTarget = {}
+    geoErr = {}
+    df_gridded = pd.DataFrame() if return_grid_pred else None
+    with torch.no_grad():
+        pbar = tqdm.tqdm(geo_dataloader.glaciers(), total=len(geo_dataloader))
+        for g in pbar:
+            pbar.set_description("Making geodetic pred for %s" % (g), refresh=True)
+            if geo_dataloader.hasGeo(g):
+                geoGrid, metadata, ygeo, errgeo = geo_dataloader.geo(g)
+                geod_periods = geo_dataloader.periods_per_glacier[g]
+                geoPred[g] = predict_geo(model, geoGrid, metadata, ygeo, geod_periods)
+                geoTarget[g] = ygeo
+                geoErr[g] = errgeo
+
+                if return_grid_pred == "annual":
+                    grouped_ids, predSumAnnual = predict_annual_gridded(
+                        model, geoGrid, metadata
+                    )
+                    grouped_ids["pred"] = predSumAnnual
+                    df_gridded = pd.concat([df_gridded, grouped_ids])
+                elif return_grid_pred == "monthly":
+                    predMonthly = predict_monthly_gridded(model, geoGrid, metadata)
+                    metadata["pred"] = predMonthly
+                    df_gridded = pd.concat([df_gridded, metadata])
+    return geoPred, geoTarget, geoErr, df_gridded
+
+
 def predict_geo(model, geoGrid, metadata, ygeo, geod_periods):
     # Make prediction and aggregate per point on the grid
-    grouped_ids, predSumAnnual = predict_gridded(model, geoGrid, metadata)
+    grouped_ids, predSumAnnual = predict_annual_gridded(model, geoGrid, metadata)
 
     # Create ID to aggregate glacier wide
     idGlwdAggr = grouped_ids["GLWD_ID"].values
@@ -303,19 +337,9 @@ def assessOnTest(log_dir, model, geodataloader_test, light=False):
 
     if not light:
         # Geodetic prediction
-        geoPred = {}
-        geoTarget = {}
-        geoErr = {}
-        pbar = tqdm.tqdm(geodataloader_test.glaciers(), total=len(geodataloader_test))
-        for g in pbar:
-            pbar.set_description("Making geodetic pred for %s" % (g), refresh=True)
-            if geodataloader_test.hasGeo(g):
-                geoGrid, metadata, ygeo, errgeo = geodataloader_test.geo(g)
-                geod_periods = geodataloader_test.periods_per_glacier[g]
-                geoPred[g] = predict_geo(model, geoGrid, metadata, ygeo, geod_periods)
-                geoTarget[g] = ygeo
-                geoErr[g] = errgeo
-
+        geoPred, geoTarget, geoErr, _ = mbm.training.eval_geodetic(
+            model, geodataloader_test
+        )
         fig = predVSTruthGeodetic(
             geoTarget, geoPred, geoErr, title="Geodetic MB on test"
         )

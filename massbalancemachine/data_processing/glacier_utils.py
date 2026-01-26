@@ -52,13 +52,17 @@ def create_glacier_grid_RGI(
         "dis_from_border": ds.masked_dis.values[gl_mask_bool],
         "hugonnet_dhdt": ds.masked_hug.values[gl_mask_bool],
         "consensus_ice_thickness": ds.masked_cit.values[gl_mask_bool],
-        "millan_ice_thickness": ds.masked_mit.values[gl_mask_bool],
-        "millan_v": ds.masked_miv.values[gl_mask_bool],
-        "millan_vx": ds.masked_mivx.values[gl_mask_bool],
-        "millan_vy": ds.masked_mivy.values[gl_mask_bool],
     }
+    if "millan_ice_thickness" in ds:
+        data_grid["millan_ice_thickness"] = ds.masked_mit.values[gl_mask_bool]
+    if "masked_miv" in ds:
+        # Some glaciers do not have velocity data
+        data_grid["millan_v"] = ds.masked_miv.values[gl_mask_bool]
+        data_grid["millan_vx"] = ds.masked_mivx.values[gl_mask_bool]
+        data_grid["millan_vy"] = ds.masked_mivy.values[gl_mask_bool]
 
     df_grid = pd.DataFrame(data_grid)
+    del data_grid, ds  # Free up memory
 
     # Match to WGMS format:
     df_grid["POINT_ID"] = np.arange(1, len(df_grid) + 1)

@@ -21,7 +21,7 @@ def profilePerGlacier(
         assert "POINT_ELEVATION" in df_stakes.columns
 
     order_key = "GLACIER" if "GLACIER" in df_gridded.keys() else "RGIId"
-    custom_order = custom_order or df_gridded[order_key].unique()
+    custom_order = custom_order or sorted(df_gridded[order_key].unique())
 
     if axs is None:
         N = len(custom_order)

@@ -143,10 +143,13 @@ def get_glacier_mask(rgi_id: str, custom_working_dir: str, cfg: config.Config):
     ds = ds.assign(masked_dis=glacier_mask * ds["dis_from_border"])
     ds = ds.assign(masked_hug=glacier_mask * ds["hugonnet_dhdt"])
     ds = ds.assign(masked_cit=glacier_mask * ds["consensus_ice_thickness"])
-    ds = ds.assign(masked_mit=glacier_mask * ds["millan_ice_thickness"])
-    ds = ds.assign(masked_miv=glacier_mask * ds["millan_v"])
-    ds = ds.assign(masked_mivx=glacier_mask * ds["millan_vx"])
-    ds = ds.assign(masked_mivy=glacier_mask * ds["millan_vy"])
+    if "millan_ice_thickness" in ds:
+        ds = ds.assign(masked_mit=glacier_mask * ds["millan_ice_thickness"])
+    if "millan_v" in ds:
+        # Some glaciers do not have velocity data
+        ds = ds.assign(masked_miv=glacier_mask * ds["millan_v"])
+        ds = ds.assign(masked_mivx=glacier_mask * ds["millan_vx"])
+        ds = ds.assign(masked_mivy=glacier_mask * ds["millan_vy"])
 
     glacier_indices = np.where(ds["glacier_mask"].values == 1)
     return ds, glacier_indices, gdir

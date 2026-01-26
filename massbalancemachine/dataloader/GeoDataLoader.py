@@ -19,6 +19,7 @@ from data_processing.gridded_utils import (
     create_gridded_features_RGI,
     geodetic_input,
     geodetic_target,
+    geodetic_target_region,
 )
 
 
@@ -50,6 +51,8 @@ class GeoDataLoader:
         geodeticOggm: bool = True,
         preloadGeodetic: bool = False,
         keyGlacierSel: str = "GLACIER",
+        geoGlaciers: str = "stakes",
+        ignoreGlaciers: list[str] = [],
     ) -> None:
         self.cfg = cfg
         self.glacierList = glacierList.copy()  # Copy for shuffling
@@ -64,6 +67,8 @@ class GeoDataLoader:
         self.geodeticOggm = geodeticOggm
         self.preloadGeodetic = preloadGeodetic
         self.keyGlacierSel = keyGlacierSel
+        self.geoGlaciers = geoGlaciers
+        self.ignoreGlaciers = ignoreGlaciers
 
         # Prepare geodetic data
         self.prepareGeoData()
@@ -101,21 +106,39 @@ class GeoDataLoader:
                 )
             )
             # TODO: implement this in a more clever way
-            rgi_ids = stakesDf.RGIId.unique()
-            print(f"{rgi_ids=}")
-            create_gridded_features_RGI(self.cfg, rgi_ids)
+            if self.geoGlaciers == "stakes":
+                rgi_ids = list(stakesDf.RGIId.unique())
+                for g in self.ignoreGlaciers:
+                    if g in rgi_ids:
+                        rgi_ids.remove(g)
+                print(f"{rgi_ids=}")
+                create_gridded_features_RGI(self.cfg, rgi_ids)
+                geo_target_data = geodetic_target(rgi_ids, self.cfg)
+            elif "region-" in self.geoGlaciers:
+                s = self.geoGlaciers.split("-")
+                region_id = int(s[1])
+                thres_area = float(s[2])
+                geo_target_data = geodetic_target_region(
+                    region_id, self.cfg, thres_area
+                )
+                rgi_ids = list(geo_target_data.keys())
+                for g in self.ignoreGlaciers:
+                    if g in rgi_ids:
+                        rgi_ids.remove(g)
+                print(f"{rgi_ids=}")
+                create_gridded_features_RGI(self.cfg, rgi_ids)
             self.periods_per_glacier = {}
             self.y_target_geo = {}
             self.err_target_geo = {}
             self.glaciersWithGeo = []
-            geo_target_data = geodetic_target(rgi_ids, self.cfg)
             for rgi_id in rgi_ids:
-                mean_pmb = geo_target_data[rgi_id]["mean"]
-                err_pmb = geo_target_data[rgi_id]["err"]
-                self.periods_per_glacier[rgi_id] = [(2000, 2021)]
-                self.y_target_geo[rgi_id] = np.array([mean_pmb])
-                self.err_target_geo[rgi_id] = np.array([err_pmb])
-                self.glaciersWithGeo.append(rgi_id)
+                if rgi_id in geo_target_data:
+                    mean_pmb = geo_target_data[rgi_id]["mean"]
+                    err_pmb = geo_target_data[rgi_id]["err"]
+                    self.periods_per_glacier[rgi_id] = [(2000, 2021)]
+                    self.y_target_geo[rgi_id] = np.array([mean_pmb])
+                    self.err_target_geo[rgi_id] = np.array([err_pmb])
+                    self.glaciersWithGeo.append(rgi_id)
         else:
             # This works only with Swiss data
             geodetic_mb = get_geodetic_MB(self.cfg)

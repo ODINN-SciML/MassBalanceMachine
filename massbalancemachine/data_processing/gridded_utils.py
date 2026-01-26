@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 import tqdm
+import multiprocessing
 
 from oggm import utils
 
@@ -19,15 +20,17 @@ def create_gridded_features_RGI(
     cfg,
     rgi_ids,
     years=range(2000, 2020),
+    multi=True,
 ):
     grid_path = os.path.join(data_path, "grids")
     for rgi_id in rgi_ids:
         region_id = int(rgi_id.split("-")[1].split(".")[0])
 
         products = {}
+        save_path_without_year = os.path.join(grid_path, *rgi_id_to_folders(rgi_id))
         for year in years:
             save_path = os.path.abspath(
-                os.path.join(grid_path, *rgi_id_to_folders(rgi_id), f"{year}.parquet")
+                os.path.join(save_path_without_year, f"{year}.parquet")
             )
             products[year] = Product(save_path)
 
@@ -35,92 +38,132 @@ def create_gridded_features_RGI(
             print(f"All gridded products are already generated for {rgi_id}")
             continue
 
-        # TODO: move check at the beginning of the loop
+        # Get glacier mask from OGGM
+        ds, glacier_indices, gdir = get_glacier_mask(rgi_id, "", cfg)
 
-        with tqdm.trange(len(years)) as pbar:
-            for i in pbar:
-                year = years[i]
-                pbar.set_description(
-                    "%s: Generating gridded data for %i" % (rgi_id, year)
-                )
+        # Create a pool of workers
+        with multiprocessing.Pool(processes=7) as pool:
+            with tqdm.tqdm(total=len(years)) as pbar:
+                if multi:
+                    for year in pool.imap_unordered(
+                        create_gridded_features_from_mask_per_year,
+                        [
+                            (
+                                rgi_id,
+                                year,
+                                region_id,
+                                cfg,
+                                ds,
+                                glacier_indices,
+                                gdir,
+                                save_path_without_year,
+                            )
+                            for year in years
+                        ],
+                    ):
+                        pbar.update(1)  # Update progress bar
+                        pbar.set_description(
+                            "%s: Generating gridded data for %i" % (rgi_id, year)
+                        )  # Update description
+                else:
+                    for year in years:
+                        create_gridded_features_from_mask_per_year(
+                            (
+                                rgi_id,
+                                year,
+                                region_id,
+                                cfg,
+                                ds,
+                                glacier_indices,
+                                gdir,
+                                save_path_without_year,
+                            )
+                        )
 
-                # Get glacier mask from OGGM
-                ds, glacier_indices, gdir = get_glacier_mask(rgi_id, "", cfg)
-                # Create glacier grid
-                # df_grid = create_glacier_grid_RGI(ds, years, glacier_indices, gdir, rgi_id)
-                df_grid = create_glacier_grid_RGI(
-                    ds, [year], glacier_indices, gdir, rgi_id
-                )
 
-                dataset_grid = Dataset(
-                    cfg=cfg,
-                    data=df_grid,
-                    region_name="",
-                    region_id=region_id,
-                )
+def create_gridded_features_from_mask_per_year(args):
+    rgi_id, year, region_id, cfg, ds, glacier_indices, gdir, save_path_without_year = (
+        args
+    )
+    try:
+        save_path = os.path.abspath(
+            os.path.join(save_path_without_year, f"{year}.parquet")
+        )
+        p = Product(save_path)
 
-                # Climate columns
-                vois_climate = [
-                    "t2m",
-                    "tp",
-                    "slhf",
-                    "sshf",
-                    "ssrd",
-                    "fal",
-                    "str",
-                    "u10",
-                    "v10",
-                ]
-                # Topographical columns
-                voi_topographical = [
-                    "aspect",
-                    "slope",
-                    "hugonnet_dhdt",
-                    "consensus_ice_thickness",
-                    "millan_v",
-                    "topo",
-                ]
+        if not p.is_up_to_date():
 
-                # Add climate data
-                print("Adding climate data...")
-                dataset_grid.get_climate_features(
-                    change_units=True,
-                    smoothing_vois={
-                        "vois_climate": vois_climate,
-                        "vois_other": ["ALTITUDE_CLIMATE"],
-                    },
-                )
+            # Create glacier grid
+            df_grid = create_glacier_grid_RGI(ds, [year], glacier_indices, gdir, rgi_id)
 
-                # with tqdm.trange(len(years)) as pbar:
-                # for i in pbar:
-                # year = years[i]
-                # pbar.set_description('%s: Generating gridded data for %i'%(rgi_id, year))
+            dataset_grid = Dataset(
+                cfg=cfg,
+                data=df_grid,
+                region_name="",
+                region_id=region_id,
+            )
 
-                p = products[year]
-                if not p.is_up_to_date():
+            # Climate columns
+            vois_climate = [
+                "t2m",
+                "tp",
+                "slhf",
+                "sshf",
+                "ssrd",
+                "fal",
+                "str",
+                "u10",
+                "v10",
+            ]
+            # Topographical columns
+            voi_topographical = [
+                "aspect",
+                "slope",
+                "hugonnet_dhdt",
+                "consensus_ice_thickness",
+                "millan_v",
+                "topo",
+            ]
+            if "millan_v" not in df_grid.columns:
+                # Some glaciers do not have velocity data
+                voi_topographical.remove("millan_v")
+            del df_grid  # Free up memory
 
-                    df_grid_y = dataset_grid.data[dataset_grid.data.YEAR == year].copy()
+            # Add climate data
+            dataset_grid.get_climate_features(
+                change_units=True,
+                smoothing_vois={
+                    "vois_climate": vois_climate,
+                    "vois_other": ["ALTITUDE_CLIMATE"],
+                },
+            )
 
-                    dataset_grid_yearly = Dataset(
-                        cfg=cfg, data=df_grid_y, region_name="", region_id=region_id
-                    )
+            df_grid_y = dataset_grid.data[dataset_grid.data.YEAR == year]
 
-                    # Convert to monthly time resolution
-                    dataset_grid_yearly.convert_to_monthly(
-                        meta_data_columns=cfg.metaData,
-                        vois_climate=vois_climate,
-                        vois_topographical=voi_topographical,
-                    )
+            dataset_grid_yearly = Dataset(
+                cfg=cfg, data=df_grid_y, region_name="", region_id=region_id
+            )
 
-                    # Save the dataset for the specific year
-                    # print(f'Saving gridded dataset to {p.file_path}')
-                    data = dataset_grid_yearly.data.loc[
-                        :, ~dataset_grid_yearly.data.columns.duplicated()
-                    ]
-                    data.to_parquet(p.file_path, engine="pyarrow", compression="snappy")
-                    # dataset_grid_yearly.data.to_parquet(p.file_path, engine="pyarrow", compression="snappy")
+            # Convert to monthly time resolution
+            dataset_grid_yearly.convert_to_monthly(
+                meta_data_columns=cfg.metaData,
+                vois_climate=vois_climate,
+                vois_topographical=voi_topographical,
+            )
 
-                    p.gen_chk()
+            # Save the dataset for the specific year
+            data = dataset_grid_yearly.data.loc[
+                :, ~dataset_grid_yearly.data.columns.duplicated()
+            ]
+            data.to_parquet(p.file_path, engine="pyarrow", compression="snappy")
+
+            p.gen_chk()
+    except Exception as e:
+        print(f"Error processing year {year}: {e}")
+        raise Exception(
+            "Exception occurred during gridded features generation. Look at the traceback above."
+        )
+    return year
 
 
 def geodetic_input(
@@ -194,7 +237,7 @@ def geodetic_target(rgi_ids, cfg):
         # err_pmb = err_cumulative_pmb / period_range
         err_pmb = data.err_dmdtda
 
-        geo_target_data[rgi_id] = {"mean": mean_pmb, "err": err_pmb}
+        geo_target_data[rgi_id] = {"mean": mean_pmb, "err": err_pmb, "area": area}
 
     return geo_target_data
 
@@ -215,3 +258,18 @@ def geodetic_target(rgi_ids, cfg):
     # print(f"{V_ice=}")
     # mass_change = V_ice * density_ice # kg
     # print(f"{mass_change=}")
+
+
+def geodetic_target_region(region_id, cfg, thres_area=None):
+    mbdf = utils.get_geodetic_mb_dataframe()
+    ind = mbdf.index.str.contains("RGI60-%02d." % region_id)
+    reg_mbdf = mbdf[ind]
+    reg_mbdf = reg_mbdf[reg_mbdf.period == "2000-01-01_2020-01-01"]
+    reg_mbdf = reg_mbdf[
+        reg_mbdf.is_cor == False
+    ]  # Remove data which has been corrected
+    if thres_area is not None:
+        reg_mbdf = reg_mbdf[reg_mbdf.area > thres_area]
+    rgi_ids = reg_mbdf.index.values
+
+    return geodetic_target(rgi_ids, cfg)
