@@ -1,9 +1,13 @@
 import os
 import pytest
 import massbalancemachine as mbm
-from regions.Switzerland.scripts.glamos_preprocess import get_geodetic_MB, getStakesData
+from regions.Switzerland.scripts.geodetic.geodetic_processing import get_geodetic_MB
 from regions.Switzerland.scripts.config_CH import *
-from regions.Switzerland.scripts.helpers import process_or_load_data, get_CV_splits
+from regions.Switzerland.scripts.dataset.data_loader import (
+    process_or_load_data,
+    get_CV_splits,
+    get_stakes_data,
+)
 
 if "CI" in os.environ:
     pathDataDownload = os.path.abspath(
@@ -29,7 +33,7 @@ def test_geodetic_data():
 def test_process_or_load_data():
     cfg = mbm.SwitzerlandConfig(dataPath=dataPath, seed=30)
 
-    data_glamos = getStakesData(cfg)
+    data_glamos = get_stakes_data(cfg)
     assert data_glamos.shape == (4543, 20)
 
     vois_climate = ["t2m", "tp", "slhf", "sshf", "ssrd", "fal", "str", "u10", "v10"]
@@ -84,7 +88,7 @@ def test_geodataloader():
     # results of process_or_load_data by reading on disk
     cfg = mbm.SwitzerlandConfig(dataPath=dataPath, seed=30)
 
-    data_glamos = getStakesData(cfg)
+    data_glamos = get_stakes_data(cfg)
 
     vois_climate = ["t2m", "tp", "slhf", "sshf", "ssrd", "fal", "str", "u10", "v10"]
     vois_topographical = [

@@ -2,10 +2,7 @@ import re
 import logging
 
 from sklearn.model_selection import (
-    GroupKFold,
-    KFold,
     train_test_split,
-    GroupShuffleSplit,
 )
 
 import massbalancemachine as mbm
