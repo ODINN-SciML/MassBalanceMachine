@@ -91,7 +91,6 @@ class Config:
 
 
 class SwitzerlandConfig(Config):
-
     def __init__(
         self,
         *args,
@@ -104,6 +103,7 @@ class SwitzerlandConfig(Config):
             "MONTHS",
             "PERIOD",
             "GLACIER",
+            # "DENSITY",
         ],
         notMetaDataNotFeatures: List[str] = [
             "POINT_BALANCE",

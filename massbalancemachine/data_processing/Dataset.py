@@ -526,6 +526,7 @@ class Normalizer:
 
 
 class SliceDatasetBinding(Dataset):
+
     def __init__(
         self,
         X: SliceDataset,
@@ -590,6 +591,8 @@ class MBSequenceDataset(Dataset):
         expect_target: bool = True,
         months_tail_pad=None,
         months_head_pad=None,
+        probe_cols: Optional[List[str]] = None,
+        normalize_target: bool = True,
     ) -> "MBSequenceDataset":
         """
         Build a dataset directly from a monthly table.
@@ -625,8 +628,10 @@ class MBSequenceDataset(Dataset):
             T=T,
             show_progress=show_progress,
             expect_target=expect_target,
+            # NEW:
+            probe_cols=probe_cols,
         )
-        return cls(data_dict)
+        return cls(data_dict, normalize_target=normalize_target)
 
     def make_loaders(
         self,
@@ -673,6 +678,9 @@ class MBSequenceDataset(Dataset):
         if fit_and_transform:
             self.fit_scalers(train_idx)
             self.transform_inplace()
+            for p in self.probe_names:
+                v = self.probes[p].detach().cpu().numpy()
+                print(p, "nanmean=", np.nanmean(v), "nanstd=", np.nanstd(v))
 
         train_ds = Subset(self, train_idx)
         val_ds = Subset(self, val_idx)
@@ -771,6 +779,7 @@ class MBSequenceDataset(Dataset):
         g = torch.Generator()
         g.manual_seed(seed)
 
+        ds_test.normalize_target = ds_train.normalize_target  # <--- propagate flag
         ds_test.set_scalers_from(ds_train)
         ds_test.transform_inplace()
 
@@ -799,15 +808,25 @@ class MBSequenceDataset(Dataset):
         df: pd.DataFrame,
         monthly_cols: List[str],
         static_cols: List[str],
-        pos_map: Dict[str, int],  # token -> 0-based index
-        T: int,  # total timeline length
+        pos_map: Dict[str, int],
+        T: int,
         show_progress: bool = True,
         expect_target: bool = True,
+        # NEW:
+        probe_cols: Optional[List[str]] = None,
     ) -> Dict[str, np.ndarray]:
-        # --- required columns ---
+
+        probe_cols = list(probe_cols) if probe_cols else []
+        # monthly inputs remain ONLY the trained inputs:
+        #   X_monthly is built from monthly_cols (unchanged)
+        # we will aggregate probe_cols to parallel (T,) arrays, one per col
+
         req = {"GLACIER", "YEAR", "ID", "PERIOD", "MONTHS", *monthly_cols, *static_cols}
         if expect_target:
             req |= {"POINT_BALANCE"}
+        # Require probe cols to be present in df (but not part of inputs)
+        req |= set(probe_cols)
+
         missing = req - set(df.columns)
         if missing:
             raise KeyError(f"Missing required columns: {sorted(missing)}")
@@ -824,9 +843,13 @@ class MBSequenceDataset(Dataset):
         iterator = tqdm(groups, desc="Building sequences") if show_progress else groups
 
         agg_cols = (
-            monthly_cols + static_cols + (["POINT_BALANCE"] if expect_target else [])
+            monthly_cols
+            + static_cols
+            + probe_cols
+            + (["POINT_BALANCE"] if expect_target else [])
         )
 
+        probe_buffers = {p: [] for p in probe_cols}  # will hold list of (T,) per sample
         for (g, yr, mid, per), sub in iterator:
             # average duplicates within the same month token
             subm = sub.groupby("MONTHS", as_index=False)[agg_cols].mean(
@@ -837,6 +860,11 @@ class MBSequenceDataset(Dataset):
             mat = np.zeros((T, len(monthly_cols)), dtype=np.float32)
             mv = np.zeros(T, dtype=np.float32)
 
+            # Initialize probe arrays per sample
+            probe_per_sample = {
+                p: np.full(T, np.nan, dtype=np.float32) for p in probe_cols
+            }
+
             for _, r in subm.iterrows():
                 m = str(r["MONTHS"]).strip().lower()
                 if m not in pos_map:
@@ -844,8 +872,14 @@ class MBSequenceDataset(Dataset):
                         f"Unexpected month token '{m}'. Expected one of {list(pos_map.keys())}."
                     )
                 pos = int(pos_map[m])  # 0-based
+
+                # fill inputs
                 mat[pos, :] = r[monthly_cols].to_numpy(np.float32)
                 mv[pos] = 1.0
+
+                # fill probes for this month
+                for p in probe_cols:
+                    probe_per_sample[p][pos] = np.float32(r[p])
 
             # static features
             s = subm.iloc[0][static_cols].to_numpy(np.float32)
@@ -853,16 +887,40 @@ class MBSequenceDataset(Dataset):
             # target
             target = float(subm["POINT_BALANCE"].mean()) if expect_target else np.nan
 
+            # Currently this function doesn't work without POINT_BALANCE,
+            # so we set a dummy value for mask logic below
+            # Need to fix this at some point...
+            if not expect_target:
+                subm["POINT_BALANCE"] = 0.0  # dummy for mask logic below
+
             # ---- per-sample seasonal masks (flexible windows) ----
             per_l = str(per).strip().lower()
+
+            # ---- Seasonal loss masks ----
+            # # loss_mask = 1 for months where POINT_BALANCE is available
+            # loss_mask = np.zeros(T, dtype=np.float32)
+            # for _, r in subm.iterrows():
+            #     m = str(r["MONTHS"]).strip().lower()
+            #     pos = pos_map[m]
+            #     if not np.isnan(r["POINT_BALANCE"]):
+            #         loss_mask[pos] = 1.0
+            # if per_l == "winter":
+            #     mw_sample = loss_mask
+            #     ma_sample = np.zeros(T, dtype=np.float32)
+            # elif per_l == "annual":
+            #     mw_sample = np.zeros(T, dtype=np.float32)
+            #     ma_sample = loss_mask
+            loss_mask = np.zeros(T)
+            for _, r in subm.iterrows():
+                if not np.isnan(r["POINT_BALANCE"]):
+                    loss_mask[pos_map[r["MONTHS"]]] = 1
+
             if per_l == "winter":
-                mw_sample = mv.copy()
-                ma_sample = np.zeros(T, dtype=np.float32)
+                mw_sample = loss_mask
+                ma_sample = np.zeros(T)
             elif per_l == "annual":
-                mw_sample = np.zeros(T, dtype=np.float32)
-                ma_sample = mv.copy()
-            else:
-                raise ValueError(f"Unexpected PERIOD: {per}")
+                mw_sample = np.zeros(T)
+                ma_sample = loss_mask
 
             # append once per group
             X_monthly.append(mat)
@@ -875,20 +933,27 @@ class MBSequenceDataset(Dataset):
             is_annual.append(per_l == "annual")
             keys.append((g, int(yr), int(mid), per_l))
 
+            for p in probe_cols:
+                probe_buffers[p].append(probe_per_sample[p])
+
         def stack(a):
             return np.stack(a, axis=0) if len(a) else np.empty((0,))
 
         data_dict = dict(
-            X_monthly=stack(X_monthly),  # (B, T, Fm)
-            X_static=stack(X_static),  # (B, Fs)
-            mask_valid=stack(mask_valid),  # (B, T)
-            mask_w=stack(mask_w),  # (B, T)
-            mask_a=stack(mask_a),  # (B, T)
+            X_monthly=stack(X_monthly),
+            X_static=stack(X_static),
+            mask_valid=stack(mask_valid),
+            mask_w=stack(mask_w),
+            mask_a=stack(mask_a),
             y=np.asarray(y, dtype=np.float32),
             is_winter=np.asarray(is_winter, dtype=bool),
             is_annual=np.asarray(is_annual, dtype=bool),
             keys=keys,
         )
+
+        # add probes
+        for p in probe_cols:
+            data_dict[f"probe__{p}"] = stack(probe_buffers[p])  # shape (B,T)
 
         # Key uniqueness check
         if len(keys) != len(set(keys)):
@@ -901,7 +966,9 @@ class MBSequenceDataset(Dataset):
 
     # ---------- Torch Dataset API ----------
 
-    def __init__(self, data_dict: Dict[str, np.ndarray]):
+    def __init__(self, data_dict: Dict[str, np.ndarray], normalize_target: bool = True):
+        self.normalize_target = normalize_target
+
         # raw numpy -> tensors
         self.Xm = torch.from_numpy(data_dict["X_monthly"]).float()  # (B,T,Fm)
         self.Xs = torch.from_numpy(data_dict["X_static"]).float()  # (B,Fs)
@@ -921,11 +988,23 @@ class MBSequenceDataset(Dataset):
         self.y_mean: Optional[torch.Tensor] = None
         self.y_std: Optional[torch.Tensor] = None
 
+        # --- Probes (optional) ---
+        self.probe_names: List[str] = []
+        self.probes: Dict[str, torch.Tensor] = {}
+        self.probe_mean: Dict[str, Optional[torch.Tensor]] = {}
+        self.probe_std: Dict[str, Optional[torch.Tensor]] = {}
+
+        for k, v in data_dict.items():
+            if isinstance(k, str) and k.startswith("probe__"):
+                pname = k.split("probe__")[1]
+                self.probe_names.append(pname)
+                self.probes[pname] = torch.from_numpy(v).float()  # (B,T)
+
     def __len__(self) -> int:
         return self.Xm.shape[0]
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
-        return {
+        batch = {
             "x_m": self.Xm[idx],
             "x_s": self.Xs[idx],
             "mv": self.mv[idx],
@@ -935,9 +1014,11 @@ class MBSequenceDataset(Dataset):
             "iw": self.iw[idx],
             "ia": self.ia[idx],
         }
+        for pname in self.probe_names:
+            batch[pname] = self.probes[pname][idx]  # (T,)
+        return batch
 
     # ---------- Scaling helpers ----------
-
     def fit_scalers(self, idx_train: np.ndarray) -> None:
         """Fit scalers on TRAIN subset only."""
         # monthly features: mean/std over valid months
@@ -945,7 +1026,7 @@ class MBSequenceDataset(Dataset):
         Mv = self.mv[idx_train].numpy()  # (N,T)
         mask3 = Mv[..., None]  # (N,T,1)
         num = (Xm * mask3).sum(axis=(0, 1))  # (Fm,)
-        den = mask3.sum(axis=(0, 1))  # (Fm,) effectively
+        den = mask3.sum(axis=(0, 1))  # (Fm,)
         month_mean = num / np.maximum(den, 1e-8)
         var = (((Xm - month_mean) * mask3) ** 2).sum(axis=(0, 1)) / np.maximum(
             den, 1e-8
@@ -962,13 +1043,36 @@ class MBSequenceDataset(Dataset):
         y_mean = float(np.mean(y))
         y_std = float(np.sqrt(max(np.var(y), 1e-8)))
 
+        if self.normalize_target:
+            self.y_mean = torch.tensor(y_mean, dtype=torch.float32)
+            self.y_std = torch.tensor(y_std, dtype=torch.float32)
+        else:
+            # disable normalization
+            self.y_mean = torch.tensor(0.0, dtype=torch.float32)
+            self.y_std = torch.tensor(1.0, dtype=torch.float32)
+
         # store as tensors
         self.month_mean = torch.from_numpy(month_mean).float()
         self.month_std = torch.from_numpy(month_std).float()
         self.static_mean = torch.from_numpy(static_mean).float()
         self.static_std = torch.from_numpy(static_std).float()
-        self.y_mean = torch.tensor(y_mean, dtype=torch.float32)
-        self.y_std = torch.tensor(y_std, dtype=torch.float32)
+
+        # Fitting probes (NaN-safe, masked by mv)
+        Mv = self.mv[idx_train].numpy().astype(bool)
+        self.probe_mean, self.probe_std = {}, {}
+        for pname in self.probe_names:
+            P = self.probes[pname][idx_train].numpy()
+            valid = Mv & ~np.isnan(P)
+            den = valid.sum()
+            if den == 0:
+                mu, std = 0.0, 1.0
+            else:
+                vals = P[valid]
+                mu = float(vals.mean())
+                var = float(((vals - mu) ** 2).mean())
+                std = float(np.sqrt(max(var, 1e-8)))
+            self.probe_mean[pname] = torch.tensor(mu, dtype=torch.float32)
+            self.probe_std[pname] = torch.tensor(std, dtype=torch.float32)
 
     def transform_inplace(self) -> None:
         """Apply standardization to Xm, Xs, y using fitted scalers."""
@@ -982,11 +1086,21 @@ class MBSequenceDataset(Dataset):
             self.y_mean is not None and self.y_std is not None
         ), "Call fit_scalers or set_scalers_from first."
 
-        self.Xm = (
-            self.Xm - self.month_mean
-        ) / self.month_std  # (B,T,Fm) broadcasts over B and T
+        self.Xm = (self.Xm - self.month_mean) / self.month_std
         self.Xs = (self.Xs - self.static_mean) / self.static_std
-        self.y = (self.y - self.y_mean) / self.y_std
+
+        # Conditionally normalize target
+        if self.normalize_target:
+            self.y = (self.y - self.y_mean) / self.y_std
+
+        # Transform probes
+        for pname in self.probe_names:
+            assert (
+                pname in self.probe_mean and pname in self.probe_std
+            ), f"Missing scaler for probe '{pname}'. Call fit_scalers/set_scalers_from first."
+            self.probes[pname] = (
+                self.probes[pname] - self.probe_mean[pname]
+            ) / self.probe_std[pname]
 
     def set_scalers_from(self, other: "MBSequenceDataset") -> None:
         """Copy fitted scalers from another dataset (usually the train dataset)."""
@@ -996,6 +1110,11 @@ class MBSequenceDataset(Dataset):
         self.static_std = other.static_std.clone()
         self.y_mean = other.y_mean.clone()
         self.y_std = other.y_std.clone()
+        self.normalize_target = other.normalize_target
+
+        # Copy probe scalers
+        self.probe_mean = {k: v.clone() for k, v in other.probe_mean.items()}
+        self.probe_std = {k: v.clone() for k, v in other.probe_std.items()}
 
     def _clone_untransformed_dataset(
         ds_src: "MBSequenceDataset",
@@ -1020,9 +1139,46 @@ class MBSequenceDataset(Dataset):
             is_annual=ds_src.ia.detach().cpu().numpy().copy(),
             keys=list(ds_src.keys),
         )
-        return MBSequenceDataset(data_dict)
+
+        # NEW: copy all probe arrays if present
+        if hasattr(ds_src, "probe_names"):
+            for pname in ds_src.probe_names:
+                data_dict[f"probe__{pname}"] = (
+                    ds_src.probes[pname].detach().cpu().numpy().copy()
+                )
+        return MBSequenceDataset(data_dict, normalize_target=ds_src.normalize_target)
 
     # ---------- Utilities ----------
+    @staticmethod
+    def _clone_for_permutation(ds_src: "MBSequenceDataset") -> "MBSequenceDataset":
+        """
+        Clone a *transformed* dataset for safe permutation.
+
+        Keeps fitted scalers and normalized tensors intact.
+        """
+        data_dict = dict(
+            X_monthly=ds_src.Xm.detach().cpu().numpy().copy(),
+            X_static=ds_src.Xs.detach().cpu().numpy().copy(),
+            mask_valid=ds_src.mv.detach().cpu().numpy().copy(),
+            mask_w=ds_src.mw.detach().cpu().numpy().copy(),
+            mask_a=ds_src.ma.detach().cpu().numpy().copy(),
+            y=ds_src.y.detach().cpu().numpy().copy(),
+            is_winter=ds_src.iw.detach().cpu().numpy().copy(),
+            is_annual=ds_src.ia.detach().cpu().numpy().copy(),
+            keys=list(ds_src.keys),
+        )
+
+        ds_new = MBSequenceDataset(data_dict, normalize_target=ds_src.normalize_target)
+
+        # copy fitted scalers
+        ds_new.month_mean = ds_src.month_mean.clone()
+        ds_new.month_std = ds_src.month_std.clone()
+        ds_new.static_mean = ds_src.static_mean.clone()
+        ds_new.static_std = ds_src.static_std.clone()
+        ds_new.y_mean = ds_src.y_mean.clone()
+        ds_new.y_std = ds_src.y_std.clone()
+
+        return ds_new
 
     @staticmethod
     def split_indices(

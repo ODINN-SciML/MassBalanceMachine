@@ -6,13 +6,17 @@ import torch
 from torch import nn
 import massbalancemachine as mbm
 
-from regions.Switzerland.scripts.glamos_preprocess import getStakesData, get_geodetic_MB
+from regions.Switzerland.scripts.geodetic.geodetic_processing import get_geodetic_MB
 from regions.Switzerland.scripts.config_CH import (
     path_PMB_GLAMOS_csv,
     path_ERA5_raw,
     path_pcsr,
 )
-from regions.Switzerland.scripts.helpers import process_or_load_data, get_CV_splits
+from regions.Switzerland.scripts.dataset.data_loader import (
+    process_or_load_data,
+    get_CV_splits,
+    get_stakes_data,
+)
 
 if "CI" in os.environ:
     pathDataDownload = os.path.abspath(
@@ -58,7 +62,7 @@ def test_swiss_train_geo():
         "millan_v",  # OGGM
     ]
 
-    data_glamos = getStakesData(cfg)
+    data_glamos = get_stakes_data(cfg)
 
     # Transform data to monthly format (run or load data):
     paths = {
