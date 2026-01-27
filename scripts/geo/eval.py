@@ -38,10 +38,26 @@ parser.add_argument(
     action="store_true",
     help="Display figures in addition to saving.",
 )
+parser.add_argument(
+    "--noTest",
+    dest="noTest",
+    default=False,
+    action="store_true",
+    help="Do not evaluate on test data.",
+)
+parser.add_argument(
+    "--onRegion",
+    dest="onRegion",
+    default=False,
+    action="store_true",
+    help="Evaluate prediction on the whole region in addition to classical plots.",
+)
 args = parser.parse_args()
 
 modelFolder = args.modelFolder
 plot = args.plot
+noTest = args.noTest
+onRegion = args.onRegion
 pathFolder = os.path.join("logs", modelFolder)
 
 with open(f"{pathFolder}/params.json", "r") as f:
@@ -139,7 +155,7 @@ print(f"Loaded model {bestModelPath}")
 # model = model.to("cpu")
 
 
-if len(df_X_test_subset) > 0:
+if len(df_X_test_subset) > 0 and not noTest:
     if sourceData == "switzerland":
         test_glaciers = list(data_test.GLACIER.unique())
     elif sourceData in ["iceland", "norway"]:
@@ -323,28 +339,9 @@ if plot:
 plt.close(fig)
 
 
-geoPred = {}
-geoTarget = {}
-geoErr = {}
-df_gridded = pd.DataFrame()
-with torch.no_grad():
-    pbar = tqdm.tqdm(train_gdl.glaciers(), total=len(train_gdl))
-    for g in pbar:
-        pbar.set_description("Making geodetic pred for %s" % (g), refresh=True)
-        if train_gdl.hasGeo(g):
-            geoGrid, metadata, ygeo, errgeo = train_gdl.geo(g)
-            geod_periods = train_gdl.periods_per_glacier[g]
-            geoPred[g] = mbm.training.training.predict_geo(
-                model, geoGrid, metadata, ygeo, geod_periods
-            )
-            geoTarget[g] = ygeo
-            geoErr[g] = errgeo
-
-            grouped_ids, predSumAnnual = mbm.training.training.predict_gridded(
-                model, geoGrid, metadata
-            )
-            grouped_ids["pred"] = predSumAnnual
-            df_gridded = pd.concat([df_gridded, grouped_ids])
+geoPred, geoTarget, geoErr, df_gridded = mbm.training.eval_geodetic(
+    model, train_gdl, return_grid_pred="annual"
+)
 
 
 # Geodetic performance
@@ -358,8 +355,55 @@ plt.close(fig)
 
 
 # Plot MB profile
-fig = mbm.plots.profilePerGlacier(df_gridded)  # , df_stakes=data_train)
+fig = mbm.plots.profilePerGlacier(
+    df_gridded, custom_order=train_gl_per_el
+)  # , df_stakes=data_train)
 fig.savefig(f"{pathFolder}/PMB_profile_individual_glaciers_train.pdf")
 if plot:
     plt.show()
 plt.close(fig)
+
+
+# Plot cumulated mass change
+geoPred, geoTarget, geoErr, df_gridded = mbm.training.eval_geodetic(
+    model, train_gdl, return_grid_pred="monthly"
+)  # TODO: merge with annual evaluation above
+fig = mbm.plots.cumulatedMassChange(
+    df_gridded,
+    geo={
+        rgi_id: {"mean": geoTarget[rgi_id][0], "err": geoErr[rgi_id][0]}
+        for rgi_id in geoTarget
+    },
+)
+fig.savefig(f"{pathFolder}/cumulated_mass_change_glaciers_train.pdf")
+if plot:
+    plt.show()
+plt.close(fig)
+
+
+if onRegion:
+    regionId = int(data_train.RGIId.unique()[0].split(".")[0].split("-")[1])
+    thresArea = 1e6  # 1km²
+
+    # Create dataloader
+    region_gdl = mbm.dataloader.GeoDataLoader(
+        cfg,
+        train_glaciers,
+        trainStakesDf=data_train,
+        months_head_pad=months_head_pad,
+        months_tail_pad=months_tail_pad,
+        keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
+        geoGlaciers=f"region-{regionId}-{thresArea}",
+        ignoreGlaciers=["RGI60-08.00333", "RGI60-08.02308", "RGI60-08.02550"],
+    )
+
+    geoPred, geoTarget, geoErr, _ = mbm.training.eval_geodetic(model, region_gdl)
+
+    # Geodetic performance
+    fig = mbm.plots.predVSTruthGeodetic(
+        geoTarget, geoPred, geoErr, title="Geodetic MB on the whole region"
+    )
+    plt.savefig(os.path.join(pathFolder, "geodetic_region.png"))
+    if plot:
+        plt.show()
+    plt.close(fig)

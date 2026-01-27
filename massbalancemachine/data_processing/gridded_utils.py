@@ -143,6 +143,7 @@ def create_gridded_features_from_mask_per_year(args):
             dataset_grid_yearly = Dataset(
                 cfg=cfg, data=df_grid_y, region_name="", region_id=region_id
             )
+            del df_grid_y  # Free up memory
 
             # Convert to monthly time resolution
             dataset_grid_yearly.convert_to_monthly(
@@ -156,6 +157,7 @@ def create_gridded_features_from_mask_per_year(args):
                 :, ~dataset_grid_yearly.data.columns.duplicated()
             ]
             data.to_parquet(p.file_path, engine="pyarrow", compression="snappy")
+            del data  # Free up memory
 
             p.gen_chk()
     except Exception as e:

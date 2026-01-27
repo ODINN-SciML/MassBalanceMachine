@@ -22,7 +22,10 @@ class Product:
         if os.path.isfile(self.file_path + ".chk"):
             with open(self.file_path + ".chk", "r") as f:
                 d = json.load(f)
-                if d.get("commit_hash") == self.commit_hash:
+                # if d.get("commit_hash") == self.commit_hash:
+                if (
+                    True
+                ):  # TODO: change this, for the moment we do not recompute everything but we should build a more robust system dependencies in the future
                     up_to_date = True
         if not os.path.isfile(self.file_path):
             up_to_date = False

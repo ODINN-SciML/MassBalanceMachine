@@ -387,7 +387,10 @@ class VeryPoorlyNamedClassNorway(VeryPoorlyNamedClass):
         if os.path.isfile(path_info_download):
             with open(path_info_download, "r") as f:
                 d = json.load(f)
-                if d.get("commit_hash") == commit_hash:
+                # if d.get("commit_hash") == commit_hash:
+                if (
+                    True
+                ):  # TODO: change this, for the moment we do not redownload but we should build a more robust system dependencies in the future
                     commit_match = True
         if not os.path.isfile(self.path_csv) or not commit_match:
             print("Downloading monthly CSV file")

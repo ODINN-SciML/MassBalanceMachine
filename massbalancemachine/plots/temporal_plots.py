@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from calendar import month_abbr
+import time
 
 from data_processing.utils.data_preprocessing import get_hash
 
@@ -41,10 +42,13 @@ def cumulatedMassChange(
         ax = axs.flatten()[i]
 
         month_to_id = {month_abbr[i].lower(): i for i in range(1, 13)}
-        df_gl["MONTH_ID"] = df_gl.apply(
-            lambda x: get_hash(f"{x.RGIId}_{x.YEAR}_{x.MONTHS}"),
-            axis=1,
-        ).astype(str)
+        # df_gl["MONTH_ID"] = df_gl.apply(
+        #     lambda x: get_hash(f"{x.RGIId}_{x.YEAR}_{x.MONTHS}"),
+        #     axis=1,
+        # ).astype(str)
+        df_gl["MONTH_ID"] = df_gl.YEAR * 12 + df_gl["MONTHS"].map(
+            month_to_id
+        )  # Computing a unique ID per month this way is much faster than using apply and get_hash
         monthly_df = df_gl.groupby("MONTH_ID").agg(
             {
                 "RGIId": "first",
