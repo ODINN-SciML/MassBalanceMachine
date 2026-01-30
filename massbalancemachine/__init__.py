@@ -11,6 +11,7 @@ __all__ = [
     "training",
     "plots",
     "metrics",
+    "utils",
 ]
 
 import dataloader
@@ -20,4 +21,5 @@ import geodata
 import training
 import plots
 import metrics
+import utils
 from .config import *  # Load config at the top level of the package

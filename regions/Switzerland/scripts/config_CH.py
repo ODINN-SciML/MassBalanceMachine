@@ -154,6 +154,3 @@ vois_units = {
     "svf": "",
     "ELEVATION_DIFFERENCE": "m",
 }
-
-COLOR_ANNUAL = "#c51b7d"
-COLOR_WINTER = "#011959"
