@@ -105,15 +105,28 @@ _default_input_switzerland = (
 _default_test_glaciers_iceland = []
 _default_train_glaciers_iceland = ["RGI60-06.00228", "RGI60-06.00232"]
 
-# TODO: design that split properly
 _default_test_glaciers_norway = [
+    "RGI60-08.01258",
+    "RGI60-08.01026",
+    "RGI60-08.02384",
+    "RGI60-08.01598",
+    "RGI60-08.01484",
+    "RGI60-08.02650",
+    "RGI60-08.00434",
+    "RGI60-08.01286",
+    "RGI60-08.00449",
+    "RGI60-08.01013",
+    "RGI60-08.02916",
+    "RGI60-08.02918",
+    "RGI60-08.02920",
+    "RGI60-08.02969",
+]
+_default_train_glaciers_norway = [
     "RGI60-08.02436",
     "RGI60-08.02458",
     "RGI60-08.00287",
     "RGI60-08.01657",
     "RGI60-08.00295",
-]
-_default_train_glaciers_norway = [
     "RGI60-08.02666",
     "RGI60-08.02017",
     "RGI60-08.01126",
@@ -305,7 +318,7 @@ class VeryPoorlyNamedClassIceland(VeryPoorlyNamedClass):
         data["slope"] = 180 * data["slope"] / np.pi
         data["t2m"] = data["t2m"] - 273.15
 
-        ### Add period column ###
+        # Add period column
         data = data.assign(PERIOD="")
         for ID in data[data.N_MONTHS <= 8].ID.unique():
             sub = data[data.ID == ID]
@@ -316,16 +329,6 @@ class VeryPoorlyNamedClassIceland(VeryPoorlyNamedClass):
                 data.loc[data.ID == ID, "PERIOD"] = "summer"
         data.loc[data.N_MONTHS > 8, "PERIOD"] = "annual"
         assert data.PERIOD.nunique() == 3
-        #########################
-
-        existing_glaciers = set(data.RGIId.unique())
-        missing_glaciers = [g for g in self.test_glaciers if g not in existing_glaciers]
-        if missing_glaciers:
-            print(
-                f"Warning: The following test glaciers are not in the dataset: {missing_glaciers}"
-            )
-
-        train_glaciers = [i for i in existing_glaciers if i not in self.test_glaciers]
 
         dataloader = DataLoader(
             self.cfg,
@@ -372,12 +375,19 @@ class VeryPoorlyNamedClassNorway(VeryPoorlyNamedClass):
         )
         super().__init__(cfg, params, *args, **kwargs)
 
-        url_monthly_dataset = "https://raw.githubusercontent.com/khsjursen/ML_MB_Norway/refs/heads/main/src/Data/2023-08-28_stake_mb_norway_cleaned_ids_latlon_wattributes_climate_svf_monthly.csv"
+        url_monthly_dataset_train = "https://raw.githubusercontent.com/khsjursen/ML_MB_Norway/refs/heads/main/src/Data/2023-08-28_stake_mb_norway_cleaned_ids_latlon_wattributes_climate_svf_monthly.csv"
+        url_monthly_dataset_test = "https://raw.githubusercontent.com/khsjursen/ML_MB_Norway/refs/heads/main/src/Data/2023-08-28_stake_mb_norway_cleaned_ids_latlon_wattributes_climate_test_svf.csv"
         folder_csv = os.path.abspath(os.path.join(mbm_path, ".data/stakes/norway/"))
-        self.path_csv = os.path.abspath(
+        self.path_csv_train = os.path.abspath(
             os.path.join(
                 folder_csv,
                 "2023-08-28_stake_mb_norway_cleaned_ids_latlon_wattributes_climate_svf_monthly.csv",
+            )
+        )
+        self.path_csv_test = os.path.abspath(
+            os.path.join(
+                folder_csv,
+                "2023-08-28_stake_mb_norway_cleaned_ids_latlon_wattributes_climate_test_svf.csv",
             )
         )
         repo = git.Repo(search_parent_directories=True)
@@ -392,11 +402,26 @@ class VeryPoorlyNamedClassNorway(VeryPoorlyNamedClass):
                     True
                 ):  # TODO: change this, for the moment we do not redownload but we should build a more robust system dependencies in the future
                     commit_match = True
-        if not os.path.isfile(self.path_csv) or not commit_match:
-            print("Downloading monthly CSV file")
+        if not os.path.isfile(self.path_csv_train) or not commit_match:
+            print("Downloading monthly train CSV file")
             if not os.path.isdir(folder_csv):
                 os.makedirs(folder_csv, exist_ok=True)
-            urllib.request.urlretrieve(url_monthly_dataset, self.path_csv)
+            urllib.request.urlretrieve(url_monthly_dataset_train, self.path_csv_train)
+
+            info = {
+                "commit_hash": commit_hash,
+                "date": datetime.datetime.now(tz=datetime.timezone.utc).strftime(
+                    "%Y-%m-%dT%H:%M:%S%z"
+                ),
+            }
+            with open(path_info_download, "w") as f:
+                json.dump(info, f, indent=4, sort_keys=True)
+
+        if not os.path.isfile(self.path_csv_test) or not commit_match:
+            print("Downloading monthly test CSV file")
+            if not os.path.isdir(folder_csv):
+                os.makedirs(folder_csv, exist_ok=True)
+            urllib.request.urlretrieve(url_monthly_dataset_test, self.path_csv_test)
 
             info = {
                 "commit_hash": commit_hash,
@@ -408,9 +433,9 @@ class VeryPoorlyNamedClassNorway(VeryPoorlyNamedClass):
                 json.dump(info, f, indent=4, sort_keys=True)
 
     def load_stakes_data(self):
-        data = pd.read_csv(self.path_csv)
-        data.drop(["Unnamed: 0", "BREID"], axis=1, inplace=True)
-        data.rename(
+        data_train = pd.read_csv(self.path_csv_train)
+        data_train.drop(["Unnamed: 0", "BREID"], axis=1, inplace=True)
+        data_train.rename(
             columns={
                 "id": "ID",
                 "RGIID": "RGIId",
@@ -423,35 +448,65 @@ class VeryPoorlyNamedClassNorway(VeryPoorlyNamedClass):
             },
             inplace=True,
         )
+        data_train["POINT_ELEVATION"] = 0.0
+        data_test = pd.read_csv(self.path_csv_test)
+        data_test.drop(
+            ["Unnamed: 0", "BREID", "altitude_climate"], axis=1, inplace=True
+        )
+        data_test.rename(
+            columns={
+                "id": "ID",
+                "RGIID": "RGIId",
+                "altitude": "POINT_ELEVATION",
+                "year": "YEAR",
+                "altitude_diff": "ELEVATION_DIFFERENCE",
+                "balance": "POINT_BALANCE",
+                "skyview_factor": "svf",
+                "n_months": "N_MONTHS",
+                "month": "MONTHS",
+            },
+            inplace=True,
+        )
+        data_test["ID"] = data_test["ID"] + data_train["ID"].max() + 1
+
         # In the Norway data altitude_diff is the opposite of what we are actually computing with ELEVATION_DIFFERENCE in MBM
         # See https://github.com/khsjursen/ML_MB_Norway/blob/32d8175adab27963c6ca2766f2420f24cdb72a6b/src/scripts/data_processing.py#L96
-        data["ELEVATION_DIFFERENCE"] = -data["ELEVATION_DIFFERENCE"]
+        data_train["ELEVATION_DIFFERENCE"] = -data_train["ELEVATION_DIFFERENCE"]
+        data_test["ELEVATION_DIFFERENCE"] = -data_test["ELEVATION_DIFFERENCE"]
 
-        data["aspect"] = 180 * data["aspect"] / np.pi
-        data["slope"] = 180 * data["slope"] / np.pi
-        data["t2m"] = data["t2m"] - 273.15
+        # Apply some transformations
+        data_train["aspect"] = 180 * data_train["aspect"] / np.pi
+        data_train["slope"] = 180 * data_train["slope"] / np.pi
+        data_train["t2m"] = data_train["t2m"] - 273.15
+        data_test["aspect"] = 180 * data_test["aspect"] / np.pi
+        data_test["slope"] = 180 * data_test["slope"] / np.pi
+        data_test["t2m"] = data_test["t2m"] - 273.15
 
-        ### Add period column ###
-        data = data.assign(PERIOD="")
-        for ID in data[data.N_MONTHS <= 8].ID.unique():
-            sub = data[data.ID == ID]
+        # Add period column to train data
+        data_train = data_train.assign(PERIOD="")
+        for ID in data_train[data_train.N_MONTHS <= 8].ID.unique():
+            sub = data_train[data_train.ID == ID]
             months = sub.MONTHS.to_numpy()
             if "jan" in months:
-                data.loc[data.ID == ID, "PERIOD"] = "winter"
+                data_train.loc[data_train.ID == ID, "PERIOD"] = "winter"
             elif "jul" in months:
-                data.loc[data.ID == ID, "PERIOD"] = "summer"
-        data.loc[data.N_MONTHS > 8, "PERIOD"] = "annual"
-        assert data.PERIOD.nunique() == 3
-        #########################
+                data_train.loc[data_train.ID == ID, "PERIOD"] = "summer"
+        data_train.loc[data_train.N_MONTHS > 8, "PERIOD"] = "annual"
+        assert data_train.PERIOD.nunique() == 3
 
-        existing_glaciers = set(data.RGIId.unique())
-        missing_glaciers = [g for g in self.test_glaciers if g not in existing_glaciers]
-        if missing_glaciers:
-            print(
-                f"Warning: The following test glaciers are not in the dataset: {missing_glaciers}"
-            )
+        # Add period column to test data
+        data_test = data_test.assign(PERIOD="")
+        for ID in data_test[data_test.N_MONTHS <= 8].ID.unique():
+            sub = data_test[data_test.ID == ID]
+            months = sub.MONTHS.to_numpy()
+            if "jan" in months:
+                data_test.loc[data_test.ID == ID, "PERIOD"] = "winter"
+            elif "jul" in months:
+                data_test.loc[data_test.ID == ID, "PERIOD"] = "summer"
+        data_test.loc[data_test.N_MONTHS > 8, "PERIOD"] = "annual"
+        assert data_test.PERIOD.nunique() == 3
 
-        train_glaciers = [i for i in existing_glaciers if i not in self.test_glaciers]
+        data = pd.concat([data_train, data_test]).reset_index(drop=True)
 
         dataloader = DataLoader(
             self.cfg,

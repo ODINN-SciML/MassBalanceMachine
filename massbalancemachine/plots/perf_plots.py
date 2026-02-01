@@ -292,8 +292,8 @@ def predVSTruthGeodetic(
     geoErr,
     ax=None,
     title="Geodetic MB",
-    ax_xlim=(-1.7, 0.5),
-    ax_ylim=(-1.7, 0.5),
+    ax_xlim=(-2.0, 0.5),
+    ax_ylim=(-2.0, 0.5),
 ):
 
     if ax is None:
@@ -392,7 +392,7 @@ def plotMeanPred(
 
 def predVSTruthTimeSeries(
     grouped_ids,
-    scores_annual,
+    scores_annual=None,
     scores_winter=None,
     scores_summer=None,
     color_annual="green",
@@ -442,6 +442,10 @@ def predVSTruthTimeSeries(
         Figure object if a new one was created, otherwise None.
     """
 
+    hasAnnual = (
+        scores_annual is not None
+        and len(grouped_ids[grouped_ids.PERIOD == "annual"]) > 0
+    )
     hasWinter = (
         scores_winter is not None
         and len(grouped_ids[grouped_ids.PERIOD == "winter"]) > 0
@@ -450,15 +454,14 @@ def predVSTruthTimeSeries(
         scores_summer is not None
         and len(grouped_ids[grouped_ids.PERIOD == "summer"]) > 0
     )
-    nRows = (
-        1
-        if not hasWinter and not hasSummer
-        else (
-            2
-            if hasWinter and not hasSummer
-            else (2 if hasSummer and not hasWinter else 3)
-        )
-    )
+    nRows = 0
+    if hasAnnual:
+        nRows += 1
+    if hasWinter:
+        nRows += 1
+    if hasSummer:
+        nRows += 1
+    assert "At least scores for either annual, winter or summer must be provided."
 
     # Create figure
     fig = plt.figure(figsize=(20, 8))
@@ -470,13 +473,31 @@ def predVSTruthTimeSeries(
     ax1 = fig.add_subplot(gs[:, 0])
 
     # Right column has multiple plots
-    axAnnual = fig.add_subplot(gs[0, 1])
-    axWinter = fig.add_subplot(gs[1, 1]) if hasWinter else None
-    axSummer = fig.add_subplot(gs[2 if hasWinter else 1, 1]) if hasSummer else None
+    axAnnual = fig.add_subplot(gs[0, 1]) if hasAnnual else None
+    axWinter = fig.add_subplot(gs[1 if hasAnnual else 0, 1]) if hasWinter else None
+    axSummer = (
+        fig.add_subplot(
+            gs[
+                2 if hasAnnual and hasWinter else (1 if hasAnnual != hasWinter else 0),
+                1,
+            ]
+        )
+        if hasSummer
+        else None
+    )
 
+    keysScores = (
+        scores_annual.keys()
+        if scores_annual is not None
+        else (
+            scores_winter.keys() if scores_winter is not None else scores_summer.keys()
+        )
+    )
     scores_predVSTruth = {}
-    for k, v in scores_annual.items():
-        scores_predVSTruth[k] = {"annual": v}
+    for k in keysScores:
+        scores_predVSTruth[k] = {}
+        if hasAnnual:
+            scores_predVSTruth[k]["annual"] = scores_annual[k]
         if hasWinter:
             scores_predVSTruth[k]["winter"] = scores_winter[k]
         if hasSummer:
@@ -498,16 +519,17 @@ def predVSTruthTimeSeries(
         precLegend=precLegend,
     )
 
-    axAnnual.set_title("Mean yearly annual point mass balance", fontsize=24)
-    grouped_ids_annual = grouped_ids[grouped_ids.PERIOD == "annual"].sort_values(
-        by="YEAR"
-    )
-    plotMeanPred(
-        grouped_ids_annual,
-        axAnnual,
-        linestyle_pred="-",
-        linestyle_obs="--",
-    )
+    if hasAnnual:
+        axAnnual.set_title("Mean yearly annual point mass balance", fontsize=24)
+        grouped_ids_annual = grouped_ids[grouped_ids.PERIOD == "annual"].sort_values(
+            by="YEAR"
+        )
+        plotMeanPred(
+            grouped_ids_annual,
+            axAnnual,
+            linestyle_pred="-",
+            linestyle_obs="--",
+        )
 
     if hasWinter:
         axWinter.set_title("Mean yearly winter point mass balance", fontsize=24)
@@ -521,7 +543,7 @@ def predVSTruthTimeSeries(
             linestyle_obs="--",
         )
         # Remove legend from axWinter if it exists
-        if axWinter.get_legend() is not None:
+        if axWinter.get_legend() is not None and hasAnnual:
             axWinter.get_legend().remove()
 
     if hasSummer:
@@ -536,7 +558,7 @@ def predVSTruthTimeSeries(
             linestyle_obs="--",
         )
         # Remove legend from axSummer if it exists
-        if axSummer.get_legend() is not None:
+        if axSummer.get_legend() is not None and (hasAnnual or hasWinter):
             axSummer.get_legend().remove()
 
     plt.tight_layout()
