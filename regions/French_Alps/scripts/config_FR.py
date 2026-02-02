@@ -1,7 +1,7 @@
 # <------------------ GLACIOCLIM DATA: ------------------>
 # Point data
-path_PMB_GLACIOCLIM_raw = "GLACIOCLIM/unzipped/"
-path_PMB_GLACIOCLIM_csv = "GLACIOCLIM/csv/"
+path_PMB_GLACIOCLIM_raw = "GLACIOCLIM/point/unzipped/"
+path_PMB_GLACIOCLIM_csv = "GLACIOCLIM/point/csv/"
 
 # <------------------ OTHER PATHS: ------------------>
 path_ERA5_raw = "ERA5Land/raw/"  # ERA5-Land

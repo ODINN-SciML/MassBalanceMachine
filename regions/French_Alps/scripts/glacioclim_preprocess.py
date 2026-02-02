@@ -601,7 +601,6 @@ def check_period_consistency(df):
 
 #     return gdirs, rgidf
 
-
 # def export_oggm_grids(gdirs, subset_rgis=None, output_path=None):
 
 #     # Save OGGM xr for all needed glaciers:
@@ -620,14 +619,230 @@ def check_period_consistency(df):
 #         ds.to_zarr(os.path.join(output_path, f"{RGIId}.zarr"))
 
 
+def initialize_oggm_glacier_directories(
+    cfg,
+    working_dir=None,
+    rgi_region="11",
+    rgi_version="62",
+    base_url="https://cluster.klima.uni-bremen.de/~oggm/gdirs/oggm_v1.6/L3-L5_files/2023.1/elev_bands/W5E5_w_data/",
+    log_level="WARNING",
+    task_list=None,
+    from_prepro_level=2,
+    prepro_border=10,
+):
+    """
+    Initialize OGGM GlacierDirectories from preprocessed data and run a task list.
+
+    Parameters
+    ----------
+    cfg : object
+        Configuration object with attribute `dataPath`.
+    working_dir : str or None, optional
+        OGGM working directory. If None, uses `<dataPath>/<path_OGGM>` and empties it.
+    rgi_region : str, optional
+        RGI region string (default "11").
+    rgi_version : str, optional
+        RGI version used by OGGM utilities (default "62").
+    base_url : str, optional
+        URL to preprocessed OGGM directories (L3-L5 files).
+    log_level : str, optional
+        OGGM logging level.
+    task_list : list, optional
+        List of OGGM tasks to execute per glacier.
+    from_prepro_level : int, optional
+        OGGM prepro level to load.
+    prepro_border : int, optional
+        Border size for preprocessed directories.
+
+    Returns
+    -------
+    tuple
+        (gdirs, rgidf) where:
+        - gdirs : list of oggm.GlacierDirectory
+        - rgidf : geopandas.GeoDataFrame with RGI outlines/attributes
+
+    Side Effects
+    ------------
+    Sets OGGM config and empties/creates working directory.
+    """
+    # Initialize OGGM config
+    oggmCfg.initialize(logging_level=log_level)
+    oggmCfg.PARAMS["border"] = 10
+    oggmCfg.PARAMS["use_multiprocessing"] = True
+    oggmCfg.PARAMS["continue_on_error"] = True
+
+    # Module logger
+    log = logging.getLogger(".".join(__name__.split(".")[:-1]))
+    log.setLevel(log_level)
+
+    # Set working directory
+    if working_dir is None:
+        working_dir = cfg.dataPath + path_OGGM
+        emptyfolder(working_dir)
+    # empty the working directory if it exists
+    emptyfolder(working_dir)
+    oggmCfg.PATHS["working_dir"] = working_dir
+
+    # Get RGI file
+    # rgi_dir = utils.get_rgi_dir(version=rgi_version, reset=False)
+    path = utils.get_rgi_region_file(
+        region=rgi_region, version=rgi_version, reset=False
+    )
+    rgidf = gpd.read_file(path)
+
+    # Initialize glacier directories from preprocessed data
+    print("Collecting from base_url: ", base_url)
+    gdirs = workflow.init_glacier_directories(
+        rgidf,
+        from_prepro_level=from_prepro_level,
+        prepro_base_url=base_url,
+        prepro_border=prepro_border,
+        reset=True,
+        force=True,
+    )
+
+    # Default task list if none provided
+    if task_list is None:
+        task_list = [
+            tasks.gridded_attributes,
+            # tasks.gridded_mb_attributes,
+            # get_gridded_features,
+        ]
+
+    # Run tasks
+    for task in task_list:
+        workflow.execute_entity_task(task, gdirs, print_log=False)
+
+    return gdirs, rgidf
+
+
+def export_oggm_grids(cfg, gdirs, subset_rgis=None, output_path=None):
+    """
+    Export OGGM gridded_data datasets to per-glacier Zarr files and report missing variables.
+
+    Parameters
+    ----------
+    cfg : object
+        Configuration object with attribute `dataPath`.
+    gdirs : list
+        OGGM GlacierDirectory objects.
+    subset_rgis : set or list or None, optional
+        If provided, only export glaciers whose RGIId is in this subset.
+    output_path : str or None, optional
+        Output folder for Zarr files. Defaults to `<dataPath>/<path_OGGM_xrgrids>`.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Table listing glaciers with missing expected variables and which variables are missing.
+
+    Side Effects
+    ------------
+    Empties output folder and writes Zarr datasets.
+    """
+
+    # Save OGGM xr for all needed glaciers:
+    if output_path is None:
+        output_path = cfg.dataPath + path_OGGM_xrgrids
+    emptyfolder(output_path)
+
+    records = []
+
+    for gdir in gdirs:
+        RGIId = gdir.rgi_id
+        # only save a subset if it's not empty
+        if subset_rgis is not None:
+            # check if the glacier is in the subset
+            # if not, skip it
+            if RGIId not in subset_rgis:
+                continue
+        with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
+            ds = ds.load()
+
+        vars = ["hugonnet_dhdt", "consensus_ice_thickness", "millan_v"]
+
+        if not all(var in ds for var in vars):
+            missing_vars = [var for var in vars if var not in ds]
+            records.append(
+                {
+                    "rgi_id": RGIId,
+                    "missing_vars": missing_vars,
+                }
+            )
+
+        # save ds
+        ds.to_zarr(os.path.join(output_path, f"{RGIId}.zarr"))
+    df_missing = pd.DataFrame(records)
+
+    return df_missing
+
+
+def check_multiple_rgi_ids(df):
+    """
+    Check whether any GLACIER name maps to more than one RGIId.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        DataFrame containing columns `GLACIER` and `RGIId`.
+
+    Returns
+    -------
+    bool
+        True if at least one glacier has multiple unique RGIId values, else False.
+    """
+    rgi_per_glacier = df.groupby("GLACIER")["RGIId"].nunique()
+    glaciers_with_multiple_rgi = rgi_per_glacier[rgi_per_glacier > 1]
+    if not glaciers_with_multiple_rgi.empty:
+        return True
+    else:
+        return False
+
+
 def merge_pmb_with_oggm_data(
     df_pmb,
     gdirs,
     rgi_region="11",
-    rgi_version="6",
+    rgi_version="62",
     variables_of_interest=None,
     verbose=True,
 ):
+    """
+    Enrich stake point data with OGGM gridded variables and a within-glacier flag.
+
+    For each RGIId group, this function:
+    - loads OGGM `gridded_data` for the matching glacier directory
+    - transforms stake points from WGS84 to the OGGM projection
+    - samples nearest grid cell values for selected variables
+    - computes whether each point lies within the RGI glacier polygon (spatial join)
+    - converts `aspect` and `slope` from radians to degrees
+
+    Parameters
+    ----------
+    df_pmb : pandas.DataFrame
+        Stake dataset with at least columns: `RGIId`, `POINT_LON`, `POINT_LAT`, `PERIOD`.
+    gdirs : list
+        List of OGGM GlacierDirectory objects.
+    rgi_region : str, optional
+        RGI region (default "11").
+    rgi_version : str, optional
+        RGI version passed to OGGM utilities (default "6").
+    variables_of_interest : list of str, optional
+        Variables to sample from OGGM gridded dataset.
+    verbose : bool, optional
+        If True, logs warnings and summary counts.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Input dataframe with added columns for sampled OGGM variables and:
+        - `within_glacier_shape` : bool
+
+    Raises
+    ------
+    KeyError
+        If required columns are missing.
+    """
     if variables_of_interest is None:
         variables_of_interest = [
             "aspect",
@@ -695,11 +910,23 @@ def merge_pmb_with_oggm_data(
             y=xr.DataArray(y_stake, dims="points"),
             method="nearest",
         )
-        stake_var_df = stake[variables_of_interest].to_dataframe()
+
+        # # if all variables:
+        # stake_var_df = stake[variables_of_interest].to_dataframe()
+        # variables that actually exist in the dataset
+        present_vars = [v for v in variables_of_interest if v in stake.data_vars]
+        missing_vars = [v for v in variables_of_interest if v not in stake.data_vars]
+
+        # warn globally
+        if missing_vars:
+            if verbose:
+                log.warning(f"Missing variables for {rgi_id}: {missing_vars}")
+
+        # extract only the existing variables
+        stake_var_df = stake[present_vars].to_dataframe()
 
         # Assign to original DataFrame
-        for var in variables_of_interest:
-            df_pmb.loc[group.index, var] = stake_var_df[var].values
+        df_pmb.loc[group.index, present_vars] = stake_var_df[present_vars].values
 
         df_pmb.loc[points_in_glacier.index, "within_glacier_shape"] = True
 
@@ -717,3 +944,78 @@ def merge_pmb_with_oggm_data(
         log.info("-- Number of winter samples:", len(df_pmb[df_pmb.PERIOD == "winter"]))
 
     return df_pmb
+
+
+def rename_stakes_by_elevation(df_pmb_topo):
+    """
+    Reassign stake POINT_IDs per glacier by sorting stakes by mean elevation.
+
+    For each glacier, the function computes mean elevation per POINT_ID,
+    sorts by elevation, and renames POINT_ID to `<glacier>_<rank>`.
+
+    Parameters
+    ----------
+    df_pmb_topo : pandas.DataFrame
+        Stake dataset containing `GLACIER`, `POINT_ID`, and `POINT_ELEVATION`.
+
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame with updated `POINT_ID` values.
+    """
+    for glacierName in df_pmb_topo.GLACIER.unique():
+        gl_data = df_pmb_topo[df_pmb_topo.GLACIER == glacierName]
+        stakeIDS = gl_data.groupby("POINT_ID")[
+            ["POINT_LAT", "POINT_LON", "POINT_ELEVATION"]
+        ].mean()
+        stakeIDS.reset_index(inplace=True)
+        # Change the ID according to elevation
+        new_ids = stakeIDS[["POINT_ID", "POINT_ELEVATION"]].sort_values(
+            by="POINT_ELEVATION"
+        )
+        new_ids["POINT_ID_new"] = [f"{glacierName}_{i}" for i in range(len(new_ids))]
+        for i, row in new_ids.iterrows():
+            df_pmb_topo.loc[
+                (df_pmb_topo.GLACIER == glacierName)
+                & (df_pmb_topo.POINT_ID == row.POINT_ID),
+                "POINT_ID",
+            ] = row.POINT_ID_new
+    return df_pmb_topo
+
+
+def check_point_ids_contain_glacier(dataframe):
+    """
+    Validate that each POINT_ID contains the corresponding GLACIER name substring.
+
+    Parameters
+    ----------
+    dataframe : pandas.DataFrame
+        Must contain columns `GLACIER` and `POINT_ID`.
+
+    Returns
+    -------
+    tuple[bool, pandas.DataFrame or None]
+        (is_valid, invalid_rows). invalid_rows is None if valid.
+
+    Raises
+    ------
+    ValueError
+        If required columns are missing.
+    """
+    if "GLACIER" not in dataframe.columns or "POINT_ID" not in dataframe.columns:
+        raise ValueError("The dataframe must contain 'GLACIER' and 'POINT_ID' columns.")
+
+    # Check condition
+    invalid_rows = dataframe[
+        ~dataframe.apply(lambda row: row["GLACIER"] in row["POINT_ID"], axis=1)
+    ]
+
+    # Report
+    if invalid_rows.empty:
+        print("All POINT_IDs correctly contain their respective GLACIER names.")
+        return True, None
+    else:
+        print(
+            f"Found {len(invalid_rows)} rows where POINT_ID does not contain the GLACIER name."
+        )
+        return False, invalid_rows

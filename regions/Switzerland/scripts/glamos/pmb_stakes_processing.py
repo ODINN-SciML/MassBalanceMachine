@@ -676,7 +676,7 @@ def merge_pmb_with_oggm_data(
     df_pmb,
     gdirs,
     rgi_region="11",
-    rgi_version="6",
+    rgi_version="62",
     variables_of_interest=None,
     verbose=True,
 ):
