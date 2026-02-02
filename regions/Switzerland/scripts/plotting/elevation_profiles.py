@@ -20,6 +20,8 @@ import colormaps as cmaps
 from regions.Switzerland.scripts.config_CH import *
 from regions.Switzerland.scripts.plotting.palettes import _default_style
 
+from massbalancemachine.plots.style import COLOR_ANNUAL, COLOR_WINTER
+
 
 def plot_glamos_by_elevation_periods(
     df_all_a,

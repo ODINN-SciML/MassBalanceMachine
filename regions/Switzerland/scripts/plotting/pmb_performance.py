@@ -7,7 +7,8 @@ import math
 
 from regions.Switzerland.scripts.config_CH import *
 from regions.Switzerland.scripts.plotting.style import alpha_labels
-import massbalancemachine as mbm
+
+from massbalancemachine.plots.style import COLOR_ANNUAL, COLOR_WINTER
 
 
 def plot_predictions_summary(

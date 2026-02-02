@@ -3,6 +3,12 @@ import string
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import joypy
+
+from matplotlib.patches import Patch
+from scipy.stats import gaussian_kde
+from scipy.ndimage import gaussian_filter1d
+import seaborn as sns
 
 from regions.Switzerland.scripts.utils import *
 from regions.Switzerland.scripts.config_CH import *

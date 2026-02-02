@@ -26,6 +26,10 @@ from regions.Switzerland.scripts.geo_data import *
 
 from regions.Switzerland.scripts.plotting.palettes import get_color_maps
 
+import massbalancemachine as mbm
+
+mbm.plots.use_mbm_style()
+
 
 def plot_2glaciers_2years_glamos_vs_lstm(
     glacier_names,

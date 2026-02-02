@@ -7,6 +7,9 @@ from regions.Switzerland.scripts.plotting.palettes import get_cmap_hex
 from regions.Switzerland.scripts.config_CH import *
 
 
+from massbalancemachine.plots.style import COLOR_ANNUAL, COLOR_WINTER
+
+
 def plot_grid_search_score(cv_results_, lossType: str):
     """
     Plot train and validation scores across grid-search iterations.

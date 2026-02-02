@@ -16,6 +16,8 @@ from pathlib import Path
 from shapely.geometry import Point
 from scipy.spatial.distance import cdist
 
+import massbalancemachine as mbm
+
 from scripts.config_FR import *
 from scripts.helpers import *
 
@@ -412,10 +414,35 @@ def find_close_stakes(df, distance_threshold=10):
         )
 
 
-def remove_close_points(df_gl, meters=10):
+def remove_close_points(df_gl):
+    """
+    Merge stake points that are closer than 10 meters within each (YEAR, PERIOD) group.
+
+    For each year and for each period ('annual', 'winter'), this function:
+    - converts lat/lon to LAEA coordinates (EPSG:3035) via `latlon_to_laea`
+    - computes pairwise distances
+    - for clusters of points within 10 m, assigns the mean POINT_BALANCE to the kept point
+    - drops the redundant points
+
+    Parameters
+    ----------
+    df_gl : pandas.DataFrame
+        Stake dataset containing columns: `YEAR`, `PERIOD`, `POINT_LAT`, `POINT_LON`,
+        and `POINT_BALANCE`.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Cleaned dataframe with close duplicates merged/dropped.
+
+    Notes
+    -----
+    The function logs how many points were dropped. It may add temporary `x`, `y`
+    columns during processing.
+    """
     df_gl_cleaned = pd.DataFrame()
     for year in df_gl.YEAR.unique():
-        for period in df_gl.PERIOD.unique():
+        for period in ["annual", "winter"]:
             df_gl_y = df_gl[(df_gl.YEAR == year) & (df_gl.PERIOD == period)]
             if len(df_gl_y) <= 1:
                 df_gl_cleaned = pd.concat([df_gl_cleaned, df_gl_y])
@@ -435,7 +462,7 @@ def remove_close_points(df_gl, meters=10):
                     continue  # Skip already merged points
 
                 # Find close points (distance < 10m)
-                close_indices = np.where(distance[i, :] < meters)[0]
+                close_indices = np.where(distance[i, :] < 10)[0]
                 close_indices = [idx for idx in close_indices if idx != i]
 
                 if close_indices:
@@ -443,17 +470,6 @@ def remove_close_points(df_gl, meters=10):
 
                     # Assign mean balance to the first point
                     df_gl_y.loc[df_gl_y.index[i], "POINT_BALANCE"] = mean_MB
-
-                    # Track which points were merged
-                    merged_point_ids = [
-                        df_gl_y.iloc[idx]["POINT_ID"] for idx in close_indices
-                    ]
-                    merged_info = (
-                        "Merged with stakes: "
-                        + ", ".join(merged_point_ids)
-                        + " (taking average MB)"
-                    )
-                    df_gl_y.loc[df_gl_y.index[i], "DATA_MODIFICATION"] += merged_info
 
                     # Mark other indices for removal
                     merged_indices.update(close_indices)
@@ -468,8 +484,7 @@ def remove_close_points(df_gl, meters=10):
     # Final output
     df_gl_cleaned.reset_index(drop=True, inplace=True)
     points_dropped = len(df_gl) - len(df_gl_cleaned)
-    print(f"Number of points dropped: {points_dropped}")
-    df_gl_cleaned = df_gl_cleaned.drop(columns=["x", "y"], errors="ignore")
+    log.info(f"--- Number of points dropped: {points_dropped}")
     return df_gl_cleaned if points_dropped > 0 else df_gl
 
 
@@ -484,8 +499,8 @@ def latlon_to_laea(lat, lon):
 
 def check_period_consistency(df):
     """
-    Checks if date ranges make sense for annual and winter periods:
-    Returns dataframes with inconsistent periods
+    Checks if date ranges make sense for annual, winter, and summer periods.
+    Returns dataframes with inconsistent periods.
     """
     df_check = df.copy()
 
@@ -499,110 +514,110 @@ def check_period_consistency(df):
         - df_check["FROM_DATE_DT"].dt.month
     )
 
-    # Identify inconsistent periods
-    ## 9-15 and 4-9 and 3-8 excludes the normal varying range
-    annual_inconsistent = df_check[
-        (df_check["PERIOD"] == "annual")
-        & ((df_check["MONTH_DIFF"] < 9) | (df_check["MONTH_DIFF"] > 15))
-    ]
+    # Define expected ranges
+    ranges = {
+        "annual": (9, 15),
+        "winter": (4, 9),
+        "summer": (3, 8),
+    }
 
-    winter_inconsistent = df_check[
-        (df_check["PERIOD"] == "winter")
-        & ((df_check["MONTH_DIFF"] < 4) | (df_check["MONTH_DIFF"] > 9))
-    ]
+    inconsistent_dfs = {}
 
-    summer_inconsistent = df_check[
-        (df_check["PERIOD"] == "summer")
-        & ((df_check["MONTH_DIFF"] < 3) | (df_check["MONTH_DIFF"] > 8))
-    ]
+    for period, (min_m, max_m) in ranges.items():
+        period_df = df_check[df_check["PERIOD"] == period]
+        inconsistent = period_df[
+            (period_df["MONTH_DIFF"] < min_m) | (period_df["MONTH_DIFF"] > max_m)
+        ]
 
-    total_annual = len(df_check[df_check["PERIOD"] == "annual"])
-    total_winter = len(df_check[df_check["PERIOD"] == "winter"])
-    total_summer = len(df_check[df_check["PERIOD"] == "summer"])
+        total = len(period_df)
+        n_bad = len(inconsistent)
 
-    print(
-        f"Annual periods: {len(annual_inconsistent)} out of {total_annual} ({len(annual_inconsistent)/total_annual*100:.1f}%) are inconsistent"
+        if total == 0:
+            pct = 0.0
+        else:
+            pct = n_bad / total * 100
+
+        print(
+            f"{period.capitalize()} periods: {n_bad} out of {total} ({pct:.1f}%) are inconsistent"
+        )
+
+        inconsistent_dfs[period] = inconsistent
+
+    return (
+        inconsistent_dfs["annual"],
+        inconsistent_dfs["winter"],
+        inconsistent_dfs["summer"],
     )
-    print(
-        f"Winter periods: {len(winter_inconsistent)} out of {total_winter} ({len(winter_inconsistent)/total_winter*100:.1f}%) are inconsistent"
-    )
-    print(
-        f"Summer periods: {len(summer_inconsistent)} out of {total_summer} ({len(summer_inconsistent)/total_summer*100:.1f}%) are inconsistent"
-    )
-
-    return annual_inconsistent, winter_inconsistent, summer_inconsistent
 
 
 # --- OGGM --- #
+# def initialize_oggm_glacier_directories(
+#     working_dir=None,
+#     rgi_region="11",
+#     rgi_version="6",
+#     base_url="https://cluster.klima.uni-bremen.de/~oggm/gdirs/oggm_v1.6/L3-L5_files/2023.1/elev_bands/W5E5_w_data/",
+#     log_level="WARNING",
+#     task_list=None,
+# ):
+#     # Initialize OGGM config
+#     oggmCfg.initialize(logging_level=log_level)
+#     oggmCfg.PARAMS["border"] = 10
+#     oggmCfg.PARAMS["use_multiprocessing"] = True
+#     oggmCfg.PARAMS["continue_on_error"] = True
+
+#     # Module logger
+#     log = logging.getLogger(".".join(__name__.split(".")[:-1]))
+#     log.setLevel(log_level)
+
+#     # Set working directory
+#     oggmCfg.PATHS["working_dir"] = working_dir
+
+#     # Get RGI file
+#     rgi_dir = utils.get_rgi_dir(version=rgi_version)
+#     path = utils.get_rgi_region_file(region=rgi_region, version=rgi_version)
+#     rgidf = gpd.read_file(path)
+
+#     # Initialize glacier directories from preprocessed data
+#     gdirs = workflow.init_glacier_directories(
+#         rgidf,
+#         from_prepro_level=3,
+#         prepro_base_url=base_url,
+#         prepro_border=10,
+#         reset=True,
+#         force=True,
+#     )
+
+#     # Default task list if none provided
+#     if task_list is None:
+#         task_list = [
+#             tasks.gridded_attributes,
+#             # tasks.gridded_mb_attributes,
+#             # get_gridded_features,
+#         ]
+
+#     # Run tasks
+#     for task in task_list:
+#         workflow.execute_entity_task(task, gdirs, print_log=False)
+
+#     return gdirs, rgidf
 
 
-def initialize_oggm_glacier_directories(
-    working_dir=None,
-    rgi_region="11",
-    rgi_version="6",
-    base_url="https://cluster.klima.uni-bremen.de/~oggm/gdirs/oggm_v1.6/L3-L5_files/2023.1/elev_bands/W5E5_w_data/",
-    log_level="WARNING",
-    task_list=None,
-):
-    # Initialize OGGM config
-    oggmCfg.initialize(logging_level=log_level)
-    oggmCfg.PARAMS["border"] = 10
-    oggmCfg.PARAMS["use_multiprocessing"] = True
-    oggmCfg.PARAMS["continue_on_error"] = True
+# def export_oggm_grids(gdirs, subset_rgis=None, output_path=None):
 
-    # Module logger
-    log = logging.getLogger(".".join(__name__.split(".")[:-1]))
-    log.setLevel(log_level)
-
-    # Set working directory
-    oggmCfg.PATHS["working_dir"] = working_dir
-
-    # Get RGI file
-    rgi_dir = utils.get_rgi_dir(version=rgi_version)
-    path = utils.get_rgi_region_file(region=rgi_region, version=rgi_version)
-    rgidf = gpd.read_file(path)
-
-    # Initialize glacier directories from preprocessed data
-    gdirs = workflow.init_glacier_directories(
-        rgidf,
-        from_prepro_level=3,
-        prepro_base_url=base_url,
-        prepro_border=10,
-        reset=True,
-        force=True,
-    )
-
-    # Default task list if none provided
-    if task_list is None:
-        task_list = [
-            tasks.gridded_attributes,
-            # tasks.gridded_mb_attributes,
-            # get_gridded_features,
-        ]
-
-    # Run tasks
-    for task in task_list:
-        workflow.execute_entity_task(task, gdirs, print_log=False)
-
-    return gdirs, rgidf
-
-
-def export_oggm_grids(gdirs, subset_rgis=None, output_path=None):
-
-    # Save OGGM xr for all needed glaciers:
-    emptyfolder(output_path)
-    for gdir in gdirs:
-        RGIId = gdir.rgi_id
-        # only save a subset if it's not empty
-        if subset_rgis is not None:
-            # check if the glacier is in the subset
-            # if not, skip it
-            if RGIId not in subset_rgis:
-                continue
-        with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
-            ds = ds.load()
-        # save ds
-        ds.to_zarr(os.path.join(output_path, f"{RGIId}.zarr"))
+#     # Save OGGM xr for all needed glaciers:
+#     emptyfolder(output_path)
+#     for gdir in gdirs:
+#         RGIId = gdir.rgi_id
+#         # only save a subset if it's not empty
+#         if subset_rgis is not None:
+#             # check if the glacier is in the subset
+#             # if not, skip it
+#             if RGIId not in subset_rgis:
+#                 continue
+#         with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
+#             ds = ds.load()
+#         # save ds
+#         ds.to_zarr(os.path.join(output_path, f"{RGIId}.zarr"))
 
 
 def merge_pmb_with_oggm_data(
