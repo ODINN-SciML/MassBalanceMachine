@@ -1,22 +1,12 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime
-import geopandas as gpd
 import pyproj
 import xarray as xr
 import zipfile
 import logging
-import math
 from tqdm import tqdm
-from itertools import combinations
-from geopy.distance import geodesic
-from oggm import utils, workflow, tasks
-from oggm import cfg as oggmCfg
 from pathlib import Path
-from shapely.geometry import Point
-from scipy.spatial.distance import cdist
-
-import massbalancemachine as mbm
 
 from scripts.config_FR import *
 from scripts.helpers import *
@@ -27,9 +17,8 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+
 # --- Preprocess --- #
-
-
 def extract_glacioclim_files(path):
     """
     Extract GLACIOCLIM zipfiles into organized directories.
@@ -150,8 +139,45 @@ def extract_sarennes_data(all_sheets):
 
 
 def extract_blanc_data(blanc_data):
-    import pandas as pd
+    """
+    Extract annual mass-balance stake series for Glacier Blanc from a wide-format table.
 
+    The expected input layout is the "Blanc" Excel sheet format where:
+    - Row 0 contains X coordinates for each stake (one stake per column)
+    - Row 1 contains Y coordinates for each stake
+    - Row 2 contains elevations (Z) for each stake
+    - Rows 3..(n-2) contain annual mass-balance values by year (years in first column)
+    - The last column is ignored (often metadata or comments)
+    - A column named "balise" is skipped if present
+
+    The function creates one output row per (stake, year) with WGMS-like fields and
+    hydrological-year date bounds:
+    - FROM_DATE = Oct 1 of (year-1)
+    - TO_DATE   = Sep 30 of (year)
+
+    Parameters
+    ----------
+    blanc_data : pandas.DataFrame
+        DataFrame containing the Glacier Blanc sheet content in the layout described above.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Long-format table with columns:
+        - POINT_ID
+        - x_lambert3, y_lambert3
+        - POINT_ELEVATION
+        - FROM_DATE, TO_DATE (YYYYMMDD strings)
+        - POINT_BALANCE (float)
+        - GLACIER ('glacier_blanc')
+        - PERIOD ('annual')
+        - GLACIER_ZONE ('complete')
+
+    Notes
+    -----
+    - Balance values equal to 'ND' (case-insensitive) are skipped.
+    - Decimal commas are converted to decimal points before casting to float.
+    """
     rows = []
 
     # Get coordinate rows (X, Y, Z are in rows 0, 1, 2)
@@ -342,161 +368,6 @@ def transform_WGMS_df(df, key):
     return final_df
 
 
-def find_close_stakes(df, distance_threshold=10):
-    """
-    Find stakes that are within distance_threshold meters of each other.
-    Only compares stakes within the same glacier, year, and period.
-    """
-    close_stakes = []
-
-    # Group by glacier, year, AND period
-    for (glacier, year, period), group in tqdm(
-        df.groupby(["GLACIER", "YEAR", "PERIOD"]),
-        desc="Processing glacier-year-periods",
-    ):
-        # Skip if there's only one stake in this group
-        if len(group) <= 1:
-            continue
-
-        # Get all unique pairs of stakes in this glacier-year-period
-        for idx1, idx2 in combinations(group.index, 2):
-            # Get coordinates
-            point1 = (group.loc[idx1, "POINT_LAT"], group.loc[idx1, "POINT_LON"])
-            point2 = (group.loc[idx2, "POINT_LAT"], group.loc[idx2, "POINT_LON"])
-
-            # Calculate distance in meters
-            distance = geodesic(point1, point2).meters
-
-            # Check if within threshold
-            if distance <= distance_threshold:
-                close_stakes.append(
-                    {
-                        "GLACIER": glacier,
-                        "YEAR": year,
-                        "PERIOD": period,
-                        "POINT_ID_1": group.loc[idx1, "POINT_ID"],
-                        "POINT_ID_2": group.loc[idx2, "POINT_ID"],
-                        "LAT_1": point1[0],
-                        "LON_1": point1[1],
-                        "LAT_2": point2[0],
-                        "LON_2": point2[1],
-                        "POINT_BALANCE_1": group.loc[idx1, "POINT_BALANCE"],
-                        "POINT_BALANCE_2": group.loc[idx2, "POINT_BALANCE"],
-                        "DISTANCE_M": distance,
-                    }
-                )
-
-    # Convert to DataFrame
-    if close_stakes:
-        result_df = pd.DataFrame(close_stakes)
-        print(
-            f"Found {len(result_df)} pairs of stakes that are {distance_threshold}m or closer"
-        )
-        return result_df
-    else:
-        print(f"No stakes found within {distance_threshold}m of each other")
-        # Return empty df if triggered
-        return pd.DataFrame(
-            columns=[
-                "GLACIER",
-                "YEAR",
-                "PERIOD",
-                "POINT_ID_1",
-                "POINT_ID_2",
-                "LAT_1",
-                "LON_1",
-                "LAT_2",
-                "LON_2",
-                "POINT_BALANCE_1",
-                "POINT_BALANCE_2",
-                "DISTANCE_M",
-            ]
-        )
-
-
-def remove_close_points(df_gl):
-    """
-    Merge stake points that are closer than 10 meters within each (YEAR, PERIOD) group.
-
-    For each year and for each period ('annual', 'winter'), this function:
-    - converts lat/lon to LAEA coordinates (EPSG:3035) via `latlon_to_laea`
-    - computes pairwise distances
-    - for clusters of points within 10 m, assigns the mean POINT_BALANCE to the kept point
-    - drops the redundant points
-
-    Parameters
-    ----------
-    df_gl : pandas.DataFrame
-        Stake dataset containing columns: `YEAR`, `PERIOD`, `POINT_LAT`, `POINT_LON`,
-        and `POINT_BALANCE`.
-
-    Returns
-    -------
-    pandas.DataFrame
-        Cleaned dataframe with close duplicates merged/dropped.
-
-    Notes
-    -----
-    The function logs how many points were dropped. It may add temporary `x`, `y`
-    columns during processing.
-    """
-    df_gl_cleaned = pd.DataFrame()
-    for year in df_gl.YEAR.unique():
-        for period in ["annual", "winter"]:
-            df_gl_y = df_gl[(df_gl.YEAR == year) & (df_gl.PERIOD == period)]
-            if len(df_gl_y) <= 1:
-                df_gl_cleaned = pd.concat([df_gl_cleaned, df_gl_y])
-                continue
-
-            # Calculate distances to other points
-            df_gl_y["x"], df_gl_y["y"] = latlon_to_laea(
-                df_gl_y["POINT_LAT"], df_gl_y["POINT_LON"]
-            )
-
-            distance = cdist(df_gl_y[["x", "y"]], df_gl_y[["x", "y"]], "euclidean")
-
-            # Merge close points
-            merged_indices = set()
-            for i in range(len(df_gl_y)):
-                if i in merged_indices:
-                    continue  # Skip already merged points
-
-                # Find close points (distance < 10m)
-                close_indices = np.where(distance[i, :] < 10)[0]
-                close_indices = [idx for idx in close_indices if idx != i]
-
-                if close_indices:
-                    mean_MB = df_gl_y.iloc[close_indices + [i]].POINT_BALANCE.mean()
-
-                    # Assign mean balance to the first point
-                    df_gl_y.loc[df_gl_y.index[i], "POINT_BALANCE"] = mean_MB
-
-                    # Mark other indices for removal
-                    merged_indices.update(close_indices)
-
-            # Drop surplus points
-            indices_to_drop = list(merged_indices)
-            df_gl_y = df_gl_y.drop(df_gl_y.index[indices_to_drop])
-
-            # Append cleaned DataFrame
-            df_gl_cleaned = pd.concat([df_gl_cleaned, df_gl_y])
-
-    # Final output
-    df_gl_cleaned.reset_index(drop=True, inplace=True)
-    points_dropped = len(df_gl) - len(df_gl_cleaned)
-    log.info(f"--- Number of points dropped: {points_dropped}")
-    return df_gl_cleaned if points_dropped > 0 else df_gl
-
-
-def latlon_to_laea(lat, lon):
-    # Define the transformer: WGS84 to ETRS89 / LAEA Europe
-    transformer = pyproj.Transformer.from_crs("epsg:4326", "epsg:3035")
-
-    # Perform the transformation
-    easting, northing = transformer.transform(lat, lon)
-    return easting, northing
-
-
 def check_period_consistency(df):
     """
     Checks if date ranges make sense for annual, winter, and summer periods.
@@ -550,472 +421,485 @@ def check_period_consistency(df):
     )
 
 
-# --- OGGM --- #
-# def initialize_oggm_glacier_directories(
-#     working_dir=None,
-#     rgi_region="11",
-#     rgi_version="6",
-#     base_url="https://cluster.klima.uni-bremen.de/~oggm/gdirs/oggm_v1.6/L3-L5_files/2023.1/elev_bands/W5E5_w_data/",
-#     log_level="WARNING",
-#     task_list=None,
-# ):
-#     # Initialize OGGM config
-#     oggmCfg.initialize(logging_level=log_level)
-#     oggmCfg.PARAMS["border"] = 10
-#     oggmCfg.PARAMS["use_multiprocessing"] = True
-#     oggmCfg.PARAMS["continue_on_error"] = True
-
-#     # Module logger
-#     log = logging.getLogger(".".join(__name__.split(".")[:-1]))
-#     log.setLevel(log_level)
-
-#     # Set working directory
-#     oggmCfg.PATHS["working_dir"] = working_dir
-
-#     # Get RGI file
-#     rgi_dir = utils.get_rgi_dir(version=rgi_version)
-#     path = utils.get_rgi_region_file(region=rgi_region, version=rgi_version)
-#     rgidf = gpd.read_file(path)
-
-#     # Initialize glacier directories from preprocessed data
-#     gdirs = workflow.init_glacier_directories(
-#         rgidf,
-#         from_prepro_level=3,
-#         prepro_base_url=base_url,
-#         prepro_border=10,
-#         reset=True,
-#         force=True,
-#     )
-
-#     # Default task list if none provided
-#     if task_list is None:
-#         task_list = [
-#             tasks.gridded_attributes,
-#             # tasks.gridded_mb_attributes,
-#             # get_gridded_features,
-#         ]
-
-#     # Run tasks
-#     for task in task_list:
-#         workflow.execute_entity_task(task, gdirs, print_log=False)
-
-#     return gdirs, rgidf
-
-# def export_oggm_grids(gdirs, subset_rgis=None, output_path=None):
-
-#     # Save OGGM xr for all needed glaciers:
-#     emptyfolder(output_path)
-#     for gdir in gdirs:
-#         RGIId = gdir.rgi_id
-#         # only save a subset if it's not empty
-#         if subset_rgis is not None:
-#             # check if the glacier is in the subset
-#             # if not, skip it
-#             if RGIId not in subset_rgis:
-#                 continue
-#         with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
-#             ds = ds.load()
-#         # save ds
-#         ds.to_zarr(os.path.join(output_path, f"{RGIId}.zarr"))
-
-
-def initialize_oggm_glacier_directories(
-    cfg,
-    working_dir=None,
-    rgi_region="11",
-    rgi_version="62",
-    base_url="https://cluster.klima.uni-bremen.de/~oggm/gdirs/oggm_v1.6/L3-L5_files/2023.1/elev_bands/W5E5_w_data/",
-    log_level="WARNING",
-    task_list=None,
-    from_prepro_level=2,
-    prepro_border=10,
-):
+def flag_elevation_mismatch(df, threshold=400):
     """
-    Initialize OGGM GlacierDirectories from preprocessed data and run a task list.
-
-    Parameters
-    ----------
-    cfg : object
-        Configuration object with attribute `dataPath`.
-    working_dir : str or None, optional
-        OGGM working directory. If None, uses `<dataPath>/<path_OGGM>` and empties it.
-    rgi_region : str, optional
-        RGI region string (default "11").
-    rgi_version : str, optional
-        RGI version used by OGGM utilities (default "62").
-    base_url : str, optional
-        URL to preprocessed OGGM directories (L3-L5 files).
-    log_level : str, optional
-        OGGM logging level.
-    task_list : list, optional
-        List of OGGM tasks to execute per glacier.
-    from_prepro_level : int, optional
-        OGGM prepro level to load.
-    prepro_border : int, optional
-        Border size for preprocessed directories.
-
-    Returns
-    -------
-    tuple
-        (gdirs, rgidf) where:
-        - gdirs : list of oggm.GlacierDirectory
-        - rgidf : geopandas.GeoDataFrame with RGI outlines/attributes
-
-    Side Effects
-    ------------
-    Sets OGGM config and empties/creates working directory.
-    """
-    # Initialize OGGM config
-    oggmCfg.initialize(logging_level=log_level)
-    oggmCfg.PARAMS["border"] = 10
-    oggmCfg.PARAMS["use_multiprocessing"] = True
-    oggmCfg.PARAMS["continue_on_error"] = True
-
-    # Module logger
-    log = logging.getLogger(".".join(__name__.split(".")[:-1]))
-    log.setLevel(log_level)
-
-    # Set working directory
-    if working_dir is None:
-        working_dir = cfg.dataPath + path_OGGM
-        emptyfolder(working_dir)
-    # empty the working directory if it exists
-    emptyfolder(working_dir)
-    oggmCfg.PATHS["working_dir"] = working_dir
-
-    # Get RGI file
-    # rgi_dir = utils.get_rgi_dir(version=rgi_version, reset=False)
-    path = utils.get_rgi_region_file(
-        region=rgi_region, version=rgi_version, reset=False
-    )
-    rgidf = gpd.read_file(path)
-
-    # Initialize glacier directories from preprocessed data
-    print("Collecting from base_url: ", base_url)
-    gdirs = workflow.init_glacier_directories(
-        rgidf,
-        from_prepro_level=from_prepro_level,
-        prepro_base_url=base_url,
-        prepro_border=prepro_border,
-        reset=True,
-        force=True,
-    )
-
-    # Default task list if none provided
-    if task_list is None:
-        task_list = [
-            tasks.gridded_attributes,
-            # tasks.gridded_mb_attributes,
-            # get_gridded_features,
-        ]
-
-    # Run tasks
-    for task in task_list:
-        workflow.execute_entity_task(task, gdirs, print_log=False)
-
-    return gdirs, rgidf
-
-
-def export_oggm_grids(cfg, gdirs, subset_rgis=None, output_path=None):
-    """
-    Export OGGM gridded_data datasets to per-glacier Zarr files and report missing variables.
-
-    Parameters
-    ----------
-    cfg : object
-        Configuration object with attribute `dataPath`.
-    gdirs : list
-        OGGM GlacierDirectory objects.
-    subset_rgis : set or list or None, optional
-        If provided, only export glaciers whose RGIId is in this subset.
-    output_path : str or None, optional
-        Output folder for Zarr files. Defaults to `<dataPath>/<path_OGGM_xrgrids>`.
-
-    Returns
-    -------
-    pandas.DataFrame
-        Table listing glaciers with missing expected variables and which variables are missing.
-
-    Side Effects
-    ------------
-    Empties output folder and writes Zarr datasets.
-    """
-
-    # Save OGGM xr for all needed glaciers:
-    if output_path is None:
-        output_path = cfg.dataPath + path_OGGM_xrgrids
-    emptyfolder(output_path)
-
-    records = []
-
-    for gdir in gdirs:
-        RGIId = gdir.rgi_id
-        # only save a subset if it's not empty
-        if subset_rgis is not None:
-            # check if the glacier is in the subset
-            # if not, skip it
-            if RGIId not in subset_rgis:
-                continue
-        with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
-            ds = ds.load()
-
-        vars = ["hugonnet_dhdt", "consensus_ice_thickness", "millan_v"]
-
-        if not all(var in ds for var in vars):
-            missing_vars = [var for var in vars if var not in ds]
-            records.append(
-                {
-                    "rgi_id": RGIId,
-                    "missing_vars": missing_vars,
-                }
-            )
-
-        # save ds
-        ds.to_zarr(os.path.join(output_path, f"{RGIId}.zarr"))
-    df_missing = pd.DataFrame(records)
-
-    return df_missing
-
-
-def check_multiple_rgi_ids(df):
-    """
-    Check whether any GLACIER name maps to more than one RGIId.
+    Flag rows where POINT_ELEVATION differs from DEM elevation ('topo')
+    by more than a given threshold.
 
     Parameters
     ----------
     df : pandas.DataFrame
-        DataFrame containing columns `GLACIER` and `RGIId`.
+        Must contain columns 'POINT_ELEVATION' and 'topo'.
+    threshold : float, optional
+        Maximum allowed absolute elevation difference (meters).
+        Default is 400 m.
 
     Returns
     -------
-    bool
-        True if at least one glacier has multiple unique RGIId values, else False.
+    df_out : pandas.DataFrame
+        Copy of input dataframe with:
+        - 'elev_diff' : POINT_ELEVATION - topo
+        - 'elev_mismatch' : True if abs(diff) > threshold
+    mismatches : pandas.DataFrame
+        Subset of rows where mismatch is True.
     """
-    rgi_per_glacier = df.groupby("GLACIER")["RGIId"].nunique()
-    glaciers_with_multiple_rgi = rgi_per_glacier[rgi_per_glacier > 1]
-    if not glaciers_with_multiple_rgi.empty:
-        return True
-    else:
-        return False
+    df_out = df.copy()
+
+    df_out["elev_diff"] = df_out["POINT_ELEVATION"] - df_out["topo"]
+    df_out["elev_mismatch"] = df_out["elev_diff"].abs() > threshold
+
+    mismatches = df_out[df_out["elev_mismatch"]]
+
+    print(
+        f"{len(mismatches)} out of {len(df_out)} points "
+        f"({len(mismatches)/len(df_out)*100:.2f}%) exceed ±{threshold} m elevation difference."
+    )
+
+    return df_out, mismatches
 
 
-def merge_pmb_with_oggm_data(
-    df_pmb,
-    gdirs,
-    rgi_region="11",
-    rgi_version="62",
-    variables_of_interest=None,
-    verbose=True,
+# ---- SVF functions ----
+def add_svf_from_rgi_zarr(
+    df_pmb_topo,
+    path_masked_grids,
+    rgi_col="RGIId",
+    lon_col="POINT_LON",
+    lat_col="POINT_LAT",
+    svf_var="svf",
+    out_col="svf",
 ):
     """
-    Enrich stake point data with OGGM gridded variables and a within-glacier flag.
-
-    For each RGIId group, this function:
-    - loads OGGM `gridded_data` for the matching glacier directory
-    - transforms stake points from WGS84 to the OGGM projection
-    - samples nearest grid cell values for selected variables
-    - computes whether each point lies within the RGI glacier polygon (spatial join)
-    - converts `aspect` and `slope` from radians to degrees
-
-    Parameters
-    ----------
-    df_pmb : pandas.DataFrame
-        Stake dataset with at least columns: `RGIId`, `POINT_LON`, `POINT_LAT`, `PERIOD`.
-    gdirs : list
-        List of OGGM GlacierDirectory objects.
-    rgi_region : str, optional
-        RGI region (default "11").
-    rgi_version : str, optional
-        RGI version passed to OGGM utilities (default "6").
-    variables_of_interest : list of str, optional
-        Variables to sample from OGGM gridded dataset.
-    verbose : bool, optional
-        If True, logs warnings and summary counts.
-
-    Returns
-    -------
-    pandas.DataFrame
-        Input dataframe with added columns for sampled OGGM variables and:
-        - `within_glacier_shape` : bool
-
-    Raises
-    ------
-    KeyError
-        If required columns are missing.
-    """
-    if variables_of_interest is None:
-        variables_of_interest = [
-            "aspect",
-            "slope",
-            "topo",
-            "hugonnet_dhdt",
-            "consensus_ice_thickness",
-            "millan_v",
-        ]
-        # other options: "millan_ice_thickness", "millan_vx", "millan_vy", "dis_from_border"
-
-    # Load RGI shapefile
-    path = utils.get_rgi_region_file(region=rgi_region, version=rgi_version)
-    rgidf = gpd.read_file(path)
-
-    # Initialize empty columns
-    for var in variables_of_interest:
-        df_pmb[var] = np.nan
-    df_pmb["within_glacier_shape"] = False
-
-    grouped = df_pmb.groupby("RGIId")
-
-    for rgi_id, group in grouped:
-        # Find corresponding glacier directory
-        gdir = next((gd for gd in gdirs if gd.rgi_id == rgi_id), None)
-        if gdir is None:
-            if verbose:
-                log.error(
-                    f"Warning: No glacier directory for RGIId {rgi_id}, skipping..."
-                )
-            continue
-
-        with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
-            ds = ds.load()
-
-        # Match RGI shape
-        glacier_shape = rgidf[rgidf["RGIId"] == rgi_id]
-        if glacier_shape.empty:
-            if verbose:
-                log.error(f"Warning: No shape found for RGIId {rgi_id}, skipping...")
-            continue
-
-        # Coordinate transformation from WGS84 to the projection of OGGM data
-        transf = pyproj.Transformer.from_proj(
-            pyproj.CRS.from_user_input("EPSG:4326"),
-            pyproj.CRS.from_user_input(ds.pyproj_srs),
-            always_xy=True,
-        )
-        lon, lat = group["POINT_LON"].values, group["POINT_LAT"].values
-        x_stake, y_stake = transf.transform(lon, lat)
-
-        # Create GeoDataFrame of points
-        geometry = [Point(xy) for xy in zip(lon, lat)]
-        points_rgi = gpd.GeoDataFrame(group, geometry=geometry, crs="EPSG:4326")
-
-        # Intersect with glacier shape
-        glacier_shape = glacier_shape.to_crs(points_rgi.crs)
-        points_in_glacier = gpd.sjoin(
-            points_rgi.loc[group.index], glacier_shape, predicate="within", how="inner"
-        )
-
-        # Get nearest OGGM grid data for points
-        stake = ds.sel(
-            x=xr.DataArray(x_stake, dims="points"),
-            y=xr.DataArray(y_stake, dims="points"),
-            method="nearest",
-        )
-
-        # # if all variables:
-        # stake_var_df = stake[variables_of_interest].to_dataframe()
-        # variables that actually exist in the dataset
-        present_vars = [v for v in variables_of_interest if v in stake.data_vars]
-        missing_vars = [v for v in variables_of_interest if v not in stake.data_vars]
-
-        # warn globally
-        if missing_vars:
-            if verbose:
-                log.warning(f"Missing variables for {rgi_id}: {missing_vars}")
-
-        # extract only the existing variables
-        stake_var_df = stake[present_vars].to_dataframe()
-
-        # Assign to original DataFrame
-        df_pmb.loc[group.index, present_vars] = stake_var_df[present_vars].values
-
-        df_pmb.loc[points_in_glacier.index, "within_glacier_shape"] = True
-
-    # Convert radians to degrees
-    df_pmb["aspect"] = df_pmb["aspect"].apply(
-        lambda x: math.degrees(x) if not pd.isna(x) else x
-    )
-    df_pmb["slope"] = df_pmb["slope"].apply(
-        lambda x: math.degrees(x) if not pd.isna(x) else x
-    )
-
-    if verbose:
-        log.info("-- Number of winter and annual samples:", len(df_pmb))
-        log.info("-- Number of annual samples:", len(df_pmb[df_pmb.PERIOD == "annual"]))
-        log.info("-- Number of winter samples:", len(df_pmb[df_pmb.PERIOD == "winter"]))
-
-    return df_pmb
-
-
-def rename_stakes_by_elevation(df_pmb_topo):
-    """
-    Reassign stake POINT_IDs per glacier by sorting stakes by mean elevation.
-
-    For each glacier, the function computes mean elevation per POINT_ID,
-    sorts by elevation, and renames POINT_ID to `<glacier>_<rank>`.
+    Add sky-view factor (SVF) to a PMB point dataframe by nearest-neighbor sampling
+    from per-glacier Zarr grids named <RGIId>.zarr.
 
     Parameters
     ----------
     df_pmb_topo : pandas.DataFrame
-        Stake dataset containing `GLACIER`, `POINT_ID`, and `POINT_ELEVATION`.
+        Must contain columns [rgi_col, lon_col, lat_col].
+    path_masked_grids : str
+        Directory containing <RGIId>.zarr datasets.
+    rgi_col, lon_col, lat_col : str
+        Column names in df_pmb_topo.
+    svf_var : str
+        Variable name in the Zarr dataset (default "svf").
+    out_col : str
+        Output column name in the dataframe.
 
     Returns
     -------
     pandas.DataFrame
-        DataFrame with updated `POINT_ID` values.
+        Copy of df_pmb_topo (filtered to glaciers that exist on disk) with added `out_col`.
     """
-    for glacierName in df_pmb_topo.GLACIER.unique():
-        gl_data = df_pmb_topo[df_pmb_topo.GLACIER == glacierName]
-        stakeIDS = gl_data.groupby("POINT_ID")[
-            ["POINT_LAT", "POINT_LON", "POINT_ELEVATION"]
-        ].mean()
-        stakeIDS.reset_index(inplace=True)
-        # Change the ID according to elevation
-        new_ids = stakeIDS[["POINT_ID", "POINT_ELEVATION"]].sort_values(
-            by="POINT_ELEVATION"
-        )
-        new_ids["POINT_ID_new"] = [f"{glacierName}_{i}" for i in range(len(new_ids))]
-        for i, row in new_ids.iterrows():
-            df_pmb_topo.loc[
-                (df_pmb_topo.GLACIER == glacierName)
-                & (df_pmb_topo.POINT_ID == row.POINT_ID),
-                "POINT_ID",
-            ] = row.POINT_ID_new
-    return df_pmb_topo
+
+    # Which zarr files exist?
+    zarr_ids = {f[:-5] for f in os.listdir(path_masked_grids) if f.endswith(".zarr")}
+
+    # Keep only rows whose RGIId exists on disk
+    df = df_pmb_topo[df_pmb_topo[rgi_col].isin(zarr_ids)].copy()
+
+    # Initialize output
+    df[out_col] = np.nan
+
+    # Group by glacier (RGIId) and sample in bulk
+    for rgi_id, group in df.groupby(rgi_col):
+        file_path = os.path.join(path_masked_grids, f"{rgi_id}.zarr")
+        try:
+            # Zarr: open with open_zarr (your example), works well here
+            ds = xr.open_zarr(file_path)
+
+            # nearest-neighbor sample
+            lon = group[lon_col].to_numpy()
+            lat = group[lat_col].to_numpy()
+
+            stake = ds[svf_var].sel(
+                lon=xr.DataArray(lon, dims="points"),
+                lat=xr.DataArray(lat, dims="points"),
+                method="nearest",
+            )
+
+            # write back
+            df.loc[group.index, out_col] = stake.to_numpy()
+
+        except Exception as e:
+            # keep going; column stays NaN for that glacier
+            print(f"[add_svf_from_rgi_zarr] {rgi_id}: {type(e).__name__}: {e}")
+            continue
+
+    return df
 
 
-def check_point_ids_contain_glacier(dataframe):
+def plot_missing_svf_for_all_glaciers(
+    df_with_svf,
+    path_masked_xr,
+    rgi_col="RGIId",
+    lon_col="POINT_LON",
+    lat_col="POINT_LAT",
+    svf_col="svf",  # column in df
+    svf_var="svf",  # var name in zarr
+    plot_valid_points=True,
+    save_dir=None,
+):
     """
-    Validate that each POINT_ID contains the corresponding GLACIER name substring.
+    Plot SVF rasters and overlay stake points with missing SVF values for each glacier.
+
+    For each glacier (grouped by `rgi_col`) where at least one point has missing SVF
+    (`df_with_svf[svf_col]` is NaN), the function:
+    - opens the corresponding Zarr dataset `<RGIId>.zarr` in `path_masked_xr`
+    - plots the SVF raster (`svf_var`) on its lon/lat grid
+    - overlays the missing-SVF points in red
+    - optionally overlays valid points (non-NaN SVF) in white for context
+    - either shows each figure interactively or saves PNGs to `save_dir`
 
     Parameters
     ----------
-    dataframe : pandas.DataFrame
-        Must contain columns `GLACIER` and `POINT_ID`.
+    df_with_svf : pandas.DataFrame
+        Point dataset containing at least columns:
+        - `rgi_col` (e.g., 'RGIId')
+        - `lon_col`, `lat_col` (point coordinates)
+        - `svf_col` (SVF values, may contain NaNs)
+    path_masked_xr : str
+        Directory containing per-glacier Zarr datasets named `<RGIId>.zarr`.
+    rgi_col, lon_col, lat_col : str, optional
+        Column names in `df_with_svf` for glacier id and coordinates.
+    svf_col : str, optional
+        Column name in `df_with_svf` holding SVF values.
+    svf_var : str, optional
+        Variable name inside the Zarr datasets (default 'svf').
+    plot_valid_points : bool, optional
+        If True, plot non-missing SVF points as well (white markers).
+    save_dir : str or None, optional
+        If provided, figures are saved as `<RGIId>_svf_missing.png` into this folder.
+        If None, figures are displayed via `plt.show()`.
 
     Returns
     -------
-    tuple[bool, pandas.DataFrame or None]
-        (is_valid, invalid_rows). invalid_rows is None if valid.
+    None
 
-    Raises
-    ------
-    ValueError
-        If required columns are missing.
+    Notes
+    -----
+    This is a diagnostic plot. Missing SVF often indicates that points fall outside
+    the valid/masked SVF area (e.g., off-glacier pixels) or that glacier IDs / CRS
+    do not match the raster grids.
     """
-    if "GLACIER" not in dataframe.columns or "POINT_ID" not in dataframe.columns:
-        raise ValueError("The dataframe must contain 'GLACIER' and 'POINT_ID' columns.")
+    df_missing = df_with_svf[df_with_svf[svf_col].isna()].copy()
+    glaciers = sorted(df_missing[rgi_col].unique())
 
-    # Check condition
-    invalid_rows = dataframe[
-        ~dataframe.apply(lambda row: row["GLACIER"] in row["POINT_ID"], axis=1)
-    ]
+    print(f"Plotting {len(glaciers)} glaciers with missing SVF points.")
 
-    # Report
-    if invalid_rows.empty:
-        print("All POINT_IDs correctly contain their respective GLACIER names.")
-        return True, None
-    else:
-        print(
-            f"Found {len(invalid_rows)} rows where POINT_ID does not contain the GLACIER name."
+    if save_dir is not None:
+        os.makedirs(save_dir, exist_ok=True)
+
+    for rgi_id in glaciers:
+        zpath = os.path.join(path_masked_xr, f"{rgi_id}.zarr")
+        if not os.path.exists(zpath):
+            print(f"[skip] missing zarr: {rgi_id}")
+            continue
+
+        ds = xr.open_zarr(zpath)
+        da = ds[svf_var]
+
+        miss = df_missing[df_missing[rgi_col] == rgi_id]
+        lon_m = miss[lon_col].to_numpy()
+        lat_m = miss[lat_col].to_numpy()
+
+        if plot_valid_points:
+            ok = df_with_svf[
+                (df_with_svf[rgi_col] == rgi_id) & (~df_with_svf[svf_col].isna())
+            ]
+            lon_ok = ok[lon_col].to_numpy()
+            lat_ok = ok[lat_col].to_numpy()
+
+        fig, ax = plt.subplots(figsize=(7, 6))
+
+        # SVF raster
+        da.plot(ax=ax, x="lon", y="lat", robust=True, add_colorbar=True)
+
+        # Missing points (red)
+        ax.scatter(
+            lon_m,
+            lat_m,
+            s=22,
+            c="red",
+            edgecolor="k",
+            linewidth=0.3,
+            label=f"missing svf (n={len(miss)})",
         )
-        return False, invalid_rows
+
+        # Valid points (white) for context
+        if plot_valid_points and len(ok) > 0:
+            ax.scatter(
+                lon_ok,
+                lat_ok,
+                s=12,
+                c="white",
+                edgecolor="k",
+                linewidth=0.2,
+                alpha=0.7,
+                label=f"valid svf (n={len(ok)})",
+            )
+
+        ax.set_title(f"{rgi_id} — SVF with missing points")
+        ax.legend(loc="upper right")
+
+        # Zoom to raster extent
+        ax.set_xlim(float(da["lon"].min()), float(da["lon"].max()))
+        ax.set_ylim(float(da["lat"].min()), float(da["lat"].max()))
+
+        plt.tight_layout()
+
+        if save_dir is not None:
+            out = os.path.join(save_dir, f"{rgi_id}_svf_missing.png")
+            plt.savefig(out, dpi=200)
+            plt.close(fig)
+        else:
+            plt.show()
+
+
+def _nearest_index_1d(coord_vals, query_vals):
+    """
+    Return nearest indices in a sorted 1D coord array for query values.
+    Works for increasing or decreasing coords.
+    """
+    coord_vals = np.asarray(coord_vals)
+    q = np.asarray(query_vals)
+
+    # ensure increasing for searchsorted
+    increasing = coord_vals[0] < coord_vals[-1]
+    if not increasing:
+        coord_inc = coord_vals[::-1]
+        idx = np.searchsorted(coord_inc, q)
+        idx = np.clip(idx, 1, len(coord_inc) - 1)
+        left = coord_inc[idx - 1]
+        right = coord_inc[idx]
+        choose_right = (q - left) > (right - q)
+        out = idx - 1 + choose_right
+        # map back to original (reversed) indices
+        out = (len(coord_vals) - 1) - out
+        return out.astype(int)
+
+    idx = np.searchsorted(coord_vals, q)
+    idx = np.clip(idx, 1, len(coord_vals) - 1)
+    left = coord_vals[idx - 1]
+    right = coord_vals[idx]
+    choose_right = (q - left) > (right - q)
+    out = idx - 1 + choose_right
+    return out.astype(int)
+
+
+def _fill_nearest_valid(values2d, iy, ix, max_radius=30):
+    """
+    For a single point index (iy, ix), if values2d[iy,ix] is NaN,
+    search outward in square windows until a non-NaN is found.
+    Return that value (nearest by Euclidean distance in index space).
+    """
+    if not np.isnan(values2d[iy, ix]):
+        return values2d[iy, ix]
+
+    ny, nx = values2d.shape
+
+    for r in range(1, max_radius + 1):
+        y0 = max(0, iy - r)
+        y1 = min(ny, iy + r + 1)
+        x0 = max(0, ix - r)
+        x1 = min(nx, ix + r + 1)
+
+        window = values2d[y0:y1, x0:x1]
+        mask = ~np.isnan(window)
+        if not mask.any():
+            continue
+
+        # indices of valid cells in the window
+        vy, vx = np.where(mask)
+
+        # convert to full-array indices
+        vy_full = vy + y0
+        vx_full = vx + x0
+
+        # choose nearest valid by distance in index space
+        dy = vy_full - iy
+        dx = vx_full - ix
+        k = np.argmin(dy * dy + dx * dx)
+
+        return values2d[vy_full[k], vx_full[k]]
+
+    return np.nan
+
+
+def add_svf_nearest_valid(
+    df_pmb_topo,
+    path_masked_grids,
+    rgi_col="RGIId",
+    lon_col="POINT_LON",
+    lat_col="POINT_LAT",
+    svf_var="svf",
+    out_col="svf",
+    max_radius=30,
+):
+    """
+    Add SVF from per-glacier zarr. For points that land on NaN (masked),
+    fill using the nearest non-NaN SVF pixel within `max_radius` cells.
+    """
+    zarr_ids = {f[:-5] for f in os.listdir(path_masked_grids) if f.endswith(".zarr")}
+    df = df_pmb_topo[df_pmb_topo[rgi_col].isin(zarr_ids)].copy()
+    df[out_col] = np.nan
+
+    for rgi_id, group in df.groupby(rgi_col):
+        zpath = os.path.join(path_masked_grids, f"{rgi_id}.zarr")
+        try:
+            ds = xr.open_zarr(zpath)
+            da = ds[svf_var]
+
+            # assume 2D field on (lat, lon) with 1D coords lat/lon
+            lons = da["lon"].values
+            lats = da["lat"].values
+            arr = da.values  # (lat, lon) typically
+
+            qlon = group[lon_col].to_numpy()
+            qlat = group[lat_col].to_numpy()
+
+            ix = _nearest_index_1d(lons, qlon)
+            iy = _nearest_index_1d(lats, qlat)
+
+            sampled = arr[iy, ix].astype(float)
+
+            # fill NaNs by nearest valid pixel
+            nan_idx = np.where(np.isnan(sampled))[0]
+            if len(nan_idx) > 0:
+                for j in nan_idx:
+                    sampled[j] = _fill_nearest_valid(
+                        arr, int(iy[j]), int(ix[j]), max_radius=max_radius
+                    )
+
+            df.loc[group.index, out_col] = sampled
+
+        except Exception as e:
+            print(f"[add_svf_nearest_valid] {rgi_id}: {type(e).__name__}: {e}")
+            continue
+
+    return df
+
+
+def plot_glacier_svf_with_points(
+    df_with_svf,
+    path_masked_xr,
+    rgi_col="RGIId",
+    lon_col="POINT_LON",
+    lat_col="POINT_LAT",
+    svf_col="svf",  # column in df
+    svf_var="svf",  # variable in zarr
+    save_dir=None,
+    dpi=200,
+):
+    """
+    Plot SVF raster maps and overlay point SVF values for each glacier.
+
+    For each glacier found in `df_with_svf[rgi_col]`, the function:
+    - opens the per-glacier Zarr dataset `<RGIId>.zarr` from `path_masked_xr`
+    - plots the SVF raster (`svf_var`) on its lon/lat grid
+    - overlays stake points colored by their assigned SVF values in `df_with_svf[svf_col]`
+    - optionally marks points still missing SVF (NaNs) as red 'x'
+    - either displays figures interactively or saves them to disk
+
+    Parameters
+    ----------
+    df_with_svf : pandas.DataFrame
+        Point dataset with columns:
+        - `rgi_col` : glacier id matching Zarr filenames (e.g., 'RGIId')
+        - `lon_col`, `lat_col` : point coordinates (WGS84 lon/lat)
+        - `svf_col` : assigned SVF values (float; may include NaNs)
+    path_masked_xr : str
+        Directory containing per-glacier Zarr datasets named `<RGIId>.zarr`.
+    rgi_col, lon_col, lat_col : str, optional
+        Column names in `df_with_svf`.
+    svf_col : str, optional
+        Column holding SVF values to color the points.
+    svf_var : str, optional
+        Variable name inside the Zarr datasets (default 'svf').
+    save_dir : str or None, optional
+        If provided, save figures as `<RGIId>_svf_points.png` in this folder.
+        If None, figures are displayed via `plt.show()`.
+    dpi : int, optional
+        Resolution for saved figures.
+
+    Returns
+    -------
+    None
+
+    Notes
+    -----
+    The raster colorbar (background) and point colorbar (assigned SVF) may not match
+    exactly if the raster is masked or uses different scaling; the point colorbar
+    reflects values actually assigned to the stake locations.
+    """
+    glaciers = sorted(df_with_svf[rgi_col].dropna().unique())
+
+    if save_dir is not None:
+        os.makedirs(save_dir, exist_ok=True)
+
+    print(f"Plotting {len(glaciers)} glaciers.")
+
+    for rgi_id in glaciers:
+        zpath = os.path.join(path_masked_xr, f"{rgi_id}.zarr")
+        if not os.path.exists(zpath):
+            print(f"[skip] missing zarr: {rgi_id}")
+            continue
+
+        try:
+            ds = xr.open_zarr(zpath)
+            da = ds[svf_var]
+
+            g = df_with_svf[df_with_svf[rgi_col] == rgi_id]
+            lon = g[lon_col].to_numpy()
+            lat = g[lat_col].to_numpy()
+            vals = g[svf_col].to_numpy()
+
+            ok = ~np.isnan(vals)
+            miss = np.isnan(vals)
+
+            fig, ax = plt.subplots(figsize=(7.5, 6.2))
+
+            # Background raster
+            im = da.plot(ax=ax, x="lon", y="lat", robust=True, add_colorbar=True)
+
+            # Overlay: points colored by assigned SVF
+            if ok.any():
+                sc = ax.scatter(
+                    lon[ok],
+                    lat[ok],
+                    c=vals[ok],
+                    s=28,
+                    edgecolor="k",
+                    linewidth=0.3,
+                )
+                # colorbar for point values (separate from raster)
+                cbar = plt.colorbar(sc, ax=ax, fraction=0.046, pad=0.04)
+                cbar.set_label("SVF (assigned to points)")
+
+            # If anything still missing, show as red x
+            if miss.any():
+                ax.scatter(
+                    lon[miss],
+                    lat[miss],
+                    s=50,
+                    marker="x",
+                    c="red",
+                    linewidth=1.2,
+                    label=f"still missing (n={miss.sum()})",
+                )
+                ax.legend(loc="upper right")
+
+            ax.set_title(f"{rgi_id} — SVF raster + stake-point SVF")
+            ax.set_xlim(float(da["lon"].min()), float(da["lon"].max()))
+            ax.set_ylim(float(da["lat"].min()), float(da["lat"].max()))
+            plt.tight_layout()
+
+            if save_dir is not None:
+                out = os.path.join(save_dir, f"{rgi_id}_svf_points.png")
+                plt.savefig(out, dpi=dpi)
+                plt.close(fig)
+            else:
+                plt.show()
+
+        except Exception as e:
+            print(f"[error] {rgi_id}: {type(e).__name__}: {e}")
+            continue
