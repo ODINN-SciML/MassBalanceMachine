@@ -62,12 +62,14 @@ def get_stakes_data(cfg):
 
 def process_or_load_data(
     run_flag,
-    data_glamos,
+    df,
     paths,
     cfg,
     vois_climate,
     vois_topographical,
     add_pcsr=True,
+    region_name="CH",
+    region_id=11,
     output_file="CH_wgms_dataset_monthly_full.csv",
 ):
     """
@@ -155,38 +157,36 @@ def process_or_load_data(
       Dataset class are available and correctly configured.
     """
     if run_flag:
-        logging.info("Number of annual and seasonal samples: %d", len(data_glamos))
-
         # Filter data
         logging.info(
             "Running on %d glaciers:\n%s",
-            len(data_glamos.GLACIER.unique()),
-            data_glamos.GLACIER.unique(),
+            len(df.GLACIER.unique()),
+            df.GLACIER.unique(),
         )
 
         # Add a glacier-wide ID (used for geodetic MB)
-        data_glamos["GLWD_ID"] = data_glamos.apply(
+        df["GLWD_ID"] = df.apply(
             lambda x: mbm.data_processing.utils.get_hash(f"{x.GLACIER}_{x.YEAR}"),
             axis=1,
         )
-        data_glamos["GLWD_ID"] = data_glamos["GLWD_ID"].astype(str)
+        df["GLWD_ID"] = df["GLWD_ID"].astype(str)
 
         # Create dataset
         dataset_gl = mbm.data_processing.Dataset(
             cfg=cfg,
-            data=data_glamos,
-            region_name="CH",
-            region_id=11,
+            data=df,
+            region_name=region_name,
+            region_id=region_id,
             data_path=paths["csv_path"],
         )
-        logging.info("Number of winter and annual samples: %d", len(data_glamos))
+        logging.info("Number of winter and annual samples: %d", len(df))
         logging.info(
             "Number of annual samples: %d",
-            len(data_glamos[data_glamos.PERIOD == "annual"]),
+            len(df[df.PERIOD == "annual"]),
         )
         logging.info(
             "Number of winter samples: %d",
-            len(data_glamos[data_glamos.PERIOD == "winter"]),
+            len(df[df.PERIOD == "winter"]),
         )
 
         # Add climate data
@@ -409,3 +409,161 @@ def get_CV_splits(
     }
 
     return cv_splits, test_set, train_set
+
+
+def prepare_monthly_dfs_with_padding(
+    *,
+    cfg,
+    df_region,
+    region_name,
+    region_id,
+    paths,
+    test_glaciers,
+    vois_climate,
+    vois_topographical,
+    run_flag=False,
+    output_file_monthly=None,
+    output_file_monthly_aug=None,
+    add_pcsr=False,
+    from_date_aug_mmdd="0801",
+):
+    """
+    Prepare monthly datasets and CV splits for a region using:
+    (1) original FROM_DATE and
+    (2) FROM_DATE shifted to a fixed MMDD (default: Aug 01).
+
+    Parameters
+    ----------
+    cfg : object
+        Configuration object used throughout the pipeline.
+    df_region : pandas.DataFrame
+        Input WGMS-style point dataset for the region.
+    region_name : str
+        Short region label (e.g., "FR").
+    region_id : int
+        RGI region id (e.g., 11 for Central Europe).
+    paths : dict
+        Dictionary with required data paths, e.g.:
+        {
+            "csv_path": "...",
+            "era5_climate_data": "...nc",
+            "geopotential_data": "...nc"
+        }
+    test_glaciers : list of str
+        Glacier names to hold out as test set.
+    vois_climate : list
+        Climate variables of interest.
+    vois_topographical : list
+        Topographic variables of interest.
+    run_flag : bool
+        Whether to recompute monthly datasets or load from file.
+    output_file_monthly, output_file_monthly_aug : str or None
+        Output CSV filenames. Defaults are auto-generated from region_name.
+    add_pcsr : bool
+        Passed to `process_or_load_data`.
+    from_date_aug_mmdd : str
+        Month+day string used to override FROM_DATE (default "0801").
+
+    Returns
+    -------
+    dict
+        Dictionary containing:
+        - data_monthly, df_train, df_test
+        - data_monthly_aug, df_train_aug, df_test_aug
+        - train_glaciers, missing_test_glaciers
+        - months_head_pad_aug, months_tail_pad_aug
+    """
+
+    if output_file_monthly is None:
+        output_file_monthly = f"{region_name}_wgms_dataset_monthly.csv"
+    if output_file_monthly_aug is None:
+        output_file_monthly_aug = f"{region_name}_wgms_dataset_monthly_Aug.csv"
+
+    # ---- Monthly (original dates) ----
+    data_monthly = process_or_load_data(
+        run_flag=run_flag,
+        df=df_region,
+        paths=paths,
+        cfg=cfg,
+        vois_climate=vois_climate,
+        vois_topographical=vois_topographical,
+        region_name=region_name,
+        region_id=region_id,
+        add_pcsr=add_pcsr,
+        output_file=output_file_monthly,
+    )
+
+    dataloader = mbm.dataloader.DataLoader(
+        cfg, data=data_monthly, random_seed=cfg.seed, meta_data_columns=cfg.metaData
+    )
+
+    existing_glaciers = set(data_monthly.GLACIER.unique())
+    missing_test_glaciers = [g for g in test_glaciers if g not in existing_glaciers]
+    train_glaciers = sorted(existing_glaciers - set(test_glaciers))
+
+    splits, test_set, train_set = get_CV_splits(
+        dataloader,
+        test_split_on="GLACIER",
+        test_splits=test_glaciers,
+        random_state=cfg.seed,
+    )
+
+    df_train = train_set["df_X"].copy()
+    df_train["y"] = train_set["y"]
+
+    df_test = test_set["df_X"].copy()
+    df_test["y"] = test_set["y"]
+
+    # ---- Monthly with August start ----
+    df_region_aug = df_region.copy()
+    year = pd.to_datetime(
+        df_region_aug["FROM_DATE"].astype(str), format="%Y%m%d"
+    ).dt.year
+    df_region_aug["FROM_DATE"] = (year.astype(str) + from_date_aug_mmdd).astype(int)
+
+    months_head_pad_aug, months_tail_pad_aug = (
+        mbm.data_processing.utils._compute_head_tail_pads_from_df(df_region_aug)
+    )
+
+    data_monthly_aug = process_or_load_data(
+        run_flag=run_flag,
+        df=df_region_aug,
+        paths=paths,
+        cfg=cfg,
+        vois_climate=vois_climate,
+        vois_topographical=vois_topographical,
+        region_name=region_name,
+        region_id=region_id,
+        add_pcsr=add_pcsr,
+        output_file=output_file_monthly_aug,
+    )
+
+    dataloader_aug = mbm.dataloader.DataLoader(
+        cfg, data=data_monthly_aug, random_seed=cfg.seed, meta_data_columns=cfg.metaData
+    )
+
+    splits_aug, test_set_aug, train_set_aug = get_CV_splits(
+        dataloader_aug,
+        test_split_on="GLACIER",
+        test_splits=test_glaciers,
+        random_state=cfg.seed,
+    )
+
+    df_train_aug = train_set_aug["df_X"].copy()
+    df_train_aug["y"] = train_set_aug["y"]
+
+    df_test_aug = test_set_aug["df_X"].copy()
+    df_test_aug["y"] = test_set_aug["y"]
+
+    return {
+        "data_monthly": data_monthly,
+        "df_train": df_train,
+        "df_test": df_test,
+        "data_monthly_aug": data_monthly_aug,
+        "df_train_aug": df_train_aug,
+        "df_test_aug": df_test_aug,
+        "train_glaciers": train_glaciers,
+        "missing_test_glaciers": missing_test_glaciers,
+        "months_head_pad": months_head_pad_aug,
+        "months_tail_pad": months_tail_pad_aug,
+    }

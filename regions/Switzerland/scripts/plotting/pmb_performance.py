@@ -5,6 +5,8 @@ from matplotlib.patches import Patch
 import numpy as np
 import math
 
+import massbalancemachine as mbm
+
 from regions.Switzerland.scripts.config_CH import *
 from regions.Switzerland.scripts.plotting.style import alpha_labels
 
@@ -210,6 +212,8 @@ def pred_vs_truth(
         ax=ax,
         color=color,
         style="PERIOD",
+        style_order=["annual", "winter"],
+        hue_order=["annual", "winter"],
         markers={"annual": "o", "winter": "o"},
     )  # optional custom marker map)
 

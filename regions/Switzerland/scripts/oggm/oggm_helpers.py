@@ -74,7 +74,7 @@ def initialize_oggm_glacier_directories(
 
     # Set working directory
     if working_dir is None:
-        working_dir = cfg.dataPath + path_OGGM
+        working_dir = os.path.join(cfg.dataPath, "OGGM", f"rgi_region_{rgi_region}")
         emptyfolder(working_dir)
     # empty the working directory if it exists
     emptyfolder(working_dir)
@@ -113,7 +113,7 @@ def initialize_oggm_glacier_directories(
     return gdirs, rgidf
 
 
-def export_oggm_grids(cfg, gdirs, subset_rgis=None, output_path=None):
+def export_oggm_grids(cfg, gdirs, subset_rgis=None, output_path=None, rgi_region="11"):
     """
     Export OGGM gridded_data datasets to per-glacier Zarr files and report missing variables.
 
@@ -140,7 +140,9 @@ def export_oggm_grids(cfg, gdirs, subset_rgis=None, output_path=None):
 
     # Save OGGM xr for all needed glaciers:
     if output_path is None:
-        output_path = cfg.dataPath + path_OGGM_xrgrids
+        output_path = os.path.join(
+            cfg.dataPath, "OGGM", f"rgi_region_{rgi_region}", "xr_grids"
+        )
     emptyfolder(output_path)
 
     records = []

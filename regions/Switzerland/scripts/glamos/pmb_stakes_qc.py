@@ -98,7 +98,8 @@ def remove_close_points(df_gl):
     # Final output
     df_gl_cleaned.reset_index(drop=True, inplace=True)
     points_dropped = len(df_gl) - len(df_gl_cleaned)
-    log.info(f"--- Number of points dropped: {points_dropped}")
+    print(f"--- Number of points dropped: {points_dropped}")
+    # log.info(f"--- Number of points dropped: {points_dropped}")
     return df_gl_cleaned if points_dropped > 0 else df_gl
 
 

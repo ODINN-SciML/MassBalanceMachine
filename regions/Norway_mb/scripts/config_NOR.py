@@ -1,10 +1,10 @@
 # <------------------ PATHS ------------------>
-path_PMB_WGMS_raw = "data/"  # Raw Stake measurement ".csv"s
-path_PMB_WGMS_csv = "csv/"  # Processed stake measurements
+path_PMB_WGMS_raw = "WGMS/Norway/raw/"  # Raw Stake measurement ".csv"s
+path_PMB_WGMS_csv = "WGMS/Norway/csv/"  # Processed stake measurements
 path_ERA5_raw = "ERA5Land/raw/"  # ERA5-Land
-path_OGGM = "OGGM/"  # OGGM Data
-path_OGGM_xrgrids = "OGGM/xr_grids/"  # OGGM Data Grids
-
+path_OGGM_NOR = "OGGM/rgi_region_08"  # OGGM Data
+path_OGGM_NOR_xrgrids = "OGGM//xr_grids/"  # OGGM Data Grids
+path_rgi_outlines_NOR = "RGI_v6/RGI_08_Scandinavia/08_rgi60_Scandinavia.shp"
 
 # <------------------OTHER USEFUL FUNCTIONS & ATTRIBUTES: ------------------>
 vois_climate_long_name = {

@@ -8,8 +8,8 @@ import logging
 from tqdm import tqdm
 from pathlib import Path
 
-from scripts.config_FR import *
-from scripts.helpers import *
+from regions.French_Alps.scripts.config_FR import *
+from regions.French_Alps.scripts.helpers import *
 
 # Setup logging
 logging.basicConfig(
@@ -839,6 +839,7 @@ def plot_glacier_svf_with_points(
     print(f"Plotting {len(glaciers)} glaciers.")
 
     for rgi_id in glaciers:
+        gl_name = df_with_svf[df_with_svf[rgi_col] == rgi_id]["GLACIER"].iloc[0]
         zpath = os.path.join(path_masked_xr, f"{rgi_id}.zarr")
         if not os.path.exists(zpath):
             print(f"[skip] missing zarr: {rgi_id}")
@@ -888,7 +889,7 @@ def plot_glacier_svf_with_points(
                 )
                 ax.legend(loc="upper right")
 
-            ax.set_title(f"{rgi_id} — SVF raster + stake-point SVF")
+            ax.set_title(f"{gl_name}-{rgi_id} — SVF raster + stake-point SVF")
             ax.set_xlim(float(da["lon"].min()), float(da["lon"].max()))
             ax.set_ylim(float(da["lat"].min()), float(da["lat"].max()))
             plt.tight_layout()
@@ -901,5 +902,5 @@ def plot_glacier_svf_with_points(
                 plt.show()
 
         except Exception as e:
-            print(f"[error] {rgi_id}: {type(e).__name__}: {e}")
+            print(f"[error] {gl_name}-{rgi_id}: {type(e).__name__}: {e}")
             continue

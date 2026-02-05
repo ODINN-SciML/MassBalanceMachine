@@ -104,12 +104,10 @@ path_glacier_ids = "GLAMOS/CH_glacier_ids_long.csv"  # glacier ids for CH glacie
 # <------------------ OTHER PATHS: ------------------>
 path_ERA5_raw = "ERA5Land/raw/"  # ERA5-Land
 path_S2 = "Sentinel/"  # Sentinel-2
-path_OGGM = "OGGM/"
-path_OGGM_xrgrids = "OGGM/xr_grids/"
+path_OGGM = "OGGM/rgi_region_11/"
+path_OGGM_xrgrids = "OGGM/rgi_region_11/xr_grids/"
 path_glogem = "GloGEM"  # glogem c_prec and t_off factors
-path_rgi_outlines = (
-    "GLAMOS/RGI/nsidc0770_11.rgi60.CentralEurope/11_rgi60_CentralEurope.shp"
-)
+path_rgi_outlines = "RGI_v6/RGI_11_CentralEurope/11_rgi60_CentralEurope.shp"
 
 # <------------------OTHER USEFUL FUNCTIONS & ATTRIBUTES: ------------------>
 vois_climate_long_name = {
@@ -132,6 +130,7 @@ vois_climate_long_name = {
     "svf": "Sky view factor",
     "aspect": "Aspect",
     "slope": "Slope",
+    "POINT_BALANCE": "Point mass balance",
 }
 
 vois_units = {
@@ -153,4 +152,5 @@ vois_units = {
     "slope": "rad",
     "svf": "",
     "ELEVATION_DIFFERENCE": "m",
+    "POINT_BALANCE": "m w.e.",
 }
