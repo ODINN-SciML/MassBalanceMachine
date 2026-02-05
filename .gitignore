@@ -20,6 +20,7 @@ docs/generated/
 docs/notebooks/
 docs/MBM_logo.png
 
+# Local data folder
 .data/
 
 regions/Switzerland/models/**
