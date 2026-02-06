@@ -36,3 +36,15 @@ vois_units = {
     "u10": "m s-1",
     "v10": "m s-1",
 }
+
+VOIS_CLIMATE = [
+    "t2m",
+    "tp",
+    "slhf",
+    "sshf",
+    "ssrd",
+    "fal",
+    "str",
+]
+
+VOIS_TOPOGRAPHICAL = ["aspect", "slope", "svf"]

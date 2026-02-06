@@ -341,19 +341,123 @@ def _add_date_range(df: pd.DataFrame, months_tail_pad, months_head_pad) -> pd.Da
     return df
 
 
+# def _process_climate_data(
+#     ds_climate: xr.Dataset,
+#     df: pd.DataFrame,
+#     months_tail_pad,
+#     months_head_pad,
+# ) -> pd.DataFrame:
+#     """Process climate data for all points and times."""
+
+#     # Create DataArrays for latitude and longitude
+#     lat_da = xr.DataArray(df["POINT_LAT"].values, dims="points")
+#     lon_da = xr.DataArray(df["POINT_LON"].values, dims="points")
+
+#     # Create a 2D array of dates ranges
+#     date_array = np.array([r.values for r in df["range_date"].values])
+#     time_da = xr.DataArray(date_array, dims=["points", "time"])
+
+#     climate_data_points = ds_climate.sel(
+#         latitude=lat_da,
+#         longitude=lon_da,
+#         time=time_da,
+#         method="nearest",
+#     )
+
+#     # Handle new netcdf format where number and expver are coordinates
+#     dropColumns = ["latitude", "longitude"]
+#     if "number" in climate_data_points.coords:
+#         dropColumns.append("number")
+#     if "expver" in climate_data_points.coords:
+#         dropColumns.append("expver")
+
+#     # Create a dataframe from the DataArray
+#     climate_df = (
+#         climate_data_points.to_dataframe().drop(columns=dropColumns).reset_index()
+#     )
+
+#     # Drop columns
+#     climate_df = climate_df.drop(columns=["points", "time"])
+
+#     # Get the number of rows and columns
+#     num_rows, num_cols = climate_df.shape
+
+#     # Reshape the DataFrame to a 3D array (groups, 12, columns)
+#     N_MONTHS = date_array.shape[1]
+#     reshaped_array = climate_df.to_numpy().reshape(-1, N_MONTHS, num_cols)
+
+#     # Transpose and reshape to get the desired flattening effect
+#     result_array = reshaped_array.transpose(0, 2, 1).reshape(-1, N_MONTHS * num_cols)
+
+#     # Convert back to a DataFrame if needed
+#     result_df = pd.DataFrame(result_array)
+#     # Set the new column names for the dataframe (climate variables X months
+#     # of the hydrological year)
+#     result_df.columns = _generate_climate_variable_names(
+#         ds_climate, months_tail_pad, months_head_pad
+#     )
+#     return result_df
+
+
 def _process_climate_data(
     ds_climate: xr.Dataset,
     df: pd.DataFrame,
     months_tail_pad,
     months_head_pad,
 ) -> pd.DataFrame:
-    """Process climate data for all points and times."""
+    """Process climate data for all points and times.
 
-    # Create DataArrays for latitude and longitude
-    lat_da = xr.DataArray(df["POINT_LAT"].values, dims="points")
-    lon_da = xr.DataArray(df["POINT_LON"].values, dims="points")
+    Raises
+    ------
+    ValueError
+        If any POINT_LAT / POINT_LON fall outside the spatial bounds of ds_climate.
+    """
 
-    # Create a 2D array of dates ranges
+    # --- Bounds check (spatial) ---
+    if "latitude" not in ds_climate.coords or "longitude" not in ds_climate.coords:
+        raise ValueError("ds_climate must have 'latitude' and 'longitude' coordinates.")
+
+    lats = ds_climate["latitude"].values
+    lons = ds_climate["longitude"].values
+
+    lat_min, lat_max = float(np.nanmin(lats)), float(np.nanmax(lats))
+    lon_min, lon_max = float(np.nanmin(lons)), float(np.nanmax(lons))
+
+    pts_lat = df["POINT_LAT"].to_numpy(dtype=float)
+    pts_lon = df["POINT_LON"].to_numpy(dtype=float)
+
+    # Handle 0..360 longitudes (common in ERA5)
+    ds_uses_0360 = lon_max > 180.0
+    if ds_uses_0360:
+        pts_lon_chk = np.mod(pts_lon, 360.0)
+    else:
+        pts_lon_chk = pts_lon
+
+    # Check bounds
+    bad_lat = (pts_lat < lat_min) | (pts_lat > lat_max)
+    bad_lon = (pts_lon_chk < lon_min) | (pts_lon_chk > lon_max)
+    bad = bad_lat | bad_lon
+
+    if bad.any():
+        bad_rows = df.loc[bad, ["POINT_ID", "GLACIER", "POINT_LAT", "POINT_LON"]].copy()
+        # add also checked lon (after 0..360 conversion) for debugging
+        bad_rows["POINT_LON_CHECKED"] = pts_lon_chk[bad]
+        msg = (
+            "Some points fall outside the spatial bounds of ds_climate.\n"
+            f"ds_climate latitude bounds: [{lat_min}, {lat_max}]\n"
+            f"ds_climate longitude bounds: [{lon_min}, {lon_max}] "
+            f"({'0..360' if ds_uses_0360 else '-180..180'})\n"
+            f"Number of out-of-bounds points: {int(bad.sum())}\n"
+            "First few offending rows:\n"
+            f"{bad_rows.head(10).to_string(index=False)}"
+        )
+        raise ValueError(msg)
+
+    # --- Create DataArrays for selection ---
+    lat_da = xr.DataArray(pts_lat, dims="points")
+    lon_da = xr.DataArray(pts_lon_chk if ds_uses_0360 else pts_lon, dims="points")
+
+    # Create a 2D array of date ranges
     date_array = np.array([r.values for r in df["range_date"].values])
     time_da = xr.DataArray(date_array, dims=["points", "time"])
 
@@ -371,28 +475,19 @@ def _process_climate_data(
     if "expver" in climate_data_points.coords:
         dropColumns.append("expver")
 
-    # Create a dataframe from the DataArray
     climate_df = (
         climate_data_points.to_dataframe().drop(columns=dropColumns).reset_index()
     )
 
-    # Drop columns
     climate_df = climate_df.drop(columns=["points", "time"])
 
-    # Get the number of rows and columns
     num_rows, num_cols = climate_df.shape
-
-    # Reshape the DataFrame to a 3D array (groups, 12, columns)
     N_MONTHS = date_array.shape[1]
-    reshaped_array = climate_df.to_numpy().reshape(-1, N_MONTHS, num_cols)
 
-    # Transpose and reshape to get the desired flattening effect
+    reshaped_array = climate_df.to_numpy().reshape(-1, N_MONTHS, num_cols)
     result_array = reshaped_array.transpose(0, 2, 1).reshape(-1, N_MONTHS * num_cols)
 
-    # Convert back to a DataFrame if needed
     result_df = pd.DataFrame(result_array)
-    # Set the new column names for the dataframe (climate variables X months
-    # of the hydrological year)
     result_df.columns = _generate_climate_variable_names(
         ds_climate, months_tail_pad, months_head_pad
     )

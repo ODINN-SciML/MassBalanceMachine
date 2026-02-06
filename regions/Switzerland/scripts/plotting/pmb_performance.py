@@ -69,7 +69,7 @@ def plot_predictions_summary(
         ax1,
         grouped_ids,
         scores_annual,
-        hue="PERIOD",
+        # hue="PERIOD",
         add_legend=False,
         palette=[color_annual, color_winter],
         ax_xlim=ax_xlim,
@@ -166,56 +166,55 @@ def pred_vs_truth(
     ax,
     grouped_ids,
     scores,
-    hue="GLACIER",
+    # hue="PERIOD",  # <- if you want annual/winter colors
     palette=None,
-    color=COLOR_ANNUAL,
+    # color=COLOR_ANNUAL,
     add_legend=True,
     ax_xlim=(-8, 6),
     ax_ylim=(-8, 6),
 ):
-    """
-    Scatter plot of predicted vs observed point mass balance with 1:1 reference.
+    df = grouped_ids.copy()
+    df["PERIOD"] = df["PERIOD"].astype(str).str.strip().str.lower()
 
-    Parameters
-    ----------
-    ax : matplotlib.axes.Axes
-        Axis to draw on.
-    grouped_ids : pandas.DataFrame
-        DataFrame with at least ['target', 'pred', 'PERIOD'] and optionally
-        the column specified by `hue`.
-    scores : dict
-        Metrics to display in the annotation (expects keys like 'rmse',
-        'pearson_corr' if `add_legend=True`).
-    hue : str or None, optional
-        Column used for coloring groups (e.g., 'GLACIER' or 'PERIOD').
-        If None, no categorical legend is shown.
-    palette : list or dict, optional
-        Seaborn palette used when `hue` is provided.
-    color : str, optional
-        Fallback color when no palette/hue is used.
-    add_legend : bool, optional
-        If True, adds a metrics text box.
-    ax_xlim, ax_ylim : tuple, optional
-        Axis limits.
+    # Split explicitly
+    df_annual = df[df["PERIOD"] == "annual"]
+    df_winter = df[df["PERIOD"] == "winter"]
 
-    Returns
-    -------
-    None
-        Modifies the provided axis in place.
-    """
+    # Decide colors if user passed palette=[annual_color, winter_color]
+    annual_color = (
+        palette[0] if (palette is not None and len(palette) >= 2) else COLOR_ANNUAL
+    )
+    winter_color = (
+        palette[1] if (palette is not None and len(palette) >= 2) else COLOR_WINTER
+    )
+
+    # --- Draw annual first (bottom) ---
     sns.scatterplot(
-        grouped_ids,
+        data=df_annual,
         x="target",
         y="pred",
-        palette=palette,
-        hue=hue,
         ax=ax,
-        color=color,
-        style="PERIOD",
-        style_order=["annual", "winter"],
-        hue_order=["annual", "winter"],
-        markers={"annual": "o", "winter": "o"},
-    )  # optional custom marker map)
+        color=annual_color,
+        edgecolor=None,
+        legend=False,
+        zorder=1,
+        marker="o",
+        alpha=0.8,
+    )
+
+    # --- Draw winter second (top) ---
+    sns.scatterplot(
+        data=df_winter,
+        x="target",
+        y="pred",
+        ax=ax,
+        color=winter_color,
+        edgecolor=None,
+        legend=False,
+        zorder=2,
+        marker="o",
+        alpha=0.8,
+    )
 
     ax.set_ylabel("Modeled PMB [m w.e.]", fontsize=20)
     ax.set_xlabel("Observed PMB [m w.e.]", fontsize=20)
@@ -236,26 +235,22 @@ def pred_vs_truth(
             fontsize=20,
             bbox=dict(boxstyle="round", facecolor="white", alpha=0.5),
         )
-    if hue is not None:
-        ax.legend(fontsize=20, loc="lower right", ncol=2)
-    else:
-        ax.legend([], [], frameon=False)
-    # diagonal line
-    pt = (0, 0)
-    ax.axline(pt, slope=1, color="grey", linestyle="-", linewidth=0.2)
+
+    # Legend that matches draw order
+    handles = [
+        Patch(color=annual_color, label="Annual"),
+        Patch(color=winter_color, label="Winter"),
+    ]
+    ax.legend(handles=handles, fontsize=20, loc="lower right", ncol=2)
+
+    # reference lines
+    ax.axline((0, 0), slope=1, color="grey", linestyle="-", linewidth=0.2)
     ax.axvline(0, color="grey", linestyle="--", linewidth=1)
     ax.axhline(0, color="grey", linestyle="--", linewidth=1)
     ax.grid()
-    leg = ax.get_legend()
-    if leg is not None:
-        for txt in leg.get_texts():
-            t = txt.get_text().strip().lower()
-            if t in ("annual", "winter"):
-                txt.set_text(t.capitalize())
-    # Set ylimits to be the same as xlimits
+
     ax.set_xlim(ax_xlim)
     ax.set_ylim(ax_ylim)
-    plt.tight_layout()
 
 
 def plot_mean_pred(
@@ -419,7 +414,7 @@ def plot_predictions_three_models_side_by_side(
             ax,
             grouped,
             scores_annual,
-            hue="PERIOD",
+            # hue="PERIOD",
             add_legend=False,
             palette=[color_annual, color_winter],
             ax_xlim=ax_xlim,
@@ -492,7 +487,7 @@ def plot_individual_glacier_pred(
     color_annual,
     color_winter,
     axs,
-    subplot_labels=None,  # <— now optional
+    subplot_labels=None,
     custom_order=None,
     add_text=True,
     ax_xlim=(-9, 6),
@@ -502,37 +497,13 @@ def plot_individual_glacier_pred(
     """
     Plot predicted vs observed PMB for multiple glaciers in a panel grid.
 
-    Creates one scatter subplot per glacier (annual + winter), adds 1:1 line,
-    optional per-glacier metric text, and a title including area and mean elevation.
-
-    Parameters
-    ----------
-    grouped_ids : pandas.DataFrame
-        DataFrame containing at least ['GLACIER', 'PERIOD', 'target', 'pred', 'gl_elv'].
-    color_annual, color_winter : str
-        Colors for annual and winter points.
-    axs : numpy.ndarray of matplotlib.axes.Axes
-        Array of axes (e.g., from plt.subplots) to populate.
-    subplot_labels : list of str, optional
-        Labels like ['(a)', '(b)', ...]. If None, labels are auto-generated.
-    custom_order : list of str, optional
-        Glacier plotting order. If None, uses unique values from grouped_ids['GLACIER'].
-    add_text : bool, optional
-        If True, annotates each subplot with per-period metrics when available.
-    ax_xlim, ax_ylim : tuple or None, optional
-        Axis limits. If None, limits are set from the glacier-specific data.
-    gl_area : dict, optional
-        Mapping from glacier name (lowercase) to area in km^2 for subplot titles.
-
-    Returns
-    -------
-    numpy.ndarray
-        Flattened array of axes used for plotting.
+    Winter points are always drawn on top of annual points by plotting in two layers.
     """
-    color_palette_period = [color_annual, color_winter]
+    df_all = grouped_ids.copy()
+    df_all["PERIOD"] = df_all["PERIOD"].astype(str).str.strip().str.lower()
 
     if custom_order is None:
-        custom_order = grouped_ids["GLACIER"].unique()
+        custom_order = df_all["GLACIER"].unique()
 
     ax_flat = axs.flatten()
     n_plots = min(len(custom_order), len(ax_flat))
@@ -541,7 +512,6 @@ def plot_individual_glacier_pred(
     if subplot_labels is None:
         subplot_labels = alpha_labels(n_plots)
     else:
-        # if provided shorter/longer, trim or extend deterministically
         if len(subplot_labels) < n_plots:
             subplot_labels = list(subplot_labels) + alpha_labels(
                 n_plots - len(subplot_labels)
@@ -550,31 +520,45 @@ def plot_individual_glacier_pred(
             subplot_labels = list(subplot_labels)[:n_plots]
 
     for i, test_gl in enumerate(custom_order[:n_plots]):
-        gl_elv = int(
-            np.round(grouped_ids[grouped_ids.GLACIER == test_gl]["gl_elv"].values[0], 0)
-        )
-        df_gl = grouped_ids[grouped_ids.GLACIER == test_gl]
-
+        df_gl = df_all[df_all.GLACIER == test_gl]
         ax1 = ax_flat[i]
 
-        sns.scatterplot(
-            df_gl,
-            x="target",
-            y="pred",
-            palette=color_palette_period,
-            hue="PERIOD",
-            style="PERIOD",
-            markers={"annual": "o", "winter": "o"},
-            ax=ax1,
-            hue_order=["annual", "winter"],
-        )
+        # --- Two-layer scatter: annual first (bottom), winter second (top) ---
+        df_gl_annual = df_gl[df_gl["PERIOD"] == "annual"]
+        df_gl_winter = df_gl[df_gl["PERIOD"] == "winter"]
+
+        if not df_gl_annual.empty:
+            sns.scatterplot(
+                data=df_gl_annual,
+                x="target",
+                y="pred",
+                ax=ax1,
+                color=color_annual,
+                marker="o",
+                legend=False,
+                zorder=1,
+                alpha=0.8,
+            )
+
+        if not df_gl_winter.empty:
+            sns.scatterplot(
+                data=df_gl_winter,
+                x="target",
+                y="pred",
+                ax=ax1,
+                color=color_winter,
+                marker="o",
+                legend=False,
+                zorder=2,
+                alpha=0.8,
+            )
 
         # diagonal and axes zero lines
         ax1.axline((0, 0), slope=1, color="grey", linestyle="-", linewidth=0.2)
         ax1.axvline(0, color="grey", linestyle="--", linewidth=1)
         ax1.axhline(0, color="grey", linestyle="--", linewidth=1)
 
-        # Set symmetric limits or provided limits
+        # Set limits
         if ax_xlim is None:
             ymin = math.floor(min(df_gl.pred.min(), df_gl.target.min()))
             ymax = math.ceil(max(df_gl.pred.max(), df_gl.target.max()))
@@ -589,12 +573,7 @@ def plot_individual_glacier_pred(
         ax1.set_ylabel("")
         ax1.set_xlabel("")
 
-        # remove legend (we’ll make a global one elsewhere if needed)
-        leg = ax1.get_legend()
-        if leg is not None:
-            leg.remove()
-
-        # Subplot label (auto or provided)
+        # Subplot label
         ax1.text(
             0.02,
             0.98,
@@ -605,9 +584,15 @@ def plot_individual_glacier_pred(
             ha="left",
         )
 
+        # Glacier elevation (safe)
+        if "gl_elv" in df_gl.columns and len(df_gl["gl_elv"].dropna()) > 0:
+            gl_elv = int(np.round(df_gl["gl_elv"].dropna().values[0], 0))
+        else:
+            gl_elv = np.nan
+
         # Metrics text
         legend_lines = []
-        df_gl_annual = df_gl[df_gl["PERIOD"] == "annual"]
+
         if not df_gl_annual.empty:
             scores_annual = mbm.metrics.scores(
                 df_gl_annual["target"], df_gl_annual["pred"]
@@ -618,15 +603,14 @@ def plot_individual_glacier_pred(
                 rf"\mathrm{{B_a}}={scores_annual['bias']:.2f}$"
             )
 
-        df_gl_winter = df_gl[df_gl["PERIOD"] == "winter"]
         if not df_gl_winter.empty:
             scores_winter = mbm.metrics.scores(
                 df_gl_winter["target"], df_gl_winter["pred"]
             )
             legend_lines.append(
-                rf"$\mathrm{{RMSE_b}}={scores_winter['rmse']:.2f},\ "
-                rf"\mathrm{{R^2_b}}={scores_winter['r2']:.2f},\ "
-                rf"\mathrm{{B_b}}={scores_winter['bias']:.2f}$"
+                rf"$\mathrm{{RMSE_w}}={scores_winter['rmse']:.2f},\ "
+                rf"\mathrm{{R^2_w}}={scores_winter['r2']:.2f},\ "
+                rf"\mathrm{{B_w}}={scores_winter['bias']:.2f}$"
             )
 
         if add_text and legend_lines:
@@ -641,14 +625,16 @@ def plot_individual_glacier_pred(
                 bbox=dict(boxstyle="round", facecolor="white", alpha=0.0),
             )
 
+        # Title with area
         area = gl_area.get(test_gl.lower(), np.nan)
-        if area < 0.1:
-            area = np.round(area, 3)
+        if np.isfinite(area):
+            area_disp = np.round(area, 3) if area < 0.1 else np.round(area, 1)
         else:
-            area = np.round(area, 1)
+            area_disp = np.nan
 
         ax1.set_title(
-            f"{test_gl.capitalize()} ({area} km$^2$, {gl_elv} m a.s.l.)", fontsize=20
+            f"{test_gl.capitalize()} ({area_disp} km$^2$, {gl_elv} m a.s.l.)",
+            fontsize=20,
         )
 
     return ax_flat

@@ -21,6 +21,8 @@ import massbalancemachine as mbm
 from regions.Switzerland.scripts.config_CH import *
 from regions.Switzerland.scripts.utils import *
 
+from regions.Switzerland.scripts.geo_data.svf import merge_svf_into_ds
+
 # Somehow the GPSConverter class import fails with relative imports
 # so we use the full path here.
 from regions.Switzerland.scripts.utils.wgs84_ch1903 import GPSConverter
