@@ -50,3 +50,4 @@ regions/Norway/data/
 *.tox
 
 logs/
+venv/

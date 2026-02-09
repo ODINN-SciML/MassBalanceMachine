@@ -13,6 +13,7 @@ def create_glacier_grid_RGI(
     glacier_indices: "tuple[np.array, np.array]",
     gdir: oggm.GlacierDirectory,
     rgi_gl: str,
+    ds_svf=None,
 ) -> pd.DataFrame:
     """Creates a DataFrame of glacier grid data for each year
 
@@ -60,6 +61,9 @@ def create_glacier_grid_RGI(
         data_grid["millan_v"] = ds.masked_miv.values[gl_mask_bool]
         data_grid["millan_vx"] = ds.masked_mivx.values[gl_mask_bool]
         data_grid["millan_vy"] = ds.masked_mivy.values[gl_mask_bool]
+    if ds_svf is not None:
+        assert all(ds_svf.x == ds.x) and all(ds_svf.y == ds.y)
+        data_grid["svf"] = ds_svf.svf.values[gl_mask_bool]
 
     df_grid = pd.DataFrame(data_grid)
     del data_grid, ds  # Free up memory
