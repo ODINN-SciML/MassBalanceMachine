@@ -88,7 +88,7 @@ class CustomTorchNeuralNetRegressor(nn.Module):
         assert isinstance(
             pred, torch.Tensor
         ), "Argument predAggr must be a torch.Tensor."
-        idAggrTorch = torch.tensor(idAggr)
+        idAggrTorch = torch.tensor(idAggr).to(pred.device)
         out = torch.zeros(
             (len(np.unique(idAggr)),), device=pred.device, dtype=pred.dtype
         )
@@ -109,7 +109,7 @@ class CustomTorchNeuralNetRegressor(nn.Module):
             idAggr, np.ndarray
         ), "Argument idAggr must be a numpy.ndarray."
         assert isinstance(pred, torch.Tensor), "Argument pred must be a torch.Tensor."
-        idAggrTorch = torch.tensor(idAggr)
+        idAggrTorch = torch.tensor(idAggr).to(pred.device)
         out = torch.zeros(
             (len(np.unique(idAggr)),), device=pred.device, dtype=pred.dtype
         )
@@ -174,11 +174,15 @@ class CustomTorchNeuralNetRegressor(nn.Module):
                 idAggr = metadata["ID"].values
 
                 # Make prediction
-                stakesTorch = torch.tensor(stakes.astype(np.float32))
+                stakesTorch = torch.tensor(stakes.astype(np.float32)).to(
+                    geodataloader.device
+                )
                 pred = self.forward(stakesTorch)[:, 0]
 
                 # Aggregate per stake and periods
-                groundTruthTorch = torch.tensor(point_balance.astype(np.float32))
+                groundTruthTorch = torch.tensor(point_balance.astype(np.float32)).to(
+                    geodataloader.device
+                )
                 int_id, unique_id = pd.factorize(idAggr)
                 trueMean = self.aggrPredict(groundTruthTorch, int_id, reduce="mean")
                 predSum = self.aggrPredict(pred, int_id)
@@ -189,9 +193,9 @@ class CustomTorchNeuralNetRegressor(nn.Module):
                 assert grouped_ids_glacier.index.name == "ID_int"
                 grouped_ids_glacier = pd.DataFrame(
                     {
-                        "target": trueMean,
+                        "target": trueMean.cpu(),
                         "ID_int": grouped_ids_glacier.index,
-                        "pred": predSum,
+                        "pred": predSum.cpu(),
                         "PERIOD": grouped_ids_glacier.PERIOD,
                         "YEAR": grouped_ids_glacier.YEAR,
                         "RGIId": grouped_ids_glacier.RGIId,

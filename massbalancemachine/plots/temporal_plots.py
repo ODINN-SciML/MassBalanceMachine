@@ -37,9 +37,12 @@ def cumulatedMassChange(
         fig = None
 
     for i, test_gl in enumerate(custom_order):
-        df_gl = df_gridded[df_gridded[order_key] == test_gl]
+        df_gl = df_gridded[df_gridded[order_key] == test_gl].copy()
 
-        ax = axs.flatten()[i]
+        if isinstance(axs, list):
+            ax = axs[i]
+        else:
+            ax = axs.flatten()[i]
 
         month_to_id = {month_abbr[i].lower(): i for i in range(1, 13)}
         # df_gl["MONTH_ID"] = df_gl.apply(
@@ -75,8 +78,8 @@ def cumulatedMassChange(
             ax.plot(years, [0, tgt * nyear], color=color_obs)
             ax.fill_between(
                 years,
-                [0, (tgt - err) * nyear],
-                [0, (tgt + err) * nyear],
+                [0, (tgt - 2 * err) * nyear],
+                [0, (tgt + 2 * err) * nyear],
                 color=color_obs,
                 alpha=0.3,
             )

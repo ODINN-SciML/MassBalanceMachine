@@ -286,14 +286,15 @@ def predVSTruthPerGlacier(
     return fig  # To log figure during training
 
 
-def predVSTruthGeodetic(
+def predVSTruthGlacierWide(
     geoTarget,
     geoPred,
     geoErr,
     ax=None,
-    title="Geodetic MB",
-    ax_xlim=(-2.0, 0.5),
-    ax_ylim=(-2.0, 0.5),
+    title="Glacier wide MB",
+    ax_xlim=(-1.5, 0.5),
+    ax_ylim=(-1.5, 1.0),
+    color="orange",
 ):
 
     if ax is None:
@@ -303,13 +304,13 @@ def predVSTruthGeodetic(
 
     for g in geoPred.keys():
         ax.errorbar(
-            geoTarget[g], geoPred[g], xerr=geoErr[g], label=g, fmt="o", color="blue"
+            geoTarget[g], geoPred[g], xerr=2 * geoErr[g], label=g, fmt="o", color=color
         )
         plt.text(geoTarget[g] + 0.02, geoPred[g] + 0.02, g, fontsize=10)
 
     # Diagonal line
     pt = (0, 0)
-    ax.axline(pt, slope=1, color="grey", linestyle="-", linewidth=0.2)
+    ax.axline(pt, slope=1, color="grey", linestyle="-", linewidth=0.3)
     ax.axvline(0, color="grey", linestyle="-", linewidth=1)
     ax.axhline(0, color="grey", linestyle="-", linewidth=1)
 

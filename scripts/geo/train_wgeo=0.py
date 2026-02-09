@@ -3,6 +3,7 @@ import sys, os
 mbm_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 sys.path.append(mbm_path)  # Add root of repo to import MBM
 
+import numpy as np
 import torch
 import json
 import argparse
@@ -18,10 +19,26 @@ from scripts.nongeo.utils import getMetaData, setFeatures, trainValData, testDat
 parser = argparse.ArgumentParser()
 parser.add_argument("modelType", type=str, help="Type of model to train")
 parser.add_argument("--load", type=str, default="", help="Model to load")
+parser.add_argument(
+    "--cpu",
+    dest="cpu",
+    default=False,
+    action="store_true",
+    help="Force model to run on CPU, even if a GPU is available.",
+)
+parser.add_argument(
+    "--noTest",
+    dest="noTest",
+    default=False,
+    action="store_true",
+    help="Do not evaluate on the test set during training.",
+)
 args = parser.parse_args()
 
 params = loadParams(args.modelType)
 modelToLoad = args.load
+cpu = args.cpu
+noTest = args.noTest
 featuresInpModel = params["model"]["inputs"]
 sourceData = params["training"]["source_data"]
 
@@ -38,7 +55,15 @@ elif sourceData == "iceland":
     )
 elif sourceData == "norway":
     cfg = mbm.Config(
-        metaData=["RGIId", "ID", "N_MONTHS", "MONTHS", "PERIOD", "YEAR"],
+        metaData=[
+            "RGIId",
+            "ID",
+            "N_MONTHS",
+            "MONTHS",
+            "PERIOD",
+            "YEAR",
+            "POINT_ELEVATION",
+        ],
         notMetaDataNotFeatures=["POINT_BALANCE", "svf"],
     )
 else:
@@ -75,6 +100,7 @@ print(
     test_set["df_X"][cfg.featureColumns + cfg.fieldsNotFeatures].shape,
 )
 
+device = torch.device("cuda:0" if torch.cuda.is_available() and not cpu else "cpu")
 
 if sourceData == "switzerland":
     glaciers = list(data_train.GLACIER.unique())
@@ -83,6 +109,7 @@ elif sourceData in ["iceland", "norway"]:
 gdl = mbm.dataloader.GeoDataLoader(
     cfg,
     glaciers,
+    device=device,
     trainStakesDf=df_X_train,
     months_head_pad=months_head_pad,
     months_tail_pad=months_tail_pad,
@@ -95,6 +122,7 @@ gdl = mbm.dataloader.GeoDataLoader(
 network = mbm.models.buildModel(cfg, params=params)
 
 model = mbm.models.CustomTorchNeuralNetRegressor(network)
+model = model.to(device)
 
 if modelToLoad != "":
     bestModelPath = mbm.training.loadBestModel(os.path.join("logs", modelToLoad), model)
@@ -135,15 +163,19 @@ if sourceData == "switzerland":
     test_glaciers = list(data_test.GLACIER.unique())
 elif sourceData in ["iceland", "norway"]:
     test_glaciers = list(data_test.RGIId.unique())
-gdl_test = mbm.dataloader.GeoDataLoader(
-    cfg,
-    test_glaciers,
-    trainStakesDf=data_test,
-    months_head_pad=months_head_pad,
-    months_tail_pad=months_tail_pad,
-    keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
-    preloadGeodetic=True,
-)
+if not noTest:
+    gdl_test = mbm.dataloader.GeoDataLoader(
+        cfg,
+        test_glaciers,
+        device=device,
+        trainStakesDf=data_test,
+        months_head_pad=months_head_pad,
+        months_tail_pad=months_tail_pad,
+        keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
+        preloadGeodetic=True,
+    )
+else:
+    gdl_test = None
 
 trainCfg = {
     "Nepochs": Nepochs,
@@ -166,6 +198,54 @@ ret = mbm.training.train_geo(
 print()
 bestModelPath = mbm.training.loadBestModel(ret["misc"]["log_dir"], model)
 print(f"Best model is {bestModelPath}")
+
+
+# Save the best model in .json format along with the normalization values
+model.eval()
+st = model.module.state_dict()
+
+
+class EncodeTensor(json.JSONEncoder, torch.utils.data.Dataset):
+    def default(self, obj):
+        if isinstance(obj, torch.Tensor):
+            return obj.cpu().detach().numpy().tolist()
+        return super(EncodeTensor, self).default(obj)
+
+
+norm = mbm.data_processing.Normalizer({k: cfg.bnds[k] for k in cfg.featureColumns})
+norm_values = norm.export_bounds()
+with open(os.path.join(ret["misc"]["log_dir"], "best_model.json"), "w") as f:
+    info = {"norm": norm_values, "model": st, "inputs": cfg.featureColumns}
+    json.dump(info, f, cls=EncodeTensor, sort_keys=True)
+with open(os.path.join(ret["misc"]["log_dir"], "sample_inputs.json"), "w") as f:
+    features, metadata, y = gdl.stakes(glaciers[0])
+    with torch.no_grad():
+        features_torch = torch.tensor(features.astype(np.float32)).to(gdl.device)
+        pred = model.forward(features_torch)[:, 0]
+    info = {
+        "features": features.tolist(),
+        "y": y.tolist(),
+        "pred": pred.cpu().detach().numpy().tolist(),
+    }
+    json.dump(info, f, sort_keys=True)
+X = gdl.trainStakesDf[
+    gdl.trainStakesDf["GLACIER" if sourceData == "switzerland" else "RGIId"]
+    == glaciers[0]
+]
+X.to_csv(os.path.join(ret["misc"]["log_dir"], "sample_inputs_before_norm.csv"))
+
+
+if noTest:
+    gdl_test = mbm.dataloader.GeoDataLoader(
+        cfg,
+        test_glaciers,
+        device=device,
+        trainStakesDf=data_test,
+        months_head_pad=months_head_pad,
+        months_tail_pad=months_tail_pad,
+        keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
+        preloadGeodetic=True,
+    )
 
 model.eval()
 with torch.no_grad():

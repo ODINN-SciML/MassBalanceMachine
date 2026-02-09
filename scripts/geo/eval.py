@@ -32,6 +32,13 @@ warnings.filterwarnings("ignore")
 parser = argparse.ArgumentParser("Evaluate a model and save the figures.")
 parser.add_argument("modelFolder", type=str, help="Folder of the model to load.")
 parser.add_argument(
+    "--cpu",
+    dest="cpu",
+    default=False,
+    action="store_true",
+    help="Force model to run on CPU, even if a GPU is available.",
+)
+parser.add_argument(
     "--plot",
     dest="plot",
     default=False,
@@ -52,12 +59,21 @@ parser.add_argument(
     action="store_true",
     help="Evaluate prediction on the whole region in addition to classical plots.",
 )
+parser.add_argument(
+    "--savePred",
+    dest="savePred",
+    default=False,
+    action="store_true",
+    help="Save predictions as CSV for further analysis or comparison.",
+)
 args = parser.parse_args()
 
 modelFolder = args.modelFolder
+cpu = args.cpu
 plot = args.plot
 noTest = args.noTest
 onRegion = args.onRegion
+savePred = args.savePred
 pathFolder = os.path.join("logs", modelFolder)
 
 with open(f"{pathFolder}/params.json", "r") as f:
@@ -80,7 +96,15 @@ elif sourceData == "iceland":
     )
 elif sourceData == "norway":
     cfg = mbm.Config(
-        metaData=["RGIId", "ID", "N_MONTHS", "MONTHS", "PERIOD", "YEAR"],
+        metaData=[
+            "RGIId",
+            "ID",
+            "N_MONTHS",
+            "MONTHS",
+            "PERIOD",
+            "YEAR",
+            "POINT_ELEVATION",
+        ],
         notMetaDataNotFeatures=["POINT_BALANCE", "svf"],
     )
 else:
@@ -141,6 +165,8 @@ df_X_test_subset = testData(cfg, test_set, feature_columns)
 
 network = mbm.models.buildModel(cfg, params=params)
 model = mbm.models.CustomTorchNeuralNetRegressor(network)
+device = torch.device("cuda:0" if torch.cuda.is_available() and not cpu else "cpu")
+model = model.to(device)
 
 
 # Load model and set to CPU
@@ -167,6 +193,7 @@ if len(df_X_test_subset) > 0 and not noTest:
     test_gdl = mbm.dataloader.GeoDataLoader(
         cfg,
         test_glaciers,
+        device=device,
         trainStakesDf=df_X_test_subset,
         months_head_pad=months_head_pad,
         months_tail_pad=months_tail_pad,
@@ -177,11 +204,14 @@ if len(df_X_test_subset) > 0 and not noTest:
     scores = mbm.metrics.seasonal_scores(
         grouped_ids, target_col="target", pred_col="pred"
     )
-    scores_annual = {
-        "rmse": scores["annual"]["rmse"],
-        "r2": scores["annual"]["r2"],
-        "bias": scores["annual"]["bias"],
-    }
+    if "annual" in scores:
+        scores_annual = {
+            "rmse": scores["annual"]["rmse"],
+            "r2": scores["annual"]["r2"],
+            "bias": scores["annual"]["bias"],
+        }
+    else:
+        scores_annual = None
     scores_winter = {
         "rmse": scores["winter"]["rmse"],
         "r2": scores["winter"]["r2"],
@@ -245,6 +275,28 @@ if len(df_X_test_subset) > 0 and not noTest:
     with torch.no_grad():
         resTest = mbm.training.assessOnTest(pathFolder, model, test_gdl)
 
+    geoPred, geoTarget, geoErr, dict_df_gridded = mbm.training.eval_geodetic(
+        model, test_gdl, return_grid_pred=["annual", "monthly"]
+    )
+    df_gridded_annual = dict_df_gridded["annual"]
+    df_gridded_monthly = dict_df_gridded["monthly"]
+    del dict_df_gridded
+    if savePred:
+        print("Saving gridded prediction for further analysis...")
+        kk = geoTarget.keys()
+        df_geo = pd.DataFrame(
+            {
+                "RGIId": kk,
+                "target": [geoTarget[k][0] for k in kk],
+                "err": [geoErr[k][0] for k in kk],
+                "pred": [geoPred[k][0].item() for k in kk],
+            }
+        )
+        df_geo.to_csv(f"{pathFolder}/gridded_geodetic_test.csv")
+        df_gridded_annual.to_csv(f"{pathFolder}/gridded_annual_test.csv")
+        df_gridded_monthly.to_csv(f"{pathFolder}/gridded_monthly_test.csv")
+        del df_gridded_annual, df_gridded_monthly
+
 
 if sourceData == "switzerland":
     train_glaciers = list(data_train.GLACIER.unique())
@@ -255,6 +307,7 @@ elif sourceData in ["iceland", "norway"]:
 train_gdl = mbm.dataloader.GeoDataLoader(
     cfg,
     train_glaciers,
+    device=device,
     trainStakesDf=data_train,
     months_head_pad=months_head_pad,
     months_tail_pad=months_tail_pad,
@@ -339,14 +392,31 @@ if plot:
 plt.close(fig)
 
 
-geoPred, geoTarget, geoErr, df_gridded = mbm.training.eval_geodetic(
-    model, train_gdl, return_grid_pred="annual"
+geoPred, geoTarget, geoErr, dict_df_gridded = mbm.training.eval_geodetic(
+    model, train_gdl, return_grid_pred=["annual", "monthly"]
 )
+df_gridded_annual = dict_df_gridded["annual"]
+df_gridded_monthly = dict_df_gridded["monthly"]
+del dict_df_gridded
+if savePred:
+    print("Saving gridded prediction for further analysis...")
+    kk = geoTarget.keys()
+    df_geo = pd.DataFrame(
+        {
+            "RGIId": kk,
+            "target": [geoTarget[k][0] for k in kk],
+            "err": [geoErr[k][0] for k in kk],
+            "pred": [geoPred[k][0].item() for k in kk],
+        }
+    )
+    df_geo.to_csv(f"{pathFolder}/gridded_geodetic_train.csv")
+    df_gridded_annual.to_csv(f"{pathFolder}/gridded_annual_train.csv")
+    df_gridded_monthly.to_csv(f"{pathFolder}/gridded_monthly_train.csv")
 
 
 # Geodetic performance
-fig = mbm.plots.predVSTruthGeodetic(
-    geoTarget, geoPred, geoErr, title="Geodetic MB on train"
+fig = mbm.plots.predVSTruthGlacierWide(
+    geoTarget, geoPred, geoErr, title="Glacier wide MB on train"
 )
 plt.savefig(os.path.join(pathFolder, "geodetic_train.png"))
 if plot:
@@ -356,7 +426,7 @@ plt.close(fig)
 
 # Plot MB profile
 fig = mbm.plots.profilePerGlacier(
-    df_gridded, custom_order=train_gl_per_el
+    df_gridded_annual, custom_order=train_gl_per_el
 )  # , df_stakes=data_train)
 fig.savefig(f"{pathFolder}/PMB_profile_individual_glaciers_train.pdf")
 if plot:
@@ -365,11 +435,8 @@ plt.close(fig)
 
 
 # Plot cumulated mass change
-geoPred, geoTarget, geoErr, df_gridded = mbm.training.eval_geodetic(
-    model, train_gdl, return_grid_pred="monthly"
-)  # TODO: merge with annual evaluation above
 fig = mbm.plots.cumulatedMassChange(
-    df_gridded,
+    df_gridded_monthly,
     geo={
         rgi_id: {"mean": geoTarget[rgi_id][0], "err": geoErr[rgi_id][0]}
         for rgi_id in geoTarget
@@ -380,6 +447,7 @@ if plot:
     plt.show()
 plt.close(fig)
 
+# TODO: since we changed the iterator, is the evaluation consistent on train/test ?
 
 if onRegion:
     regionId = int(data_train.RGIId.unique()[0].split(".")[0].split("-")[1])
@@ -389,6 +457,7 @@ if onRegion:
     region_gdl = mbm.dataloader.GeoDataLoader(
         cfg,
         train_glaciers,
+        device=device,
         trainStakesDf=data_train,
         months_head_pad=months_head_pad,
         months_tail_pad=months_tail_pad,
@@ -400,8 +469,8 @@ if onRegion:
     geoPred, geoTarget, geoErr, _ = mbm.training.eval_geodetic(model, region_gdl)
 
     # Geodetic performance
-    fig = mbm.plots.predVSTruthGeodetic(
-        geoTarget, geoPred, geoErr, title="Geodetic MB on the whole region"
+    fig = mbm.plots.predVSTruthGlacierWide(
+        geoTarget, geoPred, geoErr, title="Glacier wide MB on the whole region"
     )
     plt.savefig(os.path.join(pathFolder, "geodetic_region.png"))
     if plot:

@@ -14,7 +14,7 @@ import json
 import git
 import time
 
-from plots import predVSTruth, predVSTruthGeodetic
+from plots import predVSTruth, predVSTruthGlacierWide
 
 
 def in_jupyter_notebook():
@@ -47,10 +47,10 @@ def compute_stake_loss(model, stakes, metadata, point_balance, returnPred=False)
 
     Args:
         model (CustomTorchNeuralNetRegressor): Model to evaluate.
-        stakes (nd.ndarray): Stake measurements features returned by the geodetic
+        stakes (torch.Tensor): Stake measurements features returned by the geodetic
             dataloader.
         metadata (pd.DataFrame): Metadata returned by the geodetic dataloader.
-        point_balance (np.ndarray): Mass balance value of each stake measurement.
+        point_balance (torch.Tensor): Mass balance value of each stake measurement.
             It is returned by the geodetic dataloader.
         returnPred (bool): Whether to return the prediction and the target in a
             dictionary. Default is False.
@@ -62,22 +62,21 @@ def compute_stake_loss(model, stakes, metadata, point_balance, returnPred=False)
     int_id, unique_id = pd.factorize(idAggr)
 
     # Make prediction
-    stakesTorch = torch.tensor(stakes.astype(np.float32))
-    pred = model.forward(stakesTorch)[:, 0]
+    pred = model.forward(stakes)[:, 0]
 
     # Aggregate per stake and periods
-    groundTruthTorch = torch.tensor(point_balance.astype(np.float32))
-    trueMean = model.aggrPredict(groundTruthTorch, int_id, reduce="mean")
+    trueMean = model.aggrPredict(point_balance, int_id, reduce="mean")
     predSum = model.aggrPredict(pred, int_id)
 
     mse = nn.functional.mse_loss(predSum, trueMean, reduction="mean")
     ret = {}
     if returnPred:
-        ret["target"] = trueMean.detach()
-        ret["pred"] = predSum.detach()
+        ret["target"] = trueMean.detach().cpu()
+        ret["pred"] = predSum.detach().cpu()
     return mse, ret, int_id
 
 
+# TODO: time aggregation!
 def timeWindowGeodeticLoss(
     predSumAnnualGlwd, geoTarget, errGeoTarget, metadataAggrYear, geod_periods
 ):
@@ -138,8 +137,7 @@ def timeWindowGeodeticLoss(
 
 def predict_monthly_gridded(model, geoGrid, metadata):
     # Make prediction
-    geoGridTorch = torch.tensor(geoGrid.astype(np.float32))
-    pred = model.forward(geoGridTorch)[:, 0]
+    pred = model.forward(geoGrid)[:, 0]
     return pred
 
 
@@ -157,33 +155,47 @@ def predict_annual_gridded(model, geoGrid, metadata):
     return grouped_ids, predSumAnnual
 
 
-def eval_geodetic(model, geo_dataloader, return_grid_pred=False):
+def eval_geodetic(model, geo_dataloader, return_grid_pred=[]):
     geoPred = {}
     geoTarget = {}
     geoErr = {}
-    df_gridded = pd.DataFrame() if return_grid_pred else None
+    return_monthly = "monthly" in return_grid_pred
+    return_annual = "annual" in return_grid_pred
+    df_gridded_monthly = pd.DataFrame() if return_monthly else None
+    df_gridded_annual = pd.DataFrame() if return_annual else None
     with torch.no_grad():
-        pbar = tqdm.tqdm(geo_dataloader.glaciers(), total=len(geo_dataloader))
+        pbar = tqdm.tqdm(geo_dataloader.glaciersGeo(), total=geo_dataloader.lenGeo())
         for g in pbar:
             pbar.set_description("Making geodetic pred for %s" % (g), refresh=True)
-            if geo_dataloader.hasGeo(g):
+            # if geo_dataloader.hasGeo(g):
+            if True:
                 geoGrid, metadata, ygeo, errgeo = geo_dataloader.geo(g)
+                geoGrid = torch.tensor(geoGrid.astype(np.float32)).to(
+                    geo_dataloader.device
+                )
                 geod_periods = geo_dataloader.periods_per_glacier[g]
-                geoPred[g] = predict_geo(model, geoGrid, metadata, ygeo, geod_periods)
+                geoPred[g] = predict_geo(
+                    model, geoGrid, metadata, ygeo, geod_periods
+                ).cpu()
                 geoTarget[g] = ygeo
                 geoErr[g] = errgeo
 
-                if return_grid_pred == "annual":
+                if return_annual:
                     grouped_ids, predSumAnnual = predict_annual_gridded(
                         model, geoGrid, metadata
                     )
-                    grouped_ids["pred"] = predSumAnnual
-                    df_gridded = pd.concat([df_gridded, grouped_ids])
-                elif return_grid_pred == "monthly":
+                    grouped_ids["pred"] = predSumAnnual.cpu()
+                    df_gridded_annual = pd.concat([df_gridded_annual, grouped_ids])
+                if return_monthly:
                     predMonthly = predict_monthly_gridded(model, geoGrid, metadata)
-                    metadata["pred"] = predMonthly
-                    df_gridded = pd.concat([df_gridded, metadata])
-    return geoPred, geoTarget, geoErr, df_gridded
+                    metadata["pred"] = predMonthly.cpu()
+                    df_gridded_monthly = pd.concat([df_gridded_monthly, metadata])
+    dict_df_gridded = {}
+    if return_monthly:
+        dict_df_gridded["monthly"] = df_gridded_monthly
+    if return_annual:
+        dict_df_gridded["annual"] = df_gridded_annual
+    return geoPred, geoTarget, geoErr, dict_df_gridded
 
 
 def predict_geo(model, geoGrid, metadata, ygeo, geod_periods):
@@ -201,16 +213,14 @@ def predict_geo(model, geoGrid, metadata, ygeo, geod_periods):
         predSumAnnual, grouped_ids["GLWD_ID_int"].values
     )
 
-    geoTarget = torch.tensor(ygeo.astype(np.float32))
-
     # TODO: remove the loop since the grid should already correspond to the geodetic period
 
-    assert len(geoTarget) == len(
+    assert len(ygeo) == len(
         geod_periods
-    ), f"Size of the ground truth is {geoTarget.shape} but doesn't match with the number of geodetic periods which is {len(geod_periods)}"
+    ), f"Size of the ground truth is {ygeo.shape} but doesn't match with the number of geodetic periods which is {len(geod_periods)}"
     yearsPred = metadataAggrYear.YEAR.values
 
-    geodetic_MB_pred = torch.zeros(len(geod_periods))
+    geodetic_MB_pred = torch.zeros(len(geod_periods), device=predSumAnnualGlwd.device)
     for e, (start_year, end_year) in enumerate(geod_periods):
         geodetic_range = range(
             start_year, end_year
@@ -237,18 +247,17 @@ def compute_geo_loss(model, geoGrid, metadata, ygeo, errgeo, geod_periods):
 
     Args:
         model (CustomTorchNeuralNetRegressor): Model to evaluate.
-        geoGrid (nd.ndarray): Geodetic features returned by the geodetic dataloader.
+        geoGrid (torch.Tensor): Geodetic features returned by the geodetic dataloader.
         metadata (pd.DataFrame): Metadata returned by the geodetic dataloader.
-        ygeo (np.ndarray): Geodetic mass balance values. It is returned by the
+        ygeo (torch.Tensor): Geodetic mass balance values. It is returned by the
             geodetic dataloader.
-        errgeo (np.ndarray): 1 sigma error of the geodetic mass balance values.
+        errgeo (torch.Tensor): 1 sigma error of the geodetic mass balance values.
             It is also returned by the geodetic dataloader.
 
     Returns a scalar torch value that corresponds to the geodetic loss term.
     """
     # Make prediction
-    geoGridTorch = torch.tensor(geoGrid.astype(np.float32))
-    pred = model.forward(geoGridTorch)[:, 0]
+    pred = model.forward(geoGrid)[:, 0]
 
     idAggr = metadata["ID"].values
     int_id, unique_id = pd.factorize(idAggr)
@@ -268,14 +277,11 @@ def compute_geo_loss(model, geoGrid, metadata, ygeo, errgeo, geod_periods):
         predSumAnnual, grouped_ids["GLWD_ID_int"].values
     )
 
-    groundTruthTorch = torch.tensor(ygeo.astype(np.float32))
-    errGroundTruthTorch = torch.tensor(errgeo.astype(np.float32))
-
     # Compute the geodetic MB for the different time windows
     lossGeo = timeWindowGeodeticLoss(
         predSumAnnualGlwd,
-        groundTruthTorch,
-        errGroundTruthTorch,
+        ygeo,
+        errgeo,
         metadataAggrYear,
         geod_periods,
     )
@@ -303,6 +309,10 @@ def assessOnTest(log_dir, model, geodataloader_test, light=False):
     )  # Initialize with correct dtype
     for g in geodataloader_test.glaciers():
         stakes, metadata, point_balance = geodataloader_test.stakes(g)
+        stakes = torch.tensor(stakes.astype(np.float32)).to(geodataloader_test.device)
+        point_balance = torch.tensor(point_balance.astype(np.float32)).to(
+            geodataloader_test.device
+        )
         l, ret, int_id = compute_stake_loss(
             model, stakes, metadata, point_balance, returnPred=True
         )
@@ -337,11 +347,9 @@ def assessOnTest(log_dir, model, geodataloader_test, light=False):
 
     if not light:
         # Geodetic prediction
-        geoPred, geoTarget, geoErr, _ = mbm.training.eval_geodetic(
-            model, geodataloader_test
-        )
-        fig = predVSTruthGeodetic(
-            geoTarget, geoPred, geoErr, title="Geodetic MB on test"
+        geoPred, geoTarget, geoErr, _ = eval_geodetic(model, geodataloader_test)
+        fig = predVSTruthGlacierWide(
+            geoTarget, geoPred, geoErr, title="Glacier wide MB on test"
         )
         plt.savefig(os.path.join(log_dir, "geodetic_test.png"))
         plt.close(fig)
@@ -517,6 +525,12 @@ def train_geo(
 
                     st = time.time()
                     stakes, metadata, point_balance = geodataloader.stakes(g)
+                    stakes = torch.tensor(stakes.astype(np.float32)).to(
+                        geodataloader.device
+                    )
+                    point_balance = torch.tensor(point_balance.astype(np.float32)).to(
+                        geodataloader.device
+                    )
                     stakesDataloaderTime = time.time() - st
                     st = time.time()
                     lossStake, _, _ = compute_stake_loss(
@@ -531,6 +545,15 @@ def train_geo(
                     if wGeo > 0 and geodataloader.hasGeo(g):
                         st = time.time()
                         geoGrid, metadata, ygeo, errgeo = geodataloader.geo(g)
+                        geoGrid = torch.tensor(geoGrid.astype(np.float32)).to(
+                            geodataloader.device
+                        )
+                        ygeo = torch.tensor(ygeo.astype(np.float32)).to(
+                            geodataloader.device
+                        )
+                        errgeo = torch.tensor(errgeo.astype(np.float32)).to(
+                            geodataloader.device
+                        )
                         geoDataloaderTime = time.time() - st
                         geod_periods = geodataloader.periods_per_glacier[g]
                         st = time.time()
@@ -546,6 +569,7 @@ def train_geo(
                         geoDataloaderTime = 0.0
                         geoInferenceTime = 0.0
 
+                    # TODO: time the backward
                     loss.backward()
                     optim.step()
 
@@ -600,6 +624,12 @@ def train_geo(
                     for g in geodataloader.glaciers():
 
                         stakes, metadata, point_balance = geodataloader.stakes(g)
+                        stakes = torch.tensor(stakes.astype(np.float32)).to(
+                            geodataloader.device
+                        )
+                        point_balance = torch.tensor(
+                            point_balance.astype(np.float32)
+                        ).to(geodataloader.device)
                         l, ret, int_id = compute_stake_loss(
                             model, stakes, metadata, point_balance, returnPred=True
                         )
@@ -624,6 +654,15 @@ def train_geo(
 
                         if wGeo > 0 and geodataloader.hasGeo(g):
                             geoGrid, metadata, ygeo, errgeo = geodataloader.geo(g)
+                            geoGrid = torch.tensor(geoGrid.astype(np.float32)).to(
+                                geodataloader.device
+                            )
+                            ygeo = torch.tensor(ygeo.astype(np.float32)).to(
+                                geodataloader.device
+                            )
+                            errgeo = torch.tensor(errgeo.astype(np.float32)).to(
+                                geodataloader.device
+                            )
                             geod_periods = geodataloader.periods_per_glacier[g]
                             lossGeo += compute_geo_loss(
                                 model, geoGrid, metadata, ygeo, errgeo, geod_periods
