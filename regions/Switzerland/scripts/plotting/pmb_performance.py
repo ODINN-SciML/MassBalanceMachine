@@ -166,9 +166,7 @@ def pred_vs_truth(
     ax,
     grouped_ids,
     scores,
-    # hue="PERIOD",  # <- if you want annual/winter colors
     palette=None,
-    # color=COLOR_ANNUAL,
     add_legend=True,
     ax_xlim=(-8, 6),
     ax_ylim=(-8, 6),
@@ -248,6 +246,141 @@ def pred_vs_truth(
     ax.axvline(0, color="grey", linestyle="--", linewidth=1)
     ax.axhline(0, color="grey", linestyle="--", linewidth=1)
     ax.grid()
+
+    ax.set_xlim(ax_xlim)
+    ax.set_ylim(ax_ylim)
+
+
+import matplotlib.colors as mcolors
+
+
+def pred_vs_truth_density(
+    ax,
+    grouped_ids,
+    scores,
+    palette=None,
+    add_legend=True,
+    ax_xlim=(-8, 6),
+    ax_ylim=(-8, 6),
+    s=100,
+    clim=None,  # e.g. (0, 0.4) like your example; applied per season
+    show_colorbar=False,
+    colorbar_label="Point density",
+):
+    """
+    Like plot_prediction(): points are colored by KDE density.
+    But keeps Annual/Winter visually distinct by using a single-hue colormap
+    derived from the season color, and calls the sub-plotter twice.
+    """
+
+    from scipy.stats import gaussian_kde
+
+    df = grouped_ids.copy()
+    df["PERIOD"] = df["PERIOD"].astype(str).str.strip().str.lower()
+
+    df_annual = df[df["PERIOD"] == "annual"]
+    df_winter = df[df["PERIOD"] == "winter"]
+
+    annual_color = (
+        palette[0] if (palette is not None and len(palette) >= 2) else COLOR_ANNUAL
+    )
+    winter_color = (
+        palette[1] if (palette is not None and len(palette) >= 2) else COLOR_WINTER
+    )
+
+    def _cmap_from_color(color, min_light=0.6, max_dark=1.0):
+        """
+        Build a colormap from light -> full color (darker) for density shading.
+        """
+        rgb = np.array(mcolors.to_rgb(color))
+        white = np.array([1.0, 1.0, 1.0])
+        light = white * (1 - min_light) + rgb * min_light  # very light tint
+        dark = rgb * max_dark  # full color
+        return mcolors.LinearSegmentedColormap.from_list("", [light, dark])
+
+    def _plot_season_density(sub, base_color, zorder):
+        if len(sub) < 2:
+            return None
+
+        x = sub["target"].to_numpy()
+        y = sub["pred"].to_numpy()
+
+        xy = np.vstack([x, y])
+        z = gaussian_kde(xy)(xy)
+
+        # sort so dense points are drawn last
+        idx = np.argsort(z)
+        x, y, z = x[idx], y[idx], z[idx]
+
+        cmap = _cmap_from_color(base_color)
+
+        sc = ax.scatter(
+            x,
+            y,
+            c=z,
+            cmap=cmap,
+            s=s,
+            edgecolors="none",
+            zorder=zorder,
+        )
+
+        if clim is not None:
+            sc.set_clim(*clim)
+
+        return sc
+
+    # Draw annual then winter (winter on top)
+    sc_a = _plot_season_density(
+        df_annual,
+        annual_color,
+        zorder=2,
+    )
+    sc_w = _plot_season_density(
+        df_winter,
+        winter_color,
+        zorder=3,
+    )
+
+    # Colorbar: show one (use winter if available, else annual)
+    sc_for_cb = sc_w if sc_w is not None else sc_a
+    if show_colorbar and sc_for_cb is not None:
+        cb = plt.colorbar(sc_for_cb, ax=ax)
+        cb.set_label(colorbar_label)
+
+    # Labels
+    ax.set_ylabel("Modeled PMB [m w.e.]", fontsize=20)
+    ax.set_xlabel("Observed PMB [m w.e.]", fontsize=20)
+
+    # Metrics box (same as your original style)
+    if add_legend and scores is not None:
+        legend_text = "\n".join(
+            (
+                rf"$\mathrm{{RMSE}}={scores['rmse']:.2f}$",
+                rf"$\rho={scores['pearson_corr']:.2f}$",
+            )
+        )
+        ax.text(
+            0.03,
+            0.98,
+            legend_text,
+            transform=ax.transAxes,
+            va="top",
+            fontsize=20,
+            bbox=dict(boxstyle="round", facecolor="white", alpha=0.6),
+        )
+
+    # Legend for seasons
+    handles = [
+        Patch(color=annual_color, label="Annual"),
+        Patch(color=winter_color, label="Winter"),
+    ]
+    ax.legend(handles=handles, fontsize=20, loc="lower right", ncol=2)
+
+    # Reference lines
+    ax.axline((0, 0), slope=1, color="grey", linestyle="-", linewidth=0.4)
+    ax.axvline(0, color="grey", linestyle="--", linewidth=1)
+    ax.axhline(0, color="grey", linestyle="--", linewidth=1)
+    ax.grid(alpha=0.3)
 
     ax.set_xlim(ax_xlim)
     ax.set_ylim(ax_ylim)

@@ -7,8 +7,9 @@ from cmcrameri import cm
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 from matplotlib.ticker import MaxNLocator
 
-from scripts.helpers import *
-from scripts.config_NOR import *
+from regions.Norway_mb.scripts.config_NOR import *
+from regions.Switzerland.scripts.plotting import get_cmap_hex
+
 
 colors_vik = get_cmap_hex(cm.vik, 10)
 color_xgb = colors_vik[0]
@@ -362,7 +363,7 @@ def print_top_n_models(cv_results_, n=10, lossType="rmse"):
     df = pd.DataFrame(table)
     df = df.set_index("Model")
 
-    return display(df)
+    return df
 
 
 def FIPlot(best_estimator, feature_columns, vois_climate):
