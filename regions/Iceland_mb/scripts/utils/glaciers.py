@@ -2,10 +2,10 @@ import pandas as pd
 import os
 import geopandas as gpd
 
-from regions.Norway_mb.scripts.config_NOR import *
+from regions.Iceland_mb.scripts.config_ICE import *
 
 
-def get_gl_area_NOR(
+def get_gl_area_ICE(
     df_pmb,
     shapefile_path,
     glacier_col="GLACIER",

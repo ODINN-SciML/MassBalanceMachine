@@ -305,3 +305,40 @@ def merge_pmb_with_oggm_data(
         log.info("-- Number of winter samples:", len(df_pmb[df_pmb.PERIOD == "winter"]))
 
     return df_pmb
+
+
+def flag_elevation_mismatch(df, threshold=400):
+    """
+    Flag rows where POINT_ELEVATION differs from DEM elevation ('topo')
+    by more than a given threshold.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Must contain columns 'POINT_ELEVATION' and 'topo'.
+    threshold : float, optional
+        Maximum allowed absolute elevation difference (meters).
+        Default is 400 m.
+
+    Returns
+    -------
+    df_out : pandas.DataFrame
+        Copy of input dataframe with:
+        - 'elev_diff' : POINT_ELEVATION - topo
+        - 'elev_mismatch' : True if abs(diff) > threshold
+    mismatches : pandas.DataFrame
+        Subset of rows where mismatch is True.
+    """
+    df_out = df.copy()
+
+    df_out["elev_diff"] = df_out["POINT_ELEVATION"] - df_out["topo"]
+    df_out["elev_mismatch"] = df_out["elev_diff"].abs() > threshold
+
+    mismatches = df_out[df_out["elev_mismatch"]]
+
+    print(
+        f"{len(mismatches)} out of {len(df_out)} points "
+        f"({len(mismatches)/len(df_out)*100:.2f}%) exceed ±{threshold} m elevation difference."
+    )
+
+    return df_out, mismatches

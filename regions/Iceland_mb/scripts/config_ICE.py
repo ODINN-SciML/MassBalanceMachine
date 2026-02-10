@@ -1,10 +1,10 @@
 # <------------------ PATHS ------------------>
-path_PMB_WGMS_raw = "data/all-stake-measurements/"  # Raw Stake measurement ".csv"s
-path_PMB_WGMS_csv = "csv/"  # Processed stake measurements
+path_PMB_WGMS_raw = "WGMS/Iceland/raw/"  # Raw Stake measurement ".csv"s
+path_PMB_WGMS_csv = "WGMS/Iceland/csv/"  # Processed stake measurements
 path_ERA5_raw = "ERA5Land/raw/"  # ERA5-Land
-path_OGGM = "OGGM/"  # OGGM Data
-path_OGGM_xrgrids = "OGGM/xr_grids/"  # OGGM Data Grids
-path_rgi_outlines = ""
+path_OGGM_xrgrids = "OGGM/rgi_region_06/xr_grids/"  # OGGM Data Grids
+path_rgi_outlines_ICE = "RGI_v6/RGI_06_Iceland/06_rgi60_Iceland.shp"
+path_OGGM_ICE = "OGGM/rgi_region_06"  # OGGM Data
 
 # <------------------OTHER USEFUL FUNCTIONS & ATTRIBUTES: ------------------>
 vois_climate_long_name = {
@@ -36,3 +36,15 @@ vois_units = {
     "u10": "m s-1",
     "v10": "m s-1",
 }
+
+VOIS_CLIMATE = [
+    "t2m",
+    "tp",
+    "slhf",
+    "sshf",
+    "ssrd",
+    "fal",
+    "str",
+]
+
+VOIS_TOPOGRAPHICAL = ["aspect", "slope", "svf"]
