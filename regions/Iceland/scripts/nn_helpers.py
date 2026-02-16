@@ -13,7 +13,7 @@ import torch
 from matplotlib.ticker import MaxNLocator
 from scipy import stats
 
-from scripts.plots import *
+from regions.Iceland.scripts.plots import *
 
 
 class SaveBestAtEpochs(Callback):

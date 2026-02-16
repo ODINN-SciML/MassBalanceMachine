@@ -9,8 +9,8 @@ from shapely.geometry import Point
 from oggm import utils, workflow, tasks
 from oggm import cfg as oggmCfg
 
-from scripts.config_ICE import *
-from scripts.helpers import *
+from regions.Iceland.scripts.config_ICE import *
+from regions.Iceland.scripts.helpers import *
 
 # Setup logging
 logging.basicConfig(

@@ -7,8 +7,8 @@ from cmcrameri import cm
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error, r2_score
 from matplotlib.ticker import MaxNLocator
 
-from scripts.helpers import *
-from scripts.config_ICE import *
+from regions.Iceland.scripts.helpers import *
+from regions.Iceland.scripts.config_ICE import *
 
 colors_vik = get_cmap_hex(cm.vik, 10)
 color_xgb = colors_vik[0]
