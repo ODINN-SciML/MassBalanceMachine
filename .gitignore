@@ -43,6 +43,11 @@ regions/Iceland_mb/.ipynb_checkpoints
 
 regions/Overview
 
+regions/TF_Europe/models/**
+regions/TF_Europe/logs/**
+regions/TF_Europe/figures/**
+
+
 notes
 
 
