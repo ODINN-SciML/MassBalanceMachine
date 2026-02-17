@@ -92,14 +92,15 @@ def get_df_aggregate_pred(test_set, y_pred_agg, all_columns):
     return grouped_ids
 
 
+import numpy as np
+
+
 def compute_seasonal_scores(df, target_col="target", pred_col="pred"):
     """
     Computes regression scores separately for annual and winter data.
 
-    Parameters:
-    - df: DataFrame with at least 'PERIOD', target_col, and pred_col columns.
-    - target_col: name of the column with ground truth values.
-    - pred_col: name of the column with predicted values.
+    If one season is missing (0 samples), returns NaNs for that season instead
+    of crashing.
 
     Returns:
     - scores_annual: dict of metrics for annual data.
@@ -107,15 +108,34 @@ def compute_seasonal_scores(df, target_col="target", pred_col="pred"):
     """
 
     scores = {}
+
     for season in ["annual", "winter"]:
         df_season = df[df["PERIOD"] == season]
+
+        if len(df_season) == 0:
+            # Keep same keys as mbm.metrics.scores (plus n)
+            scores[season] = {
+                "mse": np.nan,
+                "rmse": np.nan,
+                "mae": np.nan,
+                "R2": np.nan,
+                "Bias": np.nan,
+                "n": 0,
+            }
+            continue
+
         y_true = df_season[target_col]
         y_pred = df_season[pred_col]
+
         scores_season = mbm.metrics.scores(y_true, y_pred)
-        # Rename to match with where this function is used
+
+        # Rename to match existing usage
         scores_season["R2"] = scores_season.pop("r2")
         scores_season["Bias"] = scores_season.pop("bias")
+        scores_season["n"] = int(len(df_season))
+
         scores[season] = scores_season
+
     return scores["annual"], scores["winter"]
 
 
