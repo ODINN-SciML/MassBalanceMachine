@@ -2,9 +2,9 @@
 path_PMB_WGMS_raw = "WGMS/Svalbard/raw/"  # Raw Stake measurement ".csv"s
 path_PMB_WGMS_csv = "WGMS/Svalbard/csv/"  # Processed stake measurements
 path_ERA5_raw = "ERA5Land/raw/"  # ERA5-Land
-path_OGGM_SVA = "OGGM/rgi_region_07"  # OGGM Data
-path_OGGM_SVA_xrgrids = "OGGM/xr_grids/"  # OGGM Data Grids
-path_rgi_outlines_SVA = "RGI_v6/RGI_07_Svalbard/07_rgi60_Svalbard.shp"
+path_OGGM_SJM = "OGGM/rgi_region_07"  # OGGM Data
+path_OGGM_SJM_xrgrids = "OGGM/xr_grids/"  # OGGM Data Grids
+path_rgi_outlines_SJM = "RGI_v6/RGI_07_Svalbard/07_rgi60_Svalbard.shp"
 
 # <------------------OTHER USEFUL FUNCTIONS & ATTRIBUTES: ------------------>
 vois_climate_long_name = {

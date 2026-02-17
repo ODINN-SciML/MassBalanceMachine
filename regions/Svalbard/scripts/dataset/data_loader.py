@@ -5,7 +5,7 @@ from regions.Svalbard.scripts.config_SVA import *
 
 def get_stakes_data_SVA(cfg):
     data_SVA = pd.read_csv(
-        cfg.dataPath + path_PMB_WGMS_csv + "SVA_wgms_dataset_all.csv"
+        cfg.dataPath + path_PMB_WGMS_csv + "SJM_wgms_dataset_all.csv"
     )
 
     # Remove summer season if exists

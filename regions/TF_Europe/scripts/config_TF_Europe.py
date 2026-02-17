@@ -1,8 +1,10 @@
 from pathlib import Path
 
 # <------------------ PATHS ------------------>
-path_ERA5_raw = "ERA5Land/raw/"  # ERA5-Land
-path_OGGM = "OGGM/"  # OGGM working directory (relative to cfg.dataPath)
+path_ERA5_raw = Path("ERA5Land/raw/")  # ERA5-Land
+path_OGGM = Path("OGGM")  # OGGM working directory (relative to cfg.dataPath)
+path_PMB_WGMS_csv = Path("WGMS")
+path_PMB_GLACIOCLIM_csv = "GLACIOCLIM/point/csv/"
 
 # Base folder for RGI v6 relative to cfg.dataPath (or whatever root you use)
 RGI_V6_ROOT = Path("RGI_v6")
@@ -12,21 +14,29 @@ RGI_REGIONS = {
         "name": "Iceland",
         "folder": "RGI_06_Iceland",
         "file": "06_rgi60_Iceland.shp",
+        "code": "ISL",
     },
     "07": {
         "name": "Svalbard",
         "folder": "RGI_07_Svalbard",
         "file": "07_rgi60_Svalbard.shp",
+        "code": "SJM",
     },
     "08": {
         "name": "Scandinavia",
         "folder": "RGI_08_Scandinavia",
         "file": "08_rgi60_Scandinavia.shp",
+        "code": "SCA",
+        "subregions": ["Norway"],
+        "subregions_codes": ["NOR"],
     },
     "11": {
         "name": "CentralEurope",
         "folder": "RGI_11_CentralEurope",
         "file": "11_rgi60_CentralEurope.shp",
+        "code": "CEU",
+        "subregions": ["France", "Switzerland", "Italy_Austria"],
+        "subregions_codes": ["FR", "CH", "IT_AT"],
     },
 }
 
@@ -79,3 +89,15 @@ VOIS_CLIMATE = [
 ]
 
 VOIS_TOPOGRAPHICAL = ["aspect", "slope", "svf"]
+
+FR_gl_name = {
+    "FR4N01235A08 dArgentiere": "Argentiere",
+    "FR4N01236A02 des Grands Montets": "Grands Montets",
+    "FR4N01146D09+E06 Gebroulaz": "Gebroulaz",
+    "FR4N01083B21 Blanc": "Blanc",
+    "FR4N01236A01 Mer de Glace/Geant": "Mer de Glace",
+    "FR4N01236A01 Leschaux": "Leschaux",
+    "FR4N01236A07 de Talefre": "Talefre",
+    "FR4N01163A02 de Sarennes 1": "Sarennes",
+    "FR4N01162B09+154D03 de Saint Sorlin": "Saint Sorlin",
+}
