@@ -51,8 +51,6 @@ def rgi_outline_path(rgi_id: str) -> str:
 vois_climate_long_name = {
     "t2m": "Temperature",
     "tp": "Precipitation",
-    "t2m_corr": "Temperature corr.",
-    "tp_corr": "Precipitation corr.",
     "slhf": "Surf. latent heat flux",
     "sshf": "Surf. sensible heat flux",
     "ssrd": "Surf. solar rad. down.",
@@ -61,6 +59,16 @@ vois_climate_long_name = {
     "pcsr": "Pot. in. clear sky solar rad.",
     "u10": "10m E wind",
     "v10": "10m N wind",
+    "ELEVATION_DIFFERENCE": "Elev. difference",
+    "hugonnet_dhdt": "Hugonnet dH/dt",
+    "consensus_ice_thickness": "Cons. ice thickness",
+    "millan_v": "Millan ice velocity",
+    "aspect_sgi": "Aspect",
+    "slope_sgi": "Slope",
+    "svf": "Sky view factor",
+    "aspect": "Aspect",
+    "slope": "Slope",
+    "POINT_BALANCE": "Point mass balance",
 }
 
 vois_units = {
@@ -76,6 +84,13 @@ vois_units = {
     "pcsr": "J m-2",
     "u10": "m s-1",
     "v10": "m s-1",
+    "aspect_sgi": "rad",
+    "slope_sgi": "rad",
+    "aspect": "rad",
+    "slope": "rad",
+    "svf": "",
+    "ELEVATION_DIFFERENCE": "m",
+    "POINT_BALANCE": "m w.e.",
 }
 
 VOIS_CLIMATE = [

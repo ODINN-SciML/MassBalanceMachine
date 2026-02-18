@@ -616,3 +616,197 @@ def plot_heatmap(
     ax.tick_params(axis="x", labelsize=20)  # Adjust 16 to your preferred size
     plt.tight_layout()
     return fig
+
+
+def plot_overlap_for_all_results(
+    results_dict,
+    cfg,
+    STATIC_COLS,
+    MONTHLY_COLS,
+    n_iter=1000,
+):
+    """
+    Generate t-SNE train/test feature-overlap plots for multiple regions.
+
+    This function iterates over a dictionary of monthly-preparation results
+    (e.g., output from `prepare_monthlies_for_all_regions`) and creates a
+    t-SNE-based feature overlap visualization for each region/subregion.
+
+    For each key:
+      - Extracts `df_train` and `df_test`
+      - Skips if either is missing or empty
+      - Calls `plot_tsne_overlap`
+      - Stores the resulting matplotlib Figure
+
+    Parameters
+    ----------
+    results_dict : dict
+        Dictionary mapping region/subregion keys (e.g., "07_SJM", "11_CH")
+        to result dictionaries containing at least:
+            - "df_train"
+            - "df_test"
+
+    cfg : object
+        Configuration object. Must contain a `seed` attribute used for
+        reproducibility of the t-SNE random state.
+
+    STATIC_COLS : list of str
+        Names of static (time-invariant) feature columns used for plotting.
+
+    MONTHLY_COLS : list of str
+        Names of monthly (time-varying) feature columns used for plotting.
+
+    n_iter : int, optional
+        Number of t-SNE optimization iterations (default is 1000).
+
+    Returns
+    -------
+    dict
+        Dictionary mapping region/subregion keys to matplotlib Figure objects.
+
+    Notes
+    -----
+    - Uses a consistent color palette across all regions
+      (dark blue for Train, red for Test).
+    - Skips regions with missing or empty datasets.
+    - Figures are not automatically saved; the caller can save them
+      individually if desired.
+    """
+    colors = get_cmap_hex(cm.batlow, 10)
+    color_dark_blue = colors[0]
+    custom_palette = {"Train": color_dark_blue, "Test": "#b2182b"}
+
+    figs = {}
+
+    for key, res in results_dict.items():
+        if res is None:
+            continue
+
+        df_train = res.get("df_train")
+        df_test = res.get("df_test")
+
+        if (
+            df_train is None
+            or df_test is None
+            or len(df_train) == 0
+            or len(df_test) == 0
+        ):
+            print(f"[{key}] Missing/empty df_train or df_test, skipping.")
+            continue
+
+        print(
+            f"Plotting t-SNE overlap for {key}: train={len(df_train)}, test={len(df_test)}"
+        )
+
+        fig = plot_tsne_overlap(
+            df_train,
+            df_test,
+            STATIC_COLS,
+            MONTHLY_COLS,
+            sublabels=("a", "b", "c"),
+            label_fmt="({})",
+            label_xy=(0.02, 0.98),
+            label_fontsize=14,
+            n_iter=n_iter,
+            random_state=cfg.seed,
+            custom_palette=custom_palette,
+        )
+
+        figs[key] = fig
+
+    return figs
+
+
+def plot_feature_overlap_all_regions(
+    results_dict,
+    STATIC_COLS,
+    MONTHLY_COLS,
+    output_dir="figures",
+    include_target=True,
+):
+    """
+    Plot KDE-based feature distribution overlap (Train vs Test) for all regions.
+
+    This function iterates over a dictionary of region/subregion results
+    (e.g., from `prepare_monthlies_for_all_regions`) and generates kernel
+    density estimate (KDE) overlap plots comparing train and test feature
+    distributions.
+
+    For each key:
+      - Extracts `df_train` and `df_test`
+      - Skips missing or empty datasets
+      - Plots feature KDE overlap using `plot_feature_kde_overlap`
+      - Stores the resulting matplotlib Figure
+
+    Parameters
+    ----------
+    results_dict : dict
+        Dictionary mapping region/subregion keys (e.g., "07_SJM", "11_CH")
+        to result dictionaries containing at least:
+            - "df_train"
+            - "df_test"
+
+    STATIC_COLS : list of str
+        Names of static (time-invariant) feature columns.
+
+    MONTHLY_COLS : list of str
+        Names of monthly (time-varying) feature columns.
+
+    output_dir : str, optional
+        Directory where figures could be saved (default: "figures").
+        The directory is created if it does not exist.
+        Note: Figures are not automatically saved unless handled inside
+        `plot_feature_kde_overlap`.
+
+    include_target : bool, optional
+        If True, includes the target variable ("POINT_BALANCE") in the
+        KDE overlap plots (default: True).
+
+    Returns
+    -------
+    dict
+        Dictionary mapping region/subregion keys to matplotlib Figure objects.
+
+    Notes
+    -----
+    - Uses a consistent color palette across all regions
+      (dark blue for Train, red for Test).
+    - Skips regions with missing or empty train/test datasets.
+    - Figures are returned for optional further processing (saving, styling).
+    """
+    os.makedirs(output_dir, exist_ok=True)
+
+    colors = get_cmap_hex(cm.batlow, 10)
+    color_dark_blue = colors[0]
+    palette = {"Train": color_dark_blue, "Test": "#b2182b"}
+
+    features = STATIC_COLS + MONTHLY_COLS
+    if include_target:
+        features = features + ["POINT_BALANCE"]
+
+    figs = {}
+
+    for key, res in results_dict.items():
+        if res is None:
+            continue
+
+        df_train = res.get("df_train")
+        df_test = res.get("df_test")
+
+        if df_train is None or df_test is None:
+            print(f"[{key}] Missing df_train/df_test, skipping.")
+            continue
+
+        if len(df_train) == 0 or len(df_test) == 0:
+            print(f"[{key}] Empty train/test, skipping.")
+            continue
+
+        print(f"Plotting KDE overlap for {key}")
+
+        fig = plot_feature_kde_overlap(
+            df_train, df_test, features, palette, outfile=None
+        )
+
+        figs[key] = fig
+
+    return figs
