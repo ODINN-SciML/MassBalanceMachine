@@ -674,3 +674,164 @@ def get_CV_splits(
     }
 
     return cv_splits, test_set, train_set
+
+
+# --------------------------- MULTI REGION HANDLING ---------------------------
+
+
+def codes_for_rgi_region(rid: str) -> list[str]:
+    rid = str(rid).zfill(2)
+    spec = RGI_REGIONS[rid]
+    # If subregions exist, run per subregion code
+    if spec.get("subregions_codes"):
+        return [c.upper() for c in spec["subregions_codes"]]
+    # Otherwise run the region code
+    return [spec["code"].upper()]
+
+
+def country_folder_for_code(rid: str, code: str) -> str:
+    """
+    Returns the WGMS country folder name for a given RGI region id + code.
+    """
+    rid = str(rid).zfill(2)
+    spec = RGI_REGIONS[rid]
+
+    # Case 1: region has subregions
+    if spec.get("subregions_codes"):
+        codes = spec["subregions_codes"]
+        names = spec["subregions"]
+        mapping = dict(zip(codes, names))
+        return mapping.get(code)
+
+    # Case 2: single-region (no subregions)
+    return spec["name"]
+
+
+def prepare_monthly_dfs_for_all_regions(
+    cfg,
+    dfs,
+    paths,
+    vois_climate,
+    vois_topographical,
+    run_flag=True,
+    only_rids=None,
+    only_codes=None,
+    test_glaciers_override=None,
+    test_glaciers_by_code=None,
+):
+    """
+    Logic:
+    - run_flag=False → load everything
+    - run_flag=True & no subset → recompute everything
+    - run_flag=True & subset → recompute subset, load the rest
+    """
+
+    results = {}
+
+    only_rids_set = {str(r).zfill(2) for r in only_rids} if only_rids else None
+    only_codes_set = {c.upper() for c in only_codes} if only_codes else None
+    test_glaciers_override = test_glaciers_override or {}
+
+    # -------------------------------------------------
+    # First pass: determine execution plan
+    # -------------------------------------------------
+    execution_plan = {}  # key -> should_run
+
+    for rid, df_region in dfs.items():
+        rid2 = str(rid).zfill(2)
+        if df_region is None or len(df_region) == 0:
+            continue
+
+        codes = [c.upper() for c in codes_for_rgi_region(rid2)]
+
+        for code in codes:
+
+            if not run_flag:
+                should_run = False
+            else:
+                if only_rids_set is None and only_codes_set is None:
+                    should_run = True
+                else:
+                    match_rid = only_rids_set is None or rid2 in only_rids_set
+                    match_code = only_codes_set is None or code in only_codes_set
+                    should_run = match_rid and match_code
+
+            key = f"{rid2}_{code}"
+            execution_plan[key] = should_run
+
+    # -------------------------------------------------
+    # Log summary
+    # -------------------------------------------------
+    recompute_keys = [k for k, v in execution_plan.items() if v]
+    load_keys = [k for k, v in execution_plan.items() if not v]
+
+    if not run_flag:
+        logging.info("Monthly preparation mode: LOAD-ONLY")
+    elif not recompute_keys:
+        logging.info("Monthly preparation mode: nothing selected for recompute.")
+    elif len(recompute_keys) == len(execution_plan):
+        logging.info("Monthly preparation mode: RECOMPUTE ALL")
+    else:
+        logging.info("Monthly preparation mode: PARTIAL RECOMPUTE")
+
+    logging.info(f"Recompute ({len(recompute_keys)}): {sorted(recompute_keys)}")
+    logging.info(f"Load      ({len(load_keys)}): {sorted(load_keys)}")
+
+    # -------------------------------------------------
+    # Second pass: actual execution
+    # -------------------------------------------------
+    for rid, df_region in dfs.items():
+        rid2 = str(rid).zfill(2)
+
+        if df_region is None or len(df_region) == 0:
+            logging.warning(f"Skipping RGI {rid2}: empty dataframe")
+            continue
+
+        region_id_int = int(rid2)
+        codes = [c.upper() for c in codes_for_rgi_region(rid2)]
+        has_source = "SOURCE_CODE" in df_region.columns
+
+        for code in codes:
+            key = f"{rid2}_{code}"
+            should_run = execution_plan[key]
+
+            # Slice df
+            if has_source:
+                df_sub = df_region[df_region["SOURCE_CODE"] == code].copy()
+            else:
+                df_sub = df_region.copy()
+
+            if len(df_sub) == 0:
+                logging.warning(f"[{key}] No rows found, skipping.")
+                continue
+
+            # Override test glaciers if requested
+            test_glaciers = test_glaciers_override.get(
+                code, test_glaciers_by_code.get(code, [])
+            )
+
+            # Resolve country folder
+            country = country_folder_for_code(rid2, code)
+
+            paths_ = paths.copy()
+            paths_["csv_path"] = os.path.join(
+                cfg.dataPath, path_PMB_WGMS_csv, country, "csv"
+            )
+
+            logging.info(f"Processing {key} (country={country}, run_flag={should_run})")
+
+            res = prepare_monthly_dfs_with_padding(
+                cfg=cfg,
+                df_region=df_sub,
+                region_name=code,
+                region_id=region_id_int,
+                paths=paths_,
+                test_glaciers=test_glaciers,
+                vois_climate=vois_climate,
+                vois_topographical=vois_topographical,
+                run_flag=should_run,
+            )
+
+            results[key] = res
+
+    return results

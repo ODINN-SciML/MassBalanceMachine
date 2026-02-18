@@ -6,6 +6,12 @@ import re
 import pandas as pd
 import xarray as xr
 from tqdm.notebook import tqdm
+import copy
+import massbalancemachine as mbm
+import torch
+from datetime import datetime
+
+from regions.TF_Europe.scripts.plotting import *
 
 
 def get_best_params_for_lstm(
@@ -176,3 +182,272 @@ def get_best_params_for_lstm(
     best_params["loss_spec"] = loss_spec_val
 
     return best_params
+
+
+# --------------------------- MULTI REGION HANDLING ---------------------------
+
+
+def iter_dataset_keys_from_config(RGI_REGIONS: dict):
+    """
+    Yields dataset keys like:
+      '06_ISL', '07_SJM', '08_NOR', '11_CH', ...
+    """
+    for rid, spec in RGI_REGIONS.items():
+        rid2 = str(rid).zfill(2)
+        sub_codes = spec.get("subregions_codes", []) or []
+
+        if sub_codes:
+            for code in sub_codes:
+                yield f"{rid2}_{code.upper()}"
+        else:
+            yield f"{rid2}_{spec['code'].upper()}"
+
+
+def build_lstm_params_by_key(
+    default_params: dict,
+    log_path_gs_results: dict,  # keyed by CODE only
+    RGI_REGIONS: dict,
+    select_by: str = "avg_test_loss",
+):
+    """
+    Returns dict:
+        'RID_CODE' -> params dict
+
+    If a grid-search log exists for the CODE,
+    best params override defaults.
+    """
+
+    params_by_key = {}
+
+    for key in sorted(iter_dataset_keys_from_config(RGI_REGIONS)):
+        rid, code = key.split("_", 1)
+
+        params = copy.deepcopy(default_params)
+        log_path = log_path_gs_results.get(code)
+
+        if log_path and os.path.exists(log_path):
+            print(f"Loading tuned params for {key} (code={code})")
+            best_params = get_best_params_for_lstm(log_path, select_by=select_by)
+            params.update(best_params)
+        else:
+            print(f"No grid-search log for {key}. Using defaults.")
+
+        params_by_key[key] = params
+
+    return params_by_key
+
+
+def train_or_load_one_within_region(
+    cfg,
+    key: str,  # e.g. "08_NOR"
+    lstm_assets: dict,  # dict with ds_train/ds_test/train_idx/val_idx for this key
+    best_params: dict,
+    device,
+    models_dir="models",
+    prefix="lstm_within",
+    train_flag=True,  # if False: only load (must exist)
+    force_retrain=False,  # if True: retrain even if checkpoint exists
+    epochs=150,
+    batch_size_train=64,
+    batch_size_val=128,
+    batch_size_test=128,
+):
+    current_date = datetime.now().strftime("%Y-%m-%d")
+    out_dir = os.path.join(models_dir)
+    os.makedirs(out_dir, exist_ok=True)
+    model_filename = os.path.join(out_dir, f"{prefix}_{key}_{current_date}.pt")
+
+    # --- Build model + loss fn ---
+    model = mbm.models.LSTM_MB.build_model_from_params(cfg, best_params, device)
+    loss_fn = mbm.models.LSTM_MB.resolve_loss_fn(best_params)
+
+    # --- If not training: just load ---
+    if (not train_flag) and os.path.exists(model_filename):
+        state = torch.load(model_filename, map_location=device)
+        model.load_state_dict(state)
+        return model, model_filename, None
+
+    # --- If training but we can reuse existing checkpoint ---
+    if train_flag and (not force_retrain) and os.path.exists(model_filename):
+        state = torch.load(model_filename, map_location=device)
+        model.load_state_dict(state)
+        return model, model_filename, None
+
+    if not train_flag and (not os.path.exists(model_filename)):
+        raise FileNotFoundError(f"No checkpoint found for {key}: {model_filename}")
+
+    # --- loaders (fit scalers on TRAIN) ---
+    mbm.utils.seed_all(cfg.seed)
+
+    ds_train = lstm_assets["ds_train"]
+    ds_test = lstm_assets["ds_test"]
+    train_idx = lstm_assets["train_idx"]
+    val_idx = lstm_assets["val_idx"]
+
+    ds_train_copy = mbm.data_processing.MBSequenceDataset._clone_untransformed_dataset(
+        ds_train
+    )
+    ds_test_copy = mbm.data_processing.MBSequenceDataset._clone_untransformed_dataset(
+        ds_test
+    )
+
+    train_dl, val_dl = ds_train_copy.make_loaders(
+        train_idx=train_idx,
+        val_idx=val_idx,
+        batch_size_train=batch_size_train,
+        batch_size_val=batch_size_val,
+        seed=cfg.seed,
+        fit_and_transform=True,
+        shuffle_train=True,
+        use_weighted_sampler=True,
+    )
+
+    test_dl = mbm.data_processing.MBSequenceDataset.make_test_loader(
+        ds_test_copy, ds_train_copy, batch_size=batch_size_test, seed=cfg.seed
+    )
+
+    # fresh checkpoint
+    if os.path.exists(model_filename):
+        os.remove(model_filename)
+        print(f"Deleted existing model file: {model_filename}")
+
+    history, best_val, best_state = model.train_loop(
+        device=device,
+        train_dl=train_dl,
+        val_dl=val_dl,
+        epochs=epochs,
+        lr=best_params["lr"],
+        weight_decay=best_params["weight_decay"],
+        clip_val=1,
+        # scheduler
+        sched_factor=0.5,
+        sched_patience=6,
+        sched_threshold=0.01,
+        sched_threshold_mode="rel",
+        sched_cooldown=1,
+        sched_min_lr=1e-6,
+        # early stopping
+        es_patience=15,
+        es_min_delta=1e-4,
+        # logging
+        log_every=5,
+        verbose=True,
+        # checkpoint
+        save_best_path=model_filename,
+        loss_fn=loss_fn,
+    )
+
+    plot_history_lstm(history)
+
+    # Load best checkpoint
+    state = torch.load(model_filename, map_location=device)
+    model.load_state_dict(state)
+
+    return (
+        model,
+        model_filename,
+        {"history": history, "best_val": best_val, "test_dl": test_dl},
+    )
+
+
+# Run for all dataset keys (train subset, load others)
+def train_within_region_models_all(
+    cfg,
+    lstm_assets_by_key: dict,  # e.g. lstm_assets["08_NOR"] -> {...}
+    params_by_key: dict,  # e.g. params_by_key["08_NOR"] -> {...}
+    device,
+    train_keys=None,  # e.g. ["08_NOR"] to retrain only Norway
+    force_retrain=False,
+    models_dir="models",
+    prefix="lstm_within",
+    epochs=150,
+):
+    models = {}
+    infos = {}
+
+    train_keys_set = set(train_keys) if train_keys else None
+
+    for key in sorted(lstm_assets_by_key.keys()):
+        best_params = params_by_key[key]
+
+        # train only selected keys; others will load if checkpoint exists
+        train_flag = True
+        if train_keys_set is not None:
+            train_flag = key in train_keys_set
+
+        print(f"\n=== {key} === train_flag={train_flag}, force_retrain={force_retrain}")
+
+        model, path, info = train_or_load_one_within_region(
+            cfg=cfg,
+            key=key,
+            lstm_assets=lstm_assets_by_key[key],
+            best_params=best_params,
+            device=device,
+            models_dir=models_dir,
+            prefix=prefix,
+            train_flag=train_flag,
+            force_retrain=force_retrain if train_flag else False,
+            epochs=epochs,
+        )
+
+        models[key] = model
+        infos[key] = {"model_path": path, **(info or {})}
+
+    return models, infos
+
+
+def train_crossregional_models_all(
+    cfg,
+    lstm_assets_by_key: dict,  # outputs_xreg["FR"] -> {"ds_train","ds_test","train_idx","val_idx",...}
+    default_params: dict,
+    device,
+    train_keys=None,  # e.g. ["FR"] to retrain only France target
+    force_retrain=False,
+    models_dir="models",
+    prefix="lstm_xreg_CH_to",
+    epochs=150,
+):
+    models = {}
+    infos = {}
+
+    train_keys_set = set(train_keys) if train_keys else None
+
+    for key in sorted(lstm_assets_by_key.keys()):
+        assets = lstm_assets_by_key[key]
+
+        # skip empty regions (if you kept those)
+        if assets is None or assets.get("ds_test", None) is None:
+            print(f"\n=== {key} === skipped (no test dataset)")
+            models[key] = None
+            infos[key] = {"model_path": None, "note": "No test dataset / skipped"}
+            continue
+
+        # train only selected keys; others load if checkpoint exists
+        train_flag = True
+        if train_keys_set is not None:
+            train_flag = key in train_keys_set
+
+        print(
+            f"\n=== CH -> {key} === train_flag={train_flag}, force_retrain={force_retrain}"
+        )
+
+        # IMPORTANT: key becomes target-specific so model filenames are unique
+        model_key = key
+
+        model, path, info = train_or_load_one_within_region(
+            cfg=cfg,
+            key=model_key,
+            lstm_assets=assets,
+            best_params=default_params,
+            device=device,
+            models_dir=models_dir,
+            prefix=prefix,
+            train_flag=train_flag,
+            force_retrain=force_retrain if train_flag else False,
+            epochs=epochs,
+        )
+
+        models[key] = model
+        infos[key] = {"model_path": path, **(info or {})}
+
+    return models, infos

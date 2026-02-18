@@ -2,7 +2,10 @@ import random
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-
+import joblib
+import os
+import warnings
+import logging
 import massbalancemachine as mbm
 
 
@@ -194,3 +197,179 @@ def inspect_LSTM_padded_months(ds, n_samples=5, tol_zero=1e-6):
                 f"{t:2d} | {int(mv[i, t])}  | {int(mw[i, t])}  | {int(ma[i, t])}  | "
                 f"{mean_val:7.3f} |  {nan_mask}  |  {zero_mask}"
             )
+
+
+# --------------------------- MULTI REGION HANDLING ---------------------------
+def _check_for_nans(key, df_loss, df_full, monthly_cols, static_cols, strict=True):
+    """
+    Checks for NaNs/Infs in features and targets.
+    Raises ValueError if strict=True, otherwise prints warning.
+    """
+    feat_cols = [c for c in (monthly_cols + static_cols) if c in df_full.columns]
+
+    # --- feature NaNs ---
+    n_nan_feat = df_full[feat_cols].isna().sum().sum()
+    n_inf_feat = np.isinf(
+        df_full[feat_cols].to_numpy(dtype="float64", copy=False)
+    ).sum()
+
+    # --- target NaNs ---
+    n_nan_target = df_loss["POINT_BALANCE"].isna().sum()
+    n_inf_target = np.isinf(
+        df_loss["POINT_BALANCE"].to_numpy(dtype="float64", copy=False)
+    ).sum()
+
+    if any([n_nan_feat, n_inf_feat, n_nan_target, n_inf_target]):
+
+        msg = (
+            f"[{key}] Data integrity issue:\n"
+            f"  Feature NaNs: {n_nan_feat}\n"
+            f"  Feature Infs: {n_inf_feat}\n"
+            f"  Target  NaNs: {n_nan_target}\n"
+            f"  Target  Infs: {n_inf_target}"
+        )
+
+        if strict:
+            raise ValueError(msg)
+        else:
+            warnings.warn(msg)
+
+
+def _lstm_cache_paths(cfg, key: str, cache_dir: str):
+    out_dir = os.path.join(cache_dir)
+    os.makedirs(out_dir, exist_ok=True)
+    train_p = os.path.join(out_dir, f"{key}_train.joblib")
+    test_p = os.path.join(out_dir, f"{key}_test.joblib")
+    split_p = os.path.join(out_dir, f"{key}_split.joblib")
+    return train_p, test_p, split_p
+
+
+def build_or_load_lstm_for_key(
+    cfg,
+    key: str,
+    res: dict,
+    MONTHLY_COLS,
+    STATIC_COLS,
+    val_ratio=0.2,
+    cache_dir="logs/LSTM_cache",
+    force_recompute=False,
+    normalize_target=True,
+    expect_target=True,
+    strict_nan=True,  # <-- new
+):
+
+    train_p, test_p, split_p = _lstm_cache_paths(cfg, key, cache_dir=cache_dir)
+
+    if (not force_recompute) and all(
+        os.path.exists(p) for p in [train_p, test_p, split_p]
+    ):
+        ds_train = joblib.load(train_p)
+        ds_test = joblib.load(test_p)
+        split = joblib.load(split_p)
+        return ds_train, ds_test, split["train_idx"], split["val_idx"]
+
+    # required pieces from monthly prep
+    df_train = res["df_train"]
+    df_test = res["df_test"]
+    df_train_aug = res["df_train_aug"]
+    df_test_aug = res["df_test_aug"]
+    months_head_pad = res["months_head_pad"]
+    months_tail_pad = res["months_tail_pad"]
+
+    # --- safety check ---
+    _check_for_nans(
+        key,
+        df_loss=df_train,
+        df_full=df_train_aug,
+        monthly_cols=MONTHLY_COLS,
+        static_cols=STATIC_COLS,
+        strict=strict_nan,
+    )
+
+    _check_for_nans(
+        key,
+        df_loss=df_test,
+        df_full=df_test_aug,
+        monthly_cols=MONTHLY_COLS,
+        static_cols=STATIC_COLS,
+        strict=strict_nan,
+    )
+
+    mbm.utils.seed_all(cfg.seed)
+
+    ds_train = build_combined_LSTM_dataset(
+        df_loss=df_train,
+        df_full=df_train_aug,
+        monthly_cols=MONTHLY_COLS,
+        static_cols=STATIC_COLS,
+        months_head_pad=months_head_pad,
+        months_tail_pad=months_tail_pad,
+        normalize_target=normalize_target,
+        expect_target=expect_target,
+    )
+
+    ds_test = build_combined_LSTM_dataset(
+        df_loss=df_test,
+        df_full=df_test_aug,
+        monthly_cols=MONTHLY_COLS,
+        static_cols=STATIC_COLS,
+        months_head_pad=months_head_pad,
+        months_tail_pad=months_tail_pad,
+        normalize_target=normalize_target,
+        expect_target=expect_target,
+    )
+
+    train_idx, val_idx = mbm.data_processing.MBSequenceDataset.split_indices(
+        len(ds_train), val_ratio=val_ratio, seed=cfg.seed
+    )
+
+    joblib.dump(ds_train, train_p, compress=3)
+    joblib.dump(ds_test, test_p, compress=3)
+    joblib.dump({"train_idx": train_idx, "val_idx": val_idx}, split_p, compress=3)
+
+    return ds_train, ds_test, train_idx, val_idx
+
+
+def build_or_load_lstm_all(
+    cfg,
+    res_all: dict,  # e.g. {"07_SJM": res, "08_NOR": res, ...}
+    MONTHLY_COLS,
+    STATIC_COLS,
+    cache_dir="logs/LSTM_cache",
+    only_keys=None,  # e.g. ["08_NOR"] to recompute only Norway
+    force_recompute=False,  # global default
+    val_ratio=0.2,
+):
+    outputs = {}
+    only_keys_set = set(only_keys) if only_keys else None
+
+    for key, res in res_all.items():
+        if res is None:
+            continue
+
+        # recompute only some keys; others load if possible
+        fr = force_recompute
+        if only_keys_set is not None:
+            fr = key in only_keys_set
+
+        logging.info(f"\nLSTM prep: {key} (force_recompute={fr})")
+
+        ds_train, ds_test, train_idx, val_idx = build_or_load_lstm_for_key(
+            cfg=cfg,
+            key=key,
+            res=res,
+            MONTHLY_COLS=MONTHLY_COLS,
+            STATIC_COLS=STATIC_COLS,
+            val_ratio=val_ratio,
+            cache_dir=cache_dir,
+            force_recompute=fr,
+        )
+
+        outputs[key] = {
+            "ds_train": ds_train,
+            "ds_test": ds_test,
+            "train_idx": train_idx,
+            "val_idx": val_idx,
+        }
+
+    return outputs

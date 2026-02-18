@@ -20,6 +20,8 @@ import colormaps as cmaps
 from regions.TF_Europe.scripts.config_TF_Europe import *
 from regions.TF_Europe.scripts.plotting.palettes import get_cmap_hex
 
+import massbalancemachine as mbm
+
 
 def plot_tsne_overlap(
     data_train: pd.DataFrame,
@@ -810,3 +812,223 @@ def plot_feature_overlap_all_regions(
         figs[key] = fig
 
     return figs
+
+
+def summarize_and_plot_all_regions(dfs):
+    """
+    Summarize and visualize measurement statistics for all RGI regions.
+
+    For each region (key in `dfs`), this function:
+
+    1. Filters the dataset to retain only "annual" and "winter" measurements.
+    2. Prints the number of unique glaciers per subregion (based on SOURCE_CODE,
+       if available).
+    3. Generates stacked bar plots showing the number of annual and winter
+       measurements per year.
+       - If SOURCE_CODE exists, plots are created per subregion.
+       - Otherwise, all data are treated as a single group.
+
+    Parameters
+    ----------
+    dfs : dict
+        Dictionary mapping RGI region identifiers (e.g. "06", "11") to
+        pandas.DataFrame objects containing stake mass balance data.
+        Each DataFrame is expected to include:
+            - "YEAR"
+            - "PERIOD"
+            - "GLACIER"
+        Optional:
+            - "SOURCE_CODE" (for subregion grouping)
+
+    Notes
+    -----
+    - Only measurements with PERIOD in ["annual", "winter"] are considered.
+    - If required columns are missing, the function prints a warning and
+      skips the corresponding summary or plot.
+    - Plots are displayed immediately using matplotlib.
+    """
+    for rid, df in dfs.items():
+        if df is None or len(df) == 0:
+            print(f"\n=== RGI {rid}: empty ===")
+            continue
+
+        d = df.copy()
+
+        # keep only annual+winter
+        if "PERIOD" in d.columns:
+            d = d[d["PERIOD"].isin(["annual", "winter"])].copy()
+
+        print(f"\n========== RGI {rid} ==========")
+
+        # --- glaciers per subregion (SOURCE_CODE) ---
+        if "SOURCE_CODE" in d.columns and "GLACIER" in d.columns:
+            glaciers_per_sub = (
+                d.groupby("SOURCE_CODE")["GLACIER"]
+                .nunique()
+                .sort_values(ascending=False)
+            )
+            print("Unique glaciers per subregion (SOURCE_CODE):")
+            print(glaciers_per_sub)
+        else:
+            print(
+                "[warn] Missing SOURCE_CODE and/or GLACIER columns; skipping glacier counts."
+            )
+
+        # --- stacked bars per year for each subregion ---
+        if not {"YEAR", "PERIOD"}.issubset(d.columns):
+            print("[warn] Missing YEAR/PERIOD columns; skipping plots.")
+            continue
+
+        group_key = "SOURCE_CODE" if "SOURCE_CODE" in d.columns else None
+        if group_key is None:
+            # no subregions: treat everything as one group
+            groups = [("ALL", d)]
+        else:
+            groups = list(d.groupby(group_key))
+
+        for code, dsub in groups:
+            counts = (
+                dsub.groupby(["YEAR", "PERIOD"])
+                .size()
+                .unstack(fill_value=0)
+                .reindex(columns=["annual", "winter"], fill_value=0)
+                .sort_index()
+            )
+
+            plt.figure(figsize=(20, 6))
+            plt.bar(
+                counts.index,
+                counts["annual"].values,
+                label="annual",
+                color=mbm.plots.COLOR_ANNUAL,
+            )
+            plt.bar(
+                counts.index,
+                counts["winter"].values,
+                bottom=counts["annual"].values,
+                label="winter",
+                color=mbm.plots.COLOR_WINTER,
+            )
+            plt.title(f"RGI {rid} – {code}: measurements per year (annual + winter)")
+            plt.xlabel("Year")
+            plt.ylabel("Number of measurements")
+            plt.legend()
+            plt.tight_layout()
+            plt.show()
+
+
+def plot_mb_distributions_all_regions(
+    dfs,
+    periods=("annual", "winter"),
+    value_col="POINT_BALANCE",
+    group_col="SOURCE_CODE",
+    bins_n=21,
+):
+    """
+    Plot seasonal mass balance distributions for all RGI regions.
+
+    For each region (key in `dfs`), this function:
+
+    1. Filters the dataset to the specified seasonal periods.
+    2. Groups the data by subregion (SOURCE_CODE) if available.
+    3. Plots side-by-side histograms of mass balance values for each period.
+       - Histograms for different subregions are overlaid.
+       - Vertical dashed lines indicate mean values per group.
+       - Common bin edges are used per period to ensure fair comparison.
+
+    Parameters
+    ----------
+    dfs : dict
+        Dictionary mapping RGI region identifiers (e.g. "06", "11") to
+        pandas.DataFrame objects containing stake mass balance data.
+    periods : tuple of str, optional
+        Seasonal periods to include (default: ("annual", "winter")).
+    value_col : str, optional
+        Name of the column containing mass balance values
+        (default: "POINT_BALANCE").
+    group_col : str, optional
+        Column used to define subregions (default: "SOURCE_CODE").
+        If not present, all data are treated as one group.
+    bins_n : int, optional
+        Number of histogram bins (default: 21).
+
+    Notes
+    -----
+    - Only rows with non-null mass balance values are used.
+    - If no data exist for a given period, an empty plot is shown
+      with a "no data" indication.
+    - Mean values per group are indicated by vertical dashed lines.
+    - Plots are displayed immediately using matplotlib.
+    """
+    for rid, df in dfs.items():
+        if df is None or len(df) == 0:
+            print(f"\n=== RGI {rid}: empty ===")
+            continue
+
+        if not {"PERIOD", value_col}.issubset(df.columns):
+            print(f"\n=== RGI {rid}: missing PERIOD or {value_col}, skipping ===")
+            continue
+
+        # keep only the periods we want
+        d = df[df["PERIOD"].isin(periods)].copy()
+
+        # choose grouping
+        if group_col in d.columns:
+            groups = list(d[group_col].dropna().unique())
+            groups = sorted(groups)
+        else:
+            groups = ["ALL"]
+            d[group_col] = "ALL"
+
+        # build plot
+        fig, axes = plt.subplots(1, len(periods), figsize=(14, 5), sharey=True)
+        if len(periods) == 1:
+            axes = [axes]
+
+        for ax, period in zip(axes, periods):
+            # Collect all values across groups to define common bins
+            vals_all = []
+            for g in groups:
+                vals = (
+                    d.loc[(d["PERIOD"] == period) & (d[group_col] == g), value_col]
+                    .dropna()
+                    .values
+                )
+                if vals.size:
+                    vals_all.append(vals)
+
+            if not vals_all:
+                ax.set_title(f"{period.capitalize()} Mass Balance (no data)")
+                ax.set_xlabel("Mass balance [m w.e.]")
+                continue
+
+            vals_all = np.concatenate(vals_all)
+            vmin, vmax = float(vals_all.min()), float(vals_all.max())
+            if np.isclose(vmin, vmax):
+                # degenerate case: all values identical
+                bins = np.linspace(vmin - 1e-6, vmax + 1e-6, bins_n)
+            else:
+                bins = np.linspace(vmin, vmax, bins_n)
+
+            # Plot each group
+            for g in groups:
+                vals = (
+                    d.loc[(d["PERIOD"] == period) & (d[group_col] == g), value_col]
+                    .dropna()
+                    .values
+                )
+                if not vals.size:
+                    continue
+                ax.hist(vals, bins=bins, alpha=0.5, label=str(g))
+                ax.axvline(vals.mean(), linestyle="--")
+
+            ax.set_title(f"{period.capitalize()} Mass Balance")
+            ax.set_xlabel("Mass balance [m w.e.]")
+            ax.legend()
+
+        axes[0].set_ylabel("Number of measurements")
+        plt.suptitle(
+            f"RGI {rid} – Seasonal Point Mass Balance Distribution", fontsize=14
+        )
+        plt.tight_layout()
+        plt.show()

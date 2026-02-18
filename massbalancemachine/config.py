@@ -159,6 +159,22 @@ REGION_SPECS: Dict[str, Dict[str, Any]] = {
         "bnds_remove": ["pcsr"],
         "numJobs": 28,
     },
+    "europe_tf": {
+        "metaData": [
+            "RGIId",
+            "POINT_ID",
+            "ID",
+            "N_MONTHS",
+            "MONTHS",
+            "PERIOD",
+            "GLACIER",
+            "SOURCE_CODE",
+            "RGI_REGION",
+        ],
+        "notMetaDataNotFeatures": ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"],
+        "bnds_remove": ["pcsr"],
+        "numJobs": 28,
+    },
 }
 
 
@@ -297,3 +313,7 @@ def IcelandConfig(*args, **kwargs) -> RegionConfig:
 
 def EuropeConfig(*args, **kwargs) -> RegionConfig:
     return RegionConfig("europe", *args, **kwargs)
+
+
+def EuropeTFConfig(*args, **kwargs) -> RegionConfig:
+    return RegionConfig("europe_tf", *args, **kwargs)
