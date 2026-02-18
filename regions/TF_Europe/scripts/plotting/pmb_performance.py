@@ -7,8 +7,8 @@ import math
 
 import massbalancemachine as mbm
 
-from regions.Switzerland.scripts.config_CH import *
-from regions.Switzerland.scripts.plotting.style import alpha_labels
+from regions.TF_Europe.scripts.config_TF_Europe import *
+from regions.TF_Europe.scripts.plotting.style import alpha_labels
 
 from massbalancemachine.plots.style import COLOR_ANNUAL, COLOR_WINTER
 

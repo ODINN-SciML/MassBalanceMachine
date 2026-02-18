@@ -10,8 +10,8 @@ from scipy.stats import gaussian_kde
 from scipy.ndimage import gaussian_filter1d
 import seaborn as sns
 
-from regions.Switzerland.scripts.utils import *
-from regions.Switzerland.scripts.config_CH import *
+from regions.TF_Europe.scripts.utils import *
+from regions.TF_Europe.scripts.config_TF_Europe import *
 
 
 def plot_monthly_joyplot(

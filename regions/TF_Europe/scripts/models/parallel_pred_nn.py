@@ -21,7 +21,7 @@ import torch
 import xarray as xr
 
 import massbalancemachine as mbm
-from regions.Switzerland.scripts.utils import *
+from regions.TF_Europe.scripts.utils import *
 
 try:
     from tqdm.auto import tqdm as _tqdm_default

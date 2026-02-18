@@ -21,10 +21,10 @@ from sklearn.metrics import (
     root_mean_squared_error,
 )
 
-from regions.Switzerland.scripts.config_CH import *
-from regions.Switzerland.scripts.geo_data import *
+from regions.TF_Europe.scripts.config_TF_Europe import *
+from regions.TF_Europe.scripts.geodata import *
 
-from regions.Switzerland.scripts.plotting.palettes import get_color_maps
+from regions.TF_Europe.scripts.plotting.palettes import get_color_maps
 
 import massbalancemachine as mbm
 

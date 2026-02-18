@@ -42,7 +42,7 @@ import torch
 import xarray as xr
 
 import massbalancemachine as mbm
-from regions.Switzerland.scripts.utils import *
+from regions.TF_Europe.scripts.utils import *
 
 # 3rd party progress bar is optional; caller can pass a shim
 try:

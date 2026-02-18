@@ -13,9 +13,9 @@ from sklearn.model_selection import (
 )
 
 import massbalancemachine as mbm
-from regions.Switzerland.scripts.config_CH import *
-from regions.Switzerland.scripts.utils import *
-from regions.Switzerland.scripts.geo_data import *
+from regions.TF_Europe.scripts.config_TF_Europe import *
+from regions.TF_Europe.scripts.utils import *
+from regions.TF_Europe.scripts.geodata import *
 
 
 def get_df_aggregate_pred(test_set, y_pred_agg, all_columns):

@@ -17,7 +17,7 @@ from sklearn.impute import SimpleImputer
 from scipy.stats import pearsonr
 import colormaps as cmaps
 
-from regions.Switzerland.scripts.plotting.palettes import get_cmap_hex
+from regions.TF_Europe.scripts.plotting.palettes import get_cmap_hex
 
 
 def plot_mbm_vs_geodetic_by_area_bin(
