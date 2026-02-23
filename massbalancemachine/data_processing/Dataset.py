@@ -686,32 +686,74 @@ class MBSequenceDataset(Dataset):
         val_ds = Subset(self, val_idx)
 
         if use_weighted_sampler:
-            # Compute weights: higher for minority class (annual)
-            iw = self.iw[train_idx].numpy()
-            ia = self.ia[train_idx].numpy()
-            n_w, n_a = iw.sum(), ia.sum()
-            w_w, w_a = 1.0, (n_w / max(n_a, 1))  # annual weight = ratio of counts
+            # Compute weights to balance winter/annual samples
+            iw = self.iw[train_idx].numpy().astype(bool)
+            ia = self.ia[train_idx].numpy().astype(bool)
+            n_w, n_a = int(iw.sum()), int(ia.sum())
 
-            sample_weights = np.where(ia, w_a, w_w).astype(np.float32)
-            sample_weights = torch.from_numpy(sample_weights)
+            # If one class is missing, WeightedRandomSampler may produce all-zero weights
+            # (e.g. n_w=0 -> w_a=0 and if all samples are annual => sum(weights)=0).
+            if (n_w == 0) or (n_a == 0):
+                if verbose:
+                    print(
+                        f"Weighted sampler disabled (one class missing): "
+                        f"{n_w} winter | {n_a} annual. Using shuffle instead."
+                    )
+                train_dl = DataLoader(
+                    train_ds,
+                    batch_size=batch_size_train,
+                    shuffle=shuffle_train,
+                    drop_last=drop_last_train,
+                    num_workers=num_workers,
+                    pin_memory=pin_memory,
+                    worker_init_fn=_seed_worker,
+                    generator=g,
+                )
+            else:
+                # Upweight the minority class (annual) relative to winter
+                w_w = 1.0
+                w_a = n_w / n_a  # > 0 because both are > 0
 
-            sampler = WeightedRandomSampler(
-                sample_weights,
-                num_samples=len(sample_weights),
-                replacement=True,
-                generator=g,
-            )
+                sample_weights = np.where(ia, w_a, w_w).astype(np.float32)
 
-            train_dl = DataLoader(
-                train_ds,
-                batch_size=batch_size_train,
-                sampler=sampler,
-                drop_last=drop_last_train,
-                num_workers=num_workers,
-                pin_memory=pin_memory,
-                worker_init_fn=_seed_worker,
-                generator=g,
-            )
+                # Safety: ensure valid distribution
+                sw_sum = float(sample_weights.sum())
+                if not np.isfinite(sw_sum) or sw_sum <= 0.0:
+                    if verbose:
+                        print(
+                            "Weighted sampler disabled (invalid weights distribution). "
+                            "Using shuffle instead."
+                        )
+                    train_dl = DataLoader(
+                        train_ds,
+                        batch_size=batch_size_train,
+                        shuffle=shuffle_train,
+                        drop_last=drop_last_train,
+                        num_workers=num_workers,
+                        pin_memory=pin_memory,
+                        worker_init_fn=_seed_worker,
+                        generator=g,
+                    )
+                else:
+                    sample_weights = torch.from_numpy(sample_weights)
+
+                    sampler = WeightedRandomSampler(
+                        sample_weights,
+                        num_samples=len(sample_weights),
+                        replacement=True,
+                        generator=g,
+                    )
+
+                    train_dl = DataLoader(
+                        train_ds,
+                        batch_size=batch_size_train,
+                        sampler=sampler,
+                        drop_last=drop_last_train,
+                        num_workers=num_workers,
+                        pin_memory=pin_memory,
+                        worker_init_fn=_seed_worker,
+                        generator=g,
+                    )
         else:
             train_dl = DataLoader(
                 train_ds,
@@ -897,19 +939,6 @@ class MBSequenceDataset(Dataset):
             per_l = str(per).strip().lower()
 
             # ---- Seasonal loss masks ----
-            # # loss_mask = 1 for months where POINT_BALANCE is available
-            # loss_mask = np.zeros(T, dtype=np.float32)
-            # for _, r in subm.iterrows():
-            #     m = str(r["MONTHS"]).strip().lower()
-            #     pos = pos_map[m]
-            #     if not np.isnan(r["POINT_BALANCE"]):
-            #         loss_mask[pos] = 1.0
-            # if per_l == "winter":
-            #     mw_sample = loss_mask
-            #     ma_sample = np.zeros(T, dtype=np.float32)
-            # elif per_l == "annual":
-            #     mw_sample = np.zeros(T, dtype=np.float32)
-            #     ma_sample = loss_mask
             loss_mask = np.zeros(T)
             for _, r in subm.iterrows():
                 if not np.isnan(r["POINT_BALANCE"]):
@@ -1189,3 +1218,48 @@ class MBSequenceDataset(Dataset):
         rng.shuffle(idx)
         cut = max(1, int(n * (1 - val_ratio)))
         return idx[:cut], idx[cut:]
+
+
+# --------- Transfer Learning Dataset Wrapper ---------
+class MBSequenceDatasetTL(Dataset):
+    """
+    Thin wrapper around MBSequenceDataset that injects domain labels (SOURCE_CODE/domain_id)
+    into each batch item, without changing MBSequenceDataset.
+    """
+
+    def __init__(self, base_ds, source_codes, domain_vocab=None):
+        """
+        base_ds: MBSequenceDataset
+        source_codes: list[str] length == len(base_ds) (one per sequence)
+        domain_vocab: optional dict[str,int] mapping, e.g. {"CH":0,"NOR":1,...}
+        """
+        self.base = base_ds
+
+        if len(source_codes) != len(base_ds):
+            raise ValueError(
+                f"source_codes length {len(source_codes)} != len(base_ds) {len(base_ds)}"
+            )
+        self.source_codes = list(source_codes)
+
+        self.domain_vocab = domain_vocab
+        if domain_vocab is not None:
+            dom = []
+            for sc in self.source_codes:
+                if sc not in domain_vocab:
+                    raise KeyError(f"SOURCE_CODE '{sc}' missing from domain_vocab")
+                dom.append(domain_vocab[sc])
+            self.domain_id = torch.tensor(dom, dtype=torch.long)
+        else:
+            self.domain_id = None
+
+    def __len__(self):
+        return len(self.base)
+
+    def __getitem__(self, idx):
+        b = self.base[idx]  # returns dict of tensors
+        # Add TL-only metadata
+        b = dict(b)  # avoid mutating underlying dict if it is reused
+        b["source_code"] = self.source_codes[idx]
+        if self.domain_id is not None:
+            b["domain_id"] = self.domain_id[idx]
+        return b
