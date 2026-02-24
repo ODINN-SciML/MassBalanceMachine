@@ -6,9 +6,20 @@ import os
 from datetime import datetime
 import logging
 
+from torch import nn
+import os, logging
+from datetime import datetime
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 import massbalancemachine as mbm
 
-from regions.TF_Europe.scripts.dataset import make_finetune_loaders_for_exp
+import massbalancemachine as mbm
+
+from regions.TF_Europe.scripts.dataset import (
+    make_finetune_loaders_for_exp,
+    make_dan_loaders_for_exp,
+)
 from regions.TF_Europe.scripts.plotting import plot_history_lstm
 
 
@@ -76,13 +87,13 @@ def finetune_or_load_one_TL(
     lr_full=1e-5,
     lr_stage1=2e-4,
     lr_stage2=1e-5,
-    # ---- NEW knobs (optional) ----
+    # ---- knobs (optional) ----
     lr_head=5e-5,
     lr_static=1e-5,
     lr_lstm=5e-6,
     # ---- Adapter knobs ----
     lr_adapter=1e-4,
-    train_head_with_adapter=True,
+    verbose=False,
 ):
     os.makedirs(models_dir, exist_ok=True)
     current_date = datetime.now().strftime("%Y-%m-%d")
@@ -178,6 +189,29 @@ def finetune_or_load_one_TL(
         os.remove(out_path)
         logging.info(f"[{exp_key}] Deleted existing TL checkpoint: {out_path}")
 
+    if strategy == "dan":
+        return train_dan_one_TL(
+            cfg=cfg,
+            exp_key=exp_key,
+            tl_assets_for_key=tl_assets_for_key,
+            best_params=best_params,
+            device=device,
+            pretrained_ckpt_path=pretrained_ckpt_path,
+            models_dir=models_dir,
+            prefix=prefix,
+            force_retrain=force_retrain,
+            batch_size_train=batch_size_train,
+            batch_size_val=batch_size_val,
+            # you can expose these via best_params too if you like:
+            epochs=epochs_safe,
+            lr_backbone=lr_full,  # usually small
+            lr_domain=1e-4,  # domain head faster
+            dan_alpha=0.1,
+            grl_lambda=1.0,
+            mix_ratio_ft=1.0,
+            verbose=verbose,
+        )
+
     # -------------------------
     # Adapter strategy (single supported variant):
     #   Train adapters + head(s), freeze backbone
@@ -202,7 +236,7 @@ def finetune_or_load_one_TL(
             loss_fn=base_loss_fn,
             es_patience=8,
             save_best_path=out_path,
-            verbose=False,
+            verbose=verbose,
         )
 
     # -------------------------
@@ -225,7 +259,7 @@ def finetune_or_load_one_TL(
             loss_fn=base_loss_fn,
             es_patience=8,
             save_best_path=out_path,
-            verbose=False,
+            verbose=verbose,
         )
 
     elif strategy == "full":
@@ -245,7 +279,7 @@ def finetune_or_load_one_TL(
             loss_fn=base_loss_fn,
             es_patience=10,
             save_best_path=out_path,
-            verbose=False,
+            verbose=verbose,
         )
 
     elif strategy == "two_stage":
@@ -267,7 +301,7 @@ def finetune_or_load_one_TL(
             loss_fn=base_loss_fn,
             es_patience=5,
             save_best_path=tmp_stage1,
-            verbose=False,
+            verbose=verbose,
         )
 
         state = torch.load(tmp_stage1, map_location=device)
@@ -289,7 +323,7 @@ def finetune_or_load_one_TL(
             loss_fn=base_loss_fn,
             es_patience=10,
             save_best_path=out_path,
-            verbose=False,
+            verbose=verbose,
         )
 
         try:
@@ -318,7 +352,7 @@ def finetune_or_load_one_TL(
             loss_fn=base_loss_fn,
             es_patience=10,
             save_best_path=out_path,
-            verbose=False,
+            verbose=verbose,
         )
 
     else:
@@ -333,27 +367,52 @@ def finetune_or_load_one_TL(
 
 def finetune_TL_models_all(
     cfg,
-    tl_assets_by_key: dict,  # e.g. tl_assets["TL_CH_to_ISL_5pct"] -> {...}
+    tl_assets_by_key: dict,
     best_params: dict,
     device,
     pretrained_ckpt_path: str,
-    strategies=("safe", "full", "two_stage", "adapter"),
-    train_keys=None,  # optional subset of exp_keys
+    strategies=("safe", "full", "two_stage"),
+    train_keys=None,  # existing: explicit exp_keys
+    regions_only=None,  # list/tuple/set of region codes, e.g. ["FR","ISL"]
+    split_name_only=None,  # e.g. "5pct" or ["5pct","50pct"]
     force_retrain=False,
     models_dir="models",
     prefix="lstm_TL",
+    verbose=False,
 ):
     models = {}
     infos = {}
 
     train_keys_set = set(train_keys) if train_keys else None
+    regions_set = set(regions_only) if regions_only is not None else None
+    if split_name_only is None:
+        split_set = None
+    elif isinstance(split_name_only, (list, tuple, set)):
+        split_set = set(split_name_only)
+    else:
+        split_set = {split_name_only}
 
     for exp_key in sorted(tl_assets_by_key.keys()):
+        assets = tl_assets_by_key.get(exp_key, None)
+        if assets is None:
+            continue
+
+        # ---- filters ----
         if train_keys_set is not None and exp_key not in train_keys_set:
             continue
 
-        assets = tl_assets_by_key[exp_key]
-        if assets is None or assets.get("ds_finetune", None) is None:
+        if regions_set is not None:
+            reg = assets.get("target_code", None)
+            if reg not in regions_set:
+                continue
+
+        if split_set is not None:
+            sp = assets.get("split_name", None)
+            if sp not in split_set:
+                continue
+
+        # validate dataset
+        if assets.get("ds_finetune", None) is None:
             logging.warning(f"Skipping {exp_key}: missing finetune dataset.")
             continue
 
@@ -372,6 +431,7 @@ def finetune_TL_models_all(
                 prefix=prefix,
                 strategy=strat,
                 force_retrain=force_retrain,
+                verbose=verbose,
             )
 
             models[run_key] = model
@@ -393,6 +453,7 @@ def train_or_load_CH_baseline(
     epochs=150,
     batch_size_train=64,
     batch_size_val=128,
+    verbose=False,
 ):
     """
     Trains a CH-only model on ds_pretrain using CH scalers from ds_pretrain_scalers.
@@ -477,7 +538,7 @@ def train_or_load_CH_baseline(
         es_min_delta=1e-4,
         # logging
         log_every=5,
-        verbose=False,
+        verbose=verbose,
         # checkpoint
         save_best_path=model_path,
         loss_fn=loss_fn,
@@ -490,3 +551,239 @@ def train_or_load_CH_baseline(
     model.load_state_dict(state)
 
     return model, model_path, {"history": history, "best_val": best_val}
+
+
+# -------------------------------- DAN --------------------------------
+
+
+def train_dan_one_TL(
+    cfg,
+    exp_key: str,
+    tl_assets_for_key: dict,
+    best_params: dict,
+    device,
+    pretrained_ckpt_path: str,
+    *,
+    models_dir="models",
+    prefix="lstm_TL",
+    force_retrain=False,
+    # loaders
+    batch_size_train=64,
+    batch_size_val=128,
+    mix_ratio_ft=1.0,
+    # DAN knobs
+    dan_alpha=0.1,
+    grl_lambda=1.0,
+    pool="mean",  # "mean" or "last"
+    disc_hidden=128,
+    disc_dropout=0.1,
+    # optimization
+    epochs=60,
+    lr_backbone=1e-5,
+    lr_domain=1e-4,
+    weight_decay=None,
+    clip_val=1.0,
+    es_patience=8,
+    log_every=5,
+    verbose=True,
+):
+
+    def _domain_metrics(dom_logits: torch.Tensor, dom_y: torch.Tensor):
+        """
+        dom_logits: (B, n_domains)
+        dom_y: (B,) long
+        Returns: (loss_ce, acc)
+        """
+        loss = F.cross_entropy(dom_logits, dom_y)
+        pred = dom_logits.argmax(dim=1)
+        acc = (pred == dom_y).float().mean()
+        return loss, acc
+
+    os.makedirs(models_dir, exist_ok=True)
+    current_date = datetime.now().strftime("%Y-%m-%d")
+    strategy = "dan"
+    out_name = f"{prefix}_{exp_key}_{strategy}_{current_date}.pt"
+    out_path = os.path.join(models_dir, out_name)
+
+    # load if exists
+    if (not force_retrain) and os.path.exists(out_path):
+        base = mbm.models.LSTM_MB.build_model_from_params(cfg, best_params, device)
+        state = torch.load(out_path, map_location=device)
+        base.load_state_dict(state)
+        return base, out_path, None
+
+    # -------------------------
+    # loaders
+    # -------------------------
+    domain_vocab, train_dl, val_dl = make_dan_loaders_for_exp(
+        cfg,
+        tl_assets_for_key,
+        batch_size_train=batch_size_train,
+        batch_size_val=batch_size_val,
+        seed=cfg.seed,
+        domain_vocab=tl_assets_for_key.get("domain_vocab", None),
+        mix_ratio_ft=mix_ratio_ft,
+        verbose=verbose,
+    )
+    n_domains = len(domain_vocab)
+
+    # -------------------------
+    # build base model + loss
+    # -------------------------
+    params = dict(best_params)
+    base = mbm.models.LSTM_MB.build_model_from_params(cfg, params, device)
+    base_loss_fn = mbm.models.LSTM_MB.resolve_loss_fn(params)
+
+    # pretrained CH weights
+    pretrained_state = torch.load(pretrained_ckpt_path, map_location=device)
+    base.load_state_dict(pretrained_state)
+
+    # wrap
+    dan = mbm.models.LSTM_MB_DAN(
+        base=base,
+        n_domains=n_domains,
+        grl_lambda=grl_lambda,
+        dan_alpha=dan_alpha,
+        pool=pool,
+        disc_hidden=disc_hidden,
+        disc_dropout=disc_dropout,
+    ).to(device)
+
+    # -------------------------
+    # optimizer: two param groups
+    # -------------------------
+    if weight_decay is None:
+        weight_decay = float(params.get("weight_decay", 1e-4))
+
+    opt = torch.optim.AdamW(
+        [
+            {"params": dan.base.parameters(), "lr": float(lr_backbone)},
+            {"params": dan.domain_disc.parameters(), "lr": float(lr_domain)},
+        ],
+        weight_decay=weight_decay,
+    )
+
+    # overwrite if retraining
+    if os.path.exists(out_path):
+        os.remove(out_path)
+        logging.info(f"[{exp_key}] Deleted existing TL checkpoint: {out_path}")
+
+    # -------------------------
+    # training loop
+    # -------------------------
+    best_val = float("inf")
+    wait = 0
+    history = {"train_loss": [], "val_loss": [], "dom_loss": [], "dom_acc": []}
+
+    for ep in range(1, epochs + 1):
+        # ---- train ----
+        dan.train()
+        tr_tot, tr_n = 0.0, 0
+
+        dom_tot_loss, dom_tot_acc = 0.0, 0.0
+        dom_n = 0
+
+        for batch in train_dl:
+            batch = mbm.models.LSTM_MB.to_device(device, batch)
+
+            out = dan(
+                batch["x_m"],
+                batch["x_s"],
+                batch["mv"],
+                batch["mw"],
+                batch["ma"],
+                domain_id=batch.get("domain_id", None),
+            )
+            # out = (y_m, y_w, y_a, dom_logits)
+            y_m, y_w, y_a, dom_logits = out
+
+            loss = dan.dan_loss(out, batch, base_loss_fn)
+
+            opt.zero_grad(set_to_none=True)
+            loss.backward()
+            nn.utils.clip_grad_norm_(dan.parameters(), clip_val)
+            opt.step()
+
+            bs = batch["x_m"].shape[0]
+            tr_tot += float(loss.item()) * bs
+            tr_n += bs
+
+            # ---- domain metrics ----
+            dom_y = batch.get("domain_id", None)
+            if dom_y is not None:
+                if not torch.is_tensor(dom_y):
+                    dom_y = torch.tensor(
+                        dom_y, device=dom_logits.device, dtype=torch.long
+                    )
+                dom_y = dom_y.to(dom_logits.device).long()
+
+                dloss, dacc = _domain_metrics(dom_logits.detach(), dom_y)
+                dom_tot_loss += float(dloss.item()) * bs
+                dom_tot_acc += float(dacc.item()) * bs
+                dom_n += bs
+
+        tr_loss = tr_tot / max(tr_n, 1)
+        dom_loss = dom_tot_loss / max(dom_n, 1) if dom_n > 0 else float("nan")
+        dom_acc = dom_tot_acc / max(dom_n, 1) if dom_n > 0 else float("nan")
+
+        # ---- val (FT only): task loss only ----
+        dan.eval()
+        va_tot, va_n = 0.0, 0
+        with torch.no_grad():
+            for batch in val_dl:
+                batch = mbm.models.LSTM_MB.to_device(device, batch)
+                y_m, y_w, y_a = dan.base(
+                    batch["x_m"],
+                    batch["x_s"],
+                    batch["mv"],
+                    batch["mw"],
+                    batch["ma"],
+                    domain_id=batch.get("domain_id", None),
+                )
+                loss_task = base_loss_fn((y_m, y_w, y_a), batch)
+                bs = batch["x_m"].shape[0]
+                va_tot += float(loss_task.item()) * bs
+                va_n += bs
+
+        va_loss = va_tot / max(va_n, 1)
+
+        history["train_loss"].append(float(tr_loss))
+        history["val_loss"].append(float(va_loss))
+        history["dom_loss"].append(float(dom_loss))
+        history["dom_acc"].append(float(dom_acc))
+
+        if verbose and (ep == 1 or ep % log_every == 0):
+            print(
+                f"[{exp_key}][DAN] ep {ep:03d} | "
+                f"train {tr_loss:.4f} | val(task) {va_loss:.4f} | "
+                f"dom_loss {dom_loss:.4f} | dom_acc {dom_acc*100:.1f}% | "
+                f"best {best_val:.4f} | wait {wait}/{es_patience}"
+            )
+
+        # ---- early stopping on val(task) ----
+        if va_loss < best_val - 1e-6:
+            best_val = va_loss
+            wait = 0
+            # save base weights only
+            best_state = {
+                k: v.detach().cpu().clone() for k, v in dan.base.state_dict().items()
+            }
+            torch.save(best_state, out_path)
+        else:
+            wait += 1
+            if wait >= es_patience:
+                if verbose:
+                    print(
+                        f"[{exp_key}][DAN] Early stopping at ep {ep} (best val(task)={best_val:.6f})"
+                    )
+                break
+
+    # load best base state
+    state = torch.load(out_path, map_location=device)
+    base.load_state_dict(state)
+
+    return (
+        base,
+        out_path,
+        {"history": history, "best_val": best_val, "domain_vocab": domain_vocab},
+    )

@@ -254,34 +254,50 @@ class LSTM_MB(nn.Module):
             else:
                 z = self.adapter(z)
 
-            # ---- Heads ----
-            if self.two_heads:
-                y_month_w = self.head_w(z).squeeze(-1)  # (B, 16)
-                y_month_a = self.head_a(z).squeeze(-1)  # (B, 16)
+        # ---- Heads ----
+        if self.two_heads:
+            y_month_w = self.head_w(z).squeeze(-1)  # (B, 16)
+            y_month_a = self.head_a(z).squeeze(-1)  # (B, 16)
 
-                # Mask valid months
-                y_month_w = y_month_w * mv
-                y_month_a = y_month_a * mv
+            if debug:
+                print(f"[Head W out] {tuple(y_month_w.shape)}")
+                print(f"[Head A out] {tuple(y_month_a.shape)}")
 
-                y_w = (y_month_w * mw).sum(dim=1)  # (B,)
-                y_a = (y_month_a * ma).sum(dim=1)  # (B,)
+            # Mask valid months
+            y_month_w = y_month_w * mv
+            y_month_a = y_month_a * mv
 
-                out = (y_month_a, y_w, y_a)
-                if return_features:
-                    return out, z
-                return out
+            y_w = (y_month_w * mw).sum(dim=1)  # (B,)
+            y_a = (y_month_a * ma).sum(dim=1)  # (B,)
 
-            else:
-                y_month = self.head(z).squeeze(-1)  # (B, 16)
+            if debug:
+                print(
+                    f"[Seasonal outputs] y_w={tuple(y_w.shape)} | y_a={tuple(y_a.shape)}"
+                )
 
-                y_month = y_month * mv
-                y_w = (y_month * mw).sum(dim=1)
-                y_a = (y_month * ma).sum(dim=1)
+            out = (y_month_a, y_w, y_a)
+            if return_features:
+                return out, z
+            return out
 
-                out = (y_month, y_w, y_a)
-                if return_features:
-                    return out, z
-                return out
+        else:
+            y_month = self.head(z).squeeze(-1)  # (B, 16)
+            if debug:
+                print(f"[Head shared out] {tuple(y_month.shape)}")
+
+            y_month = y_month * mv
+            y_w = (y_month * mw).sum(dim=1)
+            y_a = (y_month * ma).sum(dim=1)
+
+            if debug:
+                print(
+                    f"[Seasonal outputs] y_w={tuple(y_w.shape)} | y_a={tuple(y_a.shape)}"
+                )
+
+            out = (y_month, y_w, y_a)
+            if return_features:
+                return out, z
+            return out
 
     # ----------------
     #  Train loop / losses
