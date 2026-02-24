@@ -1032,3 +1032,226 @@ def plot_mb_distributions_all_regions(
         )
         plt.tight_layout()
         plt.show()
+
+
+# --------------------- Transfer learning -- XREG-specific plotting ---------------------
+def plot_tsne_overlap_xreg_from_single_res(
+    res_xreg: dict,
+    cfg,
+    STATIC_COLS,
+    MONTHLY_COLS,
+    group_col: str = "SOURCE_CODE",
+    ch_code: str = "CH",
+    use_aug: bool = False,  # True -> df_train_aug/df_test_aug
+    n_iter: int = 1000,
+    only_codes=None,  # e.g. ["IT_AT", "FR"]
+    skip_codes=None,  # e.g. ["CH"]
+):
+    """
+    For XREG where train=CH and test=all non-CH inside ONE monthly result dict:
+
+      - df_ch = res_xreg[df_train*]
+      - df_test_all = res_xreg[df_test*]
+      - split df_test_all by SOURCE_CODE and plot CH vs each code
+
+    Returns dict: code -> figure
+    """
+    only_codes = {c.upper() for c in (only_codes or [])} or None
+    skip_codes = {c.upper() for c in (skip_codes or [])}
+    skip_codes.add(ch_code.upper())
+
+    # pick which dfs
+    if use_aug:
+        df_ch = res_xreg.get("df_train_aug")
+        df_test_all = res_xreg.get("df_test_aug")
+        label_df = "(*_aug)"
+    else:
+        df_ch = res_xreg.get("df_train")
+        df_test_all = res_xreg.get("df_test")
+        label_df = ""
+
+    if df_ch is None or len(df_ch) == 0:
+        raise ValueError(f"df_train{label_df} missing/empty in res_xreg.")
+    if df_test_all is None or len(df_test_all) == 0:
+        raise ValueError(f"df_test{label_df} missing/empty in res_xreg.")
+
+    if group_col not in df_test_all.columns:
+        raise ValueError(
+            f"'{group_col}' not found in df_test{label_df}. Needed to split by region."
+        )
+    if group_col not in df_ch.columns:
+        # not fatal, but helps sanity-check
+        print(
+            f"[warn] '{group_col}' not in df_train{label_df}. That's OK for CH reference."
+        )
+
+    # palette
+    colors = get_cmap_hex(cm.batlow, 10)
+    color_dark_blue = colors[0]
+    custom_palette = {"Train": color_dark_blue, "Test": "#b2182b"}
+
+    # codes present in test
+    codes_present = sorted(
+        c
+        for c in df_test_all[group_col].dropna().astype(str).str.upper().unique()
+        if c not in skip_codes
+    )
+
+    if only_codes is not None:
+        codes_present = [c for c in codes_present if c in only_codes]
+
+    figs = {}
+    for code in codes_present:
+        df_other = df_test_all[
+            df_test_all[group_col].astype(str).str.upper() == code
+        ].copy()
+        if len(df_other) == 0:
+            continue
+
+        print(
+            f"Plotting XREG t-SNE: CH(train n={len(df_ch)}) vs {code}(test n={len(df_other)})"
+        )
+
+        fig = plot_tsne_overlap(
+            data_train=df_ch,
+            data_test=df_other,
+            STATIC_COLS=STATIC_COLS,
+            MONTHLY_COLS=MONTHLY_COLS,
+            sublabels=("a", "b", "c"),
+            label_fmt="({})",
+            label_xy=(0.02, 0.98),
+            label_fontsize=14,
+            n_iter=n_iter,
+            random_state=cfg.seed,
+            custom_palette=custom_palette,
+        )
+        fig.suptitle(f"XREG overlap: CH vs {code}", fontsize=14)
+        figs[code] = fig
+
+    return figs
+
+
+def plot_feature_kde_overlap_xreg_ch_vs_codes(
+    res_xreg: dict,
+    cfg,
+    features,
+    group_col: str = "SOURCE_CODE",
+    ch_code: str = "CH",
+    use_aug: bool = False,  # True -> df_train_aug/df_test_aug
+    only_codes=None,  # e.g. ["IT_AT", "FR"]
+    skip_codes=None,  # e.g. ["CH"]
+    output_dir=None,  # e.g. "figures/xreg_kde"
+    include_ch_in_title: bool = True,
+):
+    """
+    Plot KDE-based feature overlap for XREG: CH vs each SOURCE_CODE subset.
+
+    Uses:
+      - CH reference: res_xreg["df_train"] (or "_aug" if use_aug)
+      - Other region: subset of res_xreg["df_test"] by SOURCE_CODE
+
+    Parameters
+    ----------
+    res_xreg : dict
+        Output dict from prepare_monthly_df_crossregional_CH_to_EU (or similar),
+        containing df_train/df_test and optionally df_train_aug/df_test_aug.
+        df_test must contain `group_col` (SOURCE_CODE).
+    cfg : object
+        Used only for consistent output naming if desired (optional).
+    features : list[str]
+        Feature columns to plot.
+    group_col : str
+        Column to split test set by (default: "SOURCE_CODE").
+    ch_code : str
+        Code identifying CH (default: "CH").
+    use_aug : bool
+        If True uses df_train_aug/df_test_aug.
+    only_codes : list[str] or None
+        If given, only plot these codes.
+    skip_codes : list[str] or None
+        Codes to skip (CH is always skipped by default).
+    output_dir : str or None
+        If set, saves one PNG per code into this directory.
+    include_ch_in_title : bool
+        Adds CH vs CODE title on each figure.
+
+    Returns
+    -------
+    dict
+        code -> matplotlib Figure
+    """
+    # palette (reuse your consistent colors)
+    colors = get_cmap_hex(cm.batlow, 10)
+    color_dark_blue = colors[0]
+    palette = {"Train": color_dark_blue, "Test": "#b2182b"}  # Train=CH, Test=Other
+
+    ch_code = str(ch_code).upper()
+    only_set = {c.upper() for c in only_codes} if only_codes else None
+    skip_set = {c.upper() for c in (skip_codes or [])}
+    skip_set.add(ch_code)
+
+    if use_aug:
+        df_ch = res_xreg.get("df_train_aug")
+        df_test_all = res_xreg.get("df_test_aug")
+        suffix = "_aug"
+    else:
+        df_ch = res_xreg.get("df_train")
+        df_test_all = res_xreg.get("df_test")
+        suffix = ""
+
+    if df_ch is None or len(df_ch) == 0:
+        raise ValueError(f"Missing/empty df_train{suffix} in res_xreg.")
+    if df_test_all is None or len(df_test_all) == 0:
+        raise ValueError(f"Missing/empty df_test{suffix} in res_xreg.")
+    if group_col not in df_test_all.columns:
+        raise ValueError(f"'{group_col}' not found in df_test{suffix}.")
+
+    codes = sorted(df_test_all[group_col].dropna().astype(str).str.upper().unique())
+    codes = [c for c in codes if c not in skip_set]
+    if only_set is not None:
+        codes = [c for c in codes if c in only_set]
+
+    if output_dir:
+        out_abs = (
+            os.path.join(cfg.dataPath, output_dir)
+            if hasattr(cfg, "dataPath")
+            else output_dir
+        )
+        os.makedirs(out_abs, exist_ok=True)
+    else:
+        out_abs = None
+
+    figs = {}
+
+    for code in codes:
+        df_other = df_test_all[
+            df_test_all[group_col].astype(str).str.upper() == code
+        ].copy()
+        if len(df_other) == 0:
+            continue
+
+        print(
+            f"Plotting XREG KDE: CH(train n={len(df_ch)}) vs {code}(test n={len(df_other)})"
+        )
+
+        fig = plot_feature_kde_overlap(
+            df_train=df_ch,
+            df_test=df_other,
+            features=features,
+            palette=palette,
+            outfile=None,  # save here instead (so we control naming)
+        )
+
+        if include_ch_in_title:
+            fig.suptitle(f"XREG feature overlap: CH vs {code}", fontsize=14)
+            fig.tight_layout()
+
+        if out_abs:
+            out_png = os.path.join(
+                out_abs, f"xreg_kde_overlap_CH_vs_{code}{suffix}.png"
+            )
+            fig.savefig(out_png, dpi=300, bbox_inches="tight")
+
+        figs[code] = fig
+
+    return figs

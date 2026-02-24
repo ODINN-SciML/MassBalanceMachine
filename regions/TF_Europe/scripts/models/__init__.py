@@ -4,3 +4,5 @@ from .predictions import *
 from .lstm_helpers import *
 from .parallel_pred_lstm import *
 from .parallel_pred_nn import *
+from .xreg_lstm_predictions import *
+from .xreg_lstm_training import *

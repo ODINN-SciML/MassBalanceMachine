@@ -1231,7 +1231,9 @@ class MBSequenceDatasetTL(Dataset):
         """
         base_ds: MBSequenceDataset
         source_codes: list[str] length == len(base_ds) (one per sequence)
-        domain_vocab: optional dict[str,int] mapping, e.g. {"CH":0,"NOR":1,...}
+        domain_vocab: optional dict[str,int] OR list[str]
+            - dict: {"CH":0,"NOR":1,...}
+            - list: ["CH","NOR",...]
         """
         self.base = base_ds
 
@@ -1241,14 +1243,19 @@ class MBSequenceDatasetTL(Dataset):
             )
         self.source_codes = list(source_codes)
 
+        if domain_vocab is not None and not isinstance(domain_vocab, dict):
+            # accept list/tuple as vocab
+            domain_vocab = {sc: i for i, sc in enumerate(list(domain_vocab))}
+
         self.domain_vocab = domain_vocab
-        if domain_vocab is not None:
+
+        if self.domain_vocab is not None:
             dom = []
             for sc in self.source_codes:
-                if sc not in domain_vocab:
+                if sc not in self.domain_vocab:
                     raise KeyError(f"SOURCE_CODE '{sc}' missing from domain_vocab")
-                dom.append(domain_vocab[sc])
-            self.domain_id = torch.tensor(dom, dtype=torch.long)
+                dom.append(int(self.domain_vocab[sc]))
+            self.domain_id = dom  # store as plain ints
         else:
             self.domain_id = None
 
@@ -1256,10 +1263,8 @@ class MBSequenceDatasetTL(Dataset):
         return len(self.base)
 
     def __getitem__(self, idx):
-        b = self.base[idx]  # returns dict of tensors
-        # Add TL-only metadata
-        b = dict(b)  # avoid mutating underlying dict if it is reused
+        b = dict(self.base[idx])
         b["source_code"] = self.source_codes[idx]
         if self.domain_id is not None:
-            b["domain_id"] = self.domain_id[idx]
+            b["domain_id"] = self.domain_id[idx]  # python int => collates cleanly
         return b

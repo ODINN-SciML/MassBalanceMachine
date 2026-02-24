@@ -23,8 +23,8 @@ Model diagram:
 
             ▼ masks mv, mw, ma
     Winter MB (B)    Annual MB (B)
-    
-    And inside the LSTM: 
+
+    And inside the LSTM:
         Input x_t for t in [0, ..., T]
         ↓
         [LSTM Layer 1]
@@ -36,6 +36,34 @@ Model diagram:
         h_n = [h_T^(1), h_T^(2)]                 → shape (2, B, H)
         c_n = [c_T^(1), c_T^(2)]                 → shape (2, B, H)
 """
+
+
+class BottleneckAdapter(nn.Module):
+    """
+    Residual bottleneck adapter: x + W_up(ReLU(W_down(LN(x))))
+    Works on (..., D) tensors.
+    """
+
+    def __init__(
+        self,
+        dim: int,
+        bottleneck: int = 32,
+        dropout: float = 0.0,
+        use_ln: bool = True,
+    ):
+        super().__init__()
+        self.norm = nn.LayerNorm(dim) if use_ln else nn.Identity()
+        self.down = nn.Linear(dim, bottleneck)
+        self.act = nn.ReLU()
+        self.drop = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
+        self.up = nn.Linear(bottleneck, dim)
+
+        # Optional: start near-identity by making adapter initially small
+        nn.init.zeros_(self.up.weight)
+        nn.init.zeros_(self.up.bias)
+
+    def forward(self, x):
+        return x + self.up(self.drop(self.act(self.down(self.norm(x)))))
 
 
 class LSTM_MB(nn.Module):
@@ -59,6 +87,12 @@ class LSTM_MB(nn.Module):
         *,
         two_heads: bool = False,
         head_dropout: float = 0.0,
+        use_adapter: bool = False,
+        adapter_bottleneck: int = 32,
+        adapter_dropout: float = 0.0,
+        adapter_domainwise: bool = True,  # one adapter per domain
+        n_domains: Optional[int] = None,  # required if domainwise=True
+        adapter_use_ln: bool = True,
     ):
         super().__init__()
         self.two_heads = two_heads
@@ -67,15 +101,15 @@ class LSTM_MB(nn.Module):
 
         # ---- LSTM block ----
         self.lstm = nn.LSTM(
-            input_size=Fm,  # number of dynamic features per month
-            hidden_size=hidden_size,  # capacity of the recurrent units
-            num_layers=num_layers,  # stacked LSTMs for depth
+            input_size=Fm,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
             batch_first=True,
-            bidirectional=bidirectional,  # whether to process the sequence forwards and backwards
-            dropout=dropout if num_layers > 1 else 0.0,  # applied between LSTM layers
+            bidirectional=bidirectional,
+            dropout=dropout if num_layers > 1 else 0.0,
         )
 
-        # Output shape of LSTM block: (B, 16, H) where H = hidden_size × (2 if bidirectional else 1)
+        # Output shape: (B, 16, H) where H = hidden_size × (2 if bidirectional else 1)
         H = hidden_size * (2 if bidirectional else 1)
 
         if static_dropout is None:
@@ -83,14 +117,13 @@ class LSTM_MB(nn.Module):
 
         # ---- static MLP ----
         if static_layers == 0 or static_hidden is None:
-            widths = []  # identity case where static features go through no MLP
+            widths = []  # identity
         elif isinstance(static_hidden, int):
             widths = [static_hidden] * static_layers
         else:
             widths = list(static_hidden)
 
         mlp, in_dim = [], Fs
-        # if static_layers > 0, build an MLP with ReLU activations + dropout
         for w in widths:
             mlp += [nn.Linear(in_dim, w), nn.ReLU(), nn.Dropout(static_dropout)]
             in_dim = w
@@ -102,45 +135,74 @@ class LSTM_MB(nn.Module):
             nn.Dropout(head_dropout) if head_dropout > 0 else nn.Identity()
         )
 
-        # ---- Two options depending on two_heads ----
+        # ---- Adapters ----
+        self.use_adapter = use_adapter
+        self.adapter_domainwise = adapter_domainwise
+
+        if self.use_adapter:
+            if self.adapter_domainwise:
+                if n_domains is None:
+                    raise ValueError(
+                        "n_domains must be provided when adapter_domainwise=True."
+                    )
+                self.n_domains = int(n_domains)
+                self.adapters = nn.ModuleList(
+                    [
+                        BottleneckAdapter(
+                            dim=fused_dim,
+                            bottleneck=adapter_bottleneck,
+                            dropout=adapter_dropout,
+                            use_ln=adapter_use_ln,
+                        )
+                        for _ in range(self.n_domains)
+                    ]
+                )
+            else:
+                self.adapter = BottleneckAdapter(
+                    dim=fused_dim,
+                    bottleneck=adapter_bottleneck,
+                    dropout=adapter_dropout,
+                    use_ln=adapter_use_ln,
+                )
+
+        # ---- Heads ----
         if self.two_heads:
-            # Two specialized heads (winter vs annual)
-            # Idea: the glacier processes that govern winter MB (accumulation) and annual MB (net balance) differ, so the model learns two separate mappings.
-            # Each predicts a per-month series, which is then aggregated differently.
-            self.head_w = nn.Linear(fused_dim, 1)  # winter per-month
-            self.head_a = nn.Linear(fused_dim, 1)  # annual per-month
+            self.head_w = nn.Linear(fused_dim, 1)
+            self.head_a = nn.Linear(fused_dim, 1)
         else:
-            # Shared head (one output head for all)
-            # Produces one per-month MB prediction
-            self.head = nn.Linear(fused_dim, 1)  # shared per-month
+            self.head = nn.Linear(fused_dim, 1)
 
     def seed_all(self):
         """Sets the random seed everywhere for reproducibility."""
-        # Python built-in random
         rd.seed(self.cfg.seed)
-
-        # NumPy random
         np.random.seed(self.cfg.seed)
-
-        # PyTorch seed
         torch.manual_seed(self.cfg.seed)
         torch.cuda.manual_seed(self.cfg.seed)
-        torch.cuda.manual_seed_all(self.cfg.seed)  # If using multiple GPUs
+        torch.cuda.manual_seed_all(self.cfg.seed)
 
-        # Ensuring deterministic behavior in CuDNN
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
         torch.use_deterministic_algorithms(True, warn_only=True)
-        # Setting CUBLAS environment variable (helps in newer versions)
         os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:2"
 
     # ----------------
     #  Forward
     # ----------------
-    def forward(self, x_m, x_s, mv, mw, ma, debug=False):
+    def forward(
+        self,
+        x_m,
+        x_s,
+        mv,
+        mw,
+        ma,
+        domain_id=None,
+        debug=False,
+        return_features: bool = False,
+    ):
         """
         x_m: (B, 16, Fm) | x_s: (B, Fs) | mv, mw, ma: (B, 16)
+        domain_id: None, scalar int/tensor, or tensor of shape (B,)
         Returns: y_month, y_w, y_a
         """
 
@@ -156,55 +218,70 @@ class LSTM_MB(nn.Module):
         if debug:
             print(f"[Static MLP out] {tuple(s.shape)}  (static_out_dim={s.shape[-1]})")
 
-        # ---- Fusion layer ----
+        # ---- Fusion ----
         s_rep = s.unsqueeze(1).expand(-1, out.size(1), -1)  # (B, 16, static_out_dim)
         if debug:
             print(f"[Static repeated] {tuple(s_rep.shape)}")
 
-        z = torch.cat([out, s_rep], dim=-1)  # concat dynamic + static
+        z = torch.cat([out, s_rep], dim=-1)  # (B, 16, fused_dim)
         if debug:
-            print(f"[Fusion z] {tuple(z.shape)}  (H+static_out_dim={z.shape[-1]})")
+            print(f"[Fusion z] {tuple(z.shape)}  (fused_dim={z.shape[-1]})")
 
         z = self.head_pre_dropout(z)
 
-        # ---- Heads ----
-        if self.two_heads:
-            y_month_w = self.head_w(z).squeeze(-1)  # (B, 16)
-            y_month_a = self.head_a(z).squeeze(-1)  # (B, 16)
+        # ---- Adapter (OPTION A with safe fallback) ----
+        if self.use_adapter:
+            if self.adapter_domainwise:
+                # If domain_id is missing, fall back to adapter[0]
+                if domain_id is None:
+                    z = self.adapters[0](z)
+                else:
+                    if not torch.is_tensor(domain_id):
+                        domain_id = torch.tensor(domain_id, device=z.device)
+                    domain_id = domain_id.to(z.device)
 
-            if debug:
-                print(f"[Head W out] {tuple(y_month_w.shape)}")
-                print(f"[Head A out] {tuple(y_month_a.shape)}")
+                    # scalar -> one adapter for whole batch
+                    if domain_id.ndim == 0:
+                        z = self.adapters[int(domain_id.item())](z)
+                    else:
+                        # (B,) -> potentially mixed domains
+                        z_out = z
+                        for d in torch.unique(domain_id).tolist():
+                            mask = domain_id == d
+                            if mask.any():
+                                z_out[mask] = self.adapters[int(d)](z[mask])
+                        z = z_out
+            else:
+                z = self.adapter(z)
 
-            # Mask valid months
-            y_month_w = y_month_w * mv
-            y_month_a = y_month_a * mv
+            # ---- Heads ----
+            if self.two_heads:
+                y_month_w = self.head_w(z).squeeze(-1)  # (B, 16)
+                y_month_a = self.head_a(z).squeeze(-1)  # (B, 16)
 
-            y_w = (y_month_w * mw).sum(dim=1)  # (B,)
-            y_a = (y_month_a * ma).sum(dim=1)  # (B,)
+                # Mask valid months
+                y_month_w = y_month_w * mv
+                y_month_a = y_month_a * mv
 
-            if debug:
-                print(
-                    f"[Seasonal outputs] y_w={tuple(y_w.shape)} | y_a={tuple(y_a.shape)}"
-                )
+                y_w = (y_month_w * mw).sum(dim=1)  # (B,)
+                y_a = (y_month_a * ma).sum(dim=1)  # (B,)
 
-            return y_month_a, y_w, y_a
+                out = (y_month_a, y_w, y_a)
+                if return_features:
+                    return out, z
+                return out
 
-        else:
-            y_month = self.head(z).squeeze(-1)  # (B, 16)
-            if debug:
-                print(f"[Head shared out] {tuple(y_month.shape)}")
+            else:
+                y_month = self.head(z).squeeze(-1)  # (B, 16)
 
-            y_month = y_month * mv
-            y_w = (y_month * mw).sum(dim=1)
-            y_a = (y_month * ma).sum(dim=1)
+                y_month = y_month * mv
+                y_w = (y_month * mw).sum(dim=1)
+                y_a = (y_month * ma).sum(dim=1)
 
-            if debug:
-                print(
-                    f"[Seasonal outputs] y_w={tuple(y_w.shape)} | y_a={tuple(y_a.shape)}"
-                )
-
-            return y_month, y_w, y_a
+                out = (y_month, y_w, y_a)
+                if return_features:
+                    return out, z
+                return out
 
     # ----------------
     #  Train loop / losses
@@ -290,7 +367,8 @@ class LSTM_MB(nn.Module):
             curr_lr = optimizer.param_groups[0]["lr"]
             if verbose and (ep % log_every == 0 or ep == 1):
                 print(
-                    f"Epoch {ep:03d} | lr {curr_lr:.2e} | train {tr:.4f} | val {va:.4f} | best {best_val:.4f} | wait {es_wait}/{es_patience}"
+                    f"Epoch {ep:03d} | lr {curr_lr:.2e} | train {tr:.4f} | val {va:.4f} | "
+                    f"best {best_val:.4f} | wait {es_wait}/{es_patience}"
                 )
 
             history["train_loss"].append(float(tr))
@@ -365,7 +443,12 @@ class LSTM_MB(nn.Module):
             for batch in dl:
                 batch = self.to_device(device, batch)
                 y_m, y_w, y_a = self(
-                    batch["x_m"], batch["x_s"], batch["mv"], batch["mw"], batch["ma"]
+                    batch["x_m"],
+                    batch["x_s"],
+                    batch["mv"],
+                    batch["mw"],
+                    batch["ma"],
+                    domain_id=batch.get("domain_id", None),
                 )
                 loss = loss_fn((y_m, y_w, y_a), batch)
                 if train:
@@ -390,7 +473,12 @@ class LSTM_MB(nn.Module):
             i += bs
             batch = self.to_device(device, batch)
             _, y_w, y_a = self(
-                batch["x_m"], batch["x_s"], batch["mv"], batch["mw"], batch["ma"]
+                batch["x_m"],
+                batch["x_s"],
+                batch["mv"],
+                batch["mw"],
+                batch["ma"],
+                domain_id=batch.get("domain_id", None),
             )
             # invert scaling
             y_true = batch["y"] * ds.y_std.to(device) + ds.y_mean.to(device)
@@ -424,7 +512,6 @@ class LSTM_MB(nn.Module):
 
         def bias(period):
             p, t, n = _subset(period)
-            # Bias = mean(pred - target); positive = overprediction
             return float(np.mean(p - t)) if n > 0 else float("nan")
 
         def r2(period):
@@ -433,7 +520,6 @@ class LSTM_MB(nn.Module):
                 return float("nan")
             ss_res = np.sum((t - p) ** 2)
             ss_tot = np.sum((t - np.mean(t)) ** 2)
-            # If variance is ~0, define R^2 as NaN (or 0.0). Using NaN is safer.
             return float(1.0 - ss_res / ss_tot) if ss_tot > 0 else float("nan")
 
         metrics = {
@@ -462,7 +548,12 @@ class LSTM_MB(nn.Module):
             i += bs
             batch = self.to_device(device, batch)
             _, y_w, y_a = self(
-                batch["x_m"], batch["x_s"], batch["mv"], batch["mw"], batch["ma"]
+                batch["x_m"],
+                batch["x_s"],
+                batch["mv"],
+                batch["mw"],
+                batch["ma"],
+                domain_id=batch.get("domain_id", None),
             )
             if denorm:
                 y_w = y_w * ds.y_std.to(device) + ds.y_mean.to(device)
@@ -496,7 +587,7 @@ class LSTM_MB(nn.Module):
         Predict per-month MB for each sequence (masked by mv).
         Returns a long DataFrame with columns:
         ['GLACIER','YEAR','ID','PERIOD','MONTH_IDX','MONTH',
-        'pred_raw','pred_consistent','mw','ma','pred_total']
+         'pred_raw','pred_consistent','mw','ma','pred_total']
         """
         self.eval()
         if month_names is None:
@@ -529,7 +620,12 @@ class LSTM_MB(nn.Module):
 
             batch = self.to_device(device, batch)
             y_month_a, y_w, y_a = self(
-                batch["x_m"], batch["x_s"], batch["mv"], batch["mw"], batch["ma"]
+                batch["x_m"],
+                batch["x_s"],
+                batch["mv"],
+                batch["mw"],
+                batch["ma"],
+                domain_id=batch.get("domain_id", None),
             )
 
             mv = batch["mv"].to(device)
@@ -540,19 +636,17 @@ class LSTM_MB(nn.Module):
                 y_std, y_mean = ds.y_std.to(device), ds.y_mean.to(device)
 
                 # (1) Normalized per-month predictions
-                y_month_norm = y_month_a * mv * ma  # apply valid+annual masks
+                y_month_norm = y_month_a * mv * ma
 
-                # (2) Annual prediction from normalized space (already matches model)
-                y_a_phys = y_a * y_std + y_mean  # (B,)
+                # (2) Annual prediction from normalized space
+                y_a_phys = y_a * y_std + y_mean
 
                 # (3) Compute consistent per-month predictions
                 if consistent_denorm:
                     n_active = ma.sum(dim=1, keepdim=True).clamp_min(1.0)
-                    bias_corr = y_mean * (1 - n_active)  # scalar offset correction
-                    # Apply affine transform with correction so total equals y_a_phys
+                    bias_corr = y_mean * (1 - n_active)
                     y_month_phys = y_month_norm * y_std + y_mean + bias_corr / n_active
                 else:
-                    # regular (raw) denormalization
                     y_month_phys = y_month_a * y_std + y_mean
             else:
                 y_month_phys = y_month_a
@@ -583,12 +677,8 @@ class LSTM_MB(nn.Module):
                             "PERIOD": per,
                             "MONTH_IDX": t_idx,
                             "MONTH": month,
-                            "pred_raw": float(
-                                y_month_a[j, t_idx].cpu()
-                            ),  # normalized or denorm raw
-                            "pred_consistent": float(
-                                y_np[j, t_idx]
-                            ),  # physically consistent
+                            "pred_raw": float(y_month_a[j, t_idx].cpu()),
+                            "pred_consistent": float(y_np[j, t_idx]),
                             "mw": int(mw[j, t_idx]),
                             "ma": int(ma_np[j, t_idx]),
                             "pred_total": float(y_total[j]),
@@ -599,13 +689,11 @@ class LSTM_MB(nn.Module):
 
     @staticmethod
     def _is_na(x):
-        # Treat None / '' / NaN (float or numpy/pandas) as missing
         if x is None:
             return True
         if isinstance(x, str) and x.strip() == "":
             return True
         try:
-            # works for float('nan'), np.nan, pd.NA, etc.
             return bool(pd.isna(x))
         except Exception:
             return False
@@ -624,7 +712,6 @@ class LSTM_MB(nn.Module):
         if cls._is_na(val):
             return None
 
-        # If it's a non-empty string, try JSON
         if isinstance(val, str):
             s = val.strip()
             if not s:
@@ -634,10 +721,8 @@ class LSTM_MB(nn.Module):
             except Exception:
                 return None
 
-        # If it's list/tuple of length 2, (kind, kwargs)
         if isinstance(val, (list, tuple)) and len(val) == 2:
             kind, kw = val
-            # kw can be a JSON string as well
             if isinstance(kw, str):
                 try:
                     kw = json.loads(kw)
@@ -651,10 +736,6 @@ class LSTM_MB(nn.Module):
 
     @classmethod
     def resolve_loss_fn(cls, params, verbose=False):
-        """
-        Returns a callable loss function based on params['loss_spec'].
-        Fallback is cls.custom_loss.
-        """
         spec = cls._coerce_loss_spec(params.get("loss_spec"))
         if spec is None:
             if verbose:
@@ -679,7 +760,6 @@ class LSTM_MB(nn.Module):
         Construct LSTM_MB from a flat params dict.
         Also normalizes the static-MLP identity case.
         """
-        # Normalize identity static block:
         static_layers = int(params.get("static_layers", 0) or 0)
         static_hidden = params.get("static_hidden", None)
         static_dropout = params.get("static_dropout", None)
@@ -687,7 +767,6 @@ class LSTM_MB(nn.Module):
             static_hidden = None
             static_dropout = None
 
-        # Collect normalized init params for printing
         init_params = {
             "Fm": int(params["Fm"]),
             "Fs": int(params["Fs"]),
@@ -700,10 +779,22 @@ class LSTM_MB(nn.Module):
             "static_dropout": static_dropout,
             "two_heads": bool(params.get("two_heads", False)),
             "head_dropout": float(params.get("head_dropout", 0.0)),
+            # Adapter params (optional)
+            "use_adapter": bool(params.get("use_adapter", False)),
+            "adapter_bottleneck": int(params.get("adapter_bottleneck", 32)),
+            "adapter_dropout": float(params.get("adapter_dropout", 0.0)),
+            "adapter_domainwise": bool(params.get("adapter_domainwise", True)),
+            "n_domains": (
+                None
+                if params.get("n_domains", None) is None
+                else int(params["n_domains"])
+            ),
+            "adapter_use_ln": bool(params.get("adapter_use_ln", True)),
         }
 
         if verbose:
             print("\n[Model Init] Building model with parameters:")
             for k, v in init_params.items():
                 print(f"  {k}: {v}")
+
         return cls(cfg=cfg, **init_params).to(device)
