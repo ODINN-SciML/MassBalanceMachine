@@ -251,6 +251,7 @@ def train_or_load_one_within_region(
     batch_size_train=64,
     batch_size_val=128,
     batch_size_test=128,
+    verbose=True,
 ):
     current_date = datetime.now().strftime("%Y-%m-%d")
     out_dir = os.path.join(models_dir)
@@ -258,7 +259,9 @@ def train_or_load_one_within_region(
     model_filename = os.path.join(out_dir, f"{prefix}_{key}_{current_date}.pt")
 
     # --- Build model + loss fn ---
-    model = mbm.models.LSTM_MB.build_model_from_params(cfg, best_params, device)
+    model = mbm.models.LSTM_MB.build_model_from_params(
+        cfg, best_params, device, verbose=verbose
+    )
     loss_fn = mbm.models.LSTM_MB.resolve_loss_fn(best_params)
 
     # --- If not training: just load ---
@@ -300,6 +303,7 @@ def train_or_load_one_within_region(
         fit_and_transform=True,
         shuffle_train=True,
         use_weighted_sampler=True,
+        verbose=verbose,
     )
 
     test_dl = mbm.data_processing.MBSequenceDataset.make_test_loader(
@@ -309,7 +313,8 @@ def train_or_load_one_within_region(
     # fresh checkpoint
     if os.path.exists(model_filename):
         os.remove(model_filename)
-        print(f"Deleted existing model file: {model_filename}")
+        if verbose:
+            print(f"Deleted existing model file: {model_filename}")
 
     history, best_val, best_state = model.train_loop(
         device=device,
@@ -331,13 +336,14 @@ def train_or_load_one_within_region(
         es_min_delta=1e-4,
         # logging
         log_every=5,
-        verbose=True,
+        verbose=verbose,
         # checkpoint
         save_best_path=model_filename,
         loss_fn=loss_fn,
     )
 
-    plot_history_lstm(history)
+    if verbose:
+        plot_history_lstm(history)
 
     # Load best checkpoint
     state = torch.load(model_filename, map_location=device)
