@@ -13,8 +13,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import massbalancemachine as mbm
-
-import massbalancemachine as mbm
+from tqdm.auto import tqdm
 
 from regions.TF_Europe.scripts.dataset import (
     make_finetune_loaders_for_exp,
@@ -66,6 +65,34 @@ def unfreeze_all(model):
         p.requires_grad = True
 
 
+def _region_from_assets(exp_key, tl_assets_for_key):
+    reg = tl_assets_for_key.get("target_code", None)
+    if reg is None:
+        try:
+            reg = exp_key.split("_to_")[1].split("_")[0]
+        except Exception:
+            reg = None
+    return reg
+
+
+def _tuned_for(region, strategy, best_by_region):
+    """
+    Returns (tuned_dict_or_None, tuned_ckpt_or_None)
+    """
+    if best_by_region is None or region is None or region not in best_by_region:
+        return None, None
+
+    if strategy == "adapter":
+        tuned = best_by_region[region].get("best_adapter", None)
+    elif strategy == "dan":
+        tuned = best_by_region[region].get("best_dan", None)
+    else:
+        tuned = None
+
+    ckpt = tuned.get("ckpt", None) if isinstance(tuned, dict) else None
+    return tuned, ckpt
+
+
 def finetune_or_load_one_TL(
     cfg,
     exp_key: str,
@@ -94,11 +121,14 @@ def finetune_or_load_one_TL(
     # ---- Adapter knobs ----
     lr_adapter=1e-4,
     verbose=False,
+    # NEW:
+    best_by_region=None,
+    date=None,
 ):
     os.makedirs(models_dir, exist_ok=True)
-    current_date = datetime.now().strftime("%Y-%m-%d")
-
-    out_name = f"{prefix}_{exp_key}_{strategy}_{current_date}.pt"
+    if date == None:
+        date = datetime.now().strftime("%Y-%m-%d")
+    out_name = f"{prefix}_{exp_key}_{strategy}_{date}.pt"
     out_path = os.path.join(models_dir, out_name)
 
     # -------------------------
@@ -127,69 +157,76 @@ def finetune_or_load_one_TL(
         else:
             _unfreeze_module(m.adapter)
 
-    # load if exists
-    if (not force_retrain) and os.path.exists(out_path):
-        model = mbm.models.LSTM_MB.build_model_from_params(cfg, best_params, device)
-        state = torch.load(out_path, map_location=device)
-        model.load_state_dict(state)
-        return model, out_path, None
+    # -------------------------
+    # tuned overrides (region-specific)
+    # -------------------------
+    region = _region_from_assets(exp_key, tl_assets_for_key)
+    tuned, tuned_ckpt = _tuned_for(region, strategy, best_by_region)
 
-    # loaders (we want domain_vocab *before* building model if adapter_domainwise)
+    # Prefer tuned checkpoint for adapter/dan when not retraining
+    load_path = None
+    if not force_retrain:
+        if tuned_ckpt is not None and os.path.exists(tuned_ckpt):
+            load_path = tuned_ckpt
+        elif os.path.exists(out_path):
+            load_path = out_path
+
+    # -------------------------
+    # LOAD
+    # -------------------------
+    if load_path is not None:
+        params = dict(best_params)
+
+        if strategy == "adapter":
+            params["use_adapter"] = True
+
+            # apply tuned adapter hyperparams (affects module shapes!)
+            if tuned is not None:
+                params["adapter_bottleneck"] = int(
+                    tuned.get(
+                        "adapter_bottleneck", params.get("adapter_bottleneck", 32)
+                    )
+                )
+                params["adapter_dropout"] = float(
+                    tuned.get("adapter_dropout", params.get("adapter_dropout", 0.0))
+                )
+
+            # ensure n_domains is consistent with vocab used during training
+            dv = tl_assets_for_key.get("domain_vocab", None)
+            if params.get("adapter_domainwise", True):
+                params["n_domains"] = (
+                    len(dv) if dv is not None else int(params.get("n_domains", 1))
+                )
+
+        # DAN stores base weights only -> build base params (no adapter change required)
+        model = mbm.models.LSTM_MB.build_model_from_params(
+            cfg, params, device, verbose=verbose
+        )
+        state = torch.load(load_path, map_location=device)
+        model.load_state_dict(state, strict=True)
+        return model, load_path, {"loaded": True, "region": region, "tuned": tuned}
+
+    # -------------------------
+    # TRAIN loaders
+    # -------------------------
     ds_ft_tl, ft_train_dl, ft_val_dl = make_finetune_loaders_for_exp(
         cfg,
         tl_assets_for_key,
         batch_size_train=batch_size_train,
         batch_size_val=batch_size_val,
-        domain_vocab=best_params.get("domain_vocab", None),  # optional
+        domain_vocab=best_params.get("domain_vocab", None),
+        verbose=verbose,
     )
 
+    params = dict(best_params)
+
     # -------------------------
-    # Ensure adapter params if adapter strategy
+    # Strategy: DAN (delegate)
     # -------------------------
-    is_adapter_strategy = strategy == "adapter"
-
-    params = dict(best_params)  # don't mutate caller dict
-    if is_adapter_strategy:
-        params["use_adapter"] = True
-
-        # Ensure domainwise adapter has n_domains consistent with the vocab actually used in ds_ft_tl
-        # MBSequenceDatasetTL stores the mapping as ds_ft_tl.domain_vocab
-        dv = getattr(ds_ft_tl, "domain_vocab", None)
-        if params.get("adapter_domainwise", True):
-            if dv is None:
-                # domain_id won't exist; model will fall back to adapter[0], but you still need n_domains
-                # simplest: set n_domains=1 unless user provided something else
-                params["n_domains"] = int(params.get("n_domains", 1))
-            else:
-                params["n_domains"] = len(dv)
-
-    # build model + base loss
-    model = mbm.models.LSTM_MB.build_model_from_params(cfg, params, device)
-    base_loss_fn = mbm.models.LSTM_MB.resolve_loss_fn(params)
-
-    # load pretrained weights (CH)
-    pretrained_state = torch.load(pretrained_ckpt_path, map_location=device)
-
-    if is_adapter_strategy:
-        # strict=False: pretrained checkpoint won't have adapter weights
-        missing, unexpected = model.load_state_dict(pretrained_state, strict=False)
-        if len(unexpected) > 0:
-            logging.warning(
-                f"[{exp_key}] Unexpected keys when loading pretrained: {unexpected[:10]}"
-            )
-        # missing will include adapter params; that's expected
-    else:
-        model.load_state_dict(pretrained_state)
-
-    # anchor for L2-SP (snapshot right after loading pretrained)
-    anchor_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
-
-    # overwrite if retraining
-    if os.path.exists(out_path):
-        os.remove(out_path)
-        logging.info(f"[{exp_key}] Deleted existing TL checkpoint: {out_path}")
-
     if strategy == "dan":
+        dan_alpha = float(tuned.get("dan_alpha", 0.1)) if tuned else 0.1
+        mix_ratio_ft = float(tuned.get("mix_ratio_ft", 1.0)) if tuned else 1.0
+
         return train_dan_one_TL(
             cfg=cfg,
             exp_key=exp_key,
@@ -199,34 +236,74 @@ def finetune_or_load_one_TL(
             pretrained_ckpt_path=pretrained_ckpt_path,
             models_dir=models_dir,
             prefix=prefix,
-            force_retrain=force_retrain,
+            force_retrain=True,
             batch_size_train=batch_size_train,
             batch_size_val=batch_size_val,
-            # you can expose these via best_params too if you like:
             epochs=epochs_safe,
-            lr_backbone=lr_full,  # usually small
-            lr_domain=1e-4,  # domain head faster
-            dan_alpha=0.1,
-            grl_lambda=1.0,
-            mix_ratio_ft=1.0,
+            lr_backbone=lr_full,
+            lr_domain=1e-4,
+            dan_alpha=dan_alpha,
+            mix_ratio_ft=mix_ratio_ft,
             verbose=verbose,
         )
 
     # -------------------------
-    # Adapter strategy (single supported variant):
-    #   Train adapters + head(s), freeze backbone
+    # Build model + loss
+    # -------------------------
+    is_adapter_strategy = strategy == "adapter"
+    if is_adapter_strategy:
+        params["use_adapter"] = True
+
+        if tuned is not None:
+            params["adapter_bottleneck"] = int(
+                tuned.get("adapter_bottleneck", params.get("adapter_bottleneck", 32))
+            )
+            params["adapter_dropout"] = float(
+                tuned.get("adapter_dropout", params.get("adapter_dropout", 0.0))
+            )
+
+        dv = getattr(ds_ft_tl, "domain_vocab", None)
+        if params.get("adapter_domainwise", True):
+            params["n_domains"] = (
+                len(dv) if dv is not None else int(params.get("n_domains", 1))
+            )
+
+    model = mbm.models.LSTM_MB.build_model_from_params(
+        cfg, params, device, verbose=verbose
+    )
+    base_loss_fn = mbm.models.LSTM_MB.resolve_loss_fn(params)
+
+    # pretrained load
+    pretrained_state = torch.load(pretrained_ckpt_path, map_location=device)
+    if is_adapter_strategy:
+        model.load_state_dict(pretrained_state, strict=False)
+    else:
+        model.load_state_dict(pretrained_state, strict=True)
+
+    # fresh checkpoint
+    if os.path.exists(out_path):
+        os.remove(out_path)
+
+    # -------------------------
+    # Strategy: adapter (train adapters + heads)
     # -------------------------
     if strategy == "adapter":
         _freeze_all(model)
         _unfreeze_adapters(model)
         _unfreeze_heads(model)
 
+        lr_use = (
+            float(tuned.get("lr_adapter", lr_adapter))
+            if tuned
+            else float(params.get("lr_adapter", lr_adapter))
+        )
+
         opt = torch.optim.AdamW(
             filter(lambda p: p.requires_grad, model.parameters()),
-            lr=float(params.get("lr_adapter", lr_adapter)),
+            lr=lr_use,
             weight_decay=params["weight_decay"],
         )
-        history, best_val, best_state = model.train_loop(
+        history, best_val, _ = model.train_loop(
             device=device,
             train_dl=ft_train_dl,
             val_dl=ft_val_dl,
@@ -238,18 +315,30 @@ def finetune_or_load_one_TL(
             save_best_path=out_path,
             verbose=verbose,
         )
+        state = torch.load(out_path, map_location=device)
+        model.load_state_dict(state, strict=True)
+        return (
+            model,
+            out_path,
+            {
+                "history": history,
+                "best_val": best_val,
+                "region": region,
+                "tuned": tuned,
+            },
+        )
 
     # -------------------------
-    # Existing strategies
+    # Existing strategies (unchanged)
     # -------------------------
-    elif strategy == "safe":
+    if strategy == "safe":
         freeze_lstm_only(model)
         opt = torch.optim.AdamW(
             filter(lambda p: p.requires_grad, model.parameters()),
             lr=lr_safe,
             weight_decay=params["weight_decay"],
         )
-        history, best_val, best_state = model.train_loop(
+        history, best_val, _ = model.train_loop(
             device=device,
             train_dl=ft_train_dl,
             val_dl=ft_val_dl,
@@ -269,7 +358,7 @@ def finetune_or_load_one_TL(
             lr=lr_full,
             weight_decay=params["weight_decay"],
         )
-        history, best_val, best_state = model.train_loop(
+        history, best_val, _ = model.train_loop(
             device=device,
             train_dl=ft_train_dl,
             val_dl=ft_val_dl,
@@ -313,7 +402,7 @@ def finetune_or_load_one_TL(
             lr=lr_stage2,
             weight_decay=params["weight_decay"],
         )
-        history, best_val, best_state = model.train_loop(
+        history, best_val, _ = model.train_loop(
             device=device,
             train_dl=ft_train_dl,
             val_dl=ft_val_dl,
@@ -342,7 +431,7 @@ def finetune_or_load_one_TL(
                 weight_decay=params["weight_decay"],
             )
         )
-        history, best_val, best_state = model.train_loop(
+        history, best_val, _ = model.train_loop(
             device=device,
             train_dl=ft_train_dl,
             val_dl=ft_val_dl,
@@ -354,15 +443,16 @@ def finetune_or_load_one_TL(
             save_best_path=out_path,
             verbose=verbose,
         )
-
     else:
         raise ValueError(f"Unknown strategy: {strategy}")
 
-    # load best
     state = torch.load(out_path, map_location=device)
-    model.load_state_dict(state)
-
-    return model, out_path, {"history": history, "best_val": best_val}
+    model.load_state_dict(state, strict=True)
+    return (
+        model,
+        out_path,
+        {"history": history, "best_val": best_val, "region": region, "tuned": tuned},
+    )
 
 
 def finetune_TL_models_all(
@@ -372,19 +462,29 @@ def finetune_TL_models_all(
     device,
     pretrained_ckpt_path: str,
     strategies=("safe", "full", "two_stage"),
-    train_keys=None,  # existing: explicit exp_keys
-    regions_only=None,  # list/tuple/set of region codes, e.g. ["FR","ISL"]
-    split_name_only=None,  # e.g. "5pct" or ["5pct","50pct"]
+    train_keys=None,
+    regions_only=None,
+    split_name_only=None,
     force_retrain=False,
     models_dir="models",
     prefix="lstm_TL",
     verbose=False,
+    best_by_region=None,
+    date=None,
 ):
     models = {}
     infos = {}
+    # ---------------------------------------
+    # Resolve date once for the whole batch
+    # ---------------------------------------
+    if date is None:
+        run_date = datetime.now().strftime("%Y-%m-%d")
+    else:
+        run_date = date
 
     train_keys_set = set(train_keys) if train_keys else None
     regions_set = set(regions_only) if regions_only is not None else None
+
     if split_name_only is None:
         split_set = None
     elif isinstance(split_name_only, (list, tuple, set)):
@@ -392,12 +492,16 @@ def finetune_TL_models_all(
     else:
         split_set = {split_name_only}
 
+    # ---------------------------------------------------------
+    # 1️⃣  Build task list first (after filtering)
+    # ---------------------------------------------------------
+    tasks = []
+
     for exp_key in sorted(tl_assets_by_key.keys()):
         assets = tl_assets_by_key.get(exp_key, None)
         if assets is None:
             continue
 
-        # ---- filters ----
         if train_keys_set is not None and exp_key not in train_keys_set:
             continue
 
@@ -411,31 +515,46 @@ def finetune_TL_models_all(
             if sp not in split_set:
                 continue
 
-        # validate dataset
         if assets.get("ds_finetune", None) is None:
             logging.warning(f"Skipping {exp_key}: missing finetune dataset.")
             continue
 
         for strat in strategies:
-            run_key = f"{exp_key}__{strat}"
-            logging.info(f"\n=== FINETUNE {run_key} ===")
+            tasks.append((exp_key, strat))
 
-            model, path, info = finetune_or_load_one_TL(
-                cfg=cfg,
-                exp_key=exp_key,
-                tl_assets_for_key=assets,
-                best_params=best_params,
-                device=device,
-                pretrained_ckpt_path=pretrained_ckpt_path,
-                models_dir=models_dir,
-                prefix=prefix,
-                strategy=strat,
-                force_retrain=force_retrain,
-                verbose=verbose,
-            )
+    # ---------------------------------------------------------
+    # 2️⃣  Progress bar over true number of runs
+    # ---------------------------------------------------------
+    pbar = tqdm(tasks, desc="Finetuning TL models")
 
-            models[run_key] = model
-            infos[run_key] = {"model_path": path, **(info or {})}
+    for exp_key, strat in pbar:
+
+        assets = tl_assets_by_key[exp_key]
+        run_key = f"{exp_key}__{strat}"
+
+        # show live info
+        pbar.set_postfix(
+            {"exp": exp_key.split("_seed")[0][-12:], "strat": strat}  # short display
+        )
+
+        model, path, info = finetune_or_load_one_TL(
+            cfg=cfg,
+            exp_key=exp_key,
+            tl_assets_for_key=assets,
+            best_params=best_params,
+            device=device,
+            pretrained_ckpt_path=pretrained_ckpt_path,
+            models_dir=models_dir,
+            prefix=prefix,
+            strategy=strat,
+            force_retrain=force_retrain,
+            verbose=verbose,
+            best_by_region=best_by_region,
+            date=run_date,
+        )
+
+        models[run_key] = model
+        infos[run_key] = {"model_path": path, **(info or {})}
 
     return models, infos
 
@@ -454,6 +573,7 @@ def train_or_load_CH_baseline(
     batch_size_train=64,
     batch_size_val=128,
     verbose=False,
+    date=None,
 ):
     """
     Trains a CH-only model on ds_pretrain using CH scalers from ds_pretrain_scalers.
@@ -469,12 +589,15 @@ def train_or_load_CH_baseline(
     train_idx = assets0["pretrain_train_idx"]
     val_idx = assets0["pretrain_val_idx"]
 
-    current_date = datetime.now().strftime("%Y-%m-%d")
+    if date == None:
+        date = datetime.now().strftime("%Y-%m-%d")
     os.makedirs(models_dir, exist_ok=True)
-    model_path = os.path.join(models_dir, f"{prefix}_{key}_{current_date}.pt")
+    model_path = os.path.join(models_dir, f"{prefix}_{key}_{date}.pt")
 
     # build model + loss
-    model = mbm.models.LSTM_MB.build_model_from_params(cfg, default_params, device)
+    model = mbm.models.LSTM_MB.build_model_from_params(
+        cfg, default_params, device, verbose=verbose
+    )
     loss_fn = mbm.models.LSTM_MB.resolve_loss_fn(default_params)
 
     # load if exists
@@ -607,7 +730,9 @@ def train_dan_one_TL(
 
     # load if exists
     if (not force_retrain) and os.path.exists(out_path):
-        base = mbm.models.LSTM_MB.build_model_from_params(cfg, best_params, device)
+        base = mbm.models.LSTM_MB.build_model_from_params(
+            cfg, best_params, device, verbose=verbose
+        )
         state = torch.load(out_path, map_location=device)
         base.load_state_dict(state)
         return base, out_path, None
@@ -631,7 +756,9 @@ def train_dan_one_TL(
     # build base model + loss
     # -------------------------
     params = dict(best_params)
-    base = mbm.models.LSTM_MB.build_model_from_params(cfg, params, device)
+    base = mbm.models.LSTM_MB.build_model_from_params(
+        cfg, params, device, verbose=verbose
+    )
     base_loss_fn = mbm.models.LSTM_MB.resolve_loss_fn(params)
 
     # pretrained CH weights
@@ -666,7 +793,8 @@ def train_dan_one_TL(
     # overwrite if retraining
     if os.path.exists(out_path):
         os.remove(out_path)
-        logging.info(f"[{exp_key}] Deleted existing TL checkpoint: {out_path}")
+        if verbose:
+            logging.info(f"[{exp_key}] Deleted existing TL checkpoint: {out_path}")
 
     # -------------------------
     # training loop

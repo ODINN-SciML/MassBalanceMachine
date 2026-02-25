@@ -346,7 +346,12 @@ def train_or_load_one_within_region(
     return (
         model,
         model_filename,
-        {"history": history, "best_val": best_val, "test_dl": test_dl},
+        {
+            "history": history,
+            "best_val": best_val,
+            "test_dl": test_dl,
+            "ds_test": ds_test_copy,
+        },
     )
 
 

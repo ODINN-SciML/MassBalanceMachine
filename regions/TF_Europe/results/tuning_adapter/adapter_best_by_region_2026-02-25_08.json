@@ -1,0 +1,23 @@
+{
+  "SJM": {
+    "best_adapter": {
+      "region": "SJM",
+      "split": "5pct",
+      "method": "adapter",
+      "adapter_bottleneck": 64,
+      "lr_adapter": 0.0001,
+      "adapter_dropout": 0.1,
+      "best_val": 0.1307162344455719,
+      "ckpt": "models/GS/lstm_TL_TL_CH_to_SJM_5pct_adapter_2026-02-25.pt"
+    },
+    "best_dan": {
+      "region": "SJM",
+      "split": "5pct",
+      "method": "dan",
+      "dan_alpha": 0.05,
+      "mix_ratio_ft": 1.0,
+      "best_val": 0.06155376136302948,
+      "ckpt": "models/GS/lstm_TL_TL_CH_to_SJM_5pct_dan_2026-02-25.pt"
+    }
+  }
+}

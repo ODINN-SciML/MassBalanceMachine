@@ -75,6 +75,7 @@ def build_or_load_lstm_dataset_only(
     expect_target=True,
     strict_nan=True,
     kind="dataset",  # keep kind to avoid duplicate functions; default "dataset"
+    show_progress=True,
 ):
     out_dir = os.path.join(cache_dir)
     os.makedirs(out_dir, exist_ok=True)
@@ -115,6 +116,7 @@ def build_or_load_lstm_dataset_only(
         months_tail_pad=months_tail_pad,
         normalize_target=normalize_target,
         expect_target=expect_target,
+        show_progress=show_progress,
     )
 
     # sanity: ensure pristine before caching
@@ -200,6 +202,7 @@ def build_or_load_lstm_train_only(
     normalize_target=True,
     expect_target=True,
     strict_nan=True,
+    show_progress=True,
 ):
     train_p, _, split_p = _lstm_cache_paths(cfg, key_train, cache_dir=cache_dir)
     scaler_p = os.path.join(cache_dir, f"{key_train}_scalers.joblib")
@@ -257,6 +260,7 @@ def build_or_load_lstm_train_only(
         months_tail_pad=months_tail_pad,
         normalize_target=normalize_target,
         expect_target=expect_target,
+        show_progress=show_progress,
     )
 
     # split indices
@@ -325,6 +329,7 @@ def build_transfer_learning_assets(
     cache_dir="logs/LSTM_cache_TL",
     force_recompute=False,
     val_ratio=0.2,
+    show_progress=True,
 ):
     logging.info("\n" + "=" * 70)
     logging.info("TRANSFER LEARNING ASSET PREPARATION")
@@ -437,6 +442,7 @@ def build_transfer_learning_assets(
                 cache_dir=cache_dir,
                 force_recompute=force_recompute,
                 kind="ft",
+                show_progress=show_progress,
             )
 
             logging.info(f"Finetune dataset size (sequences): {len(ds_ft)}")
@@ -473,6 +479,7 @@ def build_transfer_learning_assets(
                     cache_dir=cache_dir,
                     force_recompute=force_recompute,
                     kind="test",
+                    show_progress=show_progress,
                 )
 
                 logging.info(f"Holdout dataset size (sequences): {len(ds_test)}")
@@ -583,6 +590,7 @@ def build_or_load_lstm_test_only(
     normalize_target=True,
     expect_target=True,
     strict_nan=True,
+    show_progress=True,
 ):
     _, test_p, _ = _lstm_cache_paths(cfg, key_test, cache_dir=cache_dir)
 
@@ -614,6 +622,7 @@ def build_or_load_lstm_test_only(
         months_tail_pad=months_tail_pad,
         normalize_target=normalize_target,
         expect_target=expect_target,
+        show_progress=show_progress,
     )
 
     joblib.dump(ds_test, test_p, compress=3)

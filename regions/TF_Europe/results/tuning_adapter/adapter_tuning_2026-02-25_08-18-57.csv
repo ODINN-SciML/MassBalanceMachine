@@ -1,0 +1,10 @@
+region,split,method,adapter_bottleneck,lr_adapter,adapter_dropout,best_val,ckpt,dan_alpha,mix_ratio_ft
+SJM,5pct,adapter,64.0,0.0001,0.1,0.1307162344455719,models/GS/lstm_TL_TL_CH_to_SJM_5pct_adapter_2026-02-25.pt,,
+SJM,5pct,adapter,32.0,0.0001,0.0,0.14234495162963867,models/GS/lstm_TL_TL_CH_to_SJM_5pct_adapter_2026-02-25.pt,,
+SJM,5pct,adapter,32.0,0.0001,0.1,0.14574597775936127,models/GS/lstm_TL_TL_CH_to_SJM_5pct_adapter_2026-02-25.pt,,
+SJM,5pct,adapter,16.0,3e-05,0.0,0.28501829504966736,models/GS/lstm_TL_TL_CH_to_SJM_5pct_adapter_2026-02-25.pt,,
+SJM,5pct,dan,,,,0.06155376136302948,models/GS/lstm_TL_TL_CH_to_SJM_5pct_dan_2026-02-25.pt,0.05,1.0
+SJM,5pct,dan,,,,0.06280827522277832,models/GS/lstm_TL_TL_CH_to_SJM_5pct_dan_2026-02-25.pt,0.1,2.0
+SJM,5pct,dan,,,,0.06423608958721161,models/GS/lstm_TL_TL_CH_to_SJM_5pct_dan_2026-02-25.pt,0.1,1.0
+SJM,5pct,dan,,,,0.06548366695642471,models/GS/lstm_TL_TL_CH_to_SJM_5pct_dan_2026-02-25.pt,0.2,4.0
+SJM,5pct,dan,,,,0.06636285036802292,models/GS/lstm_TL_TL_CH_to_SJM_5pct_dan_2026-02-25.pt,0.2,2.0

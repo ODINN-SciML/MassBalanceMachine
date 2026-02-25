@@ -144,6 +144,7 @@ def make_finetune_loaders_for_exp(
     batch_size_train=64,
     batch_size_val=128,
     domain_vocab=None,  # optional: {"CH":0,"NOR":1,...}
+    verbose=True,
 ):
     ds_ft = tl_assets_for_key["ds_finetune"]
     train_idx = tl_assets_for_key["finetune_train_idx"]
@@ -199,7 +200,7 @@ def make_finetune_loaders_for_exp(
         seed=cfg.seed,
         shuffle_train=True,
         use_weighted_sampler=True,
-        verbose=True,
+        verbose=verbose,
     )
 
     return ds_ft_tl, ft_train_dl, ft_val_dl

@@ -19,6 +19,7 @@ def build_combined_LSTM_dataset(
     months_tail_pad,
     normalize_target=True,
     expect_target=True,
+    show_progress=True,
 ):
     """
     Build an LSTM-ready sequence dataset by merging full feature data with
@@ -94,6 +95,7 @@ def build_combined_LSTM_dataset(
         months_tail_pad=months_tail_pad,
         expect_target=expect_target,
         normalize_target=normalize_target,
+        show_progress=show_progress,
     )
 
     return ds
@@ -256,6 +258,7 @@ def build_or_load_lstm_for_key(
     normalize_target=True,
     expect_target=True,
     strict_nan=True,  # <-- new
+    show_progress=True,
 ):
 
     train_p, test_p, split_p = _lstm_cache_paths(cfg, key, cache_dir=cache_dir)
@@ -306,6 +309,7 @@ def build_or_load_lstm_for_key(
         months_tail_pad=months_tail_pad,
         normalize_target=normalize_target,
         expect_target=expect_target,
+        show_progress=show_progress,
     )
 
     ds_test = build_combined_LSTM_dataset(
@@ -317,6 +321,7 @@ def build_or_load_lstm_for_key(
         months_tail_pad=months_tail_pad,
         normalize_target=normalize_target,
         expect_target=expect_target,
+        show_progress=show_progress,
     )
 
     train_idx, val_idx = mbm.data_processing.MBSequenceDataset.split_indices(

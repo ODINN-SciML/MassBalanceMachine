@@ -69,8 +69,7 @@ def evaluate_transfer_learning_grid(
         "l2sp_full": "L2SP + Full",
         "disc_l2sp_full": "Disc-LR + L2SP",
         "adapter": "Adapter FT",
-        "adapter_only": "Adapter-only FT",
-        "adapter_two_stage": "Adapter 2-stage",
+        "dan": "Domain-Adversarial Network",
     }
     if strategy_labels is None:
         strategy_labels = {}
@@ -220,6 +219,7 @@ def evaluate_one_model_TL(
     legend_fontsize=16,
     batch_size=128,
     domain_vocab=None,  # optional: {"CH":0,"NOR":1,...}
+    show_plot=True,
 ):
     """
     TL-only evaluator.
@@ -284,59 +284,59 @@ def evaluate_one_model_TL(
             else np.nan
         ),
     }
-
-    # Plot
     created_fig = None
-    if ax is None:
-        created_fig = plt.figure(figsize=(15, 10))
-        ax = plt.subplot(1, 1, 1)
+    if show_plot:
+        # Plot
+        if ax is None:
+            created_fig = plt.figure(figsize=(15, 10))
+            ax = plt.subplot(1, 1, 1)
 
-    # auto-lims if not provided
-    if ax_xlim is None or ax_ylim is None:
-        lo = float(np.min(test_df_preds[["target", "pred"]].min())) - 1
-        hi = float(np.max(test_df_preds[["target", "pred"]].max())) + 1
-        if ax_xlim is None:
-            ax_xlim = (lo, hi)
-        if ax_ylim is None:
-            ax_ylim = (lo, hi)
+        # auto-lims if not provided
+        if ax_xlim is None or ax_ylim is None:
+            lo = float(np.min(test_df_preds[["target", "pred"]].min())) - 1
+            hi = float(np.max(test_df_preds[["target", "pred"]].max())) + 1
+            if ax_xlim is None:
+                ax_xlim = (lo, hi)
+            if ax_ylim is None:
+                ax_ylim = (lo, hi)
 
-    pred_vs_truth_density(
-        ax,
-        test_df_preds,
-        scores_annual,
-        add_legend=False,
-        palette=[mbm.plots.COLOR_ANNUAL, mbm.plots.COLOR_WINTER],
-        ax_xlim=ax_xlim,
-        ax_ylim=ax_ylim,
-    )
-
-    def _fmt(x):
-        return (
-            "NA"
-            if (x is None or (isinstance(x, float) and np.isnan(x)))
-            else f"{x:.2f}"
+        pred_vs_truth_density(
+            ax,
+            test_df_preds,
+            scores_annual,
+            add_legend=False,
+            palette=[mbm.plots.COLOR_ANNUAL, mbm.plots.COLOR_WINTER],
+            ax_xlim=ax_xlim,
+            ax_ylim=ax_ylim,
         )
 
-    legend_NN = "\n".join(
-        [
-            rf"$\mathrm{{RMSE_a}}={_fmt(scores_annual['rmse'])},\ \mathrm{{RMSE_w}}={_fmt(scores_winter['rmse'])}$",
-            rf"$\mathrm{{R^2_a}}={_fmt(scores_annual['R2'])},\ \mathrm{{R^2_w}}={_fmt(scores_winter['R2'])}$",
-            rf"$\mathrm{{Bias_a}}={_fmt(scores_annual['Bias'])},\ \mathrm{{Bias_w}}={_fmt(scores_winter['Bias'])}$",
-        ]
-    )
+        def _fmt(x):
+            return (
+                "NA"
+                if (x is None or (isinstance(x, float) and np.isnan(x)))
+                else f"{x:.2f}"
+            )
 
-    ax.text(
-        0.02,
-        0.98,
-        legend_NN,
-        transform=ax.transAxes,
-        va="top",
-        fontsize=legend_fontsize,
-        bbox=dict(boxstyle="round", facecolor="white", alpha=0.5),
-    )
+        legend_NN = "\n".join(
+            [
+                rf"$\mathrm{{RMSE_a}}={_fmt(scores_annual['rmse'])},\ \mathrm{{RMSE_w}}={_fmt(scores_winter['rmse'])}$",
+                rf"$\mathrm{{R^2_a}}={_fmt(scores_annual['R2'])},\ \mathrm{{R^2_w}}={_fmt(scores_winter['R2'])}$",
+                rf"$\mathrm{{Bias_a}}={_fmt(scores_annual['Bias'])},\ \mathrm{{Bias_w}}={_fmt(scores_winter['Bias'])}$",
+            ]
+        )
 
-    if title:
-        ax.set_title(title, fontsize=20)
+        ax.text(
+            0.02,
+            0.98,
+            legend_NN,
+            transform=ax.transAxes,
+            va="top",
+            fontsize=legend_fontsize,
+            bbox=dict(boxstyle="round", facecolor="white", alpha=0.5),
+        )
+
+        if title:
+            ax.set_title(title, fontsize=20)
 
     return out, test_df_preds, created_fig, ax
 
