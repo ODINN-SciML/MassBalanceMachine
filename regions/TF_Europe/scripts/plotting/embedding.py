@@ -406,6 +406,8 @@ def plot_feature_kde_overlap(
     label_xy: Tuple[float, float] = (0.02, 0.98),
     label_fontsize: int = 14,
     label_bbox: Optional[dict] = None,
+    label_dist_1="Test",
+    label_dist_2="Train",
 ):
     """
     Plot kernel density estimates (KDEs) of feature distributions for train
@@ -446,7 +448,7 @@ def plot_feature_kde_overlap(
         The generated figure containing KDE overlap plots.
     """
     if palette is None:
-        palette = {"Train": "steelblue", "Test": "darkred"}
+        palette = {label_dist_1: "steelblue", label_dist_2: "darkred"}
 
     n = len(features)
     ncols = 3
@@ -461,20 +463,20 @@ def plot_feature_kde_overlap(
         sns.kdeplot(
             df_train[feat].dropna(),
             ax=ax,
-            color=palette["Train"],
+            color=palette[label_dist_1],
             fill=True,
             alpha=0.4,
             linewidth=2,
-            label="Train",
+            label=label_dist_1,
         )
         sns.kdeplot(
             df_test[feat].dropna(),
             ax=ax,
-            color=palette["Test"],
+            color=palette[label_dist_2],
             fill=True,
             alpha=0.4,
             linewidth=2,
-            label="Test",
+            label=label_dist_2,
         )
 
         ax.set_title(vois_climate_long_name[feat])
@@ -500,8 +502,12 @@ def plot_feature_kde_overlap(
 
     # --- global legend below the plots ---
     handles = [
-        plt.Line2D([0], [0], color=palette["Train"], lw=10, alpha=0.6, label="Train"),
-        plt.Line2D([0], [0], color=palette["Test"], lw=10, alpha=0.6, label="Test"),
+        plt.Line2D(
+            [0], [0], color=palette[label_dist_1], lw=10, alpha=0.6, label=label_dist_1
+        ),
+        plt.Line2D(
+            [0], [0], color=palette[label_dist_2], lw=10, alpha=0.6, label=label_dist_2
+        ),
     ]
     fig.legend(
         handles=handles,

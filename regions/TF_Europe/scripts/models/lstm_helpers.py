@@ -252,23 +252,22 @@ def train_or_load_one_within_region(
     batch_size_val=128,
     batch_size_test=128,
     verbose=True,
+    date=None,
 ):
-    current_date = datetime.now().strftime("%Y-%m-%d")
+
+    if date == None:
+        run_date = datetime.now().strftime("%Y-%m-%d")
+    else:
+        run_date = date
     out_dir = os.path.join(models_dir)
     os.makedirs(out_dir, exist_ok=True)
-    model_filename = os.path.join(out_dir, f"{prefix}_{key}_{current_date}.pt")
+    model_filename = os.path.join(out_dir, f"{prefix}_{key}_{run_date}.pt")
 
     # --- Build model + loss fn ---
     model = mbm.models.LSTM_MB.build_model_from_params(
         cfg, best_params, device, verbose=verbose
     )
     loss_fn = mbm.models.LSTM_MB.resolve_loss_fn(best_params)
-
-    # --- If not training: just load ---
-    if (not train_flag) and os.path.exists(model_filename):
-        state = torch.load(model_filename, map_location=device)
-        model.load_state_dict(state)
-        return model, model_filename, None
 
     # --- If training but we can reuse existing checkpoint ---
     if train_flag and (not force_retrain) and os.path.exists(model_filename):
@@ -309,6 +308,20 @@ def train_or_load_one_within_region(
     test_dl = mbm.data_processing.MBSequenceDataset.make_test_loader(
         ds_test_copy, ds_train_copy, batch_size=batch_size_test, seed=cfg.seed
     )
+
+    # --- If not training: just load ---
+    if (not train_flag) and os.path.exists(model_filename):
+        state = torch.load(model_filename, map_location=device)
+        model.load_state_dict(state)
+
+        info = {
+            "history": None,
+            "best_val": None,
+            "test_dl": test_dl,
+            "ds_test": ds_test_copy,
+        }
+
+        return model, model_filename, info
 
     # fresh checkpoint
     if os.path.exists(model_filename):
