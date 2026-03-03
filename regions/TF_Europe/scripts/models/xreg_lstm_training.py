@@ -93,6 +93,46 @@ def _tuned_for(region, strategy, best_by_region):
     return tuned, ckpt
 
 
+# -------------------------
+# helper to find newest ckpt on disk
+# -------------------------
+import re
+import glob
+
+_re_ckpt_date = re.compile(r"_(\d{4}-\d{2}-\d{2})\.pt$")
+
+
+def _find_latest_ckpt(models_dir: str, prefix: str, exp_key: str, strategy: str):
+    """
+    Return (path, date_str) for latest checkpoint matching:
+      {prefix}_{exp_key}_{strategy}_YYYY-MM-DD.pt
+    If none found, return (None, None).
+    """
+    pattern = os.path.join(models_dir, f"{prefix}_{exp_key}_{strategy}_*.pt")
+    candidates = glob.glob(pattern)
+    if not candidates:
+        return None, None
+
+    best = None
+    best_dt = None
+    for p in candidates:
+        m = _re_ckpt_date.search(os.path.basename(p))
+        if not m:
+            continue
+        d = m.group(1)
+        try:
+            dt = datetime.strptime(d, "%Y-%m-%d")
+        except ValueError:
+            continue
+        if best_dt is None or dt > best_dt:
+            best_dt = dt
+            best = p
+
+    if best is None:
+        return None, None
+    return best, best_dt.strftime("%Y-%m-%d")
+
+
 def finetune_or_load_one_TL(
     cfg,
     exp_key: str,
@@ -124,10 +164,19 @@ def finetune_or_load_one_TL(
     # NEW:
     best_by_region=None,
     date=None,
+    # -------------------------------------------------
+    # NEW knobs for "load whatever exists" behavior
+    # -------------------------------------------------
+    load_latest: bool = False,  # load newest exp_key ckpt if exists
+    skip_if_missing: bool = False,  # if no ckpt found and not force_retrain -> skip (no train)
+    prefer_tuned_ckpt: bool = True,  # allow fallback to region/split tuned ckpt
 ):
     os.makedirs(models_dir, exist_ok=True)
-    if date == None:
+
+    # date is only for NEW training ckpt naming
+    if date is None:
         date = datetime.now().strftime("%Y-%m-%d")
+
     out_name = f"{prefix}_{exp_key}_{strategy}_{date}.pt"
     out_path = os.path.join(models_dir, out_name)
 
@@ -163,12 +212,26 @@ def finetune_or_load_one_TL(
     region = _region_from_assets(exp_key, tl_assets_for_key)
     tuned, tuned_ckpt = _tuned_for(region, strategy, best_by_region)
 
-    # Prefer tuned checkpoint for adapter/dan when not retraining
+    # -------------------------
+    # Decide what to load (if anything)
+    # Priority: exp_key-specific latest > (optional) tuned_ckpt > exact out_path
+    # -------------------------
     load_path = None
+
     if not force_retrain:
-        if tuned_ckpt is not None and os.path.exists(tuned_ckpt):
-            load_path = tuned_ckpt
-        elif os.path.exists(out_path):
+        # 1) exp_key-specific latest (recommended when load_latest=True)
+        if load_latest:
+            latest_path, _ = _find_latest_ckpt(models_dir, prefix, exp_key, strategy)
+            if latest_path is not None and os.path.exists(latest_path):
+                load_path = latest_path
+
+        # 2) fallback: tuned region/split ckpt (optional)
+        if load_path is None and prefer_tuned_ckpt:
+            if tuned_ckpt is not None and os.path.exists(tuned_ckpt):
+                load_path = tuned_ckpt
+
+        # 3) fallback: exact run-date path (legacy; useful if you pass date explicitly)
+        if load_path is None and os.path.exists(out_path):
             load_path = out_path
 
     # -------------------------
@@ -191,20 +254,43 @@ def finetune_or_load_one_TL(
                     tuned.get("adapter_dropout", params.get("adapter_dropout", 0.0))
                 )
 
-            # ensure n_domains is consistent with vocab used during training
             dv = tl_assets_for_key.get("domain_vocab", None)
             if params.get("adapter_domainwise", True):
                 params["n_domains"] = (
                     len(dv) if dv is not None else int(params.get("n_domains", 1))
                 )
 
-        # DAN stores base weights only -> build base params (no adapter change required)
         model = mbm.models.LSTM_MB.build_model_from_params(
             cfg, params, device, verbose=verbose
         )
         state = torch.load(load_path, map_location=device)
         model.load_state_dict(state, strict=True)
-        return model, load_path, {"loaded": True, "region": region, "tuned": tuned}
+        return (
+            model,
+            load_path,
+            {
+                "loaded": True,
+                "skipped": False,
+                "region": region,
+                "tuned": tuned,
+            },
+        )
+
+    # -------------------------------------------------
+    # NEW: optionally skip instead of training
+    # -------------------------------------------------
+    if skip_if_missing and (not force_retrain):
+        return (
+            None,
+            None,
+            {
+                "loaded": False,
+                "skipped": True,
+                "reason": "no_checkpoint_found",
+                "region": region,
+                "tuned": tuned,
+            },
+        )
 
     # -------------------------
     # TRAIN loaders
@@ -471,12 +557,28 @@ def finetune_TL_models_all(
     verbose=False,
     best_by_region=None,
     date=None,
+    # -------------------------
+    # NEW knobs:
+    # -------------------------
+    load_latest: bool = False,
+    skip_if_missing: bool = False,
+    prefer_tuned_ckpt: bool = True,
 ):
+    """
+    Train or load TL models for all experiments in tl_assets_by_key.
+
+    New behavior:
+      - load_latest=True: for each (exp_key, strategy), load the newest checkpoint
+        matching {prefix}_{exp_key}_{strategy}_YYYY-MM-DD.pt
+      - skip_if_missing=True: if nothing can be loaded (and force_retrain=False),
+        skip that combo instead of training.
+      - prefer_tuned_ckpt controls whether we may fall back to a region/split tuned
+        checkpoint if exp_key-specific ckpt is missing.
+    """
     models = {}
     infos = {}
-    # ---------------------------------------
-    # Resolve date once for the whole batch
-    # ---------------------------------------
+
+    # Date is only used for NEW training checkpoint naming (if training happens).
     if date is None:
         run_date = datetime.now().strftime("%Y-%m-%d")
     else:
@@ -493,10 +595,9 @@ def finetune_TL_models_all(
         split_set = {split_name_only}
 
     # ---------------------------------------------------------
-    # 1️⃣  Build task list first (after filtering)
+    # 1) Build task list first (after filtering)
     # ---------------------------------------------------------
     tasks = []
-
     for exp_key in sorted(tl_assets_by_key.keys()):
         assets = tl_assets_by_key.get(exp_key, None)
         if assets is None:
@@ -523,18 +624,19 @@ def finetune_TL_models_all(
             tasks.append((exp_key, strat))
 
     # ---------------------------------------------------------
-    # 2️⃣  Progress bar over true number of runs
+    # 2) Run with progress bar
     # ---------------------------------------------------------
-    pbar = tqdm(tasks, desc="Finetuning TL models")
+    pbar = tqdm(tasks, desc="Finetuning / loading TL models")
 
     for exp_key, strat in pbar:
-
         assets = tl_assets_by_key[exp_key]
         run_key = f"{exp_key}__{strat}"
 
-        # show live info
         pbar.set_postfix(
-            {"exp": exp_key.split("_seed")[0][-12:], "strat": strat}  # short display
+            {
+                "exp": exp_key.split("_seed")[0][-12:],
+                "strat": strat,
+            }
         )
 
         model, path, info = finetune_or_load_one_TL(
@@ -551,10 +653,19 @@ def finetune_TL_models_all(
             verbose=verbose,
             best_by_region=best_by_region,
             date=run_date,
+            # NEW:
+            load_latest=load_latest,
+            skip_if_missing=skip_if_missing,
+            prefer_tuned_ckpt=prefer_tuned_ckpt,
         )
 
-        models[run_key] = model
         infos[run_key] = {"model_path": path, **(info or {})}
+
+        # NEW: if skipped, do not add to models dict
+        if info is not None and info.get("skipped", False):
+            continue
+
+        models[run_key] = model
 
     return models, infos
 
@@ -640,6 +751,123 @@ def train_or_load_CH_baseline(
     if os.path.exists(model_path):
         os.remove(model_path)
         print(f"Deleted existing CH model file: {model_path}")
+
+    history, best_val, best_state = model.train_loop(
+        device=device,
+        train_dl=train_dl,
+        val_dl=val_dl,
+        epochs=epochs,
+        lr=default_params["lr"],
+        weight_decay=default_params["weight_decay"],
+        clip_val=1,
+        # scheduler
+        sched_factor=0.5,
+        sched_patience=6,
+        sched_threshold=0.01,
+        sched_threshold_mode="rel",
+        sched_cooldown=1,
+        sched_min_lr=1e-6,
+        # early stopping
+        es_patience=15,
+        es_min_delta=1e-4,
+        # logging
+        log_every=5,
+        verbose=verbose,
+        # checkpoint
+        save_best_path=model_path,
+        loss_fn=loss_fn,
+    )
+
+    plot_history_lstm(history)
+
+    # load best
+    state = torch.load(model_path, map_location=device)
+    model.load_state_dict(state)
+
+    return model, model_path, {"history": history, "best_val": best_val}
+
+
+def train_or_load_NOR_baseline(
+    cfg,
+    tl_assets: dict,  # the whole dict returned by build_transfer_learning_assets
+    default_params: dict,
+    device,
+    models_dir="models",
+    prefix="lstm_NOR",
+    key="BASELINE",
+    train_flag=True,
+    force_retrain=False,
+    epochs=150,
+    batch_size_train=64,
+    batch_size_val=128,
+    verbose=False,
+    date=None,
+):
+    """
+    Trains a NOR-only model on ds_pretrain using NOR scalers from ds_pretrain_scalers.
+    Assumes all tl_assets share the same NOR dataset + indices + scaler donor.
+    """
+    any_key = next(iter(tl_assets.keys()))
+    assets0 = tl_assets[any_key]
+
+    ds_train_pristine = assets0["ds_pretrain"]  # pristine NOR dataset
+    ds_NOR_scalers = assets0[
+        "ds_pretrain_scalers"
+    ]  # scaler donor (fitted on NOR train split)
+    train_idx = assets0["pretrain_train_idx"]
+    val_idx = assets0["pretrain_val_idx"]
+
+    if date == None:
+        date = datetime.now().strftime("%Y-%m-%d")
+    os.makedirs(models_dir, exist_ok=True)
+    model_path = os.path.join(models_dir, f"{prefix}_{key}_{date}.pt")
+
+    # build model + loss
+    model = mbm.models.LSTM_MB.build_model_from_params(
+        cfg, default_params, device, verbose=verbose
+    )
+    loss_fn = mbm.models.LSTM_MB.resolve_loss_fn(default_params)
+
+    # load if exists
+    if (not train_flag) and os.path.exists(model_path):
+        state = torch.load(model_path, map_location=device)
+        model.load_state_dict(state)
+        return model, model_path, None
+
+    if train_flag and (not force_retrain) and os.path.exists(model_path):
+        state = torch.load(model_path, map_location=device)
+        model.load_state_dict(state)
+        return model, model_path, None
+
+    if (not train_flag) and (not os.path.exists(model_path)):
+        raise FileNotFoundError(f"No NOR checkpoint found: {model_path}")
+
+    # loaders (DO NOT refit scalers; use ds_NOR_scalers)
+    mbm.utils.seed_all(cfg.seed)
+
+    ds_train_copy = mbm.data_processing.MBSequenceDataset._clone_untransformed_dataset(
+        ds_train_pristine
+    )
+
+    # Apply CH scalers + transform once
+    ds_train_copy.set_scalers_from(ds_NOR_scalers)
+    ds_train_copy.transform_inplace()
+
+    train_dl, val_dl = ds_train_copy.make_loaders(
+        train_idx=train_idx,
+        val_idx=val_idx,
+        batch_size_train=batch_size_train,
+        batch_size_val=batch_size_val,
+        seed=cfg.seed,
+        fit_and_transform=False,  # IMPORTANT: already transformed
+        shuffle_train=True,
+        use_weighted_sampler=True,
+    )
+
+    # fresh checkpoint
+    if os.path.exists(model_path):
+        os.remove(model_path)
+        print(f"Deleted existing NOR model file: {model_path}")
 
     history, best_val, best_state = model.train_loop(
         device=device,

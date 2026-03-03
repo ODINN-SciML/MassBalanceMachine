@@ -46,7 +46,7 @@ regions/Overview
 regions/TF_Europe/models/**
 regions/TF_Europe/logs/**
 regions/TF_Europe/figures/**
-
+regions/TF_Europe/results/**
 
 notes
 

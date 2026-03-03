@@ -16,6 +16,8 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.impute import SimpleImputer
 from scipy.stats import pearsonr
 import colormaps as cmaps
+from sklearn.cluster import KMeans
+
 
 from regions.TF_Europe.scripts.config_TF_Europe import *
 from regions.TF_Europe.scripts.plotting.palettes import get_cmap_hex
@@ -1047,7 +1049,7 @@ def plot_tsne_overlap_xreg_from_single_res(
     STATIC_COLS,
     MONTHLY_COLS,
     group_col: str = "SOURCE_CODE",
-    ch_code: str = "CH",
+    target_code: str = "CH",
     use_aug: bool = False,  # True -> df_train_aug/df_test_aug
     n_iter: int = 1000,
     only_codes=None,  # e.g. ["IT_AT", "FR"]
@@ -1064,7 +1066,7 @@ def plot_tsne_overlap_xreg_from_single_res(
     """
     only_codes = {c.upper() for c in (only_codes or [])} or None
     skip_codes = {c.upper() for c in (skip_codes or [])}
-    skip_codes.add(ch_code.upper())
+    skip_codes.add(target_code.upper())
 
     # pick which dfs
     if use_aug:
@@ -1115,7 +1117,7 @@ def plot_tsne_overlap_xreg_from_single_res(
             continue
 
         print(
-            f"Plotting XREG t-SNE: CH(train n={len(df_ch)}) vs {code}(test n={len(df_other)})"
+            f"Plotting XREG t-SNE: {target_code}(train n={len(df_ch)}) vs {code}(test n={len(df_other)})"
         )
 
         fig = plot_tsne_overlap(
@@ -1142,7 +1144,7 @@ def plot_feature_kde_overlap_xreg_ch_vs_codes(
     cfg,
     features,
     group_col: str = "SOURCE_CODE",
-    ch_code: str = "CH",
+    target_code: str = "CH",
     use_aug: bool = False,  # True -> df_train_aug/df_test_aug
     only_codes=None,  # e.g. ["IT_AT", "FR"]
     skip_codes=None,  # e.g. ["CH"]
@@ -1168,7 +1170,7 @@ def plot_feature_kde_overlap_xreg_ch_vs_codes(
         Feature columns to plot.
     group_col : str
         Column to split test set by (default: "SOURCE_CODE").
-    ch_code : str
+    target_code : str
         Code identifying CH (default: "CH").
     use_aug : bool
         If True uses df_train_aug/df_test_aug.
@@ -1191,10 +1193,10 @@ def plot_feature_kde_overlap_xreg_ch_vs_codes(
     color_dark_blue = colors[0]
     palette = {"Train": color_dark_blue, "Test": "#b2182b"}  # Train=CH, Test=Other
 
-    ch_code = str(ch_code).upper()
+    target_code = str(target_code).upper()
     only_set = {c.upper() for c in only_codes} if only_codes else None
     skip_set = {c.upper() for c in (skip_codes or [])}
-    skip_set.add(ch_code)
+    skip_set.add(target_code)
 
     if use_aug:
         df_ch = res_xreg.get("df_train_aug")
@@ -1237,7 +1239,7 @@ def plot_feature_kde_overlap_xreg_ch_vs_codes(
             continue
 
         print(
-            f"Plotting XREG KDE: CH(train n={len(df_ch)}) vs {code}(test n={len(df_other)})"
+            f"Plotting XREG KDE: {target_code}(train n={len(df_ch)}) vs {code}(test n={len(df_other)})"
         )
 
         fig = plot_feature_kde_overlap(
@@ -1249,15 +1251,99 @@ def plot_feature_kde_overlap_xreg_ch_vs_codes(
         )
 
         if include_ch_in_title:
-            fig.suptitle(f"XREG feature overlap: CH vs {code}", fontsize=14)
+            fig.suptitle(f"XREG feature overlap: {target_code} vs {code}", fontsize=14)
             fig.tight_layout()
 
         if out_abs:
             out_png = os.path.join(
-                out_abs, f"xreg_kde_overlap_CH_vs_{code}{suffix}.png"
+                out_abs, f"xreg_kde_overlap_{target_code}_vs_{code}{suffix}.png"
             )
             fig.savefig(out_png, dpi=300, bbox_inches="tight")
 
         figs[code] = fig
 
     return figs
+
+
+def glacier_level_features(
+    df_isl: pd.DataFrame,
+    glacier_col="GLACIER",
+    year_col="YEAR",
+):
+    d = df_isl.copy()
+
+    # --- handle circular aspect properly ---
+    aspect_deg = d["aspect"].astype(float) % 360.0
+    aspect_rad = np.deg2rad(aspect_deg)
+
+    d["_asp_sin"] = np.sin(aspect_rad)
+    d["_asp_cos"] = np.cos(aspect_rad)
+
+    # glacier-level summaries
+    g = d.groupby(glacier_col).agg(
+        nrows=(glacier_col, "size"),
+        nyears=(year_col, pd.Series.nunique),
+        slope_mean=("slope", "mean"),
+        slope_std=("slope", "std"),
+        svf_mean=("svf", "mean"),
+        asp_sin_mean=("_asp_sin", "mean"),
+        asp_cos_mean=("_asp_cos", "mean"),
+    )
+
+    return g.reset_index()
+
+
+def holdout_split_cluster_stratified(
+    df_isl,
+    holdout_frac=0.30,
+    seed=40,
+    n_clusters=6,  # start conservative; increase if many glaciers
+):
+    gfeat = glacier_level_features(df_isl)
+
+    # feature space for clustering
+    feat_cols = [
+        "slope_mean",
+        "slope_std",
+        "svf_mean",
+        "asp_sin_mean",
+        "asp_cos_mean",
+        "nyears",  # optional but stabilizes split
+        "nrows",  # optional but stabilizes split
+    ]
+
+    X = gfeat[feat_cols].astype(float).fillna(gfeat[feat_cols].median())
+
+    scaler = StandardScaler()
+    Xs = scaler.fit_transform(X)
+
+    km = KMeans(n_clusters=n_clusters, random_state=seed, n_init=10)
+    gfeat["cluster"] = km.fit_predict(Xs)
+
+    rng = np.random.default_rng(seed)
+    holdout = []
+
+    # stratified sampling per cluster
+    for c, sub in gfeat.groupby("cluster"):
+        gls = sub["GLACIER"].to_numpy()
+        rng.shuffle(gls)
+        k = int(np.ceil(holdout_frac * len(gls)))
+        holdout.extend(gls[:k])
+
+    holdout_glaciers = set(holdout)
+    pool_glaciers = set(gfeat["GLACIER"]) - holdout_glaciers
+
+    df_holdout = df_isl[df_isl["GLACIER"].isin(holdout_glaciers)].copy()
+    df_pool = df_isl[df_isl["GLACIER"].isin(pool_glaciers)].copy()
+
+    summary = {
+        "holdout_frac": holdout_frac,
+        "n_clusters": n_clusters,
+        "n_glaciers_total": int(gfeat.shape[0]),
+        "n_glaciers_holdout": int(len(holdout_glaciers)),
+        "n_glaciers_pool": int(len(pool_glaciers)),
+        "rows_holdout": int(len(df_holdout)),
+        "rows_pool": int(len(df_pool)),
+    }
+
+    return df_pool, df_holdout, holdout_glaciers, pool_glaciers, gfeat, summary
