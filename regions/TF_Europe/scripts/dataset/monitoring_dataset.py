@@ -349,6 +349,7 @@ def build_budget_assets_finetune_only(
     force_recompute=False,
     val_ratio=0.2,
     show_progress=True,
+    seed=0,
 ):
     """
     Builds the only thing that varies per experiment: the finetune dataset + split.
@@ -394,7 +395,7 @@ def build_budget_assets_finetune_only(
     )
 
     ft_train_idx, ft_val_idx = mbm.data_processing.MBSequenceDataset.split_indices(
-        len(ds_ft), val_ratio=val_ratio, seed=cfg.seed
+        len(ds_ft), val_ratio=val_ratio, seed=seed
     )
 
     ft_source_codes = build_source_codes_for_dataset(

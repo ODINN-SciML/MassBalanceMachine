@@ -904,6 +904,132 @@ def train_or_load_NOR_baseline(
     return model, model_path, {"history": history, "best_val": best_val}
 
 
+def train_or_load_source_baseline(
+    cfg,
+    tl_assets: dict,  # dict returned by build_static_tl_assets_source_and_holdout or similar
+    default_params: dict,
+    device,
+    source_code: str,  # "CH" / "NOR" / "ISL"
+    models_dir="models",
+    prefix=None,  # default: f"lstm_{source_code}"
+    key="BASELINE",
+    train_flag=True,
+    force_retrain=False,
+    epochs=150,
+    batch_size_train=64,
+    batch_size_val=128,
+    verbose=False,
+    date=None,
+):
+    """
+    Trains (or loads) a source-only baseline model on ds_pretrain using scalers from ds_pretrain_scalers.
+
+    Assumes `tl_assets` contains:
+      - ds_pretrain
+      - ds_pretrain_scalers
+      - pretrain_train_idx
+      - pretrain_val_idx
+    """
+    source_code = str(source_code).strip().upper()
+    if prefix is None:
+        prefix = f"lstm_{source_code}"
+
+    any_key = next(iter(tl_assets.keys()))
+    assets0 = tl_assets[any_key]
+
+    ds_train_pristine = assets0["ds_pretrain"]  # pristine source dataset
+    ds_src_scalers = assets0[
+        "ds_pretrain_scalers"
+    ]  # scaler donor fitted on source train split
+    train_idx = assets0["pretrain_train_idx"]
+    val_idx = assets0["pretrain_val_idx"]
+
+    if date is None:
+        date = datetime.now().strftime("%Y-%m-%d")
+
+    os.makedirs(models_dir, exist_ok=True)
+    model_path = os.path.join(models_dir, f"{prefix}_{key}_{date}.pt")
+
+    # build model + loss
+    model = mbm.models.LSTM_MB.build_model_from_params(
+        cfg, default_params, device, verbose=verbose
+    )
+    loss_fn = mbm.models.LSTM_MB.resolve_loss_fn(default_params)
+
+    # load if exists
+    if (not train_flag) and os.path.exists(model_path):
+        state = torch.load(model_path, map_location=device)
+        model.load_state_dict(state)
+        return model, model_path, None
+
+    if train_flag and (not force_retrain) and os.path.exists(model_path):
+        state = torch.load(model_path, map_location=device)
+        model.load_state_dict(state)
+        return model, model_path, None
+
+    if (not train_flag) and (not os.path.exists(model_path)):
+        raise FileNotFoundError(f"No {source_code} checkpoint found: {model_path}")
+
+    # loaders (DO NOT refit scalers; use ds_src_scalers)
+    mbm.utils.seed_all(cfg.seed)
+
+    ds_train_copy = mbm.data_processing.MBSequenceDataset._clone_untransformed_dataset(
+        ds_train_pristine
+    )
+    ds_train_copy.set_scalers_from(ds_src_scalers)
+    ds_train_copy.transform_inplace()
+
+    train_dl, val_dl = ds_train_copy.make_loaders(
+        train_idx=train_idx,
+        val_idx=val_idx,
+        batch_size_train=batch_size_train,
+        batch_size_val=batch_size_val,
+        seed=cfg.seed,
+        fit_and_transform=False,  # IMPORTANT: already transformed
+        shuffle_train=True,
+        use_weighted_sampler=True,
+    )
+
+    # fresh checkpoint
+    if os.path.exists(model_path):
+        os.remove(model_path)
+        print(f"Deleted existing {source_code} model file: {model_path}")
+
+    history, best_val, best_state = model.train_loop(
+        device=device,
+        train_dl=train_dl,
+        val_dl=val_dl,
+        epochs=epochs,
+        lr=default_params["lr"],
+        weight_decay=default_params["weight_decay"],
+        clip_val=1,
+        # scheduler
+        sched_factor=0.5,
+        sched_patience=6,
+        sched_threshold=0.01,
+        sched_threshold_mode="rel",
+        sched_cooldown=1,
+        sched_min_lr=1e-6,
+        # early stopping
+        es_patience=15,
+        es_min_delta=1e-4,
+        # logging
+        log_every=5,
+        verbose=verbose,
+        # checkpoint
+        save_best_path=model_path,
+        loss_fn=loss_fn,
+    )
+
+    plot_history_lstm(history)
+
+    # load best
+    state = torch.load(model_path, map_location=device)
+    model.load_state_dict(state)
+
+    return model, model_path, {"history": history, "best_val": best_val}
+
+
 # -------------------------------- DAN --------------------------------
 
 
