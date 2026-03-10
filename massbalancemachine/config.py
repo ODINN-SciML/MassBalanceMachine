@@ -71,7 +71,7 @@ REGION_SPECS: Dict[str, Dict[str, Any]] = {
             "aspect_sgi": "aspect",
         },
         "bnds_remove": [],  # keep pcsr
-        "numJobs": 28,
+        "numJobs": 30,
     },
     "france": {
         "metaData": [
@@ -86,7 +86,7 @@ REGION_SPECS: Dict[str, Dict[str, Any]] = {
         ],
         "notMetaDataNotFeatures": ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"],
         "bnds_remove": ["pcsr"],
-        "numJobs": 28,
+        "numJobs": 30,
     },
     # These 4 are identical: just remove pcsr and use same fields (might remove later)
     "italy_austria": {
@@ -101,7 +101,7 @@ REGION_SPECS: Dict[str, Dict[str, Any]] = {
         ],
         "notMetaDataNotFeatures": ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"],
         "bnds_remove": ["pcsr"],
-        "numJobs": 28,
+        "numJobs": 30,
     },
     "norway": {
         "metaData": [
@@ -115,7 +115,7 @@ REGION_SPECS: Dict[str, Dict[str, Any]] = {
         ],
         "notMetaDataNotFeatures": ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"],
         "bnds_remove": ["pcsr"],
-        "numJobs": 28,
+        "numJobs": 30,
     },
     "svalbard": {
         "metaData": [
@@ -129,7 +129,7 @@ REGION_SPECS: Dict[str, Dict[str, Any]] = {
         ],
         "notMetaDataNotFeatures": ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"],
         "bnds_remove": ["pcsr"],
-        "numJobs": 28,
+        "numJobs": 30,
     },
     "iceland": {
         "metaData": [
@@ -143,7 +143,7 @@ REGION_SPECS: Dict[str, Dict[str, Any]] = {
         ],
         "notMetaDataNotFeatures": ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"],
         "bnds_remove": ["pcsr"],
-        "numJobs": 28,
+        "numJobs": 30,
     },
     "europe": {
         "metaData": [
@@ -157,7 +157,7 @@ REGION_SPECS: Dict[str, Dict[str, Any]] = {
         ],
         "notMetaDataNotFeatures": ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"],
         "bnds_remove": ["pcsr"],
-        "numJobs": 28,
+        "numJobs": 30,
     },
     "europe_tf": {
         "metaData": [
@@ -173,7 +173,7 @@ REGION_SPECS: Dict[str, Dict[str, Any]] = {
         ],
         "notMetaDataNotFeatures": ["POINT_BALANCE", "YEAR", "POINT_LAT", "POINT_LON"],
         "bnds_remove": ["pcsr"],
-        "numJobs": 28,
+        "numJobs": 30,
     },
 }
 

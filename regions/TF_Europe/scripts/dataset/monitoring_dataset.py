@@ -1,5 +1,7 @@
 import numpy as np
 import pandas as pd
+from tqdm.auto import tqdm
+
 import massbalancemachine as mbm
 
 from regions.TF_Europe.scripts.dataset import (
@@ -426,3 +428,72 @@ def build_budget_assets_finetune_only(
         }
     }
     return assets
+
+
+def summarize_source_code_issues_in_all_pair_res(all_pair_res: dict) -> pd.DataFrame:
+    rows = []
+
+    for pair_key, res_xreg in tqdm(
+        all_pair_res.items(), desc="Checking SOURCE_CODE in all_pair_res"
+    ):
+        # if res_xreg isn't a dict for some reason
+        if not isinstance(res_xreg, dict):
+            rows.append(
+                {
+                    "pair": pair_key,
+                    "df_key": None,
+                    "status": "res_xreg_not_dict",
+                    "n_rows": None,
+                    "unique_codes": None,
+                    "n_missing": None,
+                }
+            )
+            continue
+
+        for df_key, obj in res_xreg.items():
+            if not isinstance(obj, pd.DataFrame):
+                continue
+
+            df = obj
+            n_rows = len(df)
+
+            if "SOURCE_CODE" not in df.columns:
+                rows.append(
+                    {
+                        "pair": pair_key,
+                        "df_key": df_key,
+                        "status": "MISSING_COLUMN",
+                        "n_rows": n_rows,
+                        "unique_codes": None,
+                        "n_missing": None,
+                    }
+                )
+                continue
+
+            n_missing = int(df["SOURCE_CODE"].isna().sum())
+            unique_codes = sorted(
+                map(str, df["SOURCE_CODE"].dropna().unique().tolist())
+            )
+
+            status = "OK"
+            if n_missing > 0:
+                status = "HAS_NA"
+
+            rows.append(
+                {
+                    "pair": pair_key,
+                    "df_key": df_key,
+                    "status": status,
+                    "n_rows": n_rows,
+                    "unique_codes": unique_codes,
+                    "n_missing": n_missing,
+                }
+            )
+
+    out = pd.DataFrame(rows)
+
+    # nice ordering
+    if not out.empty:
+        out = out.sort_values(["pair", "df_key", "status"]).reset_index(drop=True)
+
+    return out

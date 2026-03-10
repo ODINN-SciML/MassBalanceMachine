@@ -14,6 +14,8 @@ def plot_sweep_Y_by_G_colormap(
     metric="annual",
     band=(0.25, 0.75),
     title="Monitoring performance vs years monitored",
+    ax=None,
+    show_legend=True,
 ):
     if metric == "annual":
         rmse_col = "RMSE_annual"
@@ -47,8 +49,11 @@ def plot_sweep_Y_by_G_colormap(
     norm = mpl.colors.Normalize(vmin=G_vals.min(), vmax=G_vals.max())
     cmap = mpl.cm.viridis_r
 
-    fig = plt.figure(figsize=(8.2, 5.8))
-    ax = plt.subplot(1, 1, 1)
+    if ax is None:
+        fig = plt.figure(figsize=(8.2, 5.8))
+        ax = plt.subplot(1, 1, 1)
+    else:
+        fig = ax.figure
 
     for G_val in G_vals:
         sub = g[g["G"] == G_val].sort_values("Y")
@@ -71,7 +76,9 @@ def plot_sweep_Y_by_G_colormap(
         )
 
     # baselines
-    ax.axhline(E0, linestyle="--", color="black", linewidth=1, label="E_ZERO (CH only)")
+    ax.axhline(
+        E0, linestyle="--", color="black", linewidth=1, label="E_ZERO (no transfer)"
+    )
     ax.axhline(
         EF, linestyle=":", color="black", linewidth=1.5, label="E_FULL (max monitoring)"
     )
@@ -81,12 +88,13 @@ def plot_sweep_Y_by_G_colormap(
     ax.set_title(title)
 
     # legend (multi-column to reduce clutter)
-    ax.legend(
-        loc="upper right",
-        ncol=2,
-        fontsize=9,
-        frameon=False,
-    )
+    if show_legend:
+        ax.legend(
+            loc="upper right",
+            ncol=2,
+            fontsize=9,
+            frameon=False,
+        )
 
     # optional colorbar (kept for gradient meaning)
     sm = mpl.cm.ScalarMappable(norm=norm, cmap=cmap)
@@ -94,5 +102,4 @@ def plot_sweep_Y_by_G_colormap(
     cbar = plt.colorbar(sm, ax=ax, pad=0.02)
     cbar.set_label("G (number of glaciers)")
 
-    plt.tight_layout()
-    plt.show()
+    return fig, ax
