@@ -1269,3 +1269,167 @@ def train_dan_one_TL(
         out_path,
         {"history": history, "best_val": best_val, "domain_vocab": domain_vocab},
     )
+
+
+def train_or_load_one_within_region_monitoring(
+    cfg,
+    key: str,
+    lstm_assets: dict,
+    best_params: dict,
+    device,
+    models_dir="models",
+    prefix="lstm_within",
+    train_flag=True,
+    force_retrain=False,
+    epochs=150,
+    batch_size_train=64,
+    batch_size_val=128,
+    batch_size_test=128,
+    verbose=True,
+    date=None,
+):
+    """
+    Train or load a model using only the fine-tuning / within-region training set,
+    and prepare loaders for evaluation on the holdout test set.
+
+    Parameters
+    ----------
+    key : str
+        Experiment key, e.g. "TL_CH_to_ISL_G3_Y5_seed0".
+    lstm_assets : dict
+        Must contain:
+            - ds_train
+            - ds_test
+            - train_idx
+            - val_idx
+
+    Returns
+    -------
+    model : torch.nn.Module
+    model_filename : str
+    info : dict
+        Contains history, best_val, test_dl, ds_test.
+    """
+    run_date = datetime.now().strftime("%Y-%m-%d") if date is None else date
+
+    os.makedirs(models_dir, exist_ok=True)
+    model_filename = os.path.join(models_dir, f"{prefix}_{key}_{run_date}.pt")
+
+    # --- Build model + loss fn ---
+    model = mbm.models.LSTM_MB.build_model_from_params(
+        cfg, best_params, device, verbose=verbose
+    )
+    loss_fn = mbm.models.LSTM_MB.resolve_loss_fn(best_params)
+
+    # --- Prepare loaders always (needed also when loading existing model) ---
+    mbm.utils.seed_all(cfg.seed)
+
+    ds_train = lstm_assets["ds_train"]
+    ds_test = lstm_assets["ds_test"]
+    train_idx = lstm_assets["train_idx"]
+    val_idx = lstm_assets["val_idx"]
+
+    ds_train_copy = mbm.data_processing.MBSequenceDataset._clone_untransformed_dataset(
+        ds_train
+    )
+    ds_test_copy = mbm.data_processing.MBSequenceDataset._clone_untransformed_dataset(
+        ds_test
+    )
+
+    train_dl, val_dl = ds_train_copy.make_loaders(
+        train_idx=train_idx,
+        val_idx=val_idx,
+        batch_size_train=batch_size_train,
+        batch_size_val=batch_size_val,
+        seed=cfg.seed,
+        fit_and_transform=True,
+        shuffle_train=True,
+        use_weighted_sampler=True,
+        verbose=verbose,
+    )
+
+    test_dl = mbm.data_processing.MBSequenceDataset.make_test_loader(
+        ds_test_copy,
+        ds_train_copy,
+        batch_size=batch_size_test,
+        seed=cfg.seed,
+    )
+
+    # --- Load existing checkpoint if allowed ---
+    if os.path.exists(model_filename) and (not force_retrain):
+        state = torch.load(model_filename, map_location=device)
+        model.load_state_dict(state)
+
+        info = {
+            "history": None,
+            "best_val": None,
+            "train_dl": train_dl,
+            "val_dl": val_dl,
+            "test_dl": test_dl,
+            "ds_test": ds_test_copy,
+        }
+        return model, model_filename, info
+
+    # --- Load-only mode with missing checkpoint ---
+    if not train_flag and (not os.path.exists(model_filename)):
+        raise FileNotFoundError(f"No checkpoint found for {key}: {model_filename}")
+
+    # --- Train from scratch if requested ---
+    if not train_flag:
+        state = torch.load(model_filename, map_location=device)
+        model.load_state_dict(state)
+
+        info = {
+            "history": None,
+            "best_val": None,
+            "train_dl": train_dl,
+            "val_dl": val_dl,
+            "test_dl": test_dl,
+            "ds_test": ds_test_copy,
+        }
+        return model, model_filename, info
+
+    # Fresh training: remove old file if force_retrain=True
+    if os.path.exists(model_filename):
+        os.remove(model_filename)
+        if verbose:
+            print(f"Deleted existing model file: {model_filename}")
+
+    history, best_val, best_state = model.train_loop(
+        device=device,
+        train_dl=train_dl,
+        val_dl=val_dl,
+        epochs=epochs,
+        lr=best_params["lr"],
+        weight_decay=best_params["weight_decay"],
+        clip_val=1,
+        sched_factor=0.5,
+        sched_patience=6,
+        sched_threshold=0.01,
+        sched_threshold_mode="rel",
+        sched_cooldown=1,
+        sched_min_lr=1e-6,
+        es_patience=15,
+        es_min_delta=1e-4,
+        log_every=5,
+        verbose=verbose,
+        save_best_path=model_filename,
+        loss_fn=loss_fn,
+    )
+
+    if verbose:
+        plot_history_lstm(history)
+
+    state = torch.load(model_filename, map_location=device)
+    model.load_state_dict(state)
+
+    info = {
+        "history": history,
+        "best_val": best_val,
+        "train_dl": train_dl,
+        "val_dl": val_dl,
+        "test_dl": test_dl,
+        "ds_test": ds_test_copy,
+    }
+
+    return model, model_filename, info

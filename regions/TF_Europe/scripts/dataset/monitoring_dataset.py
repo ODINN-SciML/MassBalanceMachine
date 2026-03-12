@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from tqdm.auto import tqdm
+from pathlib import Path
 
 import massbalancemachine as mbm
 
@@ -10,13 +11,123 @@ from regions.TF_Europe.scripts.dataset import (
     build_source_codes_for_dataset,
 )
 
-
 # --------------------------------- Monitoring experiments:
+# def build_static_tl_assets_source_and_holdout(
+#     cfg,
+#     res_xreg,
+#     target_code: str,  # "ISL"
+#     source_code: str,  # "CH"
+#     holdout_glaciers: set,  # fixed glacier IDs
+#     MONTHLY_COLS,
+#     STATIC_COLS,
+#     cache_dir=None,
+#     force_recompute=False,
+#     val_ratio=0.2,
+#     key_train=None,
+#     key_holdout=None,  # if None -> auto name
+#     show_progress=True,
+# ):
+#     """
+#     Builds (or loads) assets that are constant across all (G,Y,M,seed) experiments:
+#       - source code (e.g., CH) pretrain dataset + split + scaler donor
+#       - fixed target holdout dataset (evaluation-only)
+#     """
+#     if key_train is None:
+#         key_train = f"TL_{source_code}_TRAIN"
+
+#     if cache_dir is None:
+#         cache_dir = f"logs/LSTM_cache_TL_{source_code}_ISL_experiment"
+
+#     if key_holdout is None:
+#         key_holdout = f"TL_{source_code}_to_{target_code}_HOLDOUT_FIXED"
+
+#     # ---- source code pretrain datasets + scaler donor
+#     res_train = {
+#         "df_train": res_xreg["df_train"],
+#         "df_train_aug": res_xreg["df_train_aug"],
+#         "months_head_pad": res_xreg["months_head_pad"],
+#         "months_tail_pad": res_xreg["months_tail_pad"],
+#     }
+
+#     ds_ch, train_idx, val_idx, ds_ch_scalers = build_or_load_lstm_train_only(
+#         cfg=cfg,
+#         key_train=key_train,
+#         res_train=res_train,
+#         MONTHLY_COLS=MONTHLY_COLS,
+#         STATIC_COLS=STATIC_COLS,
+#         val_ratio=val_ratio,
+#         cache_dir=cache_dir,
+#         force_recompute=force_recompute,
+#         show_progress=show_progress,
+#     )
+
+#     ch_source_codes = build_source_codes_for_dataset(
+#         ds_ch, res_xreg["df_train_aug"], source_col="SOURCE_CODE"
+#     )
+
+#     # ---- fixed holdout df (target region)
+#     df_target = (
+#         res_xreg["df_test"]
+#         .loc[res_xreg["df_test"]["SOURCE_CODE"] == target_code]
+#         .copy()
+#     )
+#     df_target_aug = (
+#         res_xreg["df_test_aug"]
+#         .loc[res_xreg["df_test_aug"]["SOURCE_CODE"] == target_code]
+#         .copy()
+#     )
+
+#     df_hold = df_target[df_target["GLACIER"].isin(holdout_glaciers)].copy()
+#     df_hold_aug = df_target_aug[df_target_aug["GLACIER"].isin(holdout_glaciers)].copy()
+
+#     if len(df_hold) == 0:
+#         raise ValueError(
+#             f"{target_code}: fixed holdout is empty. Check holdout_glaciers."
+#         )
+
+#     ds_holdout = build_or_load_lstm_dataset_only(
+#         cfg=cfg,
+#         key=key_holdout,
+#         df_loss=df_hold,
+#         df_full=df_hold_aug,
+#         months_head_pad=res_xreg["months_head_pad"],
+#         months_tail_pad=res_xreg["months_tail_pad"],
+#         MONTHLY_COLS=MONTHLY_COLS,
+#         STATIC_COLS=STATIC_COLS,
+#         cache_dir=cache_dir,
+#         force_recompute=force_recompute,
+#         kind="test",
+#         show_progress=show_progress,
+#     )
+
+#     holdout_source_codes = build_source_codes_for_dataset(
+#         ds_holdout, df_hold_aug, source_col="SOURCE_CODE"
+#     )
+
+#     static_assets = {
+#         "ds_pretrain": ds_ch,
+#         "ds_pretrain_scalers": ds_ch_scalers,
+#         "pretrain_train_idx": train_idx,
+#         "pretrain_val_idx": val_idx,
+#         "pretrain_source_codes": ch_source_codes,
+#         "ds_test": ds_holdout,
+#         "test_source_codes": holdout_source_codes,
+#         "target_code": target_code,
+#         "cache_keys": {
+#             "pretrain": key_train,
+#             "test": key_holdout,
+#         },
+#     }
+#     return static_assets
+
+
 def build_static_tl_assets_source_and_holdout(
     cfg,
     res_xreg,
-    target_code: str,  # "ISL"
-    source_code: str,  # "CH"
+    target_codes,  # e.g. ["ISL"] or ["FR", "CH", "IT_AT"]
+    source_codes,  # e.g. ["CH"]  or ["FR", "CH", "IT_AT"]
+    target_label: str,  # e.g. "ISL" or "CEU"
+    source_label: str,  # e.g. "CH"  or "CEU"
     holdout_glaciers: set,  # fixed glacier IDs
     MONTHLY_COLS,
     STATIC_COLS,
@@ -24,56 +135,83 @@ def build_static_tl_assets_source_and_holdout(
     force_recompute=False,
     val_ratio=0.2,
     key_train=None,
-    key_holdout=None,  # if None -> auto name
+    key_holdout=None,
     show_progress=True,
 ):
     """
     Builds (or loads) assets that are constant across all (G,Y,M,seed) experiments:
-      - source code (e.g., CH) pretrain dataset + split + scaler donor
-      - fixed target holdout dataset (evaluation-only)
+      - grouped or single-region source pretrain dataset + split + scaler donor
+      - fixed grouped or single-region target holdout dataset (evaluation-only)
     """
+
+    def _ensure_list(x):
+        if isinstance(x, (list, tuple, set)):
+            return list(x)
+        return [x]
+
+    source_codes = _ensure_list(source_codes)
+    target_codes = _ensure_list(target_codes)
+
     if key_train is None:
-        key_train = f"TL_{source_code}_TRAIN"
+        key_train = f"TL_{source_label}_TRAIN"
 
     if cache_dir is None:
-        cache_dir = f"logs/LSTM_cache_TL_{source_code}_ISL_experiment"
+        cache_dir = f"logs/LSTM_cache_TL_{source_label}_{target_label}_experiment"
 
     if key_holdout is None:
-        key_holdout = f"TL_{source_code}_to_{target_code}_HOLDOUT_FIXED"
+        key_holdout = f"TL_{source_label}_to_{target_label}_HOLDOUT_FIXED"
 
-    # ---- source code pretrain datasets + scaler donor
+    # ---- source pretrain datasets + scaler donor
+    df_train = (
+        res_xreg["df_train"]
+        .loc[res_xreg["df_train"]["SOURCE_CODE"].isin(source_codes)]
+        .copy()
+    )
+    df_train_aug = (
+        res_xreg["df_train_aug"]
+        .loc[res_xreg["df_train_aug"]["SOURCE_CODE"].isin(source_codes)]
+        .copy()
+    )
+
+    if len(df_train) == 0:
+        raise ValueError(
+            f"{source_label}: source training set is empty for source_codes={source_codes}"
+        )
+
     res_train = {
-        "df_train": res_xreg["df_train"],
-        "df_train_aug": res_xreg["df_train_aug"],
+        "df_train": df_train,
+        "df_train_aug": df_train_aug,
         "months_head_pad": res_xreg["months_head_pad"],
         "months_tail_pad": res_xreg["months_tail_pad"],
     }
 
-    ds_ch, train_idx, val_idx, ds_ch_scalers = build_or_load_lstm_train_only(
-        cfg=cfg,
-        key_train=key_train,
-        res_train=res_train,
-        MONTHLY_COLS=MONTHLY_COLS,
-        STATIC_COLS=STATIC_COLS,
-        val_ratio=val_ratio,
-        cache_dir=cache_dir,
-        force_recompute=force_recompute,
-        show_progress=show_progress,
+    ds_pretrain, train_idx, val_idx, ds_pretrain_scalers = (
+        build_or_load_lstm_train_only(
+            cfg=cfg,
+            key_train=key_train,
+            res_train=res_train,
+            MONTHLY_COLS=MONTHLY_COLS,
+            STATIC_COLS=STATIC_COLS,
+            val_ratio=val_ratio,
+            cache_dir=cache_dir,
+            force_recompute=force_recompute,
+            show_progress=show_progress,
+        )
     )
 
-    ch_source_codes = build_source_codes_for_dataset(
-        ds_ch, res_xreg["df_train_aug"], source_col="SOURCE_CODE"
+    pretrain_source_codes = build_source_codes_for_dataset(
+        ds_pretrain, df_train_aug, source_col="SOURCE_CODE"
     )
 
-    # ---- fixed holdout df (target region)
+    # ---- fixed holdout df (target region or grouped target)
     df_target = (
         res_xreg["df_test"]
-        .loc[res_xreg["df_test"]["SOURCE_CODE"] == target_code]
+        .loc[res_xreg["df_test"]["SOURCE_CODE"].isin(target_codes)]
         .copy()
     )
     df_target_aug = (
         res_xreg["df_test_aug"]
-        .loc[res_xreg["df_test_aug"]["SOURCE_CODE"] == target_code]
+        .loc[res_xreg["df_test_aug"]["SOURCE_CODE"].isin(target_codes)]
         .copy()
     )
 
@@ -82,7 +220,8 @@ def build_static_tl_assets_source_and_holdout(
 
     if len(df_hold) == 0:
         raise ValueError(
-            f"{target_code}: fixed holdout is empty. Check holdout_glaciers."
+            f"{target_label}: fixed holdout is empty for target_codes={target_codes}. "
+            f"Check holdout_glaciers."
         )
 
     ds_holdout = build_or_load_lstm_dataset_only(
@@ -105,14 +244,17 @@ def build_static_tl_assets_source_and_holdout(
     )
 
     static_assets = {
-        "ds_pretrain": ds_ch,
-        "ds_pretrain_scalers": ds_ch_scalers,
+        "ds_pretrain": ds_pretrain,
+        "ds_pretrain_scalers": ds_pretrain_scalers,
         "pretrain_train_idx": train_idx,
         "pretrain_val_idx": val_idx,
-        "pretrain_source_codes": ch_source_codes,
+        "pretrain_source_codes": pretrain_source_codes,
         "ds_test": ds_holdout,
         "test_source_codes": holdout_source_codes,
-        "target_code": target_code,
+        "target_codes": target_codes,
+        "source_codes": source_codes,
+        "target_label": target_label,
+        "source_label": source_label,
         "cache_keys": {
             "pretrain": key_train,
             "test": key_holdout,
@@ -357,12 +499,19 @@ def build_budget_assets_finetune_only(
     Builds the only thing that varies per experiment: the finetune dataset + split.
     Then combines with static_assets into the final assets[exp_key] dict.
     """
-    target_code = static_assets["target_code"]
+
+    def _ensure_list(x):
+        if isinstance(x, (list, tuple, set)):
+            return list(x)
+        return [x]
+
+    target_codes = _ensure_list(static_assets["target_codes"])
+    target_label = static_assets.get("target_label", "_".join(target_codes))
 
     # target aug for extracting df_ft_aug
     df_target_aug = (
         res_xreg["df_test_aug"]
-        .loc[res_xreg["df_test_aug"]["SOURCE_CODE"] == target_code]
+        .loc[res_xreg["df_test_aug"]["SOURCE_CODE"].isin(target_codes)]
         .copy()
     )
     df_target_aug["PERIOD"] = (
@@ -374,10 +523,18 @@ def build_budget_assets_finetune_only(
     ft_keys = df_ft[key_cols].copy()
     ft_keys["PERIOD"] = ft_keys["PERIOD"].astype(str).str.strip().str.lower()
 
-    df_ft_aug = df_target_aug.merge(ft_keys.drop_duplicates(), on=key_cols, how="inner")
+    df_ft_aug = df_target_aug.merge(
+        ft_keys.drop_duplicates(),
+        on=key_cols,
+        how="inner",
+    )
 
     if len(df_ft) == 0 or len(df_ft_aug) == 0:
-        raise ValueError(f"{exp_key}: finetune df or aug df is empty.")
+        raise ValueError(
+            f"{exp_key}: finetune df or aug df is empty "
+            f"(target_label={target_label}, target_codes={target_codes}, "
+            f"len(df_ft)={len(df_ft)}, len(df_ft_aug)={len(df_ft_aug)})."
+        )
 
     # build finetune dataset (pristine)
     ft_cache_key = f"{exp_key}_FT"
@@ -397,21 +554,24 @@ def build_budget_assets_finetune_only(
     )
 
     ft_train_idx, ft_val_idx = mbm.data_processing.MBSequenceDataset.split_indices(
-        len(ds_ft), val_ratio=val_ratio, seed=seed
+        len(ds_ft),
+        val_ratio=val_ratio,
+        seed=seed,
     )
 
     ft_source_codes = build_source_codes_for_dataset(
-        ds_ft, df_ft_aug, source_col="SOURCE_CODE"
+        ds_ft,
+        df_ft_aug,
+        source_col="SOURCE_CODE",
     )
 
-    # domain vocab: source code (e.g. CH) + FT + HOLDOUT
+    # domain vocab: source domain(s) + FT + HOLDOUT
     domain_vocab = sorted(
         set(static_assets["pretrain_source_codes"])
         | set(ft_source_codes)
         | set(static_assets["test_source_codes"])
     )
 
-    # assemble final experiment assets (same shape as before)
     assets = {
         exp_key: {
             **static_assets,
@@ -420,7 +580,7 @@ def build_budget_assets_finetune_only(
             "finetune_val_idx": ft_val_idx,
             "ft_source_codes": ft_source_codes,
             "domain_vocab": domain_vocab,
-            "split_name": exp_key,  # optional
+            "split_name": exp_key,
             "cache_keys": {
                 **static_assets["cache_keys"],
                 "finetune": ft_cache_key,
