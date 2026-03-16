@@ -58,3 +58,4 @@ regions/Norway/data/
 logs/
 
 *.parquet
+*.pt
