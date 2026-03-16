@@ -10,6 +10,18 @@ path_PMB_GLACIOCLIM_csv = "GLACIOCLIM/point/csv/"
 RGI_V6_ROOT = Path("RGI_v6")
 
 RGI_REGIONS = {
+    "01": {
+        "name": "Alaska",
+        "folder": "RGI_01_Alaska",
+        "file": "01_rgi60_Alaska.shp",
+        "code": "ALA",
+    },
+    "02": {
+        "name": "WesternCanadaUS",
+        "folder": "RGI_02_WesternCanadaUS",
+        "file": "02_rgi60_WesternCanadaUS.shp",
+        "code": "CAW",
+    },
     "06": {
         "name": "Iceland",
         "folder": "RGI_06_Iceland",

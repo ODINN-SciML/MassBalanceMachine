@@ -115,12 +115,25 @@ STAKES_SPECS = {
         "relpath": Path("WGMS") / "Switzerland" / "csv" / "CH_wgms_dataset_all.csv",
         "post": _post_switzerland,
     },
-    # future-proof: add IT / AT when ready
     "IT_AT": {
         "relpath": Path("WGMS")
         / "Italy_Austria"
         / "csv"
         / "IT_AT_wgms_dataset_all.csv",
+        "post": _post_default,
+    },
+    "ALA": {
+        "relpath": Path("WGMS")
+        / "WesternCanadaUS"
+        / "csv"
+        / "ALA_wgms_dataset_all.csv",
+        "post": _post_default,
+    },
+    "CAW": {
+        "relpath": Path("WGMS")
+        / "WesternCanadaUS"
+        / "csv"
+        / "CAW_wgms_dataset_all.csv",
         "post": _post_default,
     },
 }
@@ -271,11 +284,34 @@ def prepare_monthly_dfs_with_padding(
     df_test["y"] = test_set["y"]
 
     # ---- Monthly with August start ----
+    # BUG: this does not work if FROM & TO are the same year
+    # year = pd.to_datetime(
+    #     df_region_aug["FROM_DATE"].astype(str), format="%Y%m%d"
+    # ).dt.year
+    # df_region_aug["FROM_DATE"] = (year.astype(str) + from_date_aug_mmdd).astype(int)
+
+    # months_head_pad_aug, months_tail_pad_aug = (
+    #     mbm.data_processing.utils._compute_head_tail_pads_from_df(df_region_aug)
+    # )
+
+    # ---- Monthly with August start ----
     df_region_aug = df_region.copy()
-    year = pd.to_datetime(
-        df_region_aug["FROM_DATE"].astype(str), format="%Y%m%d"
-    ).dt.year
-    df_region_aug["FROM_DATE"] = (year.astype(str) + from_date_aug_mmdd).astype(int)
+
+    from_dt = pd.to_datetime(df_region_aug["FROM_DATE"].astype(str), format="%Y%m%d")
+    to_dt = pd.to_datetime(df_region_aug["TO_DATE"].astype(str), format="%Y%m%d")
+
+    from_year = from_dt.dt.year
+    to_year = to_dt.dt.year
+
+    # default: use FROM_DATE year
+    aug_year = from_year.copy()
+
+    # if FROM_DATE and TO_DATE are in the same calendar year,
+    # shift the augmented hydrological start one year back
+    same_calendar_year = from_year == to_year
+    aug_year = aug_year.where(~same_calendar_year, aug_year - 1)
+
+    df_region_aug["FROM_DATE"] = (aug_year.astype(str) + from_date_aug_mmdd).astype(int)
 
     months_head_pad_aug, months_tail_pad_aug = (
         mbm.data_processing.utils._compute_head_tail_pads_from_df(df_region_aug)

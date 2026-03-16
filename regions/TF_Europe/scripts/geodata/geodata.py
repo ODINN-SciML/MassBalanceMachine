@@ -1163,6 +1163,7 @@ def export_glacier_dems_to_geotiff(
     dem_var="topo",
     mask_var="glacier_mask",
     masked=True,
+    verbose=False,
 ):
     """
     Export a glacier DEM from an OGGM per-glacier Zarr file to a GeoTIFF,
@@ -1256,5 +1257,6 @@ def export_glacier_dems_to_geotiff(
         predictor=3,
     )
 
-    print(f"Saved DEM GeoTIFF to: {out_tif}")
+    if verbose:
+        print(f"Saved DEM GeoTIFF to: {out_tif}")
     return out_tif

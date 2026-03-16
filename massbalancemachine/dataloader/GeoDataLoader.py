@@ -2,7 +2,7 @@ import random
 from typing import List
 import pandas as pd
 
-from regions.Switzerland.scripts.geodetic.geodetic_processing import (
+from regions.RGI_11_Switzerland.scripts.geodetic.geodetic_processing import (
     prepare_geo_targets,
     build_periods_per_glacier,
     get_geodetic_MB,
