@@ -470,6 +470,9 @@ class AggregatedDataset(torch.utils.data.Dataset):
         return self.uniqueID[index]
 
     def indexToMetadata(self, index):
+        """
+        Returns the metadata for a given index.
+        """
         ind = self._getInd(index)
         return self.metadata[ind][:, :]
 
