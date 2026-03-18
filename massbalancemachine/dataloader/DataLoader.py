@@ -126,7 +126,10 @@ class DataLoader:
 
     def assign_train_test_indices(self, train_indices, test_indices, test_size):
         """
-        Dividing train and test ensemble based on subregion require to make the sampling N times and then choose the
+        Assign `train_indices`, `test_indices` as well as `test_size` attributes of the object.
+
+        Note:
+        This can be useful when you divide the train and test ensembles based on subregion since this requires to make the sampling N times and then choose the
         train-test division closest to the 70-30 repartition. At each iteration the Dataloader object is redifined as well as
         self.train_indices and self.test_indices meaning that the information in the Dataloader object are those of the last iterations
         and not those of the  train-test division chosen after comparing to the 70-30 repartition.
@@ -264,10 +267,11 @@ class DataLoader:
         y = train_data["POINT_BALANCE"]
         glacier_ids = train_data["RGIId"].values
         stake_meas_id = train_data["ID"].values  # unique value per stake measurement
-        try:
-            regions = train_data["C_REGION"].values
-        except:
-            regions = type(np.array([]))
+        regions = (
+            train_data["C_REGION"].values
+            if "C_REGION" in train_data.columns
+            else np.array([])
+        )
         return X, y, glacier_ids, stake_meas_id, regions
 
     def _create_group_kfold_splits(
