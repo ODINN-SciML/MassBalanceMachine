@@ -504,6 +504,12 @@ class Normalizer:
     def __init__(self, bnds: dict[str, tuple[float, float]]) -> None:
         assert not np.isnan(list(bnds.values())).any(), "Bounds contain NaNs"
         self.bnds = bnds
+        self.lower_bnds = [self.bnds[k][0] for k in self.bnds]
+        self.upper_bnds = [self.bnds[k][1] for k in self.bnds]
+        self.lower_bnds_np = np.array(self.lower_bnds)
+        self.upper_bnds_np = np.array(self.upper_bnds)
+        self.lower_bnds_torch = torch.tensor(self.lower_bnds)
+        self.upper_bnds_torch = torch.tensor(self.upper_bnds)
 
     def _norm(self, data, lower_bnd, upper_bnd):
         return (data - lower_bnd) / (upper_bnd - lower_bnd)
@@ -523,10 +529,10 @@ class Normalizer:
             assert x.shape[-1] == len(
                 self.bnds
             ), f"Size of the input to normalize is {x.shape} and it doesn't match the number of bounds defined in the Normalizer object which is {len(self.bnds)}"
-            z = torch.zeros_like(x) if isinstance(x, torch.Tensor) else np.zeros_like(x)
-            for i, k in enumerate(self.bnds):
-                z[..., i] = fct(x[..., i], self.bnds[k][0], self.bnds[k][1])
-            return z
+            if isinstance(x, torch.Tensor):
+                return fct(x, self.lower_bnds_torch, self.upper_bnds_torch)
+            else:
+                return fct(x, self.lower_bnds_np, self.upper_bnds_np)
         else:
             raise NotImplementedError(f"Type {type(x)} is not supported yet")
 
