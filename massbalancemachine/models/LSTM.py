@@ -14,15 +14,27 @@ import os
 
 """
 Model diagram:
-    Monthly inputs (B×15×Fm) ──► LSTM ──────────┐
+    Monthly inputs (B×16×Fm) ──► LSTM ──────────┐
                                                 │
     Static inputs (B×Fs) ──► Static MLP ──► repeat ─► concat ─► Dropout ─► [Head(s)]
                                                 │
                                                 ▼
-                                    Per-month MB predictions (B×15)
+                                    Per-month MB predictions (B×16)
 
             ▼ masks mv, mw, ma
     Winter MB (B)    Annual MB (B)
+    
+    And inside the LSTM: 
+        Input x_t for t in [0, ..., T]
+        ↓
+        [LSTM Layer 1]
+        ↓     produces h_t^(1), c_t^(1)
+        [LSTM Layer 2]
+        ↓     produces h_t^(2), c_t^(2)
+
+        out = [h_1^(2), h_2^(2), ..., h_T^(2)]   → shape (B, T, H)
+        h_n = [h_T^(1), h_T^(2)]                 → shape (2, B, H)
+        c_n = [c_T^(1), c_T^(2)]                 → shape (2, B, H)
 """
 
 
@@ -63,7 +75,7 @@ class LSTM_MB(nn.Module):
             dropout=dropout if num_layers > 1 else 0.0,  # applied between LSTM layers
         )
 
-        # Output shape of LSTM block: (B, 15, H) where H = hidden_size × (2 if bidirectional else 1)
+        # Output shape of LSTM block: (B, 16, H) where H = hidden_size × (2 if bidirectional else 1)
         H = hidden_size * (2 if bidirectional else 1)
 
         if static_dropout is None:
@@ -126,48 +138,72 @@ class LSTM_MB(nn.Module):
     # ----------------
     #  Forward
     # ----------------
-    def forward(self, x_m, x_s, mv, mw, ma):
+    def forward(self, x_m, x_s, mv, mw, ma, debug=False):
         """
-        x_m: (B,15,Fm) | x_s: (B,Fs) | mv,mw,ma: (B,15)
+        x_m: (B, 16, Fm) | x_s: (B, Fs) | mv, mw, ma: (B, 16)
         Returns: y_month, y_w, y_a
         """
-        out, _ = self.lstm(x_m)  # (B,15,H or 2H)
-        s = self.static_mlp(x_s)  # (B,static_out_dim)
+
+        # ---- Dynamic path ----
+        out, (h_n, c_n) = self.lstm(x_m)  # (B, 16, H or 2H)
+        if debug:
+            print(f"[LSTM out] {tuple(out.shape)}  (H={out.shape[-1]})")
+            print(f"[LSTM h_n] {tuple(h_n.shape)}")
+            print(f"[LSTM c_n] {tuple(c_n.shape)}")
+
+        # ---- Static path ----
+        s = self.static_mlp(x_s)  # (B, static_out_dim)
+        if debug:
+            print(f"[Static MLP out] {tuple(s.shape)}  (static_out_dim={s.shape[-1]})")
 
         # ---- Fusion layer ----
-        s_rep = s.unsqueeze(1).expand(
-            -1, out.size(1), -1
-        )  # repeat static along time dimension
+        s_rep = s.unsqueeze(1).expand(-1, out.size(1), -1)  # (B, 16, static_out_dim)
+        if debug:
+            print(f"[Static repeated] {tuple(s_rep.shape)}")
+
         z = torch.cat([out, s_rep], dim=-1)  # concat dynamic + static
-        # Output shape: (B, 15, H + static_out_dim)
+        if debug:
+            print(f"[Fusion z] {tuple(z.shape)}  (H+static_out_dim={z.shape[-1]})")
+
         z = self.head_pre_dropout(z)
 
+        # ---- Heads ----
         if self.two_heads:
-            y_month_w = self.head_w(z).squeeze(-1)  # (B,15)
-            y_month_a = self.head_a(z).squeeze(-1)  # (B,15)
+            y_month_w = self.head_w(z).squeeze(-1)  # (B, 16)
+            y_month_a = self.head_a(z).squeeze(-1)  # (B, 16)
 
-            # mask valid months
+            if debug:
+                print(f"[Head W out] {tuple(y_month_w.shape)}")
+                print(f"[Head A out] {tuple(y_month_a.shape)}")
+
+            # Mask valid months
             y_month_w = y_month_w * mv
             y_month_a = y_month_a * mv
 
-            # Then it computes seasonal sums (y_w, y_a) depending on which months matter.
-            # For a winter meas, this is the sum of the months in mw (e.g. Nov-Apr),
-            # And y_a will also be over just winter  months
-            # but does not matter because not taken into account in loss
             y_w = (y_month_w * mw).sum(dim=1)  # (B,)
-
-            # For an annual meas, this is the sum of the months in ma (e.g. Oct-Sep).
-            # and mw will just be 0 everywhere but again does not matter
-            # just ignored in loss
             y_a = (y_month_a * ma).sum(dim=1)  # (B,)
 
-            # keep API: return one per-month series (use annual one for convenience)
+            if debug:
+                print(
+                    f"[Seasonal outputs] y_w={tuple(y_w.shape)} | y_a={tuple(y_a.shape)}"
+                )
+
             return y_month_a, y_w, y_a
+
         else:
-            y_month = self.head(z).squeeze(-1)  # (B,15)
-            y_month = y_month * mv  # mask valid months
-            y_w = (y_month * mw).sum(dim=1)  # (B,)
-            y_a = (y_month * ma).sum(dim=1)  # (B,)
+            y_month = self.head(z).squeeze(-1)  # (B, 16)
+            if debug:
+                print(f"[Head shared out] {tuple(y_month.shape)}")
+
+            y_month = y_month * mv
+            y_w = (y_month * mw).sum(dim=1)
+            y_a = (y_month * ma).sum(dim=1)
+
+            if debug:
+                print(
+                    f"[Seasonal outputs] y_w={tuple(y_w.shape)} | y_a={tuple(y_a.shape)}"
+                )
+
             return y_month, y_w, y_a
 
     # ----------------
@@ -411,7 +447,7 @@ class LSTM_MB(nn.Module):
         return metrics, df
 
     @torch.no_grad()
-    def predict_with_keys(self, device, dl, ds) -> pd.DataFrame:
+    def predict_with_keys(self, device, dl, ds, denorm=True) -> pd.DataFrame:
         """
         Predict seasonal MB for each sequence (no targets required).
         Returns: ID | pred | PERIOD | GLACIER | YEAR
@@ -428,14 +464,137 @@ class LSTM_MB(nn.Module):
             _, y_w, y_a = self(
                 batch["x_m"], batch["x_s"], batch["mv"], batch["mw"], batch["ma"]
             )
-            y_w = y_w * ds.y_std.to(device) + ds.y_mean.to(device)
-            y_a = y_a * ds.y_std.to(device) + ds.y_mean.to(device)
+            if denorm:
+                y_w = y_w * ds.y_std.to(device) + ds.y_mean.to(device)
+                y_a = y_a * ds.y_std.to(device) + ds.y_mean.to(device)
+
             for j in range(bs):
                 g, yr, mid, per = keys[j]
                 pred = float((y_w if per == "winter" else y_a)[j].cpu())
                 rows.append(
-                    {"ID": mid, "pred": pred, "PERIOD": per, "GLACIER": g, "YEAR": yr}
+                    {
+                        "ID": mid,
+                        "pred": pred,
+                        "PERIOD": per,
+                        "GLACIER": g,
+                        "YEAR": yr,
+                    }
                 )
+        return pd.DataFrame(rows)
+
+    @torch.no_grad()
+    def predict_monthly_with_keys(
+        self,
+        device,
+        dl,
+        ds,
+        month_names=None,
+        denorm=True,
+        consistent_denorm=True,
+    ) -> pd.DataFrame:
+        """
+        Predict per-month MB for each sequence (masked by mv).
+        Returns a long DataFrame with columns:
+        ['GLACIER','YEAR','ID','PERIOD','MONTH_IDX','MONTH',
+        'pred_raw','pred_consistent','mw','ma','pred_total']
+        """
+        self.eval()
+        if month_names is None:
+            month_names = [
+                "aug_",
+                "sep_",
+                "oct",
+                "nov",
+                "dec",
+                "jan",
+                "feb",
+                "mar",
+                "apr",
+                "may",
+                "jun",
+                "jul",
+                "aug",
+                "sep",
+                "oct_",
+            ]
+
+        rows = []
+        all_keys = ds.keys
+        i = 0
+
+        for batch in dl:
+            bs = batch["x_m"].shape[0]
+            keys = all_keys[i : i + bs]
+            i += bs
+
+            batch = self.to_device(device, batch)
+            y_month_a, y_w, y_a = self(
+                batch["x_m"], batch["x_s"], batch["mv"], batch["mw"], batch["ma"]
+            )
+
+            mv = batch["mv"].to(device)
+            ma = batch["ma"].to(device)
+
+            # --- denormalization handling ---
+            if denorm:
+                y_std, y_mean = ds.y_std.to(device), ds.y_mean.to(device)
+
+                # (1) Normalized per-month predictions
+                y_month_norm = y_month_a * mv * ma  # apply valid+annual masks
+
+                # (2) Annual prediction from normalized space (already matches model)
+                y_a_phys = y_a * y_std + y_mean  # (B,)
+
+                # (3) Compute consistent per-month predictions
+                if consistent_denorm:
+                    n_active = ma.sum(dim=1, keepdim=True).clamp_min(1.0)
+                    bias_corr = y_mean * (1 - n_active)  # scalar offset correction
+                    # Apply affine transform with correction so total equals y_a_phys
+                    y_month_phys = y_month_norm * y_std + y_mean + bias_corr / n_active
+                else:
+                    # regular (raw) denormalization
+                    y_month_phys = y_month_a * y_std + y_mean
+            else:
+                y_month_phys = y_month_a
+                y_a_phys = y_a
+
+            # --- collect results ---
+            y_np = y_month_phys.cpu().numpy()
+            y_total = y_a_phys.cpu().numpy()
+            mw = batch["mw"].cpu().numpy()
+            ma_np = ma.cpu().numpy()
+            mv_np = mv.cpu().numpy()
+
+            for j in range(bs):
+                g, yr, mid, per = keys[j]
+                for t_idx in range(y_np.shape[1]):
+                    if not mv_np[j, t_idx]:
+                        continue
+                    month = (
+                        month_names[t_idx]
+                        if t_idx < len(month_names)
+                        else f"m{t_idx:02d}"
+                    )
+                    rows.append(
+                        {
+                            "GLACIER": g,
+                            "YEAR": yr,
+                            "ID": mid,
+                            "PERIOD": per,
+                            "MONTH_IDX": t_idx,
+                            "MONTH": month,
+                            "pred_raw": float(
+                                y_month_a[j, t_idx].cpu()
+                            ),  # normalized or denorm raw
+                            "pred_consistent": float(
+                                y_np[j, t_idx]
+                            ),  # physically consistent
+                            "mw": int(mw[j, t_idx]),
+                            "ma": int(ma_np[j, t_idx]),
+                            "pred_total": float(y_total[j]),
+                        }
+                    )
+
         return pd.DataFrame(rows)
 
     @staticmethod

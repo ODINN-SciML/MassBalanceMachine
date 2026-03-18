@@ -20,11 +20,13 @@ docs/generated/
 docs/notebooks/
 docs/MBM_logo.png
 
+# Local data folder
 .data/
 
 regions/Switzerland/models/**
 regions/Switzerland/results
 regions/Switzerland/figures
+regions/Switzerland/cache/**
 regions/Switzerland/logs
 regions/Switzerland/.ipynb_checkpoints
 

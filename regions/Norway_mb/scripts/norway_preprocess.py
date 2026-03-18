@@ -495,17 +495,19 @@ def merge_pmb_with_oggm_data(
         )
 
         # Get nearest OGGM grid data for points
-        stake = ds.sel(x=xr.DataArray(x_stake, dims="points"),
-                       y=xr.DataArray(y_stake, dims="points"),
-                       method="nearest")
-        
+        stake = ds.sel(
+            x=xr.DataArray(x_stake, dims="points"),
+            y=xr.DataArray(y_stake, dims="points"),
+            method="nearest",
+        )
+
         # Check which variables are actually available in the dataset, since millan_v is missing in some glaciers
         available_vars = [var for var in variables_of_interest if var in stake]
         if len(available_vars) < len(variables_of_interest):
             missing_vars = set(variables_of_interest) - set(available_vars)
             if verbose:
                 log.warning(f"Missing variables for glacier {rgi_id}: {missing_vars}")
-        
+
         stake_var_df = stake[available_vars].to_dataframe()
 
         # Assign to original DataFrame

@@ -2,7 +2,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import math
 
-
 overwrite_legend = {"pearson_corr": "\\rho", "R2": "R^2", "r2": "R^2"}
 
 

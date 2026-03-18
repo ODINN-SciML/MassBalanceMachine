@@ -15,7 +15,7 @@ Make sure to conform with the `Contribution Guidelines <https://github.com/ODINN
 
 - The MassBalanceMachine project is an open-source community initiative that welcomes new users to fork the repository, add new regions, or modify the existing code and submit a `pull request <https://github.com/ODINN-SciML/MassBalanceMachine/pulls>`_.
 - **Currently, uploading data is not allowed unless it is accompanied by a license that explicitly permits open access, allowing it to be shared and used by others.** Pull requests containing data will be rejected. In the future, data sharing will be supported.
-- If you have any questions, please contact one of the contributors listed in the `Readme <https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/README.md>`_. You can also create new Git issues via the [issue tracker](https://github.com/ODINN-SciML/MassBalanceMachine/issues) to propose new features, and changes to existing ones, or report bugs.
+- If you have any questions, please contact one of the contributors listed in the `Readme <https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/README.md>`_. You can also create new Git issues via the `issue tracker <https://github.com/ODINN-SciML/MassBalanceMachine/issues>` to propose new features, and changes to existing ones, or report bugs.
 
 Developing locally
 ******************
@@ -34,11 +34,13 @@ Before committing your changes, make sure that they comply with the coding style
 You can format the code by running `black <https://github.com/psf/black>`_.
 This code formatter can be automatically called upon commit by installing the `pre-commit hook <https://github.com/ODINN-SciML/MassBalanceMachine/blob/main/.pre-commit-config.yaml>`_ defined at the root of the MBM repository.
 For this, install `pre-commit <https://pre-commit.com/>`_ in the `MassBalanceMachine` environment by running:
+
 .. code-block:: bash
 
     pip install pre-commit
 
 The hook can be installed by running:
+
 .. code-block:: bash
 
     pre-commit install

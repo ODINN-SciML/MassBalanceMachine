@@ -91,7 +91,6 @@ class Config:
 
 
 class SwitzerlandConfig(Config):
-
     def __init__(
         self,
         *args,
@@ -104,6 +103,7 @@ class SwitzerlandConfig(Config):
             "MONTHS",
             "PERIOD",
             "GLACIER",
+            # "DENSITY",
         ],
         notMetaDataNotFeatures: List[str] = [
             "POINT_BALANCE",
@@ -178,7 +178,8 @@ class FranceConfig(Config):
             numJobs=numJobs,
             **kwargs,
         )
-        self.bnds.pop('pcsr')
+        self.bnds.pop("pcsr")
+
 
 class ItalyAustriaConfig(Config):
 
@@ -220,7 +221,8 @@ class ItalyAustriaConfig(Config):
             numJobs=numJobs,
             **kwargs,
         )
-        self.bnds.pop('pcsr')
+        self.bnds.pop("pcsr")
+
 
 class NorwayConfig(Config):
 
@@ -262,7 +264,8 @@ class NorwayConfig(Config):
             numJobs=numJobs,
             **kwargs,
         )
-        self.bnds.pop('pcsr')
+        self.bnds.pop("pcsr")
+
 
 class IcelandConfig(Config):
 
@@ -304,4 +307,4 @@ class IcelandConfig(Config):
             numJobs=numJobs,
             **kwargs,
         )
-        self.bnds.pop('pcsr')
+        self.bnds.pop("pcsr")
