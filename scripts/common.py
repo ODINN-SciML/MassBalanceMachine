@@ -5,13 +5,9 @@ sys.path.append(mbm_path)  # Add root of repo to import MBM
 
 import yaml
 import pandas as pd
+from sklearn.model_selection import train_test_split
 
 import massbalancemachine as mbm
-from regions.Switzerland.scripts.glamos_preprocess import getStakesData, get_geodetic_MB
-from regions.Switzerland.scripts.geodata import build_periods_per_glacier
-from regions.Switzerland.scripts.xgb_helpers import (
-    transform_df_to_seasonal,
-)
 
 
 def parseParams(params):

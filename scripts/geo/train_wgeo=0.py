@@ -15,7 +15,6 @@ from scripts.common import (
 )
 from scripts.nongeo.utils import getMetaData, setFeatures, trainValData, testData
 
-
 parser = argparse.ArgumentParser()
 parser.add_argument("modelType", type=str, help="Type of model to train")
 parser.add_argument("--load", type=str, default="", help="Model to load")

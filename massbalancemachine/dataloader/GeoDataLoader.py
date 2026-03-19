@@ -5,12 +5,10 @@ import pandas as pd
 import time
 import torch
 
-from regions.Switzerland.scripts.geodata import (
-    prepareGeoTargets,
+from regions.Switzerland.scripts.geodetic.geodetic_processing import (
+    prepare_geo_targets,
     build_periods_per_glacier,
-)
-from regions.Switzerland.scripts.glamos_preprocess import get_geodetic_MB
-from regions.Switzerland.scripts.xgb_helpers import (
+    get_geodetic_MB,
     create_geodetic_input,
     has_geodetic_input,
 )
@@ -147,7 +145,9 @@ class GeoDataLoader:
             # This works only with Swiss data
             geodetic_mb = get_geodetic_MB(self.cfg)
             self.periods_per_glacier, _ = build_periods_per_glacier(geodetic_mb)
-            self.y_target_geo = prepareGeoTargets(geodetic_mb, self.periods_per_glacier)
+            self.y_target_geo = prepare_geo_targets(
+                geodetic_mb, self.periods_per_glacier
+            )
             self.err_target_geo = {}
 
             self.glaciersWithGeo = []
