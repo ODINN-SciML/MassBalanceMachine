@@ -2,6 +2,8 @@ import random
 from typing import List
 import numpy as np
 import pandas as pd
+import time
+import torch
 
 from regions.Switzerland.scripts.geodata import (
     prepareGeoTargets,
@@ -53,11 +55,13 @@ class GeoDataLoader:
         keyGlacierSel: str = "GLACIER",
         geoGlaciers: str = "stakes",
         ignoreGlaciers: list[str] = [],
+        device=torch.device("cpu"),
     ) -> None:
         self.cfg = cfg
         self.glacierList = glacierList.copy()  # Copy for shuffling
         random.shuffle(self.glacierList)
         self.indGlacier = 0
+        self.indGlacierGeo = 0
         self.periodToInt = {"annual": 0, "winter": 1, "summer": 2}
 
         _, self.month_pos = _rebuild_month_index(months_head_pad, months_tail_pad)
@@ -69,9 +73,11 @@ class GeoDataLoader:
         self.keyGlacierSel = keyGlacierSel
         self.geoGlaciers = geoGlaciers
         self.ignoreGlaciers = ignoreGlaciers
+        self.device = device
 
         # Prepare geodetic data
         self.prepareGeoData()
+        self.glacierListGeo = self.glaciersWithGeo
         if ignoreStakesWithoutGeo:
             self.glacierList = self.glaciersWithGeo
 
@@ -111,7 +117,6 @@ class GeoDataLoader:
                 for g in self.ignoreGlaciers:
                     if g in rgi_ids:
                         rgi_ids.remove(g)
-                print(f"{rgi_ids=}")
                 create_gridded_features_RGI(self.cfg, rgi_ids)
                 geo_target_data = geodetic_target(rgi_ids, self.cfg)
             elif "region-" in self.geoGlaciers:
@@ -125,7 +130,6 @@ class GeoDataLoader:
                 for g in self.ignoreGlaciers:
                     if g in rgi_ids:
                         rgi_ids.remove(g)
-                print(f"{rgi_ids=}")
                 create_gridded_features_RGI(self.cfg, rgi_ids)
             self.periods_per_glacier = {}
             self.y_target_geo = {}
@@ -158,10 +162,15 @@ class GeoDataLoader:
 
     def onEpochEnd(self) -> None:
         random.shuffle(self.glacierList)
+        random.shuffle(self.glacierListGeo)
         self.indGlacier = 0
+        self.indGlacierGeo = 0
 
     def __len__(self):
         return len(self.glacierList)
+
+    def lenGeo(self):
+        return len(self.glacierListGeo)
 
     def glaciers(self):
         """
@@ -171,6 +180,15 @@ class GeoDataLoader:
             yield self.glacierList[self.indGlacier]
             self.indGlacier += 1
         self.indGlacier = 0
+
+    def glaciersGeo(self):
+        """
+        Iterator that returns a glacier in the list of geodetic available glaciers as a string each time it is called.
+        """
+        while self.indGlacierGeo < len(self.glacierListGeo):
+            yield self.glacierListGeo[self.indGlacierGeo]
+            self.indGlacierGeo += 1
+        self.indGlacierGeo = 0
 
     def stakes(self, glacierName: str, overwriteDf: pd.DataFrame = None):
         """
@@ -193,23 +211,26 @@ class GeoDataLoader:
         """
         X = (overwriteDf or self.trainStakesDf)[
             self.trainStakesDf[self.keyGlacierSel] == glacierName
-        ].dropna()
+        ]  # .dropna()
 
-        meta_data_columns = self.cfg.metaData
+        # meta_data_columns = self.cfg.metaData
 
         # Split features from metadata
-        # Get feature columns by subtracting metadata columns from all columns
-        feature_columns = X.columns.difference(meta_data_columns)
+        # # Get feature columns by subtracting metadata columns from all columns
+        # feature_columns = X.columns.difference(meta_data_columns)
 
-        # remove columns that are not used in metadata or features
-        feature_columns = feature_columns.drop(self.cfg.notMetaDataNotFeatures)
-        # Convert feature_columns to a list (if needed)
-        if "y" in feature_columns:
-            feature_columns = feature_columns.drop("y")
-        feature_columns = list(feature_columns)
+        # # remove columns that are not used in metadata or features
+        # feature_columns = feature_columns.drop(self.cfg.notMetaDataNotFeatures)
+        feature_columns = self.cfg.featureColumns
+        # # Convert feature_columns to a list (if needed)
+        # if "y" in feature_columns:
+        #     feature_columns = feature_columns.drop("y")
+        # feature_columns = list(feature_columns)
+
+        non_feature_columns = X.columns.difference(feature_columns)
 
         # Extract metadata and features
-        metadata = X[meta_data_columns]  # .values
+        metadata = X[non_feature_columns]  # .values
         features = X[feature_columns].values
 
         groundTruth = X.POINT_BALANCE.values
@@ -267,6 +288,7 @@ class GeoDataLoader:
         assert (
             glacierName in self.glaciersWithGeo
         ), f"Glacier {glacierName} is not in the list of glaciers with available geodetic data for this dataloader."
+        # st = time.time()
         if self.df_X_geod is None:
             if self.geodeticOggm:
                 df_X_geod = geodetic_input(glacierName)
@@ -279,10 +301,12 @@ class GeoDataLoader:
                 df_X_geod = self.df_X_geod[glacierName]
             else:
                 df_X_geod = self.df_X_geod
+        # et = time.time()-st
+        # print("ET slice per glacier:", et)
 
-        # NaN values are in aspect_sgi and slope_sgi columns
-        # That's because the GLAMOS and SGI grids don't match exactly on the borders
-        df_X_geod = df_X_geod.dropna()
+        # # NaN values are in aspect_sgi and slope_sgi columns
+        # # That's because the GLAMOS and SGI grids don't match exactly on the borders
+        # df_X_geod = df_X_geod.dropna()
 
         assert (
             len(df_X_geod) > 0

@@ -167,29 +167,23 @@ def eval_geodetic(model, geo_dataloader, return_grid_pred=[]):
         pbar = tqdm.tqdm(geo_dataloader.glaciersGeo(), total=geo_dataloader.lenGeo())
         for g in pbar:
             pbar.set_description("Making geodetic pred for %s" % (g), refresh=True)
-            # if geo_dataloader.hasGeo(g):
-            if True:
-                geoGrid, metadata, ygeo, errgeo = geo_dataloader.geo(g)
-                geoGrid = torch.tensor(geoGrid.astype(np.float32)).to(
-                    geo_dataloader.device
-                )
-                geod_periods = geo_dataloader.periods_per_glacier[g]
-                geoPred[g] = predict_geo(
-                    model, geoGrid, metadata, ygeo, geod_periods
-                ).cpu()
-                geoTarget[g] = ygeo
-                geoErr[g] = errgeo
+            geoGrid, metadata, ygeo, errgeo = geo_dataloader.geo(g)
+            geoGrid = torch.tensor(geoGrid.astype(np.float32)).to(geo_dataloader.device)
+            geod_periods = geo_dataloader.periods_per_glacier[g]
+            geoPred[g] = predict_geo(model, geoGrid, metadata, ygeo, geod_periods).cpu()
+            geoTarget[g] = ygeo
+            geoErr[g] = errgeo
 
-                if return_annual:
-                    grouped_ids, predSumAnnual = predict_annual_gridded(
-                        model, geoGrid, metadata
-                    )
-                    grouped_ids["pred"] = predSumAnnual.cpu()
-                    df_gridded_annual = pd.concat([df_gridded_annual, grouped_ids])
-                if return_monthly:
-                    predMonthly = predict_monthly_gridded(model, geoGrid, metadata)
-                    metadata["pred"] = predMonthly.cpu()
-                    df_gridded_monthly = pd.concat([df_gridded_monthly, metadata])
+            if return_annual:
+                grouped_ids, predSumAnnual = predict_annual_gridded(
+                    model, geoGrid, metadata
+                )
+                grouped_ids["pred"] = predSumAnnual.cpu()
+                df_gridded_annual = pd.concat([df_gridded_annual, grouped_ids])
+            if return_monthly:
+                predMonthly = predict_monthly_gridded(model, geoGrid, metadata)
+                metadata["pred"] = predMonthly.cpu()
+                df_gridded_monthly = pd.concat([df_gridded_monthly, metadata])
     dict_df_gridded = {}
     if return_monthly:
         dict_df_gridded["monthly"] = df_gridded_monthly

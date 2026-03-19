@@ -1,5 +1,5 @@
 """
-The VeryPoorlyNamedClass class is part of the massbalancemachine package and is in charge
+The SourceManager class is part of the massbalancemachine package and is in charge
 of handling the train/validation/test datasets. It acts as a layer on top of the
 Dataset class. It automatically preprocess data depending if it has been
 preprocessed and saved to the disk beforehand or not.
@@ -19,8 +19,10 @@ import urllib
 import json
 import git
 
-from data_processing.Dataset import Dataset
-from data_processing.utils import build_head_tail_pads_from_monthly_df, get_hash
+# from data_processing.Dataset import Dataset
+# from data_processing.utils import build_head_tail_pads_from_monthly_df, get_hash
+from data_processing.utils.hydro_year import build_head_tail_pads_from_monthly_df
+from data_processing.utils.data_preprocessing import get_hash
 from dataloader.DataLoader import DataLoader, set_dataloader_splits
 import config
 
@@ -154,7 +156,7 @@ def _default_input(sourceData):
         raise ValueError(f"source_data={sourceData} is unknown")
 
 
-class VeryPoorlyNamedClass:
+class SourceManager:
     def __init__(self, cfg, params, test_split_on="GLACIER"):
         self.cfg = cfg
         self.params = params
@@ -179,7 +181,7 @@ class VeryPoorlyNamedClass:
 
     def load_stakes_data(self):
         raise NotImplemented(
-            "This function must be implemented by the child class of VeryPoorlyNamedClass."
+            "This function must be implemented by the child class of SourceManager."
         )
 
     def train_test_sets(self):
@@ -233,7 +235,7 @@ class VeryPoorlyNamedClass:
         return train_set, test_set, months_head_pad, months_tail_pad
 
 
-class VeryPoorlyNamedClassSwitzerland(VeryPoorlyNamedClass):
+class SourceManagerSwitzerland(SourceManager):
     def __init__(self, cfg, params, *args, **kwargs):
         self.train_glaciers = (
             params["training"].get("train_glaciers")
@@ -295,7 +297,7 @@ class VeryPoorlyNamedClassSwitzerland(VeryPoorlyNamedClass):
         return data_monthly
 
 
-class VeryPoorlyNamedClassIceland(VeryPoorlyNamedClass):
+class SourceManagerIceland(SourceManager):
     def __init__(self, cfg, params, *args, **kwargs):
         self.train_glaciers = (
             params["training"].get("train_glaciers") or _default_train_glaciers_iceland
@@ -365,7 +367,7 @@ class VeryPoorlyNamedClassIceland(VeryPoorlyNamedClass):
     # return train_set, test_set, months_head_pad, months_tail_pad
 
 
-class VeryPoorlyNamedClassNorway(VeryPoorlyNamedClass):
+class SourceManagerNorway(SourceManager):
     def __init__(self, cfg, params, *args, **kwargs):
         self.train_glaciers = (
             params["training"].get("train_glaciers") or _default_train_glaciers_norway

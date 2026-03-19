@@ -1,6 +1,6 @@
 model:
     type: sequential
-    layers: [12, 4]
+    layers: [12, 8, 4]
     inputs:
         - ELEVATION_DIFFERENCE
         - aspect
@@ -19,7 +19,8 @@ training:
     train_glaciers: null
     optim: ADAM
     scheduler: StepLR
-    lr: 5e-3
+    lr: 1e-3
     scheduler_step_size: 300
     Nepochs: 1500
     scalingStakes: meas
+    bestModelCriterion: lossValGeo

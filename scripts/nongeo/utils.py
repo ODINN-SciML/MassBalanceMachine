@@ -74,16 +74,16 @@ def getMetaData(featuresInpModel, sourceData):
 
 
 def setFeatures(cfg, data_train, featuresInpModel):
-    feature_columns = list(
-        data_train.columns.difference(cfg.metaData)
-        .drop(cfg.notMetaDataNotFeatures)
-        .drop("y")
-    )
-    assert set(feature_columns) == set(
-        featuresInpModel
-    ), f"Asked features are {featuresInpModel} but the one obtained from the dataframe are {feature_columns}"
-    cfg.setFeatures(feature_columns)
-    return feature_columns
+    # feature_columns = list(
+    #     data_train.columns.difference(cfg.metaData)
+    #     .drop(cfg.notMetaDataNotFeatures)
+    #     .drop("y")
+    # )
+    assert set(featuresInpModel).issubset(
+        set(data_train.columns)
+    ), f"Asked features are {featuresInpModel} but the dataframe columns are {data_train.columns}. The following features are missing: {set(featuresInpModel).difference(feature_columns)}."
+    cfg.setFeatures(featuresInpModel)
+    # return feature_columns
 
 
 def getDatasets(
@@ -177,7 +177,7 @@ def trainValData(cfg, train_set, feature_columns):
 
     assert all(data_train.POINT_BALANCE == train_set["y"])
 
-    all_columns = feature_columns + cfg.fieldsNotFeatures
+    all_columns = list(set(feature_columns + cfg.fieldsNotFeatures))
     print("Shape of training dataset:", df_X_train[all_columns].shape)
     print("Shape of validation dataset:", df_X_val[all_columns].shape)
     print("Running with features:", feature_columns)
@@ -186,7 +186,7 @@ def trainValData(cfg, train_set, feature_columns):
 
 
 def testData(cfg, test_set, feature_columns):
-    all_columns = feature_columns + cfg.fieldsNotFeatures
+    all_columns = list(set(feature_columns + cfg.fieldsNotFeatures))
     df_X_test_subset = test_set["df_X"][all_columns]
     print("Shape of testing dataset:", df_X_test_subset.shape)
     print("Running with features:", feature_columns)

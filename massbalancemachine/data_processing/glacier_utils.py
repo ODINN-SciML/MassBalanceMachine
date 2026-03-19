@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import salem
 import pyproj
@@ -5,6 +6,18 @@ import pandas as pd
 import geopandas as gpd
 import xarray as xr
 import oggm
+import venv
+import subprocess
+
+import config
+from data_processing.product_utils import mbm_path
+from data_processing.Product import Product
+from data_processing.oggm_utils import (
+    _initialize_oggm_config,
+    _initialize_glacier_directories,
+)
+
+venv_rtv = None
 
 
 def create_glacier_grid_RGI(
@@ -104,3 +117,82 @@ def get_region_area_bounds(region):
         "lon": (minlon, maxlon),
         "lat": (minlat, maxlat),
     }
+
+
+def get_glacier_dem(rgi_id: str, custom_working_dir: str, cfg: config.Config):
+    """Given a `rgi_id` gets glacier DEM from OGGM."""
+
+    # Initialize the OGGM Config
+    _initialize_oggm_config(custom_working_dir)
+
+    # Initialize the OGGM Glacier Directory, given the RGI ID
+    gdirs = _initialize_glacier_directories([rgi_id], cfg)
+
+    # Get oggm data for that RGI ID
+    oggm_rgis = [gdir.rgi_id for gdir in gdirs]
+    if rgi_id not in oggm_rgis:
+        raise ValueError(f"RGI ID {rgi_id} not found in OGGM data")
+    for gdir in gdirs:
+        if gdir.rgi_id == rgi_id:
+            break
+    with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
+        ds = ds.load()
+    return ds
+
+
+def create_dem_file_RGI(cfg, rgi_id, path_rgi_id):
+    out_path = os.path.abspath(os.path.join(path_rgi_id, f"dem.nc"))
+    p = Product(out_path)
+    if not p.is_up_to_date():
+        ds = get_glacier_dem(rgi_id, "", cfg)
+        lkeys = list(ds.keys())
+        lkeys.remove("topo")
+        ds_topo = ds.drop_vars(lkeys)
+        ds_topo.to_netcdf(out_path)
+
+        p.gen_chk()
+
+
+def create_venv_rtv():
+    # Define the absolute path for the RTV virtual environment
+    venv_path = os.path.abspath(os.path.join(mbm_path, "venv/rvt_env/"))
+
+    # Create the virtual environment
+    venv.create(venv_path, with_pip=True)
+
+    # Path to the Python executable in the virtual environment
+    venv_python = os.path.join(venv_path, "bin", "python")  # Work only for Linux/Mac
+
+    # Install the incompatible package
+    gdal_failed = False
+    gdal_version = (
+        subprocess.check_output(["gdal-config", "--version"])
+        .decode("utf-8")
+        .replace("\n", "")
+    )
+    ret = subprocess.run(
+        [venv_python, "-m", "pip", "install", f"GDAL=={gdal_version}"],
+        capture_output=True,
+    )
+    if ret.returncode:
+        print(ret.stderr.decode("utf-8"))
+        raise Exception(
+            "An error occured during installation of GDAL (see above). This usually happens when libgdal is not installed. On Debian based distros, run the following command to install it: apt-get install libgdal-dev"
+        )
+    else:
+        print("Installed GDAL successfully")
+    subprocess.run([venv_python, "-m", "pip", "install", "rvt-py"])
+    subprocess.run([venv_python, "-m", "pip", "install", "xarray"])
+    subprocess.run([venv_python, "-m", "pip", "install", "netCDF4"])
+
+    return venv_path
+
+
+def generate_svf_file(path_rgi_id):
+    global venv_rtv
+    if venv_rtv is None:
+        venv_rtv = create_venv_rtv()
+    path_script_rtv = os.path.abspath(
+        os.path.join(mbm_path, "massbalancemachine/data_processing/sky_view_factor.py")
+    )
+    subprocess.run([os.path.join(venv_rtv, "bin/python"), path_script_rtv, path_rgi_id])

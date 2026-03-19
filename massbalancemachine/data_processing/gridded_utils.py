@@ -2,8 +2,6 @@ import os
 import pandas as pd
 import tqdm
 import multiprocessing
-import venv
-import subprocess
 import xarray as xr
 
 from oggm import utils
@@ -14,70 +12,13 @@ from data_processing.product_utils import rgi_id_to_folders, mbm_path, data_path
 from data_processing.get_topo_data import (
     glacier_cell_area,
     get_glacier_mask,
-    get_glacier_dem,
 )
-from data_processing.glacier_utils import create_glacier_grid_RGI
+from data_processing.glacier_utils import (
+    create_glacier_grid_RGI,
+    create_dem_file_RGI,
+    generate_svf_file,
+)
 from data_processing.utils.data_preprocessing import get_hash
-
-venv_rtv = None
-
-
-def create_venv_rtv():
-    # Define the absolute path for the RTV virtual environment
-    venv_path = os.path.abspath(os.path.join(mbm_path, "venv/rvt_env/"))
-
-    # Create the virtual environment
-    venv.create(venv_path, with_pip=True)
-
-    # Path to the Python executable in the virtual environment
-    venv_python = os.path.join(venv_path, "bin", "python")  # Work only for Linux/Mac
-
-    # Install the incompatible package
-    gdal_failed = False
-    gdal_version = (
-        subprocess.check_output(["gdal-config", "--version"])
-        .decode("utf-8")
-        .replace("\n", "")
-    )
-    ret = subprocess.run(
-        [venv_python, "-m", "pip", "install", f"GDAL=={gdal_version}"],
-        capture_output=True,
-    )
-    if ret.returncode:
-        print(ret.stderr.decode("utf-8"))
-        raise Exception(
-            "An error occured during installation of GDAL (see above). This usually happens when libgdal is not installed. On Debian based distros, run the following command to install it: apt-get install libgdal-dev"
-        )
-    else:
-        print("Installed GDAL successfully")
-    subprocess.run([venv_python, "-m", "pip", "install", "rvt-py"])
-    subprocess.run([venv_python, "-m", "pip", "install", "xarray"])
-    subprocess.run([venv_python, "-m", "pip", "install", "netCDF4"])
-
-    return venv_path
-
-
-def generate_svf_file(path_rgi_id):
-    global venv_rtv
-    if venv_rtv is None:
-        venv_rtv = create_venv_rtv()
-    path_script_rtv = os.path.abspath(
-        os.path.join(mbm_path, "massbalancemachine/data_processing/sky_view_factor.py")
-    )
-    subprocess.run([os.path.join(venv_rtv, "bin/python"), path_script_rtv, path_rgi_id])
-
-
-def create_dem_file_RGI(cfg, rgi_id, path_rgi_id):
-    out_path = os.path.abspath(os.path.join(path_rgi_id, f"dem.nc"))
-    p = Product(out_path)
-    if not p.is_up_to_date():
-        ds = get_glacier_dem(rgi_id, "", cfg)
-        lkeys = list(ds.keys())
-        lkeys.remove("topo")
-        ds_topo = ds.drop_vars(lkeys)
-        ds_topo.to_netcdf(out_path)
-
-        p.gen_chk()
 
 
 def create_gridded_features_RGI(

@@ -12,6 +12,7 @@ model:
         - str
         - t2m
         - tp
+        - svf
 training:
     source_data: norway
     test_glaciers: null

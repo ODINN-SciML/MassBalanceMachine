@@ -13,12 +13,14 @@ import config
 import xarray as xr
 import pandas as pd
 import numpy as np
-from oggm import workflow, tasks
-from oggm import cfg as oggmCfg
 
 from data_processing.Product import Product
 from data_processing.product_utils import rgi_id_to_folders, data_path
-from data_processing.gridded_utils import create_dem_file_RGI, generate_svf_file
+from data_processing.glacier_utils import create_dem_file_RGI, generate_svf_file
+from data_processing.oggm_utils import (
+    _initialize_oggm_config,
+    _initialize_glacier_directories,
+)
 
 
 def get_topographical_features(
@@ -128,27 +130,6 @@ def glacier_cell_area(rgi_id: str, custom_working_dir: str, cfg: config.Config):
     return cell_area
 
 
-def get_glacier_dem(rgi_id: str, custom_working_dir: str, cfg: config.Config):
-    """Given a `rgi_id` gets glacier DEM from OGGM."""
-
-    # Initialize the OGGM Config
-    _initialize_oggm_config(custom_working_dir)
-
-    # Initialize the OGGM Glacier Directory, given the RGI ID
-    gdirs = _initialize_glacier_directories([rgi_id], cfg)
-
-    # Get oggm data for that RGI ID
-    oggm_rgis = [gdir.rgi_id for gdir in gdirs]
-    if rgi_id not in oggm_rgis:
-        raise ValueError(f"RGI ID {rgi_id} not found in OGGM data")
-    for gdir in gdirs:
-        if gdir.rgi_id == rgi_id:
-            break
-    with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
-        ds = ds.load()
-    return ds
-
-
 def get_glacier_mask(rgi_id: str, custom_working_dir: str, cfg: config.Config):
     """Given a `rgi_id` gets glacier xarray from OGGM and masks it over the glacier outline."""
 
@@ -193,36 +174,6 @@ def get_glacier_mask(rgi_id: str, custom_working_dir: str, cfg: config.Config):
 def _get_unique_rgi_ids(rgi_ids: pd.Series) -> list:
     """Get the list of unique RGI IDs."""
     return rgi_ids.dropna().unique().tolist()
-
-
-def _initialize_oggm_config(custom_working_dir):
-    """Initialize OGGM configuration."""
-    oggmCfg.initialize(logging_level="WARNING")
-    oggmCfg.PARAMS["border"] = 10
-    oggmCfg.PARAMS["use_multiprocessing"] = True
-    oggmCfg.PARAMS["continue_on_error"] = True
-    if len(custom_working_dir) == 0:
-        current_path = os.getcwd()
-        oggmCfg.PATHS["working_dir"] = os.path.join(current_path, "OGGM")
-    else:
-        oggmCfg.PATHS["working_dir"] = custom_working_dir
-
-
-def _initialize_glacier_directories(rgi_ids_list: list, cfg: config.Config) -> list:
-    """Initialize glacier directories."""
-    base_url = cfg.base_url_w5e5
-    glacier_directories = workflow.init_glacier_directories(
-        rgi_ids_list,
-        reset=False,
-        from_prepro_level=3,
-        prepro_base_url=base_url,
-        prepro_border=10,
-    )
-
-    workflow.execute_entity_task(
-        tasks.gridded_attributes, glacier_directories, print_log=False
-    )
-    return glacier_directories
 
 
 def _filter_dataframe(df: pd.DataFrame, rgi_ids_list: list) -> pd.DataFrame:

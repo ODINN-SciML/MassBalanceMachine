@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 
 import config
-import data_processing.utils
+from data_processing.utils.hydro_year import months_hydro_year, _rebuild_month_index
 
 
 def get_climate_features_(
@@ -283,7 +283,7 @@ def _generate_climate_variable_names(
 ) -> list:
     """Generate list of climate variable names for one hydrological year."""
     climate_variables = list(ds_climate.keys())
-    months_names = [f"_{month}" for month in data_processing.utils.months_hydro_year]
+    months_names = [f"_{month}" for month in months_hydro_year]
 
     # extend months on both sides for longer periods:
     months_names = (
@@ -328,9 +328,7 @@ def _create_month_range(months_tail_pad, months_head_pad):
             return abbr_to_num[clean]
         raise ValueError(f"Unknown month token: {token}")
 
-    month_list, _ = data_processing.utils._rebuild_month_index(
-        months_head_pad, months_tail_pad
-    )
+    month_list, _ = _rebuild_month_index(months_head_pad, months_tail_pad)
     start_token, end_token = month_list[0], month_list[-1]
 
     start_month = token_to_num(start_token)

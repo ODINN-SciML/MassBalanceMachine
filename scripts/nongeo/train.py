@@ -102,15 +102,15 @@ print(params)
 
 
 if sourceData == "switzerland":
-    datasetManager = mbm.dataloader.VeryPoorlyNamedClassSwitzerland(
+    datasetManager = mbm.dataloader.SourceManagerSwitzerland(
         cfg, params, test_split_on="GLACIER"
     )
 elif sourceData == "iceland":
-    datasetManager = mbm.dataloader.VeryPoorlyNamedClassIceland(
+    datasetManager = mbm.dataloader.SourceManagerIceland(
         cfg, params, test_split_on="RGIId"
     )
 elif sourceData == "norway":
-    datasetManager = mbm.dataloader.VeryPoorlyNamedClassNorway(
+    datasetManager = mbm.dataloader.SourceManagerNorway(
         cfg, params, test_split_on="RGIId"
     )
 train_set, test_set, months_head_pad, months_tail_pad = datasetManager.train_test_sets()
@@ -118,8 +118,8 @@ train_set, test_set, months_head_pad, months_tail_pad = datasetManager.train_tes
 data_train = train_set["df_X"]
 data_train["y"] = train_set["y"]
 
-feature_columns = setFeatures(cfg, data_train, featuresInpModel)
-df_X_train, y_train, df_X_val, y_val = trainValData(cfg, train_set, feature_columns)
+setFeatures(cfg, data_train, featuresInpModel)
+df_X_train, y_train, df_X_val, y_val = trainValData(cfg, train_set, featuresInpModel)
 
 
 early_stop = EarlyStopping(
@@ -328,8 +328,27 @@ for key, value in args.items():
 custom_nn.fit(dataset.X, dataset.y)
 # The dataset provided in fit is not used as the datasets are overwritten in the provided train_split function
 
-# Save the model
+# Save the model in .pt format
 custom_nn.save_model(model_dir=logdir)
+
+# Save the model in .json format along with the normalization values
+custom_nn.module_.eval()
+st = custom_nn.module_.state_dict()
+
+
+class EncodeTensor(json.JSONEncoder, torch.utils.data.Dataset):
+    def default(self, obj):
+        if isinstance(obj, torch.Tensor):
+            return obj.cpu().detach().numpy().tolist()
+        return super(EncodeTensor, self).default(obj)
+
+
+norm = mbm.data_processing.Normalizer({k: cfg.bnds[k] for k in cfg.featureColumns})
+norm_values = norm.export_bounds()
+with open(os.path.join(logdir, "model.json"), "w") as f:
+    info = {"norm": norm_values, "model": st, "inputs": cfg.featureColumns}
+    json.dump(info, f, cls=EncodeTensor, sort_keys=True)
+# df_X_train.to_csv("sample_data_norway_before_norm.csv")
 
 plot_training_history(custom_nn.history, skip_first_n=5, save=False)
 plt.savefig(os.path.join(logdir, "training_history.pdf"))

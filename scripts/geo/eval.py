@@ -133,15 +133,15 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 
 keyGlacier = "GLACIER" if sourceData == "switzerland" else "RGIId"
 if sourceData == "switzerland":
-    datasetManager = mbm.dataloader.VeryPoorlyNamedClassSwitzerland(
+    datasetManager = mbm.dataloader.SourceManagerSwitzerland(
         cfg, params, test_split_on=keyGlacier
     )
 elif sourceData == "iceland":
-    datasetManager = mbm.dataloader.VeryPoorlyNamedClassIceland(
+    datasetManager = mbm.dataloader.SourceManagerIceland(
         cfg, params, test_split_on=keyGlacier
     )
 elif sourceData == "norway":
-    datasetManager = mbm.dataloader.VeryPoorlyNamedClassNorway(
+    datasetManager = mbm.dataloader.SourceManagerNorway(
         cfg, params, test_split_on=keyGlacier
     )
 train_set, test_set, months_head_pad, months_tail_pad = datasetManager.train_test_sets()
@@ -152,9 +152,9 @@ data_train["y"] = train_set["y"]
 data_test = test_set["df_X"]
 data_test["y"] = test_set["y"]
 
-feature_columns = setFeatures(cfg, data_train, featuresInpModel)
-df_X_train, y_train, df_X_val, y_val = trainValData(cfg, train_set, feature_columns)
-df_X_test_subset = testData(cfg, test_set, feature_columns)
+setFeatures(cfg, data_train, featuresInpModel)
+df_X_train, y_train, df_X_val, y_val = trainValData(cfg, train_set, featuresInpModel)
+df_X_test_subset = testData(cfg, test_set, featuresInpModel)
 
 
 # dataset = dataset_val = None  # Initialized hereafter
