@@ -27,14 +27,14 @@ from dataloader.DataLoader import DataLoader, set_dataloader_splits
 import config
 
 ###
-from regions.Switzerland.scripts.glamos_preprocess import getStakesData
+from regions.Switzerland.scripts.dataset.data_loader import (
+    process_or_load_data,
+    get_stakes_data,
+)
 from regions.Switzerland.scripts.config_CH import (
     path_PMB_GLAMOS_csv,
     path_ERA5_raw,
     path_pcsr,
-)
-from regions.Switzerland.scripts.helpers import (
-    process_or_load_data,
 )
 
 ###
@@ -254,7 +254,7 @@ class SourceManagerSwitzerland(SourceManager):
         process = False
         ###########
 
-        data_glamos = getStakesData(self.cfg)
+        data_glamos = get_stakes_data(self.cfg)
         data_glamos.drop(
             data_glamos[data_glamos.GLACIER == "taelliboden"].index, inplace=True
         )

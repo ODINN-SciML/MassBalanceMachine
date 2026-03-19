@@ -156,6 +156,9 @@ class GeoDataLoader:
                     self.cfg, g, self.periods_per_glacier
                 ):
                     self.glaciersWithGeo.append(g)
+                    self.err_target_geo[g] = (
+                        self.y_target_geo[g] * 0
+                    )  # Needed in the geodetic loss, so we just fill with zeros
             print(
                 f"Geodetic data contain {len(self.glaciersWithGeo)} glaciers out of {len(self.glacierList)}."
             )

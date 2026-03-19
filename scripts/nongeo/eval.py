@@ -5,28 +5,18 @@ sys.path.append(mbm_path)  # Add root of repo to import MBM
 
 import warnings
 import matplotlib.pyplot as plt
-from cmcrameri import cm
 import massbalancemachine as mbm
 import logging
 import torch
 import json
 import argparse
 
-import pdb
-
-from regions.Switzerland.scripts.helpers import seed_all
 from scripts.nongeo.utils import (
     getMetaData,
     buildArgs,
     trainValData,
     testData,
     setFeatures,
-)
-
-from regions.Switzerland.scripts.helpers import get_cmap_hex
-from regions.Switzerland.scripts.plots import (
-    plot_predictions_summary,
-    PlotIndividualGlacierPredVsTruth,
 )
 
 warnings.filterwarnings("ignore")
@@ -72,20 +62,10 @@ elif sourceData == "norway":
     )
 else:
     raise ValueError(f"source_data={sourceData} is unknown")
-seed_all(cfg.seed)
-
-
-# Plot styles:
-path_style_sheet = "regions/Switzerland/scripts/example.mplstyle"
-plt.style.use(path_style_sheet)
-colors = get_cmap_hex(cm.batlow, 10)
-color_dark_blue = colors[0]
-color_pink = "#c51b7d"
 
 
 if torch.cuda.is_available():
     print("CUDA is available")
-    # free_up_cuda()
 else:
     print("CUDA is NOT available")
 

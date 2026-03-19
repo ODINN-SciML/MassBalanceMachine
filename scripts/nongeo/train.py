@@ -5,7 +5,6 @@ sys.path.append(mbm_path)  # Add root of repo to import MBM
 
 import warnings
 import matplotlib.pyplot as plt
-from cmcrameri import cm
 import massbalancemachine as mbm
 import logging
 import torch
@@ -18,7 +17,6 @@ from skorch.helper import SliceDataset
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.tensorboard import SummaryWriter
 
-from regions.Switzerland.scripts.helpers import seed_all
 from scripts.common import loadParams
 from scripts.nongeo.utils import (
     getMetaData,
@@ -29,8 +27,7 @@ from scripts.nongeo.utils import (
     getLogDir,
 )
 
-from regions.Switzerland.scripts.helpers import get_cmap_hex
-from regions.Switzerland.scripts.nn_helpers import plot_training_history
+# from regions.Switzerland.scripts.nn_helpers import plot_training_history
 
 warnings.filterwarnings("ignore")
 
@@ -77,15 +74,6 @@ elif sourceData == "norway":
     )
 else:
     raise ValueError(f"source_data={sourceData} is unknown")
-seed_all(cfg.seed)
-
-
-# Plot styles:
-path_style_sheet = "regions/Switzerland/scripts/example.mplstyle"
-plt.style.use(path_style_sheet)
-colors = get_cmap_hex(cm.batlow, 10)
-color_dark_blue = colors[0]
-color_pink = "#c51b7d"
 
 
 if torch.cuda.is_available():
@@ -350,6 +338,7 @@ with open(os.path.join(logdir, "model.json"), "w") as f:
     json.dump(info, f, cls=EncodeTensor, sort_keys=True)
 # df_X_train.to_csv("sample_data_norway_before_norm.csv")
 
-plot_training_history(custom_nn.history, skip_first_n=5, save=False)
+# TODO: put back once this is implemented in MBM core
+# plot_training_history(custom_nn.history, skip_first_n=5, save=False)
 plt.savefig(os.path.join(logdir, "training_history.pdf"))
 plt.close()

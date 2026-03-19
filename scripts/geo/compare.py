@@ -14,7 +14,6 @@ import pandas as pd
 import numpy as np
 import tqdm
 
-from regions.Switzerland.scripts.helpers import seed_all
 from scripts.nongeo.utils import (
     getMetaData,
     buildArgs,

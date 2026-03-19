@@ -157,7 +157,7 @@ def test_geodataloader():
     s, m, gt = gdl.stakes(g)
     nRows = 36934
     assert s.shape == (nRows, 16)
-    assert m.shape == (nRows, 8)
+    assert m.shape == (nRows, 14)
     assert gt.shape == (nRows,)
     x, m, y, _ = gdl.geo(g)
     nRows = 227604

@@ -10,7 +10,6 @@ import argparse
 import massbalancemachine as mbm
 
 from scripts.common import (
-    # seed_all,
     loadParams,
 )
 from scripts.nongeo.utils import getMetaData, setFeatures, trainValData, testData
@@ -67,7 +66,6 @@ elif sourceData == "norway":
     )
 else:
     raise ValueError(f"source_data={sourceData} is unknown")
-# seed_all(cfg.seed)
 
 
 keyGlacier = "GLACIER" if sourceData == "switzerland" else "RGIId"

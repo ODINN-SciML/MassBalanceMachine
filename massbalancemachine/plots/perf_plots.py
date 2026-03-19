@@ -6,7 +6,6 @@ import math
 
 import metrics
 
-
 overwrite_legend = {"pearson_corr": "\\rho", "R2": "R^2", "r2": "R^2"}
 
 

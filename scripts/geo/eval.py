@@ -5,7 +5,6 @@ sys.path.append(mbm_path)  # Add root of repo to import MBM
 
 import warnings
 import matplotlib.pyplot as plt
-from cmcrameri import cm
 import massbalancemachine as mbm
 import logging
 import torch
@@ -15,7 +14,6 @@ import pandas as pd
 import numpy as np
 import tqdm
 
-from regions.Switzerland.scripts.helpers import seed_all
 from scripts.nongeo.utils import (
     getMetaData,
     buildArgs,
@@ -23,8 +21,6 @@ from scripts.nongeo.utils import (
     testData,
     setFeatures,
 )
-
-from regions.Switzerland.scripts.helpers import get_cmap_hex
 
 warnings.filterwarnings("ignore")
 
@@ -109,15 +105,6 @@ elif sourceData == "norway":
     )
 else:
     raise ValueError(f"source_data={sourceData} is unknown")
-seed_all(cfg.seed)
-
-
-# Plot styles:
-# path_style_sheet = "regions/Switzerland/scripts/example.mplstyle"
-# plt.style.use(path_style_sheet)
-colors = get_cmap_hex(cm.batlow, 10)
-color_dark_blue = colors[0]
-color_pink = "#c51b7d"
 
 
 if torch.cuda.is_available():

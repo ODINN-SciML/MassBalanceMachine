@@ -10,7 +10,6 @@ import xarray as xr
 import rvt.vis
 import argparse
 
-
 parser = argparse.ArgumentParser("Generate sky view factor netCDF file.")
 parser.add_argument(
     "rgi_folder",
