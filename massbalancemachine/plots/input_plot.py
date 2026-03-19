@@ -1,18 +1,8 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Thu Jan 22 11:00:37 2026
-
-@author: joachim piret
-"""
-
 import matplotlib.pyplot as plt
-
-# import seaborn as sns
 import numpy as np
 
 
-def scatterplot_training_data(
+def scatterplot_mb(
     grouped_ids,
     ax=None,
     title="",
@@ -25,8 +15,6 @@ def scatterplot_training_data(
     test_data=None,
     vvmin=None,
     vvmax=None,
-    train_kwargs=None,
-    test_kwargs=None,
 ):
     """
     Plots training point mass balance (PMB) as fonction of surface elevation with density of point within hexagons.
@@ -55,8 +43,6 @@ def scatterplot_training_data(
         DataFrame containing at least 'target' (observed values) and 'pred' (predicted values) columns for the test data.
     vvmin, vvmax : float, optional
         Lower and upper limit of the colormap
-    **kwargs
-        Additional keyword arguments passed to plt.scatter.
 
     Returns
     -------
@@ -77,7 +63,7 @@ def scatterplot_training_data(
     ix = np.searchsorted(xedges, x) - 1
     iy = np.searchsorted(yedges, y) - 1
     z = counts[ix, iy]
-    if vvmin == None:
+    if vvmin is None:
         vvmax = max(z)
         vvmin = min(z)
     # sc = ax.scatter(x, y, c=z,vmin = vvmin, vmax = vvmax, cmap="viridis", s=10, marker = 'o',label = 'train_data')
@@ -125,7 +111,7 @@ def scatterplot_training_data(
     return fig  # To log figure during training
 
 
-def histogram_training_data(
+def histogram_mb(
     grouped_ids,
     axs=None,
     title="",
@@ -135,11 +121,9 @@ def histogram_training_data(
     ax_xlim=None,
     ax_ylim=None,
     test_data=None,
-    train_kwargs=None,
-    test_kwargs=None,
 ):
     """
-    Plots training point mass balance (PMB) as fonction of surface elevation,
+    Plots training point mass balance (PMB) histogram,
 
     Parameters
     ----------
@@ -161,8 +145,6 @@ def histogram_training_data(
         y-axis limits as (min, max).
     test_data : pandas.DataFrame
         DataFrame containing at least 'target' (observed values) and 'pred' (predicted values) columns for the test data.
-    **kwargs
-        Additional keyword arguments passed to plt.scatter.
 
     Returns
     -------

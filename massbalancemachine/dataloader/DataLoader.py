@@ -130,7 +130,7 @@ class DataLoader:
 
         Note:
         This can be useful when you divide the train and test ensembles based on subregion since this requires to make the sampling N times and then choose the
-        train-test division closest to the 70-30 repartition. At each iteration the Dataloader object is redifined as well as
+        train-test division closest to, for example, the 70-30 repartition. At each iteration the Dataloader object is redifined as well as
         self.train_indices and self.test_indices meaning that the information in the Dataloader object are those of the last iterations
         and not those of the  train-test division chosen after comparing to the 70-30 repartition.
         This function aims to correct this by reassigning the indices of the chosen sampling.
