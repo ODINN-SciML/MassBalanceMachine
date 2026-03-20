@@ -430,6 +430,7 @@ def train_geo(
     params,  # this argument is here just because it is easier to save them when we define the tensorboard logger
     scheduler=None,
     geodataloader_test=None,
+    timeExec=False,
 ):
     """
     Train a model with both stake measurements and geodetic data.
@@ -443,6 +444,7 @@ def train_geo(
         scheduler (PyTorch LR scheduler): The learning rate scheduler (optional).
         geodataloader_test (GeoDataLoader): Optional dataloader that provides both
             stake measurements and geodetic data on the test set.
+        timeExec (bool): Whether to evaluate loading and inference time.
     """
     Nepochs = trainCfg["Nepochs"]
     wGeo = trainCfg.get("wGeo", 1.0)
@@ -517,7 +519,9 @@ def train_geo(
                 for batch_idx, g in enumerate(geodataloader.glaciers()):
                     optim.zero_grad()
 
-                    st = time.time()
+                    if timeExec:
+                        torch.cuda.synchronize()
+                        st = time.time()
                     stakes, metadata, point_balance = geodataloader.stakes(g)
                     stakes = torch.tensor(stakes.astype(np.float32)).to(
                         geodataloader.device
@@ -525,19 +529,25 @@ def train_geo(
                     point_balance = torch.tensor(point_balance.astype(np.float32)).to(
                         geodataloader.device
                     )
-                    stakesDataloaderTime = time.time() - st
-                    st = time.time()
+                    if timeExec:
+                        torch.cuda.synchronize()
+                        stakesDataloaderTime = time.time() - st
+                        st = time.time()
                     lossStake, _, _ = compute_stake_loss(
                         model, stakes, metadata, point_balance
                     )
-                    stakesInferenceTime = time.time() - st
+                    if timeExec:
+                        torch.cuda.synchronize()
+                        stakesInferenceTime = time.time() - st
 
                     valScalingStakes = (
                         stakes.shape[0] if scalingStakes == "meas" else 1.0
                     )
                     lossStake = lossStake * valScalingStakes
                     if wGeo > 0 and geodataloader.hasGeo(g):
-                        st = time.time()
+                        if timeExec:
+                            torch.cuda.synchronize()
+                            st = time.time()
                         geoGrid, metadata, ygeo, errgeo = geodataloader.geo(g)
                         geoGrid = torch.tensor(geoGrid.astype(np.float32)).to(
                             geodataloader.device
@@ -548,13 +558,19 @@ def train_geo(
                         errgeo = torch.tensor(errgeo.astype(np.float32)).to(
                             geodataloader.device
                         )
-                        geoDataloaderTime = time.time() - st
+                        if timeExec:
+                            torch.cuda.synchronize()
+                            geoDataloaderTime = time.time() - st
                         geod_periods = geodataloader.periods_per_glacier[g]
-                        st = time.time()
+                        if timeExec:
+                            torch.cuda.synchronize()
+                            st = time.time()
                         lossGeo = compute_geo_loss(
                             model, geoGrid, metadata, ygeo, errgeo, geod_periods
                         )
-                        geoInferenceTime = time.time() - st
+                        if timeExec:
+                            torch.cuda.synchronize()
+                            geoInferenceTime = time.time() - st
 
                         loss = lossStake + wGeo * lossGeo
                     else:
@@ -563,9 +579,14 @@ def train_geo(
                         geoDataloaderTime = 0.0
                         geoInferenceTime = 0.0
 
-                    # TODO: time the backward
+                    if timeExec:
+                        torch.cuda.synchronize()
+                        st = time.time()
                     loss.backward()
                     optim.step()
+                    if timeExec:
+                        torch.cuda.synchronize()
+                        backwardOptimTime = time.time() - st
 
                     lr = optim.param_groups[0]["lr"]
                     statsTraining["lossStake"].append(lossStake.item())
@@ -583,14 +604,22 @@ def train_geo(
                     writer.add_scalar("Step", optim.param_groups[0]["lr"], globalStep)
 
                     # Timing
-                    writer.add_scalar(
-                        "TimeLoading/stakes", stakesDataloaderTime, globalStep
-                    )
-                    writer.add_scalar("TimeLoading/geo", geoDataloaderTime, globalStep)
-                    writer.add_scalar(
-                        "TimeInference/stakes", stakesInferenceTime, globalStep
-                    )
-                    writer.add_scalar("TimeInference/geo", geoInferenceTime, globalStep)
+                    if timeExec:
+                        writer.add_scalar(
+                            "TimeLoading/stakes", stakesDataloaderTime, globalStep
+                        )
+                        writer.add_scalar(
+                            "TimeLoading/geo", geoDataloaderTime, globalStep
+                        )
+                        writer.add_scalar(
+                            "TimeInference/stakes", stakesInferenceTime, globalStep
+                        )
+                        writer.add_scalar(
+                            "TimeInference/geo", geoInferenceTime, globalStep
+                        )
+                        writer.add_scalar(
+                            "TimeBackwardOptim", backwardOptimTime, globalStep
+                        )
 
                     batch_bar.set_postfix(
                         loss=f"{statsTraining['loss'][-1]:.4f}",

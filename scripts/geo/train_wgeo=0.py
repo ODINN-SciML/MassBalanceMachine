@@ -31,12 +31,20 @@ parser.add_argument(
     action="store_true",
     help="Do not evaluate on the test set during training.",
 )
+parser.add_argument(
+    "--time",
+    dest="time",
+    default=False,
+    action="store_true",
+    help="Evaluate loading and inference time.",
+)
 args = parser.parse_args()
 
 params = loadParams(args.modelType)
 modelToLoad = args.load
 cpu = args.cpu
 noTest = args.noTest
+timeExec = args.time
 featuresInpModel = params["model"]["inputs"]
 sourceData = params["training"]["source_data"]
 
@@ -190,6 +198,7 @@ ret = mbm.training.train_geo(
     params,
     scheduler=scheduler,
     geodataloader_test=gdl_test,
+    timeExec=timeExec,
 )
 
 print()
