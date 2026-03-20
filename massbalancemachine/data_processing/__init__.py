@@ -6,4 +6,8 @@ from data_processing.Dataset import (
     MBSequenceDataset,
 )
 import data_processing.utils
-from data_processing.wgms import load_wgms_data
+from data_processing.wgms import (
+    check_and_download_wgms,
+    load_wgms_data,
+    parse_wgms_format,
+)
