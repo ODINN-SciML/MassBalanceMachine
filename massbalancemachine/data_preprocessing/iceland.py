@@ -8,9 +8,11 @@ from data_processing.product_utils import mbm_path
 from data_processing.utils import get_rgi
 from data_retrieval.iceland import download_all_stakes_data
 from data_processing.Product import Product
+from data_processing.Dataset import Dataset
 
 iceland_path = os.path.join(mbm_path, ".data/stakes/iceland/")
 raw_stakes_path = os.path.join(iceland_path, "stakes.csv")
+processed_features_stakes_path = os.path.join(iceland_path, "processed.csv")
 
 
 def raw_data():
@@ -88,14 +90,14 @@ def parse_raw_data():
 
     annual_inconsistent, winter_inconsistent = check_period_consistency(df_stakes_split)
 
-    # Display the inconsistent records
-    if len(annual_inconsistent) > 0:
-        print("\nInconsistent annual periods:")
-        display(annual_inconsistent)
+    # # Display the inconsistent records
+    # if len(annual_inconsistent) > 0:
+    #     print("\nInconsistent annual periods:")
+    #     display(annual_inconsistent)
 
-    if len(winter_inconsistent) > 0:
-        print("\nInconsistent winter periods:")
-        display(winter_inconsistent)
+    # if len(winter_inconsistent) > 0:
+    #     print("\nInconsistent winter periods:")
+    #     display(winter_inconsistent)
 
     # Only index 5084 is unreasonabl (-2), probably wrong FROM_DATE year, change to year - 1
     df_stakes_split.loc[df_stakes_split["stake"] == "GL10a", "FROM_DATE"] = "19960825"
@@ -108,7 +110,7 @@ def parse_raw_data():
             "lat": "POINT_LAT",
             "lon": "POINT_LON",
             "elevation": "POINT_ELEVATION",
-            "stake": "ID",
+            "stake": "POINT_ID",
         }
     )
 
@@ -123,14 +125,8 @@ def parse_raw_data():
         f"Rows with NaN values after removal: {len(df_stakes_renamed[df_stakes_renamed.isna().any(axis=1)])}"
     )
 
-    # Load glacier outlines
-    rgi_file = oggm.utils.get_rgi_region_file(region="06", version="62")
-    glacier_outline = gpd.read_file(rgi_file)
-
     # Add RGI IDs through intersection
-    df_stakes_renamed_rgiid = get_rgi(
-        data=df_stakes_renamed, glacier_outlines=glacier_outline
-    )
+    df_stakes_renamed_rgiid = get_rgi(data=df_stakes_renamed, region=6)
 
     # display(df_stakes_renamed_rgiid[df_stakes_renamed_rgiid['RGIId'].isna()])
     # Remove (nine) stakes without RGIId, as they wont have OGGM data anyways
@@ -251,3 +247,30 @@ def check_period_consistency(df):
     )
 
     return annual_inconsistent, winter_inconsistent
+
+
+def build_monthly_data(data, cfg):
+
+    dataset = Dataset(cfg, data=data, region_name="iceland", region_id=6)
+
+    voi_topographical = ["aspect", "slope", "svf"]
+
+    # Retrieve the topographical features for each stake measurement based on the latitude and longitude of the stake and add them to the dataset
+    dataset.get_topo_features(vois=voi_topographical)
+
+    df = dataset.data
+    df["MONTH_START"] = [str(date)[4:6] for date in df.FROM_DATE]
+    df["MONTH_END"] = [str(date)[4:6] for date in df.TO_DATE]
+    # df.MONTH_START.unique(), df.MONTH_END.unique()
+
+    dataset.get_climate_features()
+
+    # Specify the short names of the climate variables available in the dataset
+    vois_climate = ["t2m", "tp", "slhf", "sshf", "ssrd", "fal", "str"]
+
+    # For each record, convert to a monthly time resolution
+    dataset.convert_to_monthly(
+        vois_climate=vois_climate, vois_topographical=voi_topographical
+    )
+
+    dataset.data.to_csv(processed_features_stakes_path, index=False)

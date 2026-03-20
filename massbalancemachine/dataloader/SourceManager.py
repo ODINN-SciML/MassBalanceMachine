@@ -23,7 +23,9 @@ import git
 # from data_processing.utils import build_head_tail_pads_from_monthly_df, get_hash
 from data_processing.utils.hydro_year import build_head_tail_pads_from_monthly_df
 from data_processing.utils.data_preprocessing import get_hash
+from data_processing.Product import Product
 from dataloader.DataLoader import DataLoader, set_dataloader_splits
+import data_preprocessing.iceland
 import config
 
 ###
@@ -318,23 +320,31 @@ class SourceManagerIceland(SourceManager):
                 )
             )
         else:
-            raise NotImplementedError()
+            p = Product(data_preprocessing.iceland.processed_features_stakes_path)
+            if not p.is_up_to_date():
+                data = data_preprocessing.iceland.raw_data()
+                data_preprocessing.iceland.build_monthly_data(data, self.cfg)
+                p.gen_chk()
+            data = pd.read_csv(
+                data_preprocessing.iceland.processed_features_stakes_path
+            )
 
         data["aspect"] = 180 * data["aspect"] / np.pi
         data["slope"] = 180 * data["slope"] / np.pi
         data["t2m"] = data["t2m"] - 273.15
 
-        # Add period column
-        data = data.assign(PERIOD="")
-        for ID in data[data.N_MONTHS <= 8].ID.unique():
-            sub = data[data.ID == ID]
-            months = sub.MONTHS.to_numpy()
-            if "jan" in months:
-                data.loc[data.ID == ID, "PERIOD"] = "winter"
-            elif "jul" in months:
-                data.loc[data.ID == ID, "PERIOD"] = "summer"
-        data.loc[data.N_MONTHS > 8, "PERIOD"] = "annual"
-        assert data.PERIOD.nunique() == 3
+        if self.light:
+            # Add period column for the light data, for the full dataset this is already done in the preprocessing
+            data = data.assign(PERIOD="")
+            for ID in data[data.N_MONTHS <= 8].ID.unique():
+                sub = data[data.ID == ID]
+                months = sub.MONTHS.to_numpy()
+                if "jan" in months:
+                    data.loc[data.ID == ID, "PERIOD"] = "winter"
+                elif "jul" in months:
+                    data.loc[data.ID == ID, "PERIOD"] = "summer"
+            data.loc[data.N_MONTHS > 8, "PERIOD"] = "annual"
+            assert data.PERIOD.nunique() == 3
 
         dataloader = DataLoader(
             self.cfg,
