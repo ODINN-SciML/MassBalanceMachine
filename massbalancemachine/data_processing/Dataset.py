@@ -59,6 +59,7 @@ class Dataset:
         region_id (str): The region ID, for saving the files accordingly and eventually downloading them if needed
         data_dir (str): Path to the directory containing the raw data, and save intermediate results
         RGIIds (pd.Series): Series of RGI IDs from the data
+        output_format (str): csv or parquet
         months_tail_pad (list of str): Months to pad the start of the hydrological year
         months_head_pad (list of str): Months to pad the end of the hydrological year
     """
@@ -70,6 +71,7 @@ class Dataset:
         region_name: str,
         region_id: int,
         data_path: str = None,
+        output_format: str = "csv",
         months_tail_pad=None,  #: List[str] = ['aug_', 'sep_'], # before 'oct'
         months_head_pad=None,  #: List[str] = ['oct_'], # after 'sep'
     ):
@@ -81,7 +83,8 @@ class Dataset:
         self.RGIIds = self.data["RGIId"]
         if self.data_dir is not None and not os.path.isdir(self.data_dir):
             os.makedirs(self.data_dir, exist_ok=True)
-
+        assert output_format in ["csv", "parquet"], "format must be csv or parquet"
+        self.output_format = output_format
         # Padding to allow for flexible month ranges (customize freely)
         assert (months_head_pad is None) == (
             months_tail_pad is None
@@ -101,7 +104,9 @@ class Dataset:
             vois (list[str]): A string containing the topographical variables of interest
             custom_working_dir (str, optional): The path to the custom working directory for OGGM data. Default to ''
         """
-        output_fname = self._get_output_filename("topographical_features")
+        output_fname = self._get_output_filename(
+            "topographical_features", self.output_format
+        )
         self.data = get_topographical_features(
             self.data, output_fname, vois, self.RGIIds, custom_working_dir, self.cfg
         )
@@ -124,7 +129,7 @@ class Dataset:
             change_units (bool, optional): A boolean indicating whether to change the units of the climate data. Default to False.
             smoothing_vois (dict, optional): A dictionary containing the variables of interest for smoothing climate artifacts. Default to None.
         """
-        output_fname = self._get_output_filename("climate_features")
+        output_fname = self._get_output_filename("climate_features", self.output_format)
 
         smoothing_vois = smoothing_vois or {}  # Safely default to empty dict
         vois_climate = smoothing_vois.get("vois_climate")
@@ -208,9 +213,14 @@ class Dataset:
         """
         if meta_data_columns is None:
             meta_data_columns = self.cfg.metaData
-        output_fname = self._get_output_filename("monthly_dataset")
+        output_fname = self._get_output_filename("monthly_dataset", self.output_format)
         self.data = transform_to_monthly(
-            self.data, meta_data_columns, vois_climate, vois_topographical, output_fname
+            self.data,
+            meta_data_columns,
+            vois_climate,
+            vois_topographical,
+            output_fname,
+            self.output_format,
         )
 
     def get_glacier_mask(
@@ -269,20 +279,22 @@ class Dataset:
         df_grid = create_glacier_grid_RGI(ds, years, glacier_indices, gdir, rgi_id)
         return df_grid
 
-    def _get_output_filename(self, feature_type: str) -> str:
+    def _get_output_filename(self, feature_type: str, output_format: str) -> str:
         """
         Generates the output filename for a given feature type.
 
         Args:
             feature_type (str): The type of feature (e.g., "topographical_features", "climate_features", "monthly")
-
+            format : csv or parquet
         Returns:
             str: The full path to the output file
         """
         if self.data_dir is None:
             return None
         else:
-            return os.path.join(self.data_dir, f"{self.region}_{feature_type}.csv")
+            return os.path.join(
+                self.data_dir, f"{self.region}_{feature_type}.{output_format}"
+            )
 
     def _copy_padded_month_columns(
         self, df: pd.DataFrame, prefixes=("pcsr",), overwrite: bool = False
@@ -398,7 +410,6 @@ class AggregatedDataset(torch.utils.data.Dataset):
         self.metadata = metadata
         self.metadataColumns = metadataColumns or self.cfg.metaData
         self.targets = targets
-
         assert len(self.features) > 0, "The features variable is empty."
 
         _, self.month_pos = _rebuild_month_index(months_head_pad, months_tail_pad)
@@ -409,10 +420,8 @@ class AggregatedDataset(torch.utils.data.Dataset):
                 for i in range(len(self.metadata))
             ]
         )
-        self.uniqueID = np.unique(self.ID)
-        self.maxConcatNb = max(
-            [len(np.argwhere(self.ID == id)[:, 0]) for id in self.uniqueID]
-        )
+        self.uniqueID, counts = np.unique(self.ID, return_counts=True)
+        self.maxConcatNb = counts.max()
         self.nbFeatures = self.features.shape[1]
         self.nbMetadata = self.metadata.shape[1]
         self.norm = Normalizer({k: cfg.bnds[k] for k in cfg.featureColumns})
@@ -434,14 +443,19 @@ class AggregatedDataset(torch.utils.data.Dataset):
                 corresponding indices the cross validation should use according to
                 the input splits variable.
         """
+        # Precompute the mapping of unique IDs to indices
+        uniqueID_to_indices = {
+            uid: np.where(self.uniqueID == uid)[0] for uid in self.uniqueID
+        }
         ret = []
         for split in splits:
             t = []
             for e in split:
-                uniqueSelectedId = np.unique(self.ID[e])
-                ind = np.argwhere(self.uniqueID[None, :] == uniqueSelectedId[:, None])[
-                    :, 1
-                ]
+                uniqueSelectedId = np.unique(self.ID[e])  # Get the unique selected IDs
+                # Use the precomputed mapping for fast lookups
+                ind = np.concatenate(
+                    [uniqueID_to_indices[uid] for uid in uniqueSelectedId]
+                )
                 assert all(uniqueSelectedId == self.uniqueID[ind])
                 t.append(ind)
             ret.append(tuple(t))
