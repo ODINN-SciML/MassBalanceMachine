@@ -298,7 +298,7 @@ class SourceManagerSwitzerland(SourceManager):
 
 
 class SourceManagerIceland(SourceManager):
-    def __init__(self, cfg, params, *args, **kwargs):
+    def __init__(self, cfg, params, *args, light=False, **kwargs):
         self.train_glaciers = (
             params["training"].get("train_glaciers") or _default_train_glaciers_iceland
         )
@@ -306,15 +306,19 @@ class SourceManagerIceland(SourceManager):
             params["training"].get("test_glaciers") or _default_test_glaciers_iceland
         )
         super().__init__(cfg, params, *args, **kwargs)
+        self.light = light
 
     def load_stakes_data(self):
         # TODO: for the moment the arguments are the RGIId but we should manage this properly in the future
-        data = pd.read_csv(
-            os.path.join(
-                mbm_path,
-                "notebooks/example_data/iceland/files/iceland_monthly_dataset.csv",
+        if self.light:
+            data = pd.read_csv(
+                os.path.join(
+                    mbm_path,
+                    "notebooks/example_data/iceland/files/iceland_monthly_dataset.csv",
+                )
             )
-        )
+        else:
+            raise NotImplementedError()
 
         data["aspect"] = 180 * data["aspect"] / np.pi
         data["slope"] = 180 * data["slope"] / np.pi
