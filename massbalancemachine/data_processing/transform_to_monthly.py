@@ -18,7 +18,7 @@ def transform_to_monthly(
     vois_climate: "list[str]",
     vois_topographical: "list[str]",
     output_fname: str,
-    output_format: str
+    output_format: str,
 ) -> pd.DataFrame:
     """
     Converts the DataFrame to a monthly format based on climate-related columns.
@@ -52,13 +52,13 @@ def transform_to_monthly(
 
     # Create the final dataframe with the new exploded climate data
     result_df = _create_result_dataframe(df_exploded, column_names, vois_climate)
-    
-    if output_format == 'csv':
+
+    if output_format == "csv":
         result_df.to_csv(output_fname, index=False)
-    elif output_format == 'parquet':
+    elif output_format == "parquet":
         result_df.to_parquet(output_fname, index=False)
-    else : 
-        print('output format must be csv or parquet')
+    else:
+        print("output format must be csv or parquet")
     return result_df
 
 

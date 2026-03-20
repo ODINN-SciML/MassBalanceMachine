@@ -8,6 +8,7 @@ from data_processing.glacier_utils import get_region_area_bounds
 
 
 def path_climate_data(region):
+    """Return path of data for a given region (string or integer)."""
     if not isinstance(region, str):
         region = f"{region:02d}"
     return f".data/{region}/"
