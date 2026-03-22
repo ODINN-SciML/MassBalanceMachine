@@ -67,6 +67,16 @@ def parse_raw_data():
         .str[:4]
         .astype(float)
     )
+    # Some entries still need a correction because in the line above TO_DATE was NaN
+    year_nan_mask = df_stakes_split["YEAR"].isna() & (
+        df_stakes_split["PERIOD"] == "summer"
+    )
+    df_stakes_split.loc[year_nan_mask, "YEAR"] = (
+        df_stakes_split.loc[year_nan_mask, "FROM_DATE"]
+        .astype(str)
+        .str[:4]
+        .astype(float)
+    )
 
     # Data modification column update
     date_nan_mask = (
@@ -88,21 +98,31 @@ def parse_raw_data():
     )
     df_stakes_split.YEAR = df_stakes_split.YEAR.astype(int)
 
-    annual_inconsistent, winter_inconsistent = check_period_consistency(df_stakes_split)
+    annual_inconsistent, winter_inconsistent, summer_inconsistent = (
+        check_period_consistency(df_stakes_split)
+    )
 
-    # # Display the inconsistent records
-    # if len(annual_inconsistent) > 0:
-    #     print("\nInconsistent annual periods:")
-    #     display(annual_inconsistent)
+    # Display the inconsistent records
+    if len(annual_inconsistent) > 0:
+        print("\nInconsistent annual periods:")
+        print(annual_inconsistent)
 
-    # if len(winter_inconsistent) > 0:
-    #     print("\nInconsistent winter periods:")
-    #     display(winter_inconsistent)
+    if len(winter_inconsistent) > 0:
+        print("\nInconsistent winter periods:")
+        print(winter_inconsistent)
 
-    # Only index 5084 is unreasonabl (-2), probably wrong FROM_DATE year, change to year - 1
+    if len(summer_inconsistent) > 0:
+        print("\nInconsistent summer periods:")
+        print(summer_inconsistent)
+
+    # Stake `GL10a` is unreasonable (-2), probably wrong FROM_DATE year, change to year - 1
     df_stakes_split.loc[df_stakes_split["stake"] == "GL10a", "FROM_DATE"] = "19960825"
     df_stakes_split.loc[df_stakes_split["stake"] == "GL10a", "DATA_MODIFICATION"] = (
         "FROM_DATE year corrected from 1997 to 1996"
+    )
+    # Impossible to retrieve FROM_DATE and TO_DATE for stake `BB25`
+    df_stakes_split.drop(
+        df_stakes_split[df_stakes_split.stake == "BB25"].index, inplace=True
     )
 
     df_stakes_renamed = df_stakes_split.rename(
@@ -162,19 +182,17 @@ def split_stake_measurements(df_stakes):
     winter_df["POINT_BALANCE"] = winter_df["bw_floating_date"]
     winter_df["PERIOD"] = "winter"
     winter_df["YEAR"] = annual_df["yr"]
-    """
+
     # Create summer measurements dataframe - only where bs is not NaN
-    summer_df = df_stakes[df_stakes['bs_floating_date'].notna()].copy()
-    summer_df['FROM_DATE'] = summer_df['d2']
-    summer_df['TO_DATE'] = summer_df['d3']
-    summer_df['POINT_BALANCE'] = summer_df['bs_floating_date']
-    summer_df['PERIOD'] = 'summer'
-    summer_df['YEAR'] = annual_df['yr']
-    """
-    # Combine both dataframes
-    combined_df = pd.concat(
-        [annual_df, winter_df], ignore_index=True
-    )  # Add ", summer_df" if needed
+    summer_df = df_stakes[df_stakes["bs_floating_date"].notna()].copy()
+    summer_df["FROM_DATE"] = summer_df["d2"]
+    summer_df["TO_DATE"] = summer_df["d3"]
+    summer_df["POINT_BALANCE"] = summer_df["bs_floating_date"]
+    summer_df["PERIOD"] = "summer"
+    summer_df["YEAR"] = annual_df["yr"]
+
+    # Combine the three dataframes
+    combined_df = pd.concat([annual_df, winter_df, summer_df], ignore_index=True)
 
     # Select only necessary columns
     columns_to_drop = [
@@ -225,7 +243,7 @@ def check_period_consistency(df):
     )
 
     # Identify inconsistent periods
-    ## 9-15 and 4-9 excludes the normal varying range
+    ## 9-15, 4-9 and 2-8 excludes the normal varying range
     annual_inconsistent = df_check[
         (df_check["PERIOD"] == "annual")
         & ((df_check["MONTH_DIFF"] < 9) | (df_check["MONTH_DIFF"] > 15))
@@ -236,8 +254,14 @@ def check_period_consistency(df):
         & ((df_check["MONTH_DIFF"] < 4) | (df_check["MONTH_DIFF"] > 9))
     ]
 
+    summer_inconsistent = df_check[
+        (df_check["PERIOD"] == "summer")
+        & ((df_check["MONTH_DIFF"] < 2) | (df_check["MONTH_DIFF"] > 8))
+    ]
+
     total_annual = len(df_check[df_check["PERIOD"] == "annual"])
     total_winter = len(df_check[df_check["PERIOD"] == "winter"])
+    total_summer = len(df_check[df_check["PERIOD"] == "summer"])
 
     print(
         f"Annual periods: {len(annual_inconsistent)} out of {total_annual} ({len(annual_inconsistent)/total_annual*100:.1f}%) are inconsistent"
@@ -245,8 +269,11 @@ def check_period_consistency(df):
     print(
         f"Winter periods: {len(winter_inconsistent)} out of {total_winter} ({len(winter_inconsistent)/total_winter*100:.1f}%) are inconsistent"
     )
+    print(
+        f"Summer periods: {len(summer_inconsistent)} out of {total_summer} ({len(summer_inconsistent)/total_summer*100:.1f}%) are inconsistent"
+    )
 
-    return annual_inconsistent, winter_inconsistent
+    return annual_inconsistent, winter_inconsistent, summer_inconsistent
 
 
 def build_monthly_data(data, cfg):
