@@ -6,6 +6,7 @@ sys.path.append(mbm_path)  # Add root of repo to import MBM
 # import warnings
 from datetime import datetime
 import massbalancemachine as mbm
+import numpy as np
 import torch
 import torch.nn as nn
 from skorch.helper import SliceDataset
@@ -100,10 +101,22 @@ def getDatasets(
     features, metadata = mbm.data_processing.utils.create_features_metadata(
         cfg, df_X_train
     )
+    if np.isnan(features).any():
+        print(
+            f"Summary of the columns (out of {len(df_X_train)} rows) that contain NaN values:"
+        )
+        print(df_X_train.isna().sum())
+        raise ValueError("Training features contain NaN, check the details above.")
 
     features_val, metadata_val = mbm.data_processing.utils.create_features_metadata(
         cfg, df_X_val
     )
+    if np.isnan(features_val).any():
+        print(
+            f"Summary of the columns (out of {len(df_X_val)} rows) that contain NaN values:"
+        )
+        print(df_X_val.isna().sum())
+        raise ValueError("Validation features contain NaN, check the details above.")
 
     # Define the dataset for the NN
     dataset = mbm.data_processing.AggregatedDataset(
