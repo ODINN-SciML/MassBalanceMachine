@@ -1,4 +1,5 @@
 import os
+import shutil
 import urllib.request
 import zipfile
 import pandas as pd
@@ -7,18 +8,23 @@ wgms_zip_file = "DOI-WGMS-FoG-2026-02-10.zip"
 data_path = ".data"
 
 wgms_source_data_link = f"https://wgms.ch/downloads/{wgms_zip_file}"
-local_path_wgms = f"{data_path}/{wgms_zip_file}"
+local_path_wgms = f"{data_path}/WGMS/{wgms_zip_file}"
 
-wgms_folder = f"{data_path}/{wgms_zip_file.replace('.zip', '')}"
+wgms_folder = f"{data_path}/WGMS/{wgms_zip_file.replace('.zip', '')}"
+
+
+def _clean_extracted_wgms():
+    if os.path.isdir(wgms_folder):
+        shutil.rmtree(wgms_folder)
 
 
 def check_and_download_wgms():
-    os.makedirs(data_path, exist_ok=True)
+    os.makedirs(f"{data_path}/WGMS/", exist_ok=True)
     if not os.path.isdir(wgms_folder):
         if not os.path.isfile(local_path_wgms):
-            print("Downloading from WGMS website")
+            print("Downloading data from WGMS website")
             urllib.request.urlretrieve(wgms_source_data_link, local_path_wgms)
-        print("Unzipping file")
+        print("Unzipping WGMS archive")
         with zipfile.ZipFile(local_path_wgms, "r") as zip_ref:
             zip_ref.extractall(wgms_folder)
 
@@ -72,7 +78,6 @@ def parse_wgms_format(data_mb):
             "density",
             "density_unc",
             "method",
-            "balance_code",
             "remarks",
         ]
     )
@@ -86,9 +91,33 @@ def parse_wgms_format(data_mb):
             "elevation": "POINT_ELEVATION",
             "begin_date": "FROM_DATE",
             "end_date": "TO_DATE",
+            "balance_code": "PERIOD",
         },
     )
+    assert new_df.ID.nunique() == new_df.shape[0], "It seems that ID are not unique"
+
     new_df["FROM_DATE"] = pd.to_datetime(new_df["FROM_DATE"]).dt.strftime("%Y%m%d")
-    new_df["TO_DATE"] = pd.to_datetime(new_df["FROM_DATE"]).dt.strftime("%Y%m%d")
+    new_df["TO_DATE"] = pd.to_datetime(new_df["TO_DATE"]).dt.strftime("%Y%m%d")
 
     return new_df
+
+
+def filter_dates(df):
+    # Remove points for which the dates have a too large uncertainty
+    threshold_date_uncertainty = 5
+    filtered_df = df[
+        (df.end_date_unc <= threshold_date_uncertainty)
+        & (df.begin_date_unc <= threshold_date_uncertainty)
+    ]
+
+    return filtered_df
+
+
+def load_processed_wgms(rgi_region=None):
+    check_and_download_wgms()
+    df = load_wgms_data()
+    df = filter_dates(df)
+    df = parse_wgms_format(df)
+    if rgi_region is not None:
+        df = df.loc[df.rgi_region == rgi_region]
+    return df
