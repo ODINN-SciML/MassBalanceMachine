@@ -195,8 +195,14 @@ def _retrieve_topo_features(
     """Find the nearest recorded point with topographical features on the glacier for each stake."""
 
     for gdir, gdir_grid in zip(glacier_directories, gdirs_gridded):
-        lat = grouped_stakes.get_group(gdir.rgi_id)[["POINT_LAT"]].values.flatten()
-        lon = grouped_stakes.get_group(gdir.rgi_id)[["POINT_LON"]].values.flatten()
+        lat = xr.DataArray(
+            grouped_stakes.get_group(gdir.rgi_id)[["POINT_LAT"]].values.flatten(),
+            dims="points",
+        )
+        lon = xr.DataArray(
+            grouped_stakes.get_group(gdir.rgi_id)[["POINT_LON"]].values.flatten(),
+            dims="points",
+        )
 
         topo_data = (
             gdir_grid.sel(x=lon, y=lat, method="nearest")[voi]
@@ -204,4 +210,4 @@ def _retrieve_topo_features(
             .reset_index(drop=True)
         )
 
-        df.loc[df["RGIId"] == gdir.rgi_id, voi] = topo_data[voi]
+        df.loc[df["RGIId"] == gdir.rgi_id, voi] = topo_data[voi].values
