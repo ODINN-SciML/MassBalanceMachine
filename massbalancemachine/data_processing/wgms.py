@@ -4,8 +4,9 @@ import urllib.request
 import zipfile
 import pandas as pd
 
+from data_processing.product_utils import data_path
+
 wgms_zip_file = "DOI-WGMS-FoG-2026-02-10.zip"
-data_path = ".data"
 
 wgms_source_data_link = f"https://wgms.ch/downloads/{wgms_zip_file}"
 local_path_wgms = f"{data_path}/WGMS/{wgms_zip_file}"
