@@ -502,8 +502,14 @@ def predVSTruthTimeSeries(
             scores_predVSTruth[k]["winter"] = scores_winter[k]
         if hasSummer:
             scores_predVSTruth[k]["summer"] = scores_summer[k]
+
+    # Drop entries for which PERIOD is not included in ["annual", "winter", "summer"]
+    grouped_ids_drop = grouped_ids[
+        grouped_ids.PERIOD.isin(["annual", "winter", "summer"])
+    ]
+
     predVSTruth(
-        grouped_ids,
+        grouped_ids_drop,
         ax1,
         scores=scores_predVSTruth,
         hue="PERIOD",

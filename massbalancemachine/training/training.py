@@ -332,9 +332,15 @@ def assessOnTest(log_dir, model, geodataloader_test, light=False):
     mse_winter, rmse_winter, mae_winter, pearson_corr_winter, r2_winter, bias_winter = (
         scores(predWinter, targetWinter)
     )
-    mse_summer, rmse_summer, mae_summer, pearson_corr_summer, r2_summer, bias_summer = (
-        scores(predSummer, targetSummer)
-    )
+    if len(targetSummer) > 0:
+        (
+            mse_summer,
+            rmse_summer,
+            mae_summer,
+            pearson_corr_summer,
+            r2_summer,
+            bias_summer,
+        ) = scores(predSummer, targetSummer)
 
     # Make plots
     plot_pred_vs_obs(log_dir, targetAll, predAll, {"rmse": rmse, "mae": mae})
@@ -348,7 +354,7 @@ def assessOnTest(log_dir, model, geodataloader_test, light=False):
         plt.savefig(os.path.join(log_dir, "geodetic_test.png"))
         plt.close(fig)
 
-    return {
+    stats = {
         "mse": mse.item(),
         "rmse": rmse.item(),
         "mae": mae.item(),
@@ -367,13 +373,15 @@ def assessOnTest(log_dir, model, geodataloader_test, light=False):
         "pearson_winter": pearson_corr_winter.item(),
         "r2_winter": r2_winter.item(),
         "bias_winter": bias_winter.item(),
-        "mse_summer": mse_summer.item(),
-        "rmse_summer": rmse_summer.item(),
-        "mae_summer": mae_summer.item(),
-        "pearson_summer": pearson_corr_summer.item(),
-        "r2_summer": r2_summer.item(),
-        "bias_summer": bias_summer.item(),
     }
+    if len(targetSummer) > 0:
+        stats["mse_summer"] = mse_summer.item()
+        stats["rmse_summer"] = rmse_summer.item()
+        stats["mae_summer"] = mae_summer.item()
+        stats["pearson_summer"] = pearson_corr_summer.item()
+        stats["r2_summer"] = r2_summer.item()
+        stats["bias_summer"] = bias_summer.item()
+    return stats
 
 
 def plot_pred_vs_obs(log_dir, target, pred, scores):

@@ -72,6 +72,11 @@ elif sourceData == "norway":
         metaData=["RGIId", "ID", "N_MONTHS", "MONTHS", "PERIOD"],
         notMetaDataNotFeatures=["POINT_BALANCE", "YEAR"],
     )
+elif "wgms" in sourceData:
+    cfg = mbm.Config(
+        metaData=["RGIId", "ID", "N_MONTHS", "MONTHS", "PERIOD"],
+        notMetaDataNotFeatures=["POINT_BALANCE", "YEAR"],
+    )
 else:
     raise ValueError(f"source_data={sourceData} is unknown")
 
@@ -100,6 +105,15 @@ elif sourceData == "iceland":
 elif sourceData == "norway":
     datasetManager = mbm.dataloader.SourceManagerNorway(
         cfg, params, test_split_on="RGIId"
+    )
+elif "wgms" in sourceData:
+    _split = sourceData.split(":")
+    if len(_split) > 1:
+        rgi_region = int(_split[1])
+    else:
+        rgi_region = None
+    datasetManager = mbm.dataloader.SourceManagerWGMS(
+        cfg, params, test_split_on="RGIId", rgi_region=rgi_region
     )
 train_set, test_set, months_head_pad, months_tail_pad = datasetManager.train_test_sets()
 
@@ -222,6 +236,9 @@ def period_func(model, dataset):
             indWinter.append(i)
         elif period == "summer":
             indSummer.append(i)
+        elif period == "index":
+            # Discard this data
+            pass
         else:
             raise ValueError(f"Period {period} is unknown.")
 

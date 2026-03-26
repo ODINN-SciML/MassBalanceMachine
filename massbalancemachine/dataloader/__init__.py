@@ -4,5 +4,6 @@ from dataloader.SourceManager import (
     SourceManagerSwitzerland,
     SourceManagerIceland,
     SourceManagerNorway,
+    SourceManagerWGMS,
 )
 from dataloader.GeoDataLoader import GeoDataLoader

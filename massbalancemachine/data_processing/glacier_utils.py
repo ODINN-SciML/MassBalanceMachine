@@ -8,6 +8,7 @@ import xarray as xr
 import oggm
 import venv
 import subprocess
+from typing import Union
 
 import config
 from data_processing.product_utils import mbm_path
@@ -105,6 +106,15 @@ def get_region_shape_file(region: str):
     shp_path = oggm.utils.get_rgi_region_file(region, version=rgi_version)
     print(f"Shapefile for region {region}: {shp_path}")
     return shp_path
+
+
+def get_region_name(region: Union[str, int]):
+    if isinstance(region, int):
+        region = f"{region:02d}"
+    rgi_version = "62"
+    fp = oggm.utils.get_rgi_region_file(region, version=rgi_version)
+    rgi_name = os.path.basename(fp).split("_", 1)[1].replace(".shp", "").split("_")[1]
+    return rgi_name
 
 
 def get_region_area_bounds(region):

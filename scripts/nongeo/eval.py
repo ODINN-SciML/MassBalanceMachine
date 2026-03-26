@@ -60,6 +60,11 @@ elif sourceData == "norway":
         metaData=["RGIId", "ID", "N_MONTHS", "MONTHS", "PERIOD"],
         notMetaDataNotFeatures=["POINT_BALANCE", "YEAR"],
     )
+elif "wgms" in sourceData:
+    cfg = mbm.Config(
+        metaData=["RGIId", "ID", "N_MONTHS", "MONTHS", "PERIOD"],
+        notMetaDataNotFeatures=["POINT_BALANCE", "YEAR"],
+    )
 else:
     raise ValueError(f"source_data={sourceData} is unknown")
 
@@ -80,16 +85,21 @@ if sourceData == "switzerland":
         cfg, params, test_split_on=keyGlacier
     )
 elif sourceData == "iceland":
-
-    # test_glaciers = ['RGI60-06.00228']#'RGI60-06.00228', 'RGI60-06.00232']
-    # params["training"]["test_glaciers"] = test_glaciers ## hack to test the code
-
     datasetManager = mbm.dataloader.SourceManagerIceland(
         cfg, params, test_split_on=keyGlacier
     )
 elif sourceData == "norway":
     datasetManager = mbm.dataloader.SourceManagerNorway(
         cfg, params, test_split_on=keyGlacier
+    )
+elif "wgms" in sourceData:
+    _split = sourceData.split(":")
+    if len(_split) > 1:
+        rgi_region = int(_split[1])
+    else:
+        rgi_region = None
+    datasetManager = mbm.dataloader.SourceManagerWGMS(
+        cfg, params, test_split_on="RGIId", rgi_region=rgi_region
     )
 train_set, test_set, months_head_pad, months_tail_pad = datasetManager.train_test_sets()
 
@@ -148,11 +158,14 @@ if len(df_X_test_subset) > 0:
         "r2": scores["winter"]["r2"],
         "bias": scores["winter"]["bias"],
     }
-    scores_summer = {
-        "rmse": scores["summer"]["rmse"],
-        "r2": scores["summer"]["r2"],
-        "bias": scores["summer"]["bias"],
-    }
+    if "summer" in scores:
+        scores_summer = {
+            "rmse": scores["summer"]["rmse"],
+            "r2": scores["summer"]["r2"],
+            "bias": scores["summer"]["bias"],
+        }
+    else:
+        scores_summer = None
 
     fig = mbm.plots.predVSTruthTimeSeries(
         grouped_ids=grouped_ids,
@@ -223,11 +236,14 @@ scores_winter = {
     "r2": scores_train["winter"]["r2"],
     "bias": scores_train["winter"]["bias"],
 }
-scores_summer = {
-    "rmse": scores_train["summer"]["rmse"],
-    "r2": scores_train["summer"]["r2"],
-    "bias": scores_train["summer"]["bias"],
-}
+if "summer" in scores_train:
+    scores_summer = {
+        "rmse": scores_train["summer"]["rmse"],
+        "r2": scores_train["summer"]["r2"],
+        "bias": scores_train["summer"]["bias"],
+    }
+else:
+    scores_summer = None
 
 fig = mbm.plots.predVSTruthTimeSeries(
     grouped_ids=grouped_ids_train,

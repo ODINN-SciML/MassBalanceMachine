@@ -72,6 +72,19 @@ elif sourceData == "norway":
         ],
         notMetaDataNotFeatures=["POINT_BALANCE", "svf"],
     )
+elif "wgms" in sourceData:
+    cfg = mbm.Config(
+        metaData=[
+            "RGIId",
+            "ID",
+            "N_MONTHS",
+            "MONTHS",
+            "PERIOD",
+            "YEAR",
+            "POINT_ELEVATION",
+        ],
+        notMetaDataNotFeatures=["POINT_BALANCE", "svf"],
+    )
 else:
     raise ValueError(f"source_data={sourceData} is unknown")
 
@@ -88,6 +101,15 @@ elif sourceData == "iceland":
 elif sourceData == "norway":
     datasetManager = mbm.dataloader.SourceManagerNorway(
         cfg, params, test_split_on=keyGlacier
+    )
+elif "wgms" in sourceData:
+    _split = sourceData.split(":")
+    if len(_split) > 1:
+        rgi_region = int(_split[1])
+    else:
+        rgi_region = None
+    datasetManager = mbm.dataloader.SourceManagerWGMS(
+        cfg, params, test_split_on="RGIId", rgi_region=rgi_region
     )
 train_set, test_set, months_head_pad, months_tail_pad = datasetManager.train_test_sets()
 
@@ -110,6 +132,8 @@ device = torch.device("cuda:0" if torch.cuda.is_available() and not cpu else "cp
 if sourceData == "switzerland":
     glaciers = list(data_train.GLACIER.unique())
 elif sourceData in ["iceland", "norway"]:
+    glaciers = list(data_train.RGIId.unique())
+elif "wgms" in sourceData:
     glaciers = list(data_train.RGIId.unique())
 gdl = mbm.dataloader.GeoDataLoader(
     cfg,
@@ -167,6 +191,8 @@ data_test = testData(cfg, test_set, featuresInpModel)
 if sourceData == "switzerland":
     test_glaciers = list(data_test.GLACIER.unique())
 elif sourceData in ["iceland", "norway"]:
+    test_glaciers = list(data_test.RGIId.unique())
+elif "wgms" in sourceData:
     test_glaciers = list(data_test.RGIId.unique())
 if not noTest:
     gdl_test = mbm.dataloader.GeoDataLoader(

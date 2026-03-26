@@ -26,6 +26,8 @@ from data_processing.utils.data_preprocessing import get_hash
 from data_processing.Product import Product
 from dataloader.DataLoader import DataLoader, set_dataloader_splits
 import data_preprocessing.iceland
+import data_preprocessing.wgms
+import data_processing.wgms
 import config
 
 ###
@@ -107,7 +109,12 @@ _default_input_switzerland = (
 )
 
 _default_test_glaciers_iceland = []
-_default_train_glaciers_iceland = ["RGI60-06.00228", "RGI60-06.00232"]
+_default_train_glaciers_iceland = [
+    "RGI60-06.00228",
+    "RGI60-06.00232",
+    "RGI60-06.00236",
+    "RGI60-06.00238",
+]
 
 _default_test_glaciers_norway = [
     "RGI60-08.01258",
@@ -178,6 +185,8 @@ def _default_input(sourceData):
         return []
     elif sourceData == "norway":
         return []
+    elif "wgms" in sourceData:
+        return []
     else:
         raise ValueError(f"source_data={sourceData} is unknown")
 
@@ -202,8 +211,8 @@ class SourceManager:
         self.glaciers_list = []
         self.mean_stakes_elevation = {}
 
-    def train_test_glaciers(self):
-        return self.train_glaciers, self.test_glaciers
+    # def train_test_glaciers(self):
+    #     return self.train_glaciers, self.test_glaciers
 
     def load_stakes_data(self):
         raise NotImplemented(
@@ -236,12 +245,34 @@ class SourceManager:
             meta_data_columns=self.cfg.metaData,
         )
 
-        # Ensure all test glaciers exist in the dataset
         existing_glaciers = set(
             dataloader.data.GLACIER.unique()
             if self.glacierNamesProvided
             else dataloader.data.RGIId.unique()
         )
+
+        if self.test_glaciers is None:
+            assert (
+                self.train_glaciers is not None
+            ), "If test_glaciers is not defined, train_glaciers should be defined to automatically determine the test glaciers based on available data."
+            self.test_glaciers = list(
+                set(existing_glaciers).difference(self.train_glaciers)
+            )
+            print(
+                f"Determining test glaciers based on available data: {self.test_glaciers}"
+            )
+        if self.train_glaciers is None:
+            assert (
+                self.test_glaciers is not None
+            ), "If train_glaciers is not defined, test_glaciers should be defined to automatically determine the train glaciers based on available data."
+            self.train_glaciers = list(
+                set(existing_glaciers).difference(self.test_glaciers)
+            )
+            print(
+                f"Determining train glaciers based on available data: {self.train_glaciers}"
+            )
+
+        # Ensure all test glaciers exist in the dataset
         missing_glaciers = [g for g in self.test_glaciers if g not in existing_glaciers]
 
         if missing_glaciers:
@@ -558,6 +589,50 @@ class SourceManagerNorway(SourceManager):
         assert data_test.PERIOD.nunique() == 3
 
         data = pd.concat([data_train, data_test]).reset_index(drop=True)
+
+        dataloader = DataLoader(
+            self.cfg,
+            data=data,
+            random_seed=self.cfg.seed,
+            meta_data_columns=self.cfg.metaData,
+        )
+        data_monthly = dataloader.data
+
+        return data_monthly
+
+
+class SourceManagerWGMS(SourceManager):
+    def __init__(self, cfg, params, *args, rgi_region=None, **kwargs):
+        self.train_glaciers = params["training"].get("train_glaciers")
+        self.test_glaciers = params["training"].get("test_glaciers")
+        self.rgi_region = rgi_region
+        super().__init__(cfg, params, *args, **kwargs)
+
+    def load_stakes_data(self):
+        # TODO: for the moment the arguments are the RGIId but we should manage this properly in the future
+
+        path_preprocessed = data_preprocessing.wgms.processed_features_stakes_path(
+            self.rgi_region
+        )
+        p = Product(path_preprocessed)
+        if not p.is_up_to_date():
+            data = data_processing.wgms.load_processed_wgms(rgi_region=self.rgi_region)
+            data_preprocessing.wgms.build_monthly_data(data, self.cfg, self.rgi_region)
+            p.gen_chk()
+        data = pd.read_csv(path_preprocessed)
+        _format_data_credit(
+            "WGMS (2026): Fluctuations of Glaciers (FoG) Database. World Glacier Monitoring Service (WGMS), Zurich, Switzerland. https://doi.org/10.5904/wgms-fog-2026-02-10",
+            "Open access under the requirement of correct citation",
+            [
+                "WGMS (2023): Global Glacier Change Bulletin No. 5 (2020-2021). Michael Zemp, Isabelle Gärtner-Roer, Samuel U. Nussbaumer, Ethan Z. Welty, Inés Dussaillant, and Jacqueline Bannwart (eds.), ISC (WDS) / IUGG (IACS) / UNEP / UNESCO / WMO, World Glacier Monitoring Service, Zurich, Switzerland, 134 pp. Based on database version https://doi.org/10.5904/wgms-fog-2023-09.",
+                "WGMS (2013): Glacier Mass Balance Bulletin No. 12 (2010-2011). Michael Zemp, Samuel U. Nussbaumer, Kathrin Naegeli, Isabelle Gärtner-Roer, Frank Paul, Martin Hoelzle, and Wilfried Haeberli (eds.), ICSU (WDS) / IUGG (IACS) / UNEP / UNESCO / WMO, World Glacier Monitoring Service, Zurich, Switzerland, 106 pp. Based on database version https://doi.org/10.5904/wgms-fog-2013-11.",
+                "WGMS (2012): Fluctuations of Glaciers 2005-2010 (Vol. X): Michael Zemp, Holger Frey, Isabelle Gärtner-Roer, Samuel U. Nussbaumer, Martin Hoelzle, Frank Paul, and Wilfried Haeberli (eds.), ICSU (WDS) / IUGG (IACS) / UNEP / UNESCO / WMO, World Glacier Monitoring Service, Zurich, Switzerland. Based on database version https://doi.org/10.5904/wgms-fog-2012-11.",
+            ],
+        )
+
+        data["aspect"] = 180 * data["aspect"] / np.pi
+        data["slope"] = 180 * data["slope"] / np.pi
+        data["t2m"] = data["t2m"] - 273.15
 
         dataloader = DataLoader(
             self.cfg,

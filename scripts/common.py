@@ -47,6 +47,8 @@ def parseParams(params):
             "batch_size": batch_size,
             "weight_decay": weight_decay,
             "scalingStakes": scalingStakes,
+            "test_glaciers": params["training"].get("test_glaciers"),
+            "train_glaciers": params["training"].get("train_glaciers"),
         },
     }
 
