@@ -13,6 +13,7 @@ import config
 import xarray as xr
 import pandas as pd
 import numpy as np
+import pyproj
 
 from data_processing.Product import Product
 from data_processing.product_utils import rgi_id_to_folders, data_path
@@ -82,6 +83,7 @@ def get_topographical_features(
             assert all(gdirs_svf[i].x == gdirs_gridded[i].x) and all(
                 gdirs_svf[i].y == gdirs_gridded[i].y
             )
+            assert gdirs_svf[i].pyproj_srs == gdirs_gridded[i].pyproj_srs
             gdirs_gridded[i]["svf"] = gdirs_svf[i]["svf"]
         del gdirs_svf
 
@@ -237,17 +239,23 @@ def _retrieve_topo_features(
     """Find the nearest recorded point with topographical features on the glacier for each stake."""
 
     for gdir, gdir_grid in zip(glacier_directories, gdirs_gridded):
-        lat = xr.DataArray(
-            grouped_stakes.get_group(gdir.rgi_id)[["POINT_LAT"]].values.flatten(),
-            dims="points",
+
+        # Coordinate transformation from WGS84 to the projection of OGGM data
+        transf = pyproj.Transformer.from_proj(
+            pyproj.CRS.from_user_input("EPSG:4326"),
+            pyproj.CRS.from_user_input(gdir_grid.pyproj_srs),
+            always_xy=True,
         )
-        lon = xr.DataArray(
-            grouped_stakes.get_group(gdir.rgi_id)[["POINT_LON"]].values.flatten(),
-            dims="points",
-        )
+        lon = grouped_stakes.get_group(gdir.rgi_id)[["POINT_LON"]].values.flatten()
+        lat = grouped_stakes.get_group(gdir.rgi_id)[["POINT_LAT"]].values.flatten()
+        x, y = transf.transform(lon, lat)
 
         topo_data = (
-            gdir_grid.sel(x=lon, y=lat, method="nearest")[voi]
+            gdir_grid.sel(
+                x=xr.DataArray(x, dims="points"),
+                y=xr.DataArray(y, dims="points"),
+                method="nearest",
+            )[voi]
             .to_dataframe()
             .reset_index(drop=True)
         )
