@@ -30,6 +30,36 @@ def build_monthly_data(data, cfg, rgi_region=None):
     # Drop measurements where no RGIId was found
     data = data[data.RGIId.notnull()]
 
+    # Filter out measurements with NaN elevation
+    data = data[data.POINT_ELEVATION.notnull()]
+
+    # Drop measurements with unrealistic SMB
+    data = data[(data.POINT_BALANCE > -200) & (data.POINT_BALANCE < 200)]
+
+    # Drop measurements with inconsistent time period
+    df_check = data.copy()
+
+    # Convert dates to datetime objects
+    df_check["FROM_DATE_DT"] = pd.to_datetime(df_check["FROM_DATE"], format="%Y%m%d")
+    df_check["TO_DATE_DT"] = pd.to_datetime(df_check["TO_DATE"], format="%Y%m%d")
+
+    # Calculate month difference
+    df_check["MONTH_DIFF"] = (
+        (df_check["TO_DATE_DT"].dt.year - df_check["FROM_DATE_DT"].dt.year) * 12
+        + df_check["TO_DATE_DT"].dt.month
+        - df_check["FROM_DATE_DT"].dt.month
+    )
+
+    # Filter out measurements that cannot be represented with padding (more than 12 padded months to add)
+    data = df_check[df_check.MONTH_DIFF <= 24]
+
+    # Filter out specific measurements with a time window that is too large and that prevent from correctly computing the padding
+    data = data[~((data.RGIId == "RGI60-11.01450") & (data.MONTH_DIFF > 15))]  # Aletsch
+    data = data[
+        ~((data.RGIId == "RGI60-11.01509") & (data.MONTH_DIFF == 24))
+    ]  # Oberaar
+    data = data[~((data.RGIId == "RGI60-11.00638") & (data.MONTH_DIFF == 19))]  # Pizol
+
     region_name = get_region_name(rgi_region)
     dataset = Dataset(cfg, data=data, region_name=region_name, region_id=rgi_region)
 

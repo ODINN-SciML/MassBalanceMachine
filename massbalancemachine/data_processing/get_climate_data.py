@@ -310,8 +310,11 @@ def _create_date_range(
 
     # start month is always in the PREVIOUS year
     start = f"{year - 1}-{start_month}-01"
-    # end month is always in the CURRENT year
-    end = f"{year}-{end_month}-01"
+    # end month can be either the CURRENT year, or the NEXT one depending on the head padding
+    if int(end_month) >= 10:
+        end = f"{year}-{end_month}-01"
+    else:
+        end = f"{year + 1}-{end_month}-01"
 
     return pd.date_range(start=start, end=end, freq="MS")
 
