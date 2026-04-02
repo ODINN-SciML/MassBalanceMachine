@@ -22,6 +22,7 @@ from data_processing.gridded_utils import (
     geodetic_target,
     geodetic_target_region,
 )
+from models.TorchNeuralNetworkRegressor import aggrMetadataId, aggrMetadataGlwdId
 
 
 class GeoDataLoader:
@@ -116,6 +117,20 @@ class GeoDataLoader:
                     self.df_X_geod[rgi_id] = geodetic_input(rgi_id)
             else:
                 self.df_X_geod = None
+
+        if self.df_X_geod is not None:
+            if len(self.glaciersWithGeo) == 1:
+                self.precomputed_meta = {
+                    self.glaciersWithGeo[0]: self._metadata_groups(self.df_X_geod)
+                }
+            else:
+                self.precomputed_meta = {}
+                for rgi_id in self.glaciersWithGeo:
+                    self.precomputed_meta[rgi_id] = self._metadata_groups(
+                        self.df_X_geod[rgi_id]
+                    )
+        else:
+            self.precomputed_meta = None
 
         self.normalizer = Normalizer({k: cfg.bnds[k] for k in cfg.featureColumns})
 
@@ -249,20 +264,7 @@ class GeoDataLoader:
         X = overwriteDf if overwriteDf is not None else self.trainStakesDf
         X = X[X[self.keyGlacierSel] == glacierName]  # .dropna()
 
-        # meta_data_columns = self.cfg.metaData
-
-        # Split features from metadata
-        # # Get feature columns by subtracting metadata columns from all columns
-        # feature_columns = X.columns.difference(meta_data_columns)
-
-        # # remove columns that are not used in metadata or features
-        # feature_columns = feature_columns.drop(self.cfg.notMetaDataNotFeatures)
         feature_columns = self.cfg.featureColumns
-        # # Convert feature_columns to a list (if needed)
-        # if "y" in feature_columns:
-        #     feature_columns = feature_columns.drop("y")
-        # feature_columns = list(feature_columns)
-
         non_feature_columns = X.columns.difference(feature_columns)
 
         # Extract metadata and features
@@ -312,6 +314,30 @@ class GeoDataLoader:
             return None
         return self._geo_executor.submit(self._geo_sync, glacierName)
 
+    def _metadata_groups(self, df):
+        # Retrieve feature columns directly from the config
+        feature_columns = self.cfg.featureColumns
+        non_feature_columns = df.columns.difference(feature_columns)
+        metadata = df[non_feature_columns]
+
+        # If one day we add stochasticity we will have to make sure that the precomputed indices correspond to the ones obtained in the aggregation of the lost function
+
+        int_id, unique_id = pd.factorize(metadata["ID"].values)
+        metadata = metadata.assign(ID_int=int_id)
+        grouped_ids = aggrMetadataId(metadata, "ID_int")
+
+        int_glwd_id, unique_id = pd.factorize(grouped_ids["GLWD_ID"].values)
+        grouped_ids = grouped_ids.assign(GLWD_ID_int=int_glwd_id)
+        metadataAggrYear = aggrMetadataGlwdId(grouped_ids, "GLWD_ID_int")
+
+        return {
+            "metadata": metadata,
+            "grouped_ids": grouped_ids,
+            "nunique_ids": metadata["ID_int"].nunique(),
+            "grouped_glwd_ids": metadataAggrYear,
+            "nunique_glwd_ids": grouped_ids["GLWD_ID_int"].nunique(),
+        }
+
     def _geo_sync(self, glacierName: str, async_transfer: bool = False):
         """
         Returns the geodetic data to be used in the model.
@@ -332,7 +358,6 @@ class GeoDataLoader:
         assert (
             glacierName in self.glaciersWithGeo
         ), f"Glacier {glacierName} is not in the list of glaciers with available geodetic data for this dataloader."
-        # st = time.time()
         if self.df_X_geod is None:
             if self.geodeticOggm:
                 df_X_geod = geodetic_input(glacierName)
@@ -345,8 +370,10 @@ class GeoDataLoader:
                 df_X_geod = self.df_X_geod[glacierName]
             else:
                 df_X_geod = self.df_X_geod
-        # et = time.time()-st
-        # print("ET slice per glacier:", et)
+            if self.precomputed_meta is not None:
+                precomputed_meta = self.precomputed_meta[glacierName]
+            else:
+                precomputed_meta = self._metadata_groups(df_X_geod)
 
         # # NaN values are in aspect_sgi and slope_sgi columns
         # # That's because the GLAMOS and SGI grids don't match exactly on the borders
@@ -356,35 +383,21 @@ class GeoDataLoader:
             len(df_X_geod) > 0
         ), f"Geodetic dataframe of glacier {glacierName} is empty."
 
-        meta_data_columns = self.cfg.metaData
-
-        # # Split features from metadata
-        # # Get feature columns by subtracting metadata columns from all columns
-        # feature_columns = df_X_geod.columns.difference(meta_data_columns)
-
-        # # remove columns that are not used in metadata or features
-        # feature_columns = feature_columns.drop(
-        #     self.cfg.notMetaDataNotFeatures + ["topo"]
-        # )
-        # if "y" in feature_columns:
-        #     feature_columns = feature_columns.drop("y")
-        # # Convert feature_columns to a list (if needed)
-        # feature_columns = list(feature_columns)
-
         # Retrieve feature columns directly from the config
         feature_columns = self.cfg.featureColumns
         # With the geodetic grid we need more features (like POINT_LAT, POINT_LON and GLWD_ID)
         # than what is usually defined for stakes data
-        non_feature_columns = df_X_geod.columns.difference(feature_columns)
 
-        metadata = df_X_geod[non_feature_columns]
+        metadata = precomputed_meta["metadata"]
+
+        # int_glwd_id, unique_id = pd.factorize(grouped_ids["GLWD_ID"].values)
+        # grouped_ids = grouped_ids.assign(GLWD_ID_int=int_glwd_id)
 
         # Extract metadata and features
         # metadata = df_X_geod[meta_data_columns]  # .values
         features = df_X_geod[feature_columns].values
 
         features = self.normalizer.normalize(features)
-        # metadata = self._mapStrColToInt(metadata, False)
 
         # return (
         #     features,
@@ -406,40 +419,7 @@ class GeoDataLoader:
             y = torch.from_numpy(self.y_target_geo[glacierName].astype(np.float32))
             if err is not None:
                 err = torch.from_numpy(err.astype(np.float32))
-        return features, metadata, y, err
+        return features, metadata, y, err, precomputed_meta
 
     def close(self):
         self._geo_executor.shutdown(wait=False)
-
-    # def _mapStrColToInt(self, metadata, usePrecomputed):
-    #     """
-    #     Maps columns that contain string values to new ones with integer values.
-    #     Non-numeric columns are replaced by numerical equivalents where each ID has
-    #     been replaced by values ranging from 0 to N-1 where N is the number of
-    #     unique values for a given column. If a column is named "ID", the column in
-    #     the returned dataframe is named "ID_int" where "_int" stands for integer.
-    #     """
-    #     metadata = metadata.copy()
-    #     stringCol = np.unique(["RGIId", "ID", "GLWD_ID", "MONTHS", "PERIOD", self.keyGlacierSel])
-    #     colToRemove = []
-    #     for col in stringCol:
-    #         if col in metadata.keys():
-    #             colToRemove.append(col)
-    #             if col == "MONTHS":
-    #                 string_to_index = {
-    #                     s: i - 1 for s, i in self.month_pos.items()  # index starts at 0
-    #                 }
-    #                 col_int = metadata[col].map(string_to_index)
-    #             elif col == "PERIOD":
-    #                 # Ensure always the same convention
-    #                 # Otherwise glacier with only winter data could result in winter
-    #                 # being 0 instead of 1
-    #                 col_int = metadata[col].map(self.periodToInt)
-    #             else:
-    #                 if usePrecomputed:
-    #                     col_int = [self.strColToIntMapping[col].index(e) for e in metadata[col]]
-    #                 else:
-    #                     col_int, unique_val = pd.factorize(metadata[col])
-    #             metadata[col + "_int"] = col_int
-    #     metadata.drop(colToRemove, axis=1, inplace=True)
-    #     return metadata

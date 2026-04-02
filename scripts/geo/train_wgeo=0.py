@@ -38,6 +38,13 @@ parser.add_argument(
     action="store_true",
     help="Evaluate loading and inference time.",
 )
+parser.add_argument(
+    "--prof",
+    dest="prof",
+    default=False,
+    action="store_true",
+    help="Profile the code.",
+)
 args = parser.parse_args()
 
 params = loadParams(args.modelType)
@@ -45,6 +52,7 @@ modelToLoad = args.load
 cpu = args.cpu
 noTest = args.noTest
 timeExec = args.time
+prof = args.prof
 featuresInpModel = params["model"]["inputs"]
 sourceData = params["training"]["source_data"]
 
@@ -229,6 +237,7 @@ ret = mbm.training.train_geo(
     scheduler=scheduler,
     geodataloader_test=gdl_test,
     timeExec=timeExec,
+    useProfiler=prof,
 )
 
 print()

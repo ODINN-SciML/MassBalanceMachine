@@ -161,10 +161,10 @@ def test_geodataloader():
     assert s.shape == (nRows, 16)
     assert m.shape == (nRows, 14)
     assert gt.shape == (nRows,)
-    x, m, y, _ = gdl.geo(g)
+    x, m, y, _, _ = gdl.geo(g)
     nRows = 227604
     assert x.shape == (nRows, 16)
-    assert m.shape == (nRows, 15)
+    assert m.shape == (nRows, 16), f"{m.shape=}"
     assert y.shape == (60,)
 
 
