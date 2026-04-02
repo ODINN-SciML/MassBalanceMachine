@@ -31,11 +31,11 @@ import data_processing.wgms
 import config
 
 ###
-from regions.Switzerland.scripts.dataset.data_loader import (
+from regions.RGI_11_Switzerland.scripts.dataset.data_loader import (
     process_or_load_data,
     get_stakes_data,
 )
-from regions.Switzerland.scripts.config_CH import (
+from regions.RGI_11_Switzerland.scripts.config_CH import (
     path_PMB_GLAMOS_csv,
     path_ERA5_raw,
     path_pcsr,

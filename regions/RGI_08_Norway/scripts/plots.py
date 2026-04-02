@@ -10,7 +10,6 @@ from matplotlib.ticker import MaxNLocator
 from regions.Norway_mb.scripts.config_NOR import *
 from regions.RGI_11_Switzerland.scripts.plotting import get_cmap_hex
 
-
 colors_vik = get_cmap_hex(cm.vik, 10)
 color_xgb = colors_vik[0]
 color_tim = "#c51b7d"
