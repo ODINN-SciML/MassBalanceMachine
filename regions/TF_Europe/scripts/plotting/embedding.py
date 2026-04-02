@@ -1,0 +1,1452 @@
+import seaborn as sns
+from cmcrameri import cm
+import matplotlib.pyplot as plt
+from matplotlib import gridspec
+import math
+import pandas as pd
+from matplotlib.patches import Patch
+from scipy.stats import gaussian_kde
+from scipy.ndimage import gaussian_filter1d
+import numpy as np
+import os
+from matplotlib.patches import Rectangle
+from typing import Sequence, Optional, Tuple
+from sklearn.manifold import TSNE
+from sklearn.preprocessing import StandardScaler
+from sklearn.impute import SimpleImputer
+from scipy.stats import pearsonr
+import colormaps as cmaps
+from sklearn.cluster import KMeans
+
+from regions.TF_Europe.scripts.config_TF_Europe import *
+from regions.TF_Europe.scripts.plotting.palettes import get_cmap_hex
+from regions.TF_Europe.scripts.dataset import *
+
+import massbalancemachine as mbm
+
+
+def plot_tsne_overlap(
+    data_train: pd.DataFrame,
+    data_test: pd.DataFrame,
+    STATIC_COLS: Sequence[str],
+    MONTHLY_COLS: Sequence[str],
+    *,
+    label_train: str = "Train",  # : actual name shown in legend
+    label_test: str = "Test",  # : actual name shown in legend
+    stratify_by: str = "GLACIER",
+    n_per_group: int = 100,
+    exact: bool = False,
+    perplexity: Optional[int] = None,
+    random_state: int = 20,
+    n_iter: int = 500,
+    n_iter_without_progress: int = 100,
+    figsize=(18, 5),
+    alpha_train=0.5,
+    alpha_test=0.5,
+    s_train=45,
+    s_test=45,
+    custom_palette: Optional[dict] = None,
+    sublabels: Sequence[str] = ("a", "b", "c"),
+    label_fmt: str = "({})",
+    label_xy: Tuple[float, float] = (0.02, 0.98),
+    label_fontsize: int = 14,
+    label_bbox: Optional[dict] = None,
+):
+    if custom_palette is None:
+        colors = get_cmap_hex(cm.batlow, 10)
+        custom_palette = {
+            label_train: colors[0],
+            label_test: "#b2182b",
+        }
+
+    train_s = stratified_sample_by_group(
+        data_train,
+        group_col=stratify_by,
+        n_per_group=n_per_group,
+        random_state=random_state,
+        exact=exact,
+    )
+    test_s = stratified_sample_by_group(
+        data_test,
+        group_col=stratify_by,
+        n_per_group=n_per_group,
+        random_state=random_state + 1,
+        exact=exact,
+    )
+
+    feature_sets = [
+        ("All features", list(STATIC_COLS) + list(MONTHLY_COLS)),
+        ("Dynamic", list(MONTHLY_COLS)),
+        ("Static", list(STATIC_COLS)),
+    ]
+
+    fig, axes = plt.subplots(1, 3, figsize=figsize)
+    if label_bbox is None:
+        label_bbox = dict(facecolor="white", alpha=0.7, pad=2, edgecolor="none")
+
+    for i, (ax, (title, cols)) in enumerate(zip(axes, feature_sets)):
+        if len(cols) == 0:
+            ax.text(0.5, 0.5, f"No columns in: {title}", ha="center", va="center")
+            ax.set_axis_off()
+            continue
+
+        X, mask_train = _prepare_matrix(train_s, test_s, cols)
+        emb, px_used = _tsne_embed(
+            X,
+            perplexity=perplexity,
+            random_state=random_state,
+            n_iter=n_iter,
+            n_iter_without_progress=n_iter_without_progress,
+        )
+
+        emb_train = emb[mask_train]
+        emb_test = emb[~mask_train]
+
+        ax.scatter(
+            emb_train[:, 0],
+            emb_train[:, 1],
+            marker="o",
+            s=s_train,
+            alpha=alpha_train,
+            color=custom_palette[label_train],
+            label=label_train,
+            linewidths=0,
+        )
+        ax.scatter(
+            emb_test[:, 0],
+            emb_test[:, 1],
+            marker="^",
+            s=s_test,
+            alpha=alpha_test,
+            color=custom_palette[label_test],
+            label=label_test,
+            linewidths=0,
+        )
+
+        ax.set_title(title)
+        ax.set_xlabel("t-SNE 1")
+        ax.set_ylabel("t-SNE 2")
+        ax.legend(frameon=True)
+
+        if sublabels and i < len(sublabels):
+            ax.text(
+                label_xy[0],
+                label_xy[1],
+                label_fmt.format(sublabels[i]),
+                transform=ax.transAxes,
+                ha="left",
+                va="top",
+                fontsize=label_fontsize,
+                bbox=label_bbox,
+            )
+
+    plt.tight_layout()
+    plt.show()
+    return fig
+
+
+def _tsne_embed(
+    X,
+    n_components=2,
+    perplexity: Optional[int] = None,
+    random_state: int = 42,
+    n_iter: int = 500,
+    n_iter_without_progress: int = 100,
+):
+    """
+    Compute a t-SNE embedding for a feature matrix with a safe perplexity choice.
+
+    Parameters
+    ----------
+    X : numpy.ndarray
+        Input feature matrix of shape (n_samples, n_features).
+    n_components : int, optional
+        Dimension of the embedding (default: 2).
+    perplexity : int or None, optional
+        t-SNE perplexity. If None, it is chosen automatically based on
+        `X.shape[0]`. If provided, it is clipped to a valid range.
+    random_state : int, optional
+        Random seed for reproducibility.
+    n_iter : int, optional
+        Maximum number of t-SNE iterations (compatible with different sklearn
+        versions via `max_iter` or `n_iter`).
+    n_iter_without_progress : int, optional
+        Early stopping patience for t-SNE.
+
+    Returns
+    -------
+    emb : numpy.ndarray
+        Embedded coordinates of shape (n_samples, n_components).
+    px : int
+        Perplexity value actually used.
+    """
+    n = X.shape[0]
+    px = _safe_perplexity(n) if perplexity is None else min(perplexity, max(2, n - 2))
+    kwargs = dict(
+        n_components=n_components,
+        perplexity=px,
+        learning_rate="auto",
+        init="pca",
+        random_state=random_state,
+        metric="euclidean",
+        n_iter_without_progress=n_iter_without_progress,
+        verbose=0,
+    )
+    try:
+        tsne = TSNE(max_iter=n_iter, **kwargs)  # sklearn >= 1.5
+    except TypeError:
+        tsne = TSNE(n_iter=n_iter, **kwargs)  # older sklearn
+    return tsne.fit_transform(X), px
+
+
+def _prepare_matrix(train_df, test_df, cols):
+    """
+    Build a combined standardized feature matrix from train/test DataFrames.
+
+    Missing values are imputed using the median (fit on train only), and
+    features are standardized (fit on train only). The returned matrix stacks
+    train above test and includes a boolean mask indicating train rows.
+
+    Parameters
+    ----------
+    train_df : pandas.DataFrame
+        Training DataFrame.
+    test_df : pandas.DataFrame
+        Test DataFrame.
+    cols : sequence of str
+        Feature column names to extract.
+
+    Returns
+    -------
+    X : numpy.ndarray
+        Combined feature matrix of shape (n_train + n_test, n_features).
+    mask_train : numpy.ndarray of bool
+        Boolean mask of shape (n_train + n_test,) where True indicates
+        rows belonging to the training set.
+    """
+    X_train = train_df[cols].to_numpy()
+    X_test = test_df[cols].to_numpy()
+
+    imputer = SimpleImputer(strategy="median")
+    scaler = StandardScaler()
+
+    X_train_imp = imputer.fit_transform(X_train)
+    X_test_imp = imputer.transform(X_test)
+
+    X_train_std = scaler.fit_transform(X_train_imp)
+    X_test_std = scaler.transform(X_test_imp)
+
+    X = np.vstack([X_train_std, X_test_std])
+    mask_train = np.zeros(X.shape[0], dtype=bool)
+    mask_train[: X_train_std.shape[0]] = True
+    return X, mask_train
+
+
+def _safe_perplexity(n_samples: int, target: int = 30) -> int:
+    """
+    Choose a t-SNE perplexity that is safe for the given sample size.
+
+    Parameters
+    ----------
+    n_samples : int
+        Number of samples to embed.
+    target : int, optional
+        Desired perplexity for large sample sizes (default: 30).
+
+    Returns
+    -------
+    int
+        Perplexity clipped to a valid range for the given `n_samples`.
+    """
+    if n_samples <= 10:
+        return max(2, n_samples // 3)
+    return int(np.clip(target, 5, max(5, (n_samples - 1) // 3)))
+
+
+def stratified_sample_by_group(
+    df: pd.DataFrame,
+    group_col: str = "GLACIER",
+    n_per_group: int = 100,
+    *,
+    random_state: int = 42,
+    exact: bool = False,
+) -> pd.DataFrame:
+    """
+    Draw a stratified sample from a DataFrame by grouping column.
+
+    The function samples rows independently within each group defined by
+    `group_col`, aiming to return approximately `n_per_group` samples per
+    group.
+
+    Sampling behavior:
+      - exact=False (default): sample without replacement; groups smaller than
+        `n_per_group` are kept entirely.
+      - exact=True: always return exactly `n_per_group` samples per group;
+        groups smaller than `n_per_group` are sampled with replacement.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Input DataFrame to sample from.
+    group_col : str, optional
+        Column name defining the groups (default: 'GLACIER').
+    n_per_group : int, optional
+        Target number of samples per group.
+    random_state : int, optional
+        Random seed for reproducibility.
+    exact : bool, optional
+        If True, enforce exactly `n_per_group` samples per group using
+        replacement when necessary.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Stratified sample containing the selected rows from all groups,
+        with the index reset.
+    """
+    rng = np.random.RandomState(random_state)
+    parts = []
+    for g, gdf in df.groupby(group_col, sort=False):
+        if exact:
+            replace = len(gdf) < n_per_group
+            take = n_per_group
+        else:
+            replace = False
+            take = min(len(gdf), n_per_group)
+        parts.append(gdf.sample(n=take, replace=replace, random_state=rng))
+    return pd.concat(parts, axis=0).reset_index(drop=True)
+
+
+def plot_feature_kde_overlap(
+    df_train,
+    df_test,
+    features,
+    palette=None,
+    outfile=None,
+    sublabels: Sequence[str] = (
+        "a",
+        "b",
+        "c",
+        "d",
+        "e",
+        "f",
+        "g",
+        "h",
+        "i",
+        "j",
+        "k",
+        "l",
+    ),
+    label_fmt: str = "({})",
+    label_xy: Tuple[float, float] = (0.02, 0.98),
+    label_fontsize: int = 14,
+    label_bbox: Optional[dict] = None,
+    label_dist_1="Test",
+    label_dist_2="Train",
+):
+    """
+    Plot kernel density estimates (KDEs) of feature distributions for train
+    and test datasets.
+
+    For each feature, the function overlays KDE curves for the training and
+    test sets in a grid of subplots, enabling visual comparison of
+    distributional differences. A single global legend is added below
+    the figure.
+
+    Parameters
+    ----------
+    df_train : pandas.DataFrame
+        Training dataset containing the specified features.
+    df_test : pandas.DataFrame
+        Test dataset containing the same features as `df_train`.
+    features : sequence of str
+        List of feature names to plot.
+    palette : dict or None, optional
+        Mapping specifying colors for 'Train' and 'Test'. If None, a default
+        palette is used.
+    outfile : str or None, optional
+        Path to save the figure. If None, the figure is not saved.
+    sublabels : sequence of str, optional
+        Labels used to annotate individual subplots (e.g. ('a', 'b', 'c', ...)).
+    label_fmt : str, optional
+        Format string applied to subplot labels.
+    label_xy : tuple of float, optional
+        Relative (x, y) position of subplot labels in axes coordinates.
+    label_fontsize : int, optional
+        Font size of subplot labels.
+    label_bbox : dict or None, optional
+        Matplotlib bbox properties for subplot label backgrounds.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The generated figure containing KDE overlap plots.
+    """
+    if palette is None:
+        palette = {label_dist_1: "steelblue", label_dist_2: "darkred"}
+
+    n = len(features)
+    ncols = 3
+    nrows = int(np.ceil(n / ncols))
+
+    fig, axes = plt.subplots(nrows, ncols, figsize=(4 * ncols, 3 * nrows))
+    axes = axes.flatten()
+
+    for i, feat in enumerate(features):
+        ax = axes[i]
+
+        sns.kdeplot(
+            df_train[feat].dropna(),
+            ax=ax,
+            color=palette[label_dist_1],
+            fill=True,
+            alpha=0.4,
+            linewidth=2,
+            label=label_dist_1,
+        )
+        sns.kdeplot(
+            df_test[feat].dropna(),
+            ax=ax,
+            color=palette[label_dist_2],
+            fill=True,
+            alpha=0.4,
+            linewidth=2,
+            label=label_dist_2,
+        )
+
+        ax.set_title(vois_climate_long_name[feat])
+        ax.set_xlabel(f"[{vois_units[feat]}]")
+
+        # remove axis-level legend
+        ax.legend_.remove() if ax.legend_ else None
+
+        ax.text(
+            label_xy[0],
+            label_xy[1],
+            label_fmt.format(sublabels[i]),
+            transform=ax.transAxes,
+            ha="left",
+            va="top",
+            fontsize=label_fontsize,
+            bbox=label_bbox,
+        )
+
+    # remove unused axes
+    for j in range(i + 1, nrows * ncols):
+        fig.delaxes(axes[j])
+
+    # --- global legend below the plots ---
+    handles = [
+        plt.Line2D(
+            [0], [0], color=palette[label_dist_1], lw=10, alpha=0.6, label=label_dist_1
+        ),
+        plt.Line2D(
+            [0], [0], color=palette[label_dist_2], lw=10, alpha=0.6, label=label_dist_2
+        ),
+    ]
+    fig.legend(
+        handles=handles,
+        loc="lower center",
+        ncol=2,
+        frameon=False,
+        bbox_to_anchor=(0.5, -0.05),
+        fontsize=16,
+    )
+
+    fig.tight_layout()
+
+    if outfile:
+        fig.savefig(outfile, dpi=300, bbox_inches="tight")
+
+    return fig
+
+
+def plot_heatmap(
+    test_glaciers,
+    data_glamos,
+    glacierCap,
+    period="annual",
+    var_to_plot="POINT_BALANCE",
+    cbar_label="[m w.e. $a^{-1}$]",
+):
+    """
+    Plot a heatmap of mean glacier mass balance by year and glacier.
+
+    The function aggregates point mass-balance data by glacier and year,
+    computes the mean value per glacier–year, and displays the result as a
+    heatmap. Glaciers are ordered by decreasing mean elevation. Selected
+    test glaciers are highlighted with rectangular outlines.
+
+    Parameters
+    ----------
+    test_glaciers : list of str
+        List of glacier identifiers to highlight in the heatmap.
+    data_glamos : pandas.DataFrame
+        GLAMOS point mass-balance dataset containing at least the columns
+        ['GLACIER', 'YEAR', 'PERIOD', var_to_plot, 'POINT_ELEVATION'].
+    glacierCap : dict
+        Mapping from glacier identifiers to formatted glacier names used
+        for plotting (e.g. capitalization or display names).
+    period : {"annual", "winter"}, optional
+        Mass-balance period to plot.
+    var_to_plot : str, optional
+        Column name in `data_glamos` containing the mass-balance variable
+        to visualize.
+    cbar_label : str, optional
+        Label for the colorbar.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        The generated heatmap figure.
+    """
+    # Get the mean mass balance per glacier
+    data_with_pot = data_glamos[data_glamos.PERIOD == period]
+    data_with_pot["GLACIER"] = data_glamos["GLACIER"].apply(lambda x: glacierCap[x])
+
+    mean_mb_per_glacier = (
+        data_with_pot.groupby(["GLACIER", "YEAR", "PERIOD"])[var_to_plot]
+        .mean()
+        .reset_index()
+    )
+    mean_mb_per_glacier = mean_mb_per_glacier[mean_mb_per_glacier["PERIOD"] == period]
+    matrix = mean_mb_per_glacier.pivot(
+        index="GLACIER", columns="YEAR", values=var_to_plot
+    ).sort_values(by="GLACIER")
+
+    # get elevation of glaciers:
+    gl_per_el = data_with_pot.groupby(["GLACIER"])["POINT_ELEVATION"].mean()
+    gl_per_el = gl_per_el.sort_values(ascending=False)
+
+    matrix = matrix.loc[gl_per_el.index]
+    # make index categorical
+    matrix.index = pd.Categorical(matrix.index, categories=matrix.index, ordered=True)
+    fig = plt.figure(figsize=(20, 15))
+    ax = plt.subplot(1, 1, 1)
+    sns.heatmap(
+        data=matrix,
+        center=0,
+        cmap=cm.vik_r,
+        cbar_kws={"label": cbar_label},
+        ax=ax,
+    )
+    ax.set_xlabel("")
+    # Update colorbar label fontsize
+    cbar = ax.collections[0].colorbar
+    cbar.ax.yaxis.label.set_size(24)  # Adjust 14 to your desired fontsize
+
+    # add patches for test glaciers
+    test_glaciers = [glacierCap[gl] for gl in test_glaciers]
+    for test_gl in test_glaciers:
+        if test_gl not in matrix.index:
+            continue
+        height = matrix.index.get_loc(test_gl)
+        row = np.where(matrix.loc[test_gl].notna())[0]
+        split_indices = np.where(np.diff(row) != 1)[0] + 1
+        continuous_sequences = np.split(row, split_indices)
+        for patch in continuous_sequences:
+            ax.add_patch(
+                Rectangle(
+                    (patch.min(), height),
+                    patch.max() - patch.min() + 1,
+                    1,
+                    fill=False,
+                    edgecolor="black",
+                    lw=3,
+                )
+            )
+    ax.tick_params(axis="y", labelsize=20)  # Adjust 16 to your preferred size
+    ax.tick_params(axis="x", labelsize=20)  # Adjust 16 to your preferred size
+    plt.tight_layout()
+    return fig
+
+
+def plot_overlap_for_all_results(
+    results_dict,
+    cfg,
+    STATIC_COLS,
+    MONTHLY_COLS,
+    n_iter=1000,
+):
+    """
+    Generate t-SNE train/test feature-overlap plots for multiple regions.
+
+    This function iterates over a dictionary of monthly-preparation results
+    (e.g., output from `prepare_monthlies_for_all_regions`) and creates a
+    t-SNE-based feature overlap visualization for each region/subregion.
+
+    For each key:
+      - Extracts `df_train` and `df_test`
+      - Skips if either is missing or empty
+      - Calls `plot_tsne_overlap`
+      - Stores the resulting matplotlib Figure
+
+    Parameters
+    ----------
+    results_dict : dict
+        Dictionary mapping region/subregion keys (e.g., "07_SJM", "11_CH")
+        to result dictionaries containing at least:
+            - "df_train"
+            - "df_test"
+
+    cfg : object
+        Configuration object. Must contain a `seed` attribute used for
+        reproducibility of the t-SNE random state.
+
+    STATIC_COLS : list of str
+        Names of static (time-invariant) feature columns used for plotting.
+
+    MONTHLY_COLS : list of str
+        Names of monthly (time-varying) feature columns used for plotting.
+
+    n_iter : int, optional
+        Number of t-SNE optimization iterations (default is 1000).
+
+    Returns
+    -------
+    dict
+        Dictionary mapping region/subregion keys to matplotlib Figure objects.
+
+    Notes
+    -----
+    - Uses a consistent color palette across all regions
+      (dark blue for Train, red for Test).
+    - Skips regions with missing or empty datasets.
+    - Figures are not automatically saved; the caller can save them
+      individually if desired.
+    """
+    colors = get_cmap_hex(cm.batlow, 10)
+    color_dark_blue = colors[0]
+    custom_palette = {"Train": color_dark_blue, "Test": "#b2182b"}
+
+    figs = {}
+
+    for key, res in results_dict.items():
+        if res is None:
+            continue
+
+        df_train = res.get("df_train")
+        df_test = res.get("df_test")
+
+        if (
+            df_train is None
+            or df_test is None
+            or len(df_train) == 0
+            or len(df_test) == 0
+        ):
+            print(f"[{key}] Missing/empty df_train or df_test, skipping.")
+            continue
+
+        print(
+            f"Plotting t-SNE overlap for {key}: train={len(df_train)}, test={len(df_test)}"
+        )
+
+        fig = plot_tsne_overlap(
+            df_train,
+            df_test,
+            STATIC_COLS,
+            MONTHLY_COLS,
+            sublabels=("a", "b", "c"),
+            label_fmt="({})",
+            label_xy=(0.02, 0.98),
+            label_fontsize=14,
+            n_iter=n_iter,
+            random_state=cfg.seed,
+            custom_palette=custom_palette,
+        )
+
+        figs[key] = fig
+
+    return figs
+
+
+def plot_feature_overlap_all_regions(
+    results_dict,
+    STATIC_COLS,
+    MONTHLY_COLS,
+    output_dir="figures",
+    include_target=True,
+):
+    """
+    Plot KDE-based feature distribution overlap (Train vs Test) for all regions.
+
+    This function iterates over a dictionary of region/subregion results
+    (e.g., from `prepare_monthlies_for_all_regions`) and generates kernel
+    density estimate (KDE) overlap plots comparing train and test feature
+    distributions.
+
+    For each key:
+      - Extracts `df_train` and `df_test`
+      - Skips missing or empty datasets
+      - Plots feature KDE overlap using `plot_feature_kde_overlap`
+      - Stores the resulting matplotlib Figure
+
+    Parameters
+    ----------
+    results_dict : dict
+        Dictionary mapping region/subregion keys (e.g., "07_SJM", "11_CH")
+        to result dictionaries containing at least:
+            - "df_train"
+            - "df_test"
+
+    STATIC_COLS : list of str
+        Names of static (time-invariant) feature columns.
+
+    MONTHLY_COLS : list of str
+        Names of monthly (time-varying) feature columns.
+
+    output_dir : str, optional
+        Directory where figures could be saved (default: "figures").
+        The directory is created if it does not exist.
+        Note: Figures are not automatically saved unless handled inside
+        `plot_feature_kde_overlap`.
+
+    include_target : bool, optional
+        If True, includes the target variable ("POINT_BALANCE") in the
+        KDE overlap plots (default: True).
+
+    Returns
+    -------
+    dict
+        Dictionary mapping region/subregion keys to matplotlib Figure objects.
+
+    Notes
+    -----
+    - Uses a consistent color palette across all regions
+      (dark blue for Train, red for Test).
+    - Skips regions with missing or empty train/test datasets.
+    - Figures are returned for optional further processing (saving, styling).
+    """
+    os.makedirs(output_dir, exist_ok=True)
+
+    colors = get_cmap_hex(cm.batlow, 10)
+    color_dark_blue = colors[0]
+    palette = {"Train": color_dark_blue, "Test": "#b2182b"}
+
+    features = STATIC_COLS + MONTHLY_COLS
+    if include_target:
+        features = features + ["POINT_BALANCE"]
+
+    figs = {}
+
+    for key, res in results_dict.items():
+        if res is None:
+            continue
+
+        df_train = res.get("df_train")
+        df_test = res.get("df_test")
+
+        if df_train is None or df_test is None:
+            print(f"[{key}] Missing df_train/df_test, skipping.")
+            continue
+
+        if len(df_train) == 0 or len(df_test) == 0:
+            print(f"[{key}] Empty train/test, skipping.")
+            continue
+
+        print(f"Plotting KDE overlap for {key}")
+
+        fig = plot_feature_kde_overlap(
+            df_train, df_test, features, palette, outfile=None
+        )
+
+        figs[key] = fig
+
+    return figs
+
+
+def summarize_and_plot_all_regions(dfs):
+    """
+    Summarize and visualize measurement statistics for all RGI regions.
+
+    For each region (key in `dfs`), this function:
+
+    1. Filters the dataset to retain only "annual" and "winter" measurements.
+    2. Prints the number of unique glaciers per subregion (based on SOURCE_CODE,
+       if available).
+    3. Generates stacked bar plots showing the number of annual and winter
+       measurements per year.
+       - If SOURCE_CODE exists, plots are created per subregion.
+       - Otherwise, all data are treated as a single group.
+
+    Parameters
+    ----------
+    dfs : dict
+        Dictionary mapping RGI region identifiers (e.g. "06", "11") to
+        pandas.DataFrame objects containing stake mass balance data.
+        Each DataFrame is expected to include:
+            - "YEAR"
+            - "PERIOD"
+            - "GLACIER"
+        Optional:
+            - "SOURCE_CODE" (for subregion grouping)
+
+    Notes
+    -----
+    - Only measurements with PERIOD in ["annual", "winter"] are considered.
+    - If required columns are missing, the function prints a warning and
+      skips the corresponding summary or plot.
+    - Plots are displayed immediately using matplotlib.
+    """
+    for rid, df in dfs.items():
+        if df is None or len(df) == 0:
+            print(f"\n=== RGI {rid}: empty ===")
+            continue
+
+        d = df.copy()
+
+        # keep only annual+winter
+        if "PERIOD" in d.columns:
+            d = d[d["PERIOD"].isin(["annual", "winter"])].copy()
+
+        print(f"\n========== RGI {rid} ==========")
+
+        # --- glaciers per subregion (SOURCE_CODE) ---
+        if "SOURCE_CODE" in d.columns and "GLACIER" in d.columns:
+            glaciers_per_sub = (
+                d.groupby("SOURCE_CODE")["GLACIER"]
+                .nunique()
+                .sort_values(ascending=False)
+            )
+            print("Unique glaciers per subregion (SOURCE_CODE):")
+            print(glaciers_per_sub)
+        else:
+            print(
+                "[warn] Missing SOURCE_CODE and/or GLACIER columns; skipping glacier counts."
+            )
+
+        # --- stacked bars per year for each subregion ---
+        if not {"YEAR", "PERIOD"}.issubset(d.columns):
+            print("[warn] Missing YEAR/PERIOD columns; skipping plots.")
+            continue
+
+        group_key = "SOURCE_CODE" if "SOURCE_CODE" in d.columns else None
+        if group_key is None:
+            # no subregions: treat everything as one group
+            groups = [("ALL", d)]
+        else:
+            groups = list(d.groupby(group_key))
+
+        for code, dsub in groups:
+            counts = (
+                dsub.groupby(["YEAR", "PERIOD"])
+                .size()
+                .unstack(fill_value=0)
+                .reindex(columns=["annual", "winter"], fill_value=0)
+                .sort_index()
+            )
+
+            plt.figure(figsize=(20, 6))
+            plt.bar(
+                counts.index,
+                counts["annual"].values,
+                label="annual",
+                color=mbm.plots.COLOR_ANNUAL,
+            )
+            plt.bar(
+                counts.index,
+                counts["winter"].values,
+                bottom=counts["annual"].values,
+                label="winter",
+                color=mbm.plots.COLOR_WINTER,
+            )
+            plt.title(f"RGI {rid} – {code}: measurements per year (annual + winter)")
+            plt.xlabel("Year")
+            plt.ylabel("Number of measurements")
+            plt.legend()
+            plt.tight_layout()
+            plt.show()
+
+
+def plot_mb_distributions_all_regions(
+    dfs,
+    periods=("annual", "winter"),
+    value_col="POINT_BALANCE",
+    group_col="SOURCE_CODE",
+    bins_n=21,
+):
+    """
+    Plot seasonal mass balance distributions for all RGI regions.
+
+    For each region (key in `dfs`), this function:
+
+    1. Filters the dataset to the specified seasonal periods.
+    2. Groups the data by subregion (SOURCE_CODE) if available.
+    3. Plots side-by-side histograms of mass balance values for each period.
+       - Histograms for different subregions are overlaid.
+       - Vertical dashed lines indicate mean values per group.
+       - Common bin edges are used per period to ensure fair comparison.
+
+    Parameters
+    ----------
+    dfs : dict
+        Dictionary mapping RGI region identifiers (e.g. "06", "11") to
+        pandas.DataFrame objects containing stake mass balance data.
+    periods : tuple of str, optional
+        Seasonal periods to include (default: ("annual", "winter")).
+    value_col : str, optional
+        Name of the column containing mass balance values
+        (default: "POINT_BALANCE").
+    group_col : str, optional
+        Column used to define subregions (default: "SOURCE_CODE").
+        If not present, all data are treated as one group.
+    bins_n : int, optional
+        Number of histogram bins (default: 21).
+
+    Notes
+    -----
+    - Only rows with non-null mass balance values are used.
+    - If no data exist for a given period, an empty plot is shown
+      with a "no data" indication.
+    - Mean values per group are indicated by vertical dashed lines.
+    - Plots are displayed immediately using matplotlib.
+    """
+    for rid, df in dfs.items():
+        if df is None or len(df) == 0:
+            print(f"\n=== RGI {rid}: empty ===")
+            continue
+
+        if not {"PERIOD", value_col}.issubset(df.columns):
+            print(f"\n=== RGI {rid}: missing PERIOD or {value_col}, skipping ===")
+            continue
+
+        # keep only the periods we want
+        d = df[df["PERIOD"].isin(periods)].copy()
+
+        # choose grouping
+        if group_col in d.columns:
+            groups = list(d[group_col].dropna().unique())
+            groups = sorted(groups)
+        else:
+            groups = ["ALL"]
+            d[group_col] = "ALL"
+
+        # build plot
+        fig, axes = plt.subplots(1, len(periods), figsize=(14, 5), sharey=True)
+        if len(periods) == 1:
+            axes = [axes]
+
+        for ax, period in zip(axes, periods):
+            # Collect all values across groups to define common bins
+            vals_all = []
+            for g in groups:
+                vals = (
+                    d.loc[(d["PERIOD"] == period) & (d[group_col] == g), value_col]
+                    .dropna()
+                    .values
+                )
+                if vals.size:
+                    vals_all.append(vals)
+
+            if not vals_all:
+                ax.set_title(f"{period.capitalize()} Mass Balance (no data)")
+                ax.set_xlabel("Mass balance [m w.e.]")
+                continue
+
+            vals_all = np.concatenate(vals_all)
+            vmin, vmax = float(vals_all.min()), float(vals_all.max())
+            if np.isclose(vmin, vmax):
+                # degenerate case: all values identical
+                bins = np.linspace(vmin - 1e-6, vmax + 1e-6, bins_n)
+            else:
+                bins = np.linspace(vmin, vmax, bins_n)
+
+            # Plot each group
+            for g in groups:
+                vals = (
+                    d.loc[(d["PERIOD"] == period) & (d[group_col] == g), value_col]
+                    .dropna()
+                    .values
+                )
+                if not vals.size:
+                    continue
+                ax.hist(vals, bins=bins, alpha=0.5, label=str(g))
+                ax.axvline(vals.mean(), linestyle="--")
+
+            ax.set_title(f"{period.capitalize()} Mass Balance")
+            ax.set_xlabel("Mass balance [m w.e.]")
+            ax.legend()
+
+        axes[0].set_ylabel("Number of measurements")
+        plt.suptitle(
+            f"RGI {rid} – Seasonal Point Mass Balance Distribution", fontsize=14
+        )
+        plt.tight_layout()
+        plt.show()
+
+
+# --------------------- Transfer learning -- XREG-specific plotting ---------------------
+def plot_tsne_overlap_xreg_from_single_res(
+    res_xreg: dict,
+    cfg,
+    STATIC_COLS,
+    MONTHLY_COLS,
+    group_col: str = "SOURCE_CODE",
+    target_code: str = "CH",
+    use_aug: bool = False,  # True -> df_train_aug/df_test_aug
+    n_iter: int = 1000,
+    only_codes=None,  # e.g. ["IT_AT", "FR"]
+    skip_codes=None,  # e.g. ["CH"]
+):
+    """
+    For XREG where train=CH and test=all non-CH inside ONE monthly result dict:
+
+      - df_ch = res_xreg[df_train*]
+      - df_test_all = res_xreg[df_test*]
+      - split df_test_all by SOURCE_CODE and plot CH vs each code
+
+    Returns dict: code -> figure
+    """
+    only_codes = {c.upper() for c in (only_codes or [])} or None
+    skip_codes = {c.upper() for c in (skip_codes or [])}
+    skip_codes.add(target_code.upper())
+
+    # pick which dfs
+    if use_aug:
+        df_src = res_xreg.get("df_train_aug")
+        df_test_all = res_xreg.get("df_test_aug")
+        label_df = "(*_aug)"
+    else:
+        df_src = res_xreg.get("df_train")
+        df_test_all = res_xreg.get("df_test")
+        label_df = ""
+
+    if df_src is None or len(df_src) == 0:
+        raise ValueError(f"df_train{label_df} missing/empty in res_xreg.")
+    if df_test_all is None or len(df_test_all) == 0:
+        raise ValueError(f"df_test{label_df} missing/empty in res_xreg.")
+
+    if group_col not in df_test_all.columns:
+        raise ValueError(
+            f"'{group_col}' not found in df_test{label_df}. Needed to split by region."
+        )
+    if group_col not in df_src.columns:
+        # not fatal, but helps sanity-check
+        print(
+            f"[warn] '{group_col}' not in df_train{label_df}. That's OK for CH reference."
+        )
+
+    # palette
+    colors = get_cmap_hex(cm.batlow, 10)
+    color_dark_blue = colors[0]
+    custom_palette = {"Train": color_dark_blue, "Test": "#b2182b"}
+
+    # codes present in test
+    codes_present = sorted(
+        c
+        for c in df_test_all[group_col].dropna().astype(str).str.upper().unique()
+        if c not in skip_codes
+    )
+
+    if only_codes is not None:
+        codes_present = [c for c in codes_present if c in only_codes]
+
+    figs = {}
+    print(codes_present)
+    for code in codes_present:
+        df_other = df_test_all[
+            df_test_all[group_col].astype(str).str.upper() == code
+        ].copy()
+        if len(df_other) == 0:
+            continue
+
+        print(
+            f"Plotting XREG t-SNE: {target_code}(train n={len(df_src)}) vs {code}(test n={len(df_other)})"
+        )
+
+        fig = plot_tsne_overlap(
+            data_train=df_src,
+            data_test=df_other,
+            STATIC_COLS=STATIC_COLS,
+            MONTHLY_COLS=MONTHLY_COLS,
+            sublabels=("a", "b", "c"),
+            label_fmt="({})",
+            label_xy=(0.02, 0.98),
+            label_fontsize=14,
+            n_iter=n_iter,
+            random_state=cfg.seed,
+            custom_palette=custom_palette,
+        )
+        fig.suptitle(f"XREG overlap: CH vs {code}", fontsize=14)
+        figs[code] = fig
+
+    return figs
+
+
+def plot_feature_kde_overlap_xreg_with_shifts(
+    res_all_xreg: dict,
+    cfg,
+    monthly_cols: list[str],
+    static_cols: list[str],
+    scaler_m,
+    scaler_s,
+    group_col: str = "SOURCE_CODE",
+    target_code: str = "CH",
+    use_aug: bool = False,
+    only_codes=None,
+    skip_codes=None,
+    output_dir=None,
+    include_tgt_in_title: bool = True,
+) -> dict:
+    """
+    For each XREG transfer key in res_all_xreg, plots KDE feature overlap
+    between CH (train) and the target region (test), with per-variable MMD²
+    annotated in the top-right corner of each subplot.
+
+    Works for both individual region keys (e.g. "XREG_CH_TO_NOR") and
+    grouped region keys (e.g. "XREG_CH_TO_CEU" pooling FR + IT_AT).
+
+    Parameters
+    ----------
+    res_all_xreg : dict
+        Dict keyed by transfer name (e.g. "XREG_CH_TO_NOR" or "XREG_CH_TO_CEU"),
+        each value being a dict with "df_train" and "df_test".
+    cfg : object
+        Config object (used for output path if output_dir is relative).
+    monthly_cols : list[str]
+        Dynamic/climate feature columns. Should already include POINT_BALANCE
+        if you want it plotted and measured.
+    static_cols : list[str]
+        Static/topo feature columns.
+    scaler_m : StandardScaler
+        Fitted scaler for monthly features (used in compute_domain_shift).
+    scaler_s : StandardScaler
+        Fitted scaler for static features (used in compute_domain_shift).
+    group_col : str
+        Column identifying source region in df_test (default: "SOURCE_CODE").
+        Used only to build a human-readable subtitle listing member codes.
+    target_code : str
+        Code for the training region (default: "CH").
+    use_aug : bool
+        If True, uses df_train_aug/df_test_aug instead of df_train/df_test.
+    only_codes : list[str] or None
+        If given, only process keys whose suffix matches one of these strings
+        (e.g. ["NOR", "CEU"]).
+    skip_codes : list[str] or None
+        Key suffixes to skip (e.g. ["CH"]).
+    output_dir : str or None
+        Directory to save PNGs. If None, figures are not saved.
+    include_tgt_in_title : bool
+        Whether to add suptitle to each figure.
+
+    Returns
+    -------
+    dict
+        Maps transfer key -> matplotlib Figure
+    """
+    colors = get_cmap_hex(cm.batlow, 10)
+    color_dark_blue = colors[0]
+    palette = {"Train": color_dark_blue, "Test": "#b2182b"}
+
+    target_code = str(target_code).upper()
+    skip_set = {c.upper() for c in (skip_codes or [])}
+    skip_set.add(target_code)
+    only_set = {c.upper() for c in only_codes} if only_codes else None
+
+    if output_dir:
+        out_abs = (
+            os.path.join(cfg.dataPath, output_dir)
+            if hasattr(cfg, "dataPath")
+            else output_dir
+        )
+        os.makedirs(out_abs, exist_ok=True)
+    else:
+        out_abs = None
+
+    suffix = "_aug" if use_aug else ""
+    # POINT_BALANCE is always added here so the scaler (fitted on
+    # MONTHLY_COLS + ["POINT_BALANCE"]) gets the right number of features,
+    # regardless of whether the caller included it in monthly_cols or not.
+    pmb_col = "POINT_BALANCE"
+    monthly_cols_with_pmb = (
+        monthly_cols if pmb_col in monthly_cols else monthly_cols + [pmb_col]
+    )
+    all_features = monthly_cols_with_pmb + static_cols
+
+    figs = {}
+
+    for key in tqdm(res_all_xreg, desc="Plotting KDE + MMD²"):
+
+        # --- infer label directly from key (works for both individual + groups) ---
+        # e.g. "XREG_CH_TO_NOR" -> "NOR", "XREG_CH_TO_CEU" -> "CEU"
+        code = key.split("_TO_")[-1].upper() if "_TO_" in key else key.upper()
+
+        # --- apply only/skip filters on the key suffix ---
+        if code in skip_set:
+            continue
+        if only_set is not None and code not in only_set:
+            continue
+
+        res_xreg = res_all_xreg[key]
+
+        # --- get train/test dataframes ---
+        df_train = res_xreg.get(f"df_train{suffix}")
+        df_test = res_xreg.get(f"df_test{suffix}")
+
+        if (
+            df_train is None
+            or df_test is None
+            or len(df_train) == 0
+            or len(df_test) == 0
+        ):
+            print(f"Skipping {key}: missing or empty df_train/df_test.")
+            continue
+
+        # --- for grouped entries, build a subtitle listing member codes ---
+        if group_col in df_test.columns:
+            member_codes = sorted(
+                df_test[group_col].dropna().astype(str).str.upper().unique()
+            )
+            # if only one code it's an individual entry, no need to list members
+            code_label = (
+                f"{code} ({', '.join(member_codes)})" if len(member_codes) > 1 else code
+            )
+        else:
+            code_label = code
+
+        print(
+            f"[{key}] label={code_label} | "
+            f"train n={len(df_train)}, test n={len(df_test)}"
+        )
+
+        # --- compute per-variable MMD² ---
+        shift = compute_domain_shift(
+            df_src=df_train,
+            df_tgt=df_test,
+            monthly_cols=monthly_cols_with_pmb,
+            static_cols=static_cols,
+            scaler_m=scaler_m,
+            scaler_s=scaler_s,
+            compute_marginals=True,
+        )
+
+        mmd2_per_var = {
+            k.replace("D_mmd2_", ""): v
+            for k, v in shift.items()
+            if k.startswith("D_mmd2_")
+            and k not in {"D_mmd2_joint", "D_mmd2_climate", "D_mmd2_topo"}
+        }
+        energy_per_var = {
+            k.replace("D_energy_", ""): v
+            for k, v in shift.items()
+            if k.startswith("D_energy_")
+            and k not in {"D_energy_joint", "D_energy_climate", "D_energy_topo"}
+        }
+
+        # --- plot KDE overlap ---
+        fig = plot_feature_kde_overlap(
+            df_train=df_train,
+            df_test=df_test,
+            features=all_features,
+            palette=palette,
+            outfile=None,
+        )
+
+        # --- annotate each subplot with MMD² and energy distance ---
+        for ax, feat in zip(fig.axes, all_features):
+            mmd2 = mmd2_per_var.get(feat)
+            energy = energy_per_var.get(feat)
+            lines = []
+            if mmd2 is not None:
+                lines.append(f"MMD² = {mmd2:.3f}")
+            if energy is not None:
+                lines.append(f"E    = {energy:.3f}")
+            if lines:
+                ax.text(
+                    0.97,
+                    0.97,
+                    "\n".join(lines),
+                    transform=ax.transAxes,
+                    ha="right",
+                    va="top",
+                    fontsize=8,
+                    fontweight="bold",
+                    color="black",
+                    bbox=dict(
+                        boxstyle="round,pad=0.2",
+                        fc="white",
+                        ec="none",
+                        alpha=0.7,
+                    ),
+                )
+
+        # --- title and layout ---
+        if include_tgt_in_title:
+            fig.suptitle(
+                f"XREG feature overlap: {target_code} vs {code_label}  "
+                f"(train n={len(df_train)}, test n={len(df_test)})",
+                fontsize=14,
+            )
+            fig.tight_layout()
+
+        # --- save ---
+        if out_abs:
+            out_png = os.path.join(
+                out_abs,
+                f"xreg_kde_overlap_{target_code}_vs_{code}{suffix}.png",
+            )
+            fig.savefig(out_png, dpi=300, bbox_inches="tight")
+            print(f"  Saved -> {out_png}")
+
+        figs[key] = fig
+
+    return figs
+
+
+def glacier_level_features(
+    df: pd.DataFrame,
+    glacier_col="GLACIER",
+    year_col="YEAR",
+):
+    d = df.copy()
+
+    # circular aspect
+    aspect_deg = d["aspect"].astype(float) % 360.0
+    aspect_rad = np.deg2rad(aspect_deg)
+    d["_asp_sin"] = np.sin(aspect_rad)
+    d["_asp_cos"] = np.cos(aspect_rad)
+
+    g = d.groupby(glacier_col).agg(
+        nrows=(glacier_col, "size"),
+        nyears=(year_col, pd.Series.nunique),
+        slope_mean=("slope", "mean"),
+        slope_std=("slope", "std"),
+        svf_mean=("svf", "mean"),
+        asp_sin_mean=("_asp_sin", "mean"),
+        asp_cos_mean=("_asp_cos", "mean"),
+        # --- new ---
+        elev_diff_mean=("ELEVATION_DIFFERENCE", "mean"),
+        elev_diff_std=("ELEVATION_DIFFERENCE", "std"),
+        t2m_mean=("t2m", "mean"),
+        t2m_std=("t2m", "std"),
+        tp_mean=("tp", "mean"),
+        tp_std=("tp", "std"),
+    )
+
+    return g.reset_index()
+
+
+def holdout_split_cluster_stratified(
+    df,
+    holdout_frac=0.30,
+    seed=40,
+    n_clusters=6,
+):
+    gfeat = glacier_level_features(df)
+
+    feat_cols = [
+        "slope_mean",
+        "slope_std",
+        "svf_mean",
+        "asp_sin_mean",
+        "asp_cos_mean",
+        "nyears",
+        "nrows",
+        # --- new ---
+        "elev_diff_mean",
+        "elev_diff_std",
+        "t2m_mean",
+        "t2m_std",
+        "tp_mean",
+        "tp_std",
+    ]
+
+    X = gfeat[feat_cols].astype(float)
+    X = X.fillna(X.median())
+
+    scaler = StandardScaler()
+    Xs = scaler.fit_transform(X)
+
+    km = KMeans(n_clusters=n_clusters, random_state=seed, n_init=10)
+    gfeat["cluster"] = km.fit_predict(Xs)
+
+    rng = np.random.default_rng(seed)
+    holdout = []
+
+    for c, sub in gfeat.groupby("cluster"):
+        gls = sub["GLACIER"].to_numpy()
+        rng.shuffle(gls)
+        k = int(np.ceil(holdout_frac * len(gls)))
+        holdout.extend(gls[:k])
+
+    holdout_glaciers = set(holdout)
+    pool_glaciers = set(gfeat["GLACIER"]) - holdout_glaciers
+
+    df_holdout = df[df["GLACIER"].isin(holdout_glaciers)].copy()
+    df_pool = df[df["GLACIER"].isin(pool_glaciers)].copy()
+
+    summary = {
+        "holdout_frac": holdout_frac,
+        "n_clusters": n_clusters,
+        "n_glaciers_total": int(gfeat.shape[0]),
+        "n_glaciers_holdout": int(len(holdout_glaciers)),
+        "n_glaciers_pool": int(len(pool_glaciers)),
+        "rows_holdout": int(len(df_holdout)),
+        "rows_pool": int(len(df_pool)),
+    }
+
+    return df_pool, df_holdout, holdout_glaciers, pool_glaciers, gfeat, summary
+
+
+def plot_tsne_overlap_src_vs_tgt_splits(
+    res_src: dict,
+    df_tgt_pool: pd.DataFrame,
+    df_tgt_holdout: pd.DataFrame,
+    cfg,
+    STATIC_COLS,
+    MONTHLY_COLS,
+    use_aug: bool = False,
+    n_iter: int = 1000,
+    src_code="ISL",
+    tgt_code="CH",
+):
+    suffix = "_aug" if use_aug else ""
+
+    df_src = res_src.get(f"df_train{suffix}")
+    df_tgt_all = res_src.get(f"df_test{suffix}")
+
+    if df_src is None or len(df_src) == 0:
+        raise ValueError(f"df_train{suffix} missing/empty in res_src.")
+    if df_tgt_all is None or len(df_tgt_all) == 0:
+        raise ValueError(f"df_test{suffix} missing/empty in res_src.")
+
+    colors = get_cmap_hex(cm.batlow, 10)
+    src_color = colors[0]
+    tgt_color = "#b2182b"
+
+    comparisons = {
+        "tgt_all": (df_tgt_all, f"{tgt_code} all"),
+        "tgt_pool": (df_tgt_pool, f"{tgt_code} pool"),
+        "tgt_holdout": (df_tgt_holdout, f"{tgt_code} holdout"),
+    }
+
+    figs = {}
+    for key, (df_test, tgt_code) in comparisons.items():
+        print(
+            f"Plotting t-SNE: {src_code} (n={len(df_src)}) vs {tgt_code} (n={len(df_test)})"
+        )
+
+        custom_palette = {
+            src_code: src_color,
+            tgt_code: tgt_color,
+        }
+
+        fig = plot_tsne_overlap(
+            data_train=df_src,
+            data_test=df_test,
+            STATIC_COLS=STATIC_COLS,
+            MONTHLY_COLS=MONTHLY_COLS,
+            label_train=src_code,
+            label_test=tgt_code,
+            custom_palette=custom_palette,
+            sublabels=("a", "b", "c"),
+            label_fmt="({})",
+            label_xy=(0.02, 0.98),
+            label_fontsize=14,
+            n_iter=n_iter,
+            random_state=cfg.seed,
+        )
+        fig.suptitle(f"t-SNE overlap: {src_code} vs {tgt_code}", fontsize=14)
+        figs[key] = fig
+
+    return figs

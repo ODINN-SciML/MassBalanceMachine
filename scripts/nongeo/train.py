@@ -27,7 +27,7 @@ from scripts.nongeo.utils import (
     getLogDir,
 )
 
-# from regions.Switzerland.scripts.nn_helpers import plot_training_history
+# from regions.RGI_11_Switzerland.scripts.nn_helpers import plot_training_history
 
 warnings.filterwarnings("ignore")
 

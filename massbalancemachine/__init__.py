@@ -12,6 +12,7 @@ __all__ = [
     "plots",
     "metrics",
     "sampling",
+    "utils",
 ]
 
 import dataloader
@@ -24,4 +25,5 @@ import training
 import plots
 import metrics
 import sampling
+import utils
 from .config import *  # Load config at the top level of the package

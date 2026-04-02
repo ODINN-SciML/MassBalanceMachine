@@ -11,8 +11,6 @@ import torch
 import torch.nn as nn
 from skorch.helper import SliceDataset
 
-# from regions.Switzerland.scripts.helpers import get_cmap_hex
-
 # warnings.filterwarnings('ignore')
 
 
