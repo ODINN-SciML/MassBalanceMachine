@@ -8,8 +8,8 @@ def scatterplot_mb(
     title="",
     hue=None,
     nbin=100,
-    xlabel="SMB (m/y)",
-    ylabel="Upper surface elevation (m)",
+    xlabel="SMB (m w.e. / y)",
+    ylabel="Surface elevation (m)",
     ax_xlim=None,
     ax_ylim=None,
     test_data=None,
@@ -160,7 +160,7 @@ def histogram_mb(
     else:
         fig = None
     x = grouped_ids["POINT_BALANCE"]
-    ax = axs[0]
+    ax = axs[0] if test_data is not None else axs
     ax.hist(x, bins=nbins, label="training data")
     ax.set_xlabel(xlabel, fontsize=20)
     ax.set_ylabel(ylabel, fontsize=20)

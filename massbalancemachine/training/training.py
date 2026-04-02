@@ -3,6 +3,7 @@ import torch
 from torch import nn
 from torch.utils.tensorboard import SummaryWriter
 from torcheval.metrics.functional import r2_score
+from torch.profiler import profile, record_function, ProfilerActivity
 import numpy as np
 import datetime
 import heapq
@@ -156,6 +157,7 @@ def predict_annual_gridded(model, geoGrid, metadata):
 
 
 def eval_geodetic(model, geo_dataloader, return_grid_pred=[]):
+    raise Exception("TODO: update this section")
     geoPred = {}
     geoTarget = {}
     geoErr = {}
@@ -251,34 +253,38 @@ def compute_geo_loss(model, geoGrid, metadata, ygeo, errgeo, geod_periods):
     Returns a scalar torch value that corresponds to the geodetic loss term.
     """
     # Make prediction
-    pred = model.forward(geoGrid)[:, 0]
+    with record_function("geo_forward"):
+        pred = model.forward(geoGrid)[:, 0]
 
-    idAggr = metadata["ID"].values
-    int_id, unique_id = pd.factorize(idAggr)
-    metadata = metadata.assign(ID_int=int_id)
+    with record_function("aggregation_ID"):
+        idAggr = metadata["ID"].values
+        int_id, unique_id = pd.factorize(idAggr)
+        metadata = metadata.assign(ID_int=int_id)
 
-    # Aggregate per point on the grid
-    grouped_ids = model.aggrMetadataId(metadata, "ID_int")
-    predSumAnnual = model.aggrPredict(pred, metadata["ID_int"].values)
+        # Aggregate per point on the grid
+        grouped_ids = model.aggrMetadataId(metadata, "ID_int")
+        predSumAnnual = model.aggrPredict(pred, metadata["ID_int"].values)
 
-    glwdIdAggr = grouped_ids["GLWD_ID"].values
-    int_glwd_id, unique_id = pd.factorize(glwdIdAggr)
-    grouped_ids = grouped_ids.assign(GLWD_ID_int=int_glwd_id)
+    with record_function("aggregation_GLWD_ID"):
+        glwdIdAggr = grouped_ids["GLWD_ID"].values
+        int_glwd_id, unique_id = pd.factorize(glwdIdAggr)
+        grouped_ids = grouped_ids.assign(GLWD_ID_int=int_glwd_id)
 
-    # Aggregate glacier wide
-    metadataAggrYear = model.aggrMetadataGlwdId(grouped_ids, "GLWD_ID_int")
-    predSumAnnualGlwd = model.aggrPredictGlwd(
-        predSumAnnual, grouped_ids["GLWD_ID_int"].values
-    )
+        # Aggregate glacier wide
+        metadataAggrYear = model.aggrMetadataGlwdId(grouped_ids, "GLWD_ID_int")
+        predSumAnnualGlwd = model.aggrPredictGlwd(
+            predSumAnnual, grouped_ids["GLWD_ID_int"].values
+        )
 
     # Compute the geodetic MB for the different time windows
-    lossGeo = timeWindowGeodeticLoss(
-        predSumAnnualGlwd,
-        ygeo,
-        errgeo,
-        metadataAggrYear,
-        geod_periods,
-    )
+    with record_function("timeWindowGeodeticLoss"):
+        lossGeo = timeWindowGeodeticLoss(
+            predSumAnnualGlwd,
+            ygeo,
+            errgeo,
+            metadataAggrYear,
+            geod_periods,
+        )
 
     return lossGeo.mean()  # Compute mean of the different time window scores
 
@@ -426,6 +432,8 @@ def loadBestModel(log_dir, model):
             bestVal = val
             bestEpoch = epoch
         val = float(val)
+    if best is None:
+        raise Exception("No model found.")
     model.load_state_dict(torch.load(files[best], weights_only=True))
     return files[best]
 
@@ -505,6 +513,18 @@ def train_geo(
             statsVal[metric + suffix] = []
     top_models = []  # Heap of (val_loss, filepath) to store top 5 models
 
+    if geodataloader.device.type == "cuda":
+        try:
+            tmp = torch.zeros(3).pin_memory()
+            tmp = geodataloader.to(geodataloader.device, non_blocking=True)
+            async_transfer = True
+            del tmp
+        except:
+            warnings.warn("Error while trying to setup async data transfer on GPU.")
+            async_transfer = False
+    else:
+        async_transfer = False
+
     try:
 
         for epoch in tqdm.tqdm(
@@ -524,78 +544,146 @@ def train_geo(
                 leave=False,
                 ncols=nColsProgressBar,
             ) as batch_bar:
-                for batch_idx, g in enumerate(geodataloader.glaciers()):
-                    optim.zero_grad()
 
-                    if timeExec:
-                        torch.cuda.synchronize()
-                        st = time.time()
-                    stakes, metadata, point_balance = geodataloader.stakes(g)
-                    stakes = torch.tensor(stakes.astype(np.float32)).to(
-                        geodataloader.device
-                    )
-                    point_balance = torch.tensor(point_balance.astype(np.float32)).to(
-                        geodataloader.device
-                    )
-                    if timeExec:
-                        torch.cuda.synchronize()
-                        stakesDataloaderTime = time.time() - st
-                        st = time.time()
-                    lossStake, _, _ = compute_stake_loss(
-                        model, stakes, metadata, point_balance
-                    )
-                    if timeExec:
-                        torch.cuda.synchronize()
-                        stakesInferenceTime = time.time() - st
+                glacier_iter = iter(geodataloader.glaciers())
+                try:
+                    current_g = next(glacier_iter)
+                except StopIteration:
+                    current_g = None
 
-                    valScalingStakes = (
-                        stakes.shape[0] if scalingStakes == "meas" else 1.0
-                    )
-                    lossStake = lossStake * valScalingStakes
-                    if wGeo > 0 and geodataloader.hasGeo(g):
+                # geo future loaded at the first iteration
+                current_geo_future = None
+                if (
+                    current_g is not None
+                    and wGeo > 0
+                    and geodataloader.hasGeo(current_g)
+                ):
+                    current_geo_future = geodataloader.submit_geo(current_g)
+
+                batch_idx = 0
+                while current_g is not None:
+                    # for batch_idx, g in enumerate(geodataloader.glaciers()):
+
+                    with profile(
+                        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                        record_shapes=True,
+                        profile_memory=True,
+                    ) as prof:
+
+                        optim.zero_grad()
+
+                        # Look ahead and start loading geo for the next iteration
+                        try:
+                            next_g = next(glacier_iter)
+                        except StopIteration:
+                            next_g = None
+
+                        next_geo_future = None
+                        if (
+                            next_g is not None
+                            and wGeo > 0
+                            and geodataloader.hasGeo(next_g)
+                        ):
+                            next_geo_future = geodataloader.submit_geo(next_g)
+
                         if timeExec:
                             torch.cuda.synchronize()
                             st = time.time()
-                        geoGrid, metadata, ygeo, errgeo = geodataloader.geo(g)
-                        geoGrid = torch.tensor(geoGrid.astype(np.float32)).to(
+                        stakes, metadata, point_balance = geodataloader.stakes(
+                            current_g
+                        )
+                        stakes = torch.tensor(stakes.astype(np.float32)).to(
                             geodataloader.device
                         )
-                        ygeo = torch.tensor(ygeo.astype(np.float32)).to(
-                            geodataloader.device
-                        )
-                        errgeo = torch.tensor(errgeo.astype(np.float32)).to(
-                            geodataloader.device
-                        )
+                        point_balance = torch.tensor(
+                            point_balance.astype(np.float32)
+                        ).to(geodataloader.device)
                         if timeExec:
                             torch.cuda.synchronize()
-                            geoDataloaderTime = time.time() - st
-                        geod_periods = geodataloader.periods_per_glacier[g]
+                            stakesDataloaderTime = time.time() - st
+                            st = time.time()
+                        with record_function("stake_forward"):
+                            lossStake, _, _ = compute_stake_loss(
+                                model, stakes, metadata, point_balance
+                            )
+                        if timeExec:
+                            torch.cuda.synchronize()
+                            stakesInferenceTime = time.time() - st
+
+                        valScalingStakes = (
+                            stakes.shape[0] if scalingStakes == "meas" else 1.0
+                        )
+                        lossStake = lossStake * valScalingStakes
+                        if wGeo > 0 and geodataloader.hasGeo(current_g):
+                            if timeExec:
+                                torch.cuda.synchronize()
+                                st = time.time()
+
+                            # consume prefetched current batch
+                            if current_geo_future is not None:
+                                geoGrid, metadata, ygeo, errgeo = (
+                                    current_geo_future.result()
+                                )
+                            else:
+                                geoGrid, metadata, ygeo, errgeo = geodataloader.geo(
+                                    current_g
+                                )
+
+                            # geoGrid, metadata, ygeo, errgeo = geodataloader.geo(g)
+                            # Transfer below takes 20 to 40ms
+                            # geoGrid = torch.tensor(geoGrid.astype(np.float32)).to(
+                            #     geodataloader.device
+                            # )
+                            # ygeo = torch.tensor(ygeo.astype(np.float32)).to(
+                            #     geodataloader.device
+                            # )
+                            # errgeo = torch.tensor(errgeo.astype(np.float32)).to(
+                            #     geodataloader.device
+                            # )
+                            geoGrid = geoGrid.to(
+                                geodataloader.device, non_blocking=async_transfer
+                            )
+                            ygeo = ygeo.to(
+                                geodataloader.device, non_blocking=async_transfer
+                            )
+                            errgeo = errgeo.to(
+                                geodataloader.device, non_blocking=async_transfer
+                            )
+                            if timeExec:
+                                torch.cuda.synchronize()
+                                geoDataloaderTime = time.time() - st
+                            geod_periods = geodataloader.periods_per_glacier[current_g]
+                            if timeExec:
+                                torch.cuda.synchronize()
+                                st = time.time()
+                            # with record_function("geo_forward"):
+                            lossGeo = compute_geo_loss(
+                                model, geoGrid, metadata, ygeo, errgeo, geod_periods
+                            )
+                            if timeExec:
+                                torch.cuda.synchronize()
+                                geoInferenceTime = time.time() - st
+
+                            loss = lossStake + wGeo * lossGeo
+                        else:
+                            lossGeo = torch.tensor(torch.nan)
+                            loss = lossStake
+                            geoDataloaderTime = 0.0
+                            geoInferenceTime = 0.0
+
                         if timeExec:
                             torch.cuda.synchronize()
                             st = time.time()
-                        lossGeo = compute_geo_loss(
-                            model, geoGrid, metadata, ygeo, errgeo, geod_periods
-                        )
+                        with record_function("backward"):
+                            loss.backward()
+                            optim.step()
                         if timeExec:
                             torch.cuda.synchronize()
-                            geoInferenceTime = time.time() - st
+                            backwardOptimTime = time.time() - st
 
-                        loss = lossStake + wGeo * lossGeo
-                    else:
-                        lossGeo = torch.tensor(torch.nan)
-                        loss = lossStake
-                        geoDataloaderTime = 0.0
-                        geoInferenceTime = 0.0
+                    prof.export_chrome_trace(f"trace_{batch_idx}.json")
 
-                    if timeExec:
-                        torch.cuda.synchronize()
-                        st = time.time()
-                    loss.backward()
-                    optim.step()
-                    if timeExec:
-                        torch.cuda.synchronize()
-                        backwardOptimTime = time.time() - st
-
+                    # Statistics
                     lr = optim.param_groups[0]["lr"]
                     statsTraining["lossStake"].append(lossStake.item())
                     statsTraining["lossGeo"].append(lossGeo.item())
@@ -629,6 +717,11 @@ def train_geo(
                             "TimeBackwardOptim", backwardOptimTime, globalStep
                         )
 
+                    # Shift pipeline
+                    current_g = next_g
+                    current_geo_future = next_geo_future
+                    batch_idx += 1
+
                     batch_bar.set_postfix(
                         loss=f"{statsTraining['loss'][-1]:.4f}",
                         lossStake=f"{statsTraining['lossStake'][-1]:.4f}",
@@ -640,7 +733,7 @@ def train_geo(
             if scheduler is not None:
                 scheduler.step()
 
-            if freqVal:
+            if freqVal and geodataloader.lenVal() > 0:
                 model.eval()
                 with torch.no_grad():
                     cntStake = 0
@@ -652,9 +745,43 @@ def train_geo(
                     periodAll = np.zeros(
                         0, dtype=np.array(list(geodataloader.periodToInt.keys())).dtype
                     )  # Initialize with correct dtype
-                    for g in geodataloader.glaciers():
 
-                        stakes, metadata, point_balance = geodataloader.stakes(g)
+                    glacier_iter = iter(geodataloader.glaciersVal())
+                    try:
+                        current_g = next(glacier_iter)
+                    except StopIteration:
+                        current_g = None
+
+                    # geo future loaded at the first iteration
+                    current_geo_future = None
+                    if (
+                        current_g is not None
+                        and wGeo > 0
+                        and geodataloader.hasGeo(current_g)
+                    ):
+                        current_geo_future = geodataloader.submit_geo(current_g)
+
+                    batch_idx = 0
+                    while current_g is not None:
+                        # for g in geodataloader.glaciersVal():
+
+                        # Look ahead and start loading geo for the next iteration
+                        try:
+                            next_g = next(glacier_iter)
+                        except StopIteration:
+                            next_g = None
+
+                        next_geo_future = None
+                        if (
+                            next_g is not None
+                            and wGeo > 0
+                            and geodataloader.hasGeo(next_g)
+                        ):
+                            next_geo_future = geodataloader.submit_geo(next_g)
+
+                        stakes, metadata, point_balance = geodataloader.stakesVal(
+                            current_g
+                        )
                         stakes = torch.tensor(stakes.astype(np.float32)).to(
                             geodataloader.device
                         )
@@ -683,22 +810,47 @@ def train_geo(
 
                         lossStake += l
 
-                        if wGeo > 0 and geodataloader.hasGeo(g):
-                            geoGrid, metadata, ygeo, errgeo = geodataloader.geo(g)
-                            geoGrid = torch.tensor(geoGrid.astype(np.float32)).to(
-                                geodataloader.device
+                        if wGeo > 0 and geodataloader.hasGeo(current_g):
+
+                            # consume prefetched current batch
+                            if current_geo_future is not None:
+                                geoGrid, metadata, ygeo, errgeo = (
+                                    current_geo_future.result()
+                                )
+                            else:
+                                geoGrid, metadata, ygeo, errgeo = geodataloader.geo(
+                                    current_g
+                                )
+
+                            # geoGrid, metadata, ygeo, errgeo = geodataloader.geo(g)
+                            # geoGrid = torch.tensor(geoGrid.astype(np.float32)).to(
+                            #     geodataloader.device
+                            # )
+                            # ygeo = torch.tensor(ygeo.astype(np.float32)).to(
+                            #     geodataloader.device
+                            # )
+                            # errgeo = torch.tensor(errgeo.astype(np.float32)).to(
+                            #     geodataloader.device
+                            # )
+                            geoGrid = geoGrid.to(
+                                geodataloader.device, non_blocking=async_transfer
                             )
-                            ygeo = torch.tensor(ygeo.astype(np.float32)).to(
-                                geodataloader.device
+                            ygeo = ygeo.to(
+                                geodataloader.device, non_blocking=async_transfer
                             )
-                            errgeo = torch.tensor(errgeo.astype(np.float32)).to(
-                                geodataloader.device
+                            errgeo = errgeo.to(
+                                geodataloader.device, non_blocking=async_transfer
                             )
-                            geod_periods = geodataloader.periods_per_glacier[g]
+                            geod_periods = geodataloader.periods_per_glacier[current_g]
                             lossGeo += compute_geo_loss(
                                 model, geoGrid, metadata, ygeo, errgeo, geod_periods
                             )
                             cntGeo += 1
+
+                        # Shift pipeline
+                        current_g = next_g
+                        current_geo_future = next_geo_future
+                        batch_idx += 1
 
                         cntStake += valScalingStakes
                     lossStake /= cntStake
@@ -829,6 +981,8 @@ def train_geo(
                 statsVal["pearson"][-1] if len(statsVal["pearson"]) > 0 else np.nan
             )
             loss = statsVal["lossVal"][-1] if len(statsVal["lossVal"]) > 0 else np.nan
+
+            geodataloader.onEpochEnd()
 
             # Show progress bar
             tqdm.tqdm.write(

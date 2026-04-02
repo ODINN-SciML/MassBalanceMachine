@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import time
 import torch
+from concurrent.futures import ThreadPoolExecutor
 
 from regions.Switzerland.scripts.geodetic.geodetic_processing import (
     prepare_geo_targets,
@@ -47,6 +48,7 @@ class GeoDataLoader:
         months_head_pad: list[str],
         months_tail_pad: list[str],
         valStakesDf: pd.DataFrame = None,
+        glacierListVal: List[str] = [],
         ignoreStakesWithoutGeo: bool = False,
         geodeticOggm: bool = True,
         preloadGeodetic: bool = False,
@@ -57,8 +59,12 @@ class GeoDataLoader:
     ) -> None:
         self.cfg = cfg
         self.glacierList = glacierList.copy()  # Copy for shuffling
+        self.glacierListVal = (
+            glacierListVal.copy()
+        )  # Copy just in case but we don't shuffle this
         random.shuffle(self.glacierList)
         self.indGlacier = 0
+        self.indGlacierVal = 0
         self.indGlacierGeo = 0
         self.periodToInt = {"annual": 0, "winter": 1, "summer": 2}
 
@@ -73,11 +79,24 @@ class GeoDataLoader:
         self.ignoreGlaciers = ignoreGlaciers
         self.device = device
 
+        if valStakesDf is not None:
+            assert (
+                len(glacierListVal) > 0
+            ), "If validation data stakes are provided you need to provide a list of validation glaciers."
+        else:
+            assert (
+                len(glacierListVal) == 0
+            ), "If validation data stakes are not provided we don't expect a list of validation glaciers."
+
         # Prepare geodetic data
         self.prepareGeoData()
         self.glacierListGeo = self.glaciersWithGeo
         if ignoreStakesWithoutGeo:
+            raise NotImplementedError(
+                "We need to implement an intersection between glaciersWithGeo and train/validation glaciers"
+            )
             self.glacierList = self.glaciersWithGeo
+            self.glacierListGeo = self.glaciersWithGeo  # TODO: change this
 
         if len(self.glaciersWithGeo) == 1:
             if self.geodeticOggm:
@@ -99,6 +118,8 @@ class GeoDataLoader:
                 self.df_X_geod = None
 
         self.normalizer = Normalizer({k: cfg.bnds[k] for k in cfg.featureColumns})
+
+        self._geo_executor = ThreadPoolExecutor(max_workers=1)
 
     def prepareGeoData(self) -> None:
         if self.geodeticOggm:
@@ -167,10 +188,14 @@ class GeoDataLoader:
         random.shuffle(self.glacierList)
         random.shuffle(self.glacierListGeo)
         self.indGlacier = 0
+        self.indGlacierVal = 0
         self.indGlacierGeo = 0
 
     def __len__(self):
         return len(self.glacierList)
+
+    def lenVal(self):
+        return len(self.glacierListVal)
 
     def lenGeo(self):
         return len(self.glacierListGeo)
@@ -183,6 +208,15 @@ class GeoDataLoader:
             yield self.glacierList[self.indGlacier]
             self.indGlacier += 1
         self.indGlacier = 0
+
+    def glaciersVal(self):
+        """
+        Iterator that returns a glacier as a string each time it is called.
+        """
+        while self.indGlacierVal < len(self.glacierListVal):
+            yield self.glacierListVal[self.indGlacierVal]
+            self.indGlacierVal += 1
+        self.indGlacierVal = 0
 
     def glaciersGeo(self):
         """
@@ -212,9 +246,8 @@ class GeoDataLoader:
                 dataframe is named "ID_int" where "_int" stands for integer.
             groundTruth (np.ndarray): The ground truth mass balance values.
         """
-        X = (overwriteDf or self.trainStakesDf)[
-            self.trainStakesDf[self.keyGlacierSel] == glacierName
-        ]  # .dropna()
+        X = overwriteDf if overwriteDf is not None else self.trainStakesDf
+        X = X[X[self.keyGlacierSel] == glacierName]  # .dropna()
 
         # meta_data_columns = self.cfg.metaData
 
@@ -272,6 +305,14 @@ class GeoDataLoader:
         return glacierName in self.glaciersWithGeo
 
     def geo(self, glacierName: str):
+        return self._geo_sync(glacierName)
+
+    def submit_geo(self, glacierName: str):
+        if not self.hasGeo(glacierName):
+            return None
+        return self._geo_executor.submit(self._geo_sync, glacierName)
+
+    def _geo_sync(self, glacierName: str, async_transfer: bool = False):
         """
         Returns the geodetic data to be used in the model.
 
@@ -345,12 +386,30 @@ class GeoDataLoader:
         features = self.normalizer.normalize(features)
         # metadata = self._mapStrColToInt(metadata, False)
 
-        return (
-            features,
-            metadata,
-            self.y_target_geo[glacierName],
-            self.err_target_geo.get(glacierName),
-        )
+        # return (
+        #     features,
+        #     metadata,
+        #     self.y_target_geo[glacierName],
+        #     self.err_target_geo.get(glacierName),
+        # )
+
+        err = self.err_target_geo.get(glacierName)
+        if async_transfer:
+            features = torch.from_numpy(features.astype(np.float32)).pin_memory()
+            y = torch.from_numpy(
+                self.y_target_geo[glacierName].astype(np.float32)
+            ).pin_memory()
+            if err is not None:
+                err = torch.from_numpy(err.astype(np.float32)).pin_memory()
+        else:
+            features = torch.from_numpy(features.astype(np.float32))
+            y = torch.from_numpy(self.y_target_geo[glacierName].astype(np.float32))
+            if err is not None:
+                err = torch.from_numpy(err.astype(np.float32))
+        return features, metadata, y, err
+
+    def close(self):
+        self._geo_executor.shutdown(wait=False)
 
     # def _mapStrColToInt(self, metadata, usePrecomputed):
     #     """

@@ -131,15 +131,19 @@ device = torch.device("cuda:0" if torch.cuda.is_available() and not cpu else "cp
 
 if sourceData == "switzerland":
     glaciers = list(data_train.GLACIER.unique())
+    glaciersVal = list(df_X_val.GLACIER.unique())
 elif sourceData in ["iceland", "norway"]:
     glaciers = list(data_train.RGIId.unique())
+    glaciersVal = list(df_X_val.RGIId.unique())
 elif "wgms" in sourceData:
     glaciers = list(data_train.RGIId.unique())
+    glaciersVal = list(df_X_val.RGIId.unique())
 gdl = mbm.dataloader.GeoDataLoader(
     cfg,
     glaciers,
     device=device,
     trainStakesDf=df_X_train,
+    glacierListVal=glaciersVal,
     months_head_pad=months_head_pad,
     months_tail_pad=months_tail_pad,
     valStakesDf=df_X_val,
