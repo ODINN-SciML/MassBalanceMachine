@@ -533,8 +533,7 @@ def train_geo(
     model,
     geodataloader,
     optim,
-    trainCfg,
-    params,  # this argument is here just because it is easier to save them when we define the tensorboard logger
+    params,
     scheduler=None,
     geodataloader_test=None,
     timeExec=False,
@@ -548,35 +547,35 @@ def train_geo(
         geodataloader (GeoDataLoader): Dataloader that provides both stake
             measurements and geodetic data.
         optim (PyTorch optimizer): Optimizer instance to use.
-        trainCfg (dict): Trainin options.
+        params (dict): Model and training hyper-parameters.
         scheduler (PyTorch LR scheduler): The learning rate scheduler (optional).
         geodataloader_test (GeoDataLoader): Optional dataloader that provides both
             stake measurements and geodetic data on the test set.
         timeExec (bool): Whether to evaluate loading and inference time.
         useProfiler (bool): Whether to profile the code.
     """
-    Nepochs = trainCfg["Nepochs"]
-    wGeo = trainCfg.get("wGeo", 1.0)
-    freqVal = trainCfg.get("freqVal", 1)
-    bestModelCriterion = trainCfg.get("bestModelCriterion", "lossVal")
+    Nepochs = params["training"]["Nepochs"]
+    wGeo = params["training"]["wGeo"]
+    freqVal = params["training"]["freqVal"]
+    bestModelCriterion = params["training"]["bestModelCriterion"]
     assert bestModelCriterion in _criterionVal
-    scalingStakes = trainCfg.get("scalingStakes", "glacier")
+    scalingStakes = params["training"]["scalingStakes"]
     assert scalingStakes in ["meas", "glacier"]
     iterPerEpoch = len(geodataloader)
     nColsProgressBar = 500 if _inJupyterNotebook else 100
 
     # Setup logging
     run_name = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_suffix = trainCfg.get("log_suffix", "")
+    log_suffix = params["training"]["log_suffix"]
     if log_suffix != "":
         log_suffix = "_" + log_suffix
-    log_dir = trainCfg.get(
-        "log_dir",
-        os.path.join(
+    if params["training"]["log_dir"] is None:
+        log_dir = os.path.join(
             _default_log_dir,
             f"geo_{run_name}{log_suffix}",
-        ),
-    )
+        )
+    else:
+        log_dir = params["training"]["log_dir"]
     os.makedirs(log_dir, exist_ok=True)
 
     # Save params
@@ -1039,6 +1038,9 @@ def train_geo(
                         if len(statsVal[bestModelCriterion]) > 0
                         else np.nan
                     )
+                    assert not np.isnan(
+                        scalarBestModelCriterion
+                    ), f"The statistics {bestModelCriterion} used for best model selection contains NaN."
                     higherBetterCriterion = (
                         1
                         if any(crit in bestModelCriterion for crit in _maxCriterion)

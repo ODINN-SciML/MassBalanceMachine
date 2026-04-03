@@ -365,6 +365,7 @@ class GeoDataLoader:
                 df_X_geod = create_geodetic_input(
                     self.cfg, glacierName, self.periods_per_glacier, to_seasonal=False
                 )
+            precomputed_meta = self._metadata_groups(df_X_geod)
         else:
             if self.preloadGeodetic:
                 df_X_geod = self.df_X_geod[glacierName]

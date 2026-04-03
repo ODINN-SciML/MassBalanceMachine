@@ -23,4 +23,4 @@ training:
     scheduler_step_size: 500
     Nepochs: 2000
     scalingStakes: meas
-    bestModelCriterion: lossValGeo
+    bestModelCriterion: lossVal

@@ -45,6 +45,12 @@ parser.add_argument(
     action="store_true",
     help="Profile the code.",
 )
+parser.add_argument(
+    "--wGeo",
+    type=float,
+    default=None,
+    help="Weight of the geodetic term.",
+)
 args = parser.parse_args()
 
 params = loadParams(args.modelType)
@@ -53,6 +59,11 @@ cpu = args.cpu
 noTest = args.noTest
 timeExec = args.time
 prof = args.prof
+wGeo = args.wGeo
+if wGeo is not None:  # Overwrite geodetic weight
+    params["training"]["wGeo"] = wGeo
+if params["training"]["log_suffix"] == "":
+    params["training"]["log_suffix"] = "wgeo=10" if wGeo > 0 else ""
 featuresInpModel = params["model"]["inputs"]
 sourceData = params["training"]["source_data"]
 
@@ -175,7 +186,6 @@ lr = params["training"]["lr"]
 momentum = params["training"]["momentum"]
 beta1 = params["training"]["beta1"]
 beta2 = params["training"]["beta2"]
-Nepochs = params["training"]["Nepochs"]
 weight_decay = params["training"]["weight_decay"]
 if optimType == "ADAM":
     optim = torch.optim.Adam(
@@ -220,19 +230,10 @@ if not noTest:
 else:
     gdl_test = None
 
-trainCfg = {
-    "Nepochs": Nepochs,
-    # "wGeo": 0,
-    # "log_suffix": "wgeo=0_scaling",
-    "wGeo": 10,
-    "log_suffix": "wgeo=10_scaling_clamp_debug",
-    "scalingStakes": params["training"]["scalingStakes"],
-}
 ret = mbm.training.train_geo(
     model,
     gdl,
     optim,
-    trainCfg,
     params,
     scheduler=scheduler,
     geodataloader_test=gdl_test,

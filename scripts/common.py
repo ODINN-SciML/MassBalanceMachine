@@ -49,6 +49,13 @@ def parseParams(params):
             "scalingStakes": scalingStakes,
             "test_glaciers": params["training"].get("test_glaciers"),
             "train_glaciers": params["training"].get("train_glaciers"),
+            "wGeo": params["training"].get("wGeo", 0.0),
+            "bestModelCriterion": params["training"].get(
+                "bestModelCriterion", "lossVal"
+            ),
+            "freqVal": params["training"].get("freqVal", 1),
+            "log_suffix": params["training"].get("log_suffix", ""),
+            "log_dir": params["training"].get("log_dir"),
         },
     }
 

@@ -42,7 +42,7 @@ def create_gridded_features_RGI(
         products["svf"] = Product(svf_file)
 
         if all([p.is_up_to_date() for p in products.values()]):
-            print(f"All gridded products are already generated for {rgi_id}")
+            # print(f"All gridded products are already generated for {rgi_id}")
             continue
 
         # Check if sky view factor needs to be generated

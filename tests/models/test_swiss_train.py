@@ -143,8 +143,18 @@ def test_swiss_train_geo():
     model = mbm.models.CustomTorchNeuralNetRegressor(network)
     optim = torch.optim.SGD(model.parameters(), lr=1e-4)
 
-    trainCfg = {"Nepochs": 1}
-    mbm.training.train_geo(model, gdl, optim, trainCfg, {})
+    params = {
+        "training": {
+            "Nepochs": 1,
+            "wGeo": 1.0,
+            "freqVal": 1,
+            "bestModelCriterion": "lossVal",
+            "scalingStakes": "glacier",
+            "log_dir": None,
+            "log_suffix": "",
+        }
+    }
+    mbm.training.train_geo(model, gdl, optim, params)
 
 
 if __name__ == "__main__":
