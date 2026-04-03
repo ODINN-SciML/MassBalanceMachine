@@ -307,12 +307,14 @@ def _create_date_range(
     if pd.isna(year):
         return None
     year = int(year)
+    # Hydrological year 2000-10-01 to 2001-09-30 corresponds to year 2000
 
     # start month is always in the PREVIOUS year
-    start = f"{year - 1}-{start_month}-01"
+    start = f"{year}-{start_month}-01"
     # end month can be either the CURRENT year, or the NEXT one depending on the head padding
-    if int(end_month) >= 10:
-        end = f"{year}-{end_month}-01"
+    if int(end_month) <= 6:
+        # If end month is before June this is likely that the measurement associated with hydrological year Y spans after Y-12-31
+        end = f"{year + 2}-{end_month}-01"
     else:
         end = f"{year + 1}-{end_month}-01"
 

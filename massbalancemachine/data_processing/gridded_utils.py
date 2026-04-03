@@ -60,10 +60,10 @@ def create_gridded_features_RGI(
         # Get glacier mask from OGGM
         ds, glacier_indices, gdir = get_glacier_mask(rgi_id, "", cfg)
 
-        # Create a pool of workers
-        with multiprocessing.Pool(processes=7) as pool:
-            with tqdm.tqdm(total=len(years)) as pbar:
-                if multi:
+        with tqdm.tqdm(total=len(years)) as pbar:
+            if multi:
+                # Create a pool of workers
+                with multiprocessing.Pool(processes=7) as pool:
                     for year in pool.imap_unordered(
                         create_gridded_features_from_mask_per_year,
                         [
@@ -84,20 +84,20 @@ def create_gridded_features_RGI(
                         pbar.set_description(
                             "%s: Generating gridded data for %i" % (rgi_id, year)
                         )  # Update description
-                else:
-                    for year in years:
-                        create_gridded_features_from_mask_per_year(
-                            (
-                                rgi_id,
-                                year,
-                                region_id,
-                                cfg,
-                                ds,
-                                glacier_indices,
-                                gdir,
-                                path_rgi_id,
-                            )
+            else:
+                for year in years:
+                    create_gridded_features_from_mask_per_year(
+                        (
+                            rgi_id,
+                            year,
+                            region_id,
+                            cfg,
+                            ds,
+                            glacier_indices,
+                            gdir,
+                            path_rgi_id,
                         )
+                    )
 
 
 def create_gridded_features_from_mask_per_year(args):
