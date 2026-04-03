@@ -213,8 +213,6 @@ def testData(cfg, test_set, feature_columns):
     all_columns = list(set(feature_columns + cfg.fieldsNotFeatures))
     df_X_test_subset = test_set["df_X"][all_columns]
     print("Shape of testing dataset:", df_X_test_subset.shape)
-    print("Running with features:", feature_columns)
-
     return df_X_test_subset
 
 

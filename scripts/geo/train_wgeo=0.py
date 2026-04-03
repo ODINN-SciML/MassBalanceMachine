@@ -62,6 +62,7 @@ prof = args.prof
 wGeo = args.wGeo
 if wGeo is not None:  # Overwrite geodetic weight
     params["training"]["wGeo"] = wGeo
+wGeo = params["training"]["wGeo"]
 if params["training"]["log_suffix"] == "":
     params["training"]["log_suffix"] = "wgeo=10" if wGeo > 0 else ""
 featuresInpModel = params["model"]["inputs"]

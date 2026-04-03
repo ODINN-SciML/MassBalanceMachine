@@ -4,7 +4,7 @@ mbm_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 sys.path.append(mbm_path)  # Add root of repo to import MBM
 
 import warnings
-import matplotlib.pyplot as plt
+import matplotlib
 import massbalancemachine as mbm
 import logging
 import torch
@@ -71,6 +71,11 @@ noTest = args.noTest
 onRegion = args.onRegion
 savePred = args.savePred
 pathFolder = os.path.join("logs", modelFolder)
+
+if not plot:
+    # To avoid GC issues because of the threads, we run the script without a GUI
+    matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 with open(f"{pathFolder}/params.json", "r") as f:
     params = json.load(f)
@@ -301,9 +306,9 @@ if len(df_X_test_subset) > 0 and not noTest:
         df_geo = pd.DataFrame(
             {
                 "RGIId": kk,
-                "target": [geoTarget[k][0] for k in kk],
-                "err": [geoErr[k][0] for k in kk],
-                "pred": [geoPred[k][0].item() for k in kk],
+                "target": [geoTarget[k] for k in kk],
+                "err": [geoErr[k] for k in kk],
+                "pred": [geoPred[k] for k in kk],
             }
         )
         df_geo.to_csv(f"{pathFolder}/gridded_geodetic_test.csv")
@@ -423,9 +428,9 @@ if savePred:
     df_geo = pd.DataFrame(
         {
             "RGIId": kk,
-            "target": [geoTarget[k][0] for k in kk],
-            "err": [geoErr[k][0] for k in kk],
-            "pred": [geoPred[k][0].item() for k in kk],
+            "target": [geoTarget[k] for k in kk],
+            "err": [geoErr[k] for k in kk],
+            "pred": [geoPred[k] for k in kk],
         }
     )
     df_geo.to_csv(f"{pathFolder}/gridded_geodetic_train.csv")
@@ -457,7 +462,7 @@ plt.close(fig)
 fig = mbm.plots.cumulatedMassChange(
     df_gridded_monthly,
     geo={
-        rgi_id: {"mean": geoTarget[rgi_id][0], "err": geoErr[rgi_id][0]}
+        rgi_id: {"mean": geoTarget[rgi_id], "err": geoErr[rgi_id]}
         for rgi_id in geoTarget
     },
 )

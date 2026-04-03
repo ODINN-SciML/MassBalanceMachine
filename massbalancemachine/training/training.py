@@ -242,11 +242,13 @@ def eval_geodetic(model, geo_dataloader, return_grid_pred=[]):
 
                 geoGrid = geoGrid.to(geo_dataloader.device, non_blocking=async_transfer)
                 geod_periods = geo_dataloader.periods_per_glacier[current_g]
-                geoPred[current_g] = predict_geo(
-                    model, geoGrid, metadata, ygeo, geod_periods
-                ).cpu()
-                geoTarget[current_g] = ygeo
-                geoErr[current_g] = errgeo
+                geoPred[current_g] = (
+                    predict_geo(model, geoGrid, metadata, ygeo, geod_periods)
+                    .cpu()
+                    .item()
+                )
+                geoTarget[current_g] = ygeo.item()
+                geoErr[current_g] = errgeo.item()
 
                 if return_annual:
                     grouped_ids, predSumAnnual = predict_annual_gridded(
