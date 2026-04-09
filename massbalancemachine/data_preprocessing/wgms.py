@@ -54,11 +54,19 @@ def build_monthly_data(data, cfg, rgi_region=None):
     data = df_check[df_check.MONTH_DIFF <= 24]
 
     # Filter out specific measurements with a time window that is too large and that prevent from correctly computing the padding
+    # RGI60-11
     data = data[~((data.RGIId == "RGI60-11.01450") & (data.MONTH_DIFF > 15))]  # Aletsch
     data = data[
         ~((data.RGIId == "RGI60-11.01509") & (data.MONTH_DIFF == 24))
     ]  # Oberaar
     data = data[~((data.RGIId == "RGI60-11.00638") & (data.MONTH_DIFF == 19))]  # Pizol
+    # RGI60-01
+    data = data[
+        ~((data.RGIId == "RGI60-01.12645") & (data.MONTH_DIFF == 24))
+    ]  # East Yakutat
+    data = data[
+        ~((data.RGIId == "RGI60-01.23646") & (data.MONTH_DIFF == 24))
+    ]  # West Yakutat
 
     region_name = get_region_name(rgi_region)
     dataset = Dataset(cfg, data=data, region_name=region_name, region_id=rgi_region)
