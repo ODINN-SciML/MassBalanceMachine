@@ -228,6 +228,7 @@ class Config:
         default_factory=lambda: DEFAULT_BNDS.copy()
     )
     dataPath: str = field(default_factory=lambda: _normalize_data_path(None))
+    prepro_level: int = 2
 
     # runtime populated
     featureColumns: List[str] = field(default_factory=list)
@@ -236,6 +237,9 @@ class Config:
     base_url_w5e5: str = (
         "https://cluster.klima.uni-bremen.de/~oggm/gdirs/oggm_v1.6/L3-L5_files/2023.1/"
         "elev_bands/W5E5_w_data/"
+    )
+    base_url_l2: str = (
+        "https://cluster.klima.uni-bremen.de/~oggm/gdirs/oggm_v1.6/L1-L2_files/2025.6/elev_bands_w_data/"
     )
 
     def __post_init__(self) -> None:

@@ -20,11 +20,11 @@ def _initialize_oggm_config(custom_working_dir):
 
 def _initialize_glacier_directories(rgi_ids_list: list, cfg: config.Config) -> list:
     """Initialize glacier directories."""
-    base_url = cfg.base_url_w5e5
+    base_url = cfg.base_url_w5e5 if cfg.prepro_level >= 3 else cfg.base_url_l2
     glacier_directories = workflow.init_glacier_directories(
         rgi_ids_list,
         reset=False,
-        from_prepro_level=3,
+        from_prepro_level=cfg.prepro_level,
         prepro_base_url=base_url,
         prepro_border=10,
     )
@@ -33,3 +33,11 @@ def _initialize_glacier_directories(rgi_ids_list: list, cfg: config.Config) -> l
         tasks.gridded_attributes, glacier_directories, print_log=False
     )
     return glacier_directories
+
+
+def _glacier_name(rgi_ids_list: list, cfg: config.Config, custom_working_dir=""):
+
+    # Initialize the OGGM Config
+    _initialize_oggm_config(custom_working_dir)
+    glacier_directories = _initialize_glacier_directories(rgi_ids_list, cfg)
+    return {gdir.rgi_id: gdir.name for gdir in glacier_directories}
