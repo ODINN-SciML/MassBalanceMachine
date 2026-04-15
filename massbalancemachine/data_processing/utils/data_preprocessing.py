@@ -225,7 +225,11 @@ def get_rgi(
         lsuffix="_left",
         rsuffix="_right",
     )
-
+    # Count how many times each original point appears
+    counts = joined_df.index.value_counts()
+    # Keep only points that appear exactly once to discard duplicated points since lying on several glaciers
+    valid_idx = counts[counts == 1].index
+    joined_df = joined_df.loc[valid_idx]
     # Only keep the columns of the original dataframe and the RGIIds
     columns_to_keep = data.columns.values.tolist()
     columns_to_keep.append("RGIId")
