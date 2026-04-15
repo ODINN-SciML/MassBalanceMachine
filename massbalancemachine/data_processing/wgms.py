@@ -89,6 +89,6 @@ def parse_wgms_format(data_mb):
         },
     )
     new_df["FROM_DATE"] = pd.to_datetime(new_df["FROM_DATE"]).dt.strftime("%Y%m%d")
-    new_df["TO_DATE"] = pd.to_datetime(new_df["FROM_DATE"]).dt.strftime("%Y%m%d")
+    new_df["TO_DATE"] = pd.to_datetime(new_df["TO_DATE"]).dt.strftime("%Y%m%d")
 
     return new_df
