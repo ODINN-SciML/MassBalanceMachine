@@ -4,6 +4,7 @@ import pyproj
 import pandas as pd
 import xarray as xr
 import oggm
+import geopandas as gpd
 
 
 def create_glacier_grid_RGI(
