@@ -3,7 +3,6 @@ import shutil
 import urllib.request
 import zipfile
 import pandas as pd
-
 from data_processing.product_utils import data_path
 
 wgms_zip_file = "DOI-WGMS-FoG-2026-02-10.zip"
