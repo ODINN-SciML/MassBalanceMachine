@@ -113,11 +113,39 @@ def filter_dates(df):
     return filtered_df
 
 
+def filter_multiyear_measurement(df, N=366):
+    """
+    Filter point measurement covering more than N days (1 year by default)
+
+    Args:
+        df (pd.DataFrame): dataframe loaded by load_wgms_data "mass_balance_point.csv" from WGMS.
+        N = float
+    Returns:
+        pd.DataFrame
+    """
+    df = df.copy()
+
+    df = df.astype({"FROM_DATE": str, "TO_DATE": str})
+    df["FROM_DATE_datetime"] = pd.to_datetime(df["FROM_DATE"])
+    df["TO_DATE_datetime"] = pd.to_datetime(df["TO_DATE"])
+    days_diff = (df["TO_DATE_datetime"] - df["FROM_DATE_datetime"]).dt.days
+
+    df = df[
+        (days_diff.notna())  # enlève les dates invalides
+        & (days_diff >= 0)  # enlève TO < FROM
+        & (days_diff <= N)  # garde <= N jours
+    ]
+    df = df.drop(columns=["FROM_DATE_datetime", "TO_DATE_datetime"])
+
+    return df
+
+
 def load_processed_wgms(rgi_region=None):
     check_and_download_wgms()
     df = load_wgms_data()
     df = filter_dates(df)
     df = parse_wgms_format(df)
+    df = filter_multiyear_measurement(df, N=366)
     if rgi_region is not None:
         df = df.loc[df.rgi_region == rgi_region]
     return df
