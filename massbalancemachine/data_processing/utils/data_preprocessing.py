@@ -20,7 +20,7 @@ import hashlib
 from data_processing.glacier_utils import get_region_shape_file
 
 
-def convert_to_wgs84(*, data: pd.DataFrame, from_crs: str | int) -> pd.DataFrame:
+def convert_to_wgs84(data: pd.DataFrame, from_crs: str | int) -> pd.DataFrame:
     """
     Transform coordinates from a given CRS to WGS84.
 
@@ -130,7 +130,6 @@ def _reshape_dataset(
 
 
 def convert_to_wgms(
-    *,
     wgms_data_columns: dict,
     data: pd.DataFrame,
     date_columns: "list[str]",

@@ -3,6 +3,7 @@ model:
     layers: [12, 4]
     inputs: null
 training:
+    source_data: switzerland
     test_glaciers: null
     train_glaciers: null
     optim: ADAM

@@ -5,7 +5,6 @@ sys.path.append(mbm_path)  # Add root of repo to import MBM
 
 import warnings
 import matplotlib.pyplot as plt
-from cmcrameri import cm
 import massbalancemachine as mbm
 import logging
 import torch
@@ -18,22 +17,17 @@ from skorch.helper import SliceDataset
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.tensorboard import SummaryWriter
 
-from scripts.common import (
-    trainTestGlaciers,
-    getTrainTestSetsSwitzerland,
-    seed_all,
-    loadParams,
-)
+from scripts.common import loadParams
 from scripts.nongeo.utils import (
     getMetaData,
     getDatasets,
     buildArgs,
     trainValData,
     setFeatures,
+    getLogDir,
 )
 
-from regions.Switzerland.scripts.helpers import get_cmap_hex
-from regions.Switzerland.scripts.nn_helpers import plot_training_history
+# from regions.RGI_11_Switzerland.scripts.nn_helpers import plot_training_history
 
 warnings.filterwarnings("ignore")
 
@@ -59,23 +53,32 @@ runOnGpu = args.gpu
 suffix = args.suffix
 params = loadParams(args.modelType)
 featuresInpModel = params["model"]["inputs"]
+sourceData = params["training"]["source_data"]
 
-metaData = getMetaData(featuresInpModel)
-
-
-cfg = mbm.SwitzerlandConfig(
-    metaData=metaData,
-    notMetaDataNotFeatures=["POINT_BALANCE"],
-)
-seed_all(cfg.seed)
+metaData = getMetaData(featuresInpModel, sourceData)
 
 
-# Plot styles:
-path_style_sheet = "regions/Switzerland/scripts/example.mplstyle"
-plt.style.use(path_style_sheet)
-colors = get_cmap_hex(cm.batlow, 10)
-color_dark_blue = colors[0]
-color_pink = "#c51b7d"
+if sourceData == "switzerland":
+    cfg = mbm.SwitzerlandConfig(
+        metaData=metaData,
+        notMetaDataNotFeatures=["POINT_BALANCE"],
+    )
+elif sourceData == "iceland":
+    cfg = mbm.Config(
+        metaData=["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD"]
+    )
+elif sourceData == "norway":
+    cfg = mbm.Config(
+        metaData=["RGIId", "ID", "N_MONTHS", "MONTHS", "PERIOD"],
+        notMetaDataNotFeatures=["POINT_BALANCE", "YEAR"],
+    )
+elif "wgms" in sourceData:
+    cfg = mbm.Config(
+        metaData=["RGIId", "ID", "N_MONTHS", "MONTHS", "PERIOD"],
+        notMetaDataNotFeatures=["POINT_BALANCE", "YEAR"],
+    )
+else:
+    raise ValueError(f"source_data={sourceData} is unknown")
 
 
 if torch.cuda.is_available():
@@ -89,24 +92,36 @@ else:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 
 print(params)
-train_glaciers, test_glaciers = trainTestGlaciers(params)
 
-train_set, test_set, data_glamos, months_head_pad, months_tail_pad = (
-    getTrainTestSetsSwitzerland(
-        train_glaciers,
-        test_glaciers,
-        params,
-        cfg,
-        "CH_wgms_dataset_monthly_NN_nongeo.csv",
-        process=False,
+
+if sourceData == "switzerland":
+    datasetManager = mbm.dataloader.SourceManagerSwitzerland(
+        cfg, params, test_split_on="GLACIER"
     )
-)
+elif sourceData == "iceland":
+    datasetManager = mbm.dataloader.SourceManagerIceland(
+        cfg, params, test_split_on="RGIId"
+    )
+elif sourceData == "norway":
+    datasetManager = mbm.dataloader.SourceManagerNorway(
+        cfg, params, test_split_on="RGIId"
+    )
+elif "wgms" in sourceData:
+    _split = sourceData.split(":")
+    if len(_split) > 1:
+        rgi_region = int(_split[1])
+    else:
+        rgi_region = None
+    datasetManager = mbm.dataloader.SourceManagerWGMS(
+        cfg, params, test_split_on="RGIId", rgi_region=rgi_region
+    )
+train_set, test_set, months_head_pad, months_tail_pad = datasetManager.train_test_sets()
 
 data_train = train_set["df_X"]
 data_train["y"] = train_set["y"]
 
-feature_columns = setFeatures(cfg, data_train, featuresInpModel)
-df_X_train, y_train, df_X_val, y_val = trainValData(cfg, train_set, feature_columns)
+setFeatures(cfg, data_train, featuresInpModel)
+df_X_train, y_train, df_X_val, y_val = trainValData(cfg, train_set, featuresInpModel)
 
 
 early_stop = EarlyStopping(
@@ -202,7 +217,7 @@ class TensorBoardMetricLogger(Callback):
 logdir = getLogDir(suffix)
 
 
-def annual_winter_func(model, dataset):
+def period_func(model, dataset):
     Xval = SliceDataset(dataset, idx=0)
     yval = SliceDataset(dataset, idx=1)
     Mval = [dataset.getMetadata(i) for i in range(len(dataset))]
@@ -212,12 +227,18 @@ def annual_winter_func(model, dataset):
     posPeriod = dataset.metadataColumns.index("PERIOD")
     indAnnual = []
     indWinter = []
+    indSummer = []
     for i in range(len(Mval)):
         period = Mval[i][0, posPeriod]
         if period == "annual":
             indAnnual.append(i)
         elif period == "winter":
             indWinter.append(i)
+        elif period == "summer":
+            indSummer.append(i)
+        elif period == "index":
+            # Discard this data
+            pass
         else:
             raise ValueError(f"Period {period} is unknown.")
 
@@ -233,6 +254,8 @@ def annual_winter_func(model, dataset):
     y_true_annual = y_true[indAnnual]
     y_pred_winter = y_pred[indWinter]
     y_true_winter = y_true[indWinter]
+    y_pred_summer = y_pred[indSummer]
+    y_true_summer = y_true[indSummer]
 
     mse_annual, rmse_annual, mae_annual, pearson_annual, r2_annual, bias_annual = (
         model.evalMetrics(y_pred_annual, y_true_annual)
@@ -253,12 +276,21 @@ def annual_winter_func(model, dataset):
         "bias_annual/val": bias_annual,
         "bias_winter/val": bias_winter,
     }
+    if len(indSummer) > 0:
+        mse_summer, rmse_summer, mae_summer, pearson_summer, r2_summer, bias_summer = (
+            model.evalMetrics(y_pred_summer, y_true_summer)
+        )
+        scores["RMSE_summer/val"] = rmse_summer
+        scores["MAE_summer/val"] = mae_summer
+        scores["Pearson_summer/val"] = pearson_summer
+        scores["R2_summer/val"] = r2_summer
+        scores["bias_summer/val"] = bias_summer
     return scores
 
 
 additional_scores_funcs = {
-    10: annual_winter_func
-}  # Compute the annual/winter scores every 10 epochs
+    10: period_func
+}  # Compute the annual/winter/summer scores every 10 epochs
 logger = TensorBoardMetricLogger(
     logdir, additional_scores_funcs=additional_scores_funcs
 )
@@ -269,6 +301,12 @@ callbacks = [
     ("logger", logger),
 ]
 args = buildArgs(cfg, params, model, my_train_split, callbacks=callbacks)
+
+# Save params
+repo = git.Repo(search_parent_directories=True)
+params["commit_hash"] = repo.head.object.hexsha
+with open(os.path.join(logdir, "params.json"), "w") as f:
+    json.dump(params, f, indent=4, sort_keys=True)
 
 
 custom_nn = mbm.models.CustomNeuralNetRegressor(cfg, **args, **param_init)
@@ -286,7 +324,6 @@ dataset, dataset_val = getDatasets(
     months_tail_pad,
 )
 
-
 custom_nn.seed_all()
 
 print("Training the model...")
@@ -296,14 +333,29 @@ for key, value in args.items():
 custom_nn.fit(dataset.X, dataset.y)
 # The dataset provided in fit is not used as the datasets are overwritten in the provided train_split function
 
-# Save the model
+# Save the model in .pt format
 custom_nn.save_model(model_dir=logdir)
 
-plot_training_history(custom_nn.history, skip_first_n=5, save=False)
+# Save the model in .json format along with the normalization values
+custom_nn.module_.eval()
+st = custom_nn.module_.state_dict()
+
+
+class EncodeTensor(json.JSONEncoder, torch.utils.data.Dataset):
+    def default(self, obj):
+        if isinstance(obj, torch.Tensor):
+            return obj.cpu().detach().numpy().tolist()
+        return super(EncodeTensor, self).default(obj)
+
+
+norm = mbm.data_processing.Normalizer({k: cfg.bnds[k] for k in cfg.featureColumns})
+norm_values = norm.export_bounds()
+with open(os.path.join(logdir, "model.json"), "w") as f:
+    info = {"norm": norm_values, "model": st, "inputs": cfg.featureColumns}
+    json.dump(info, f, cls=EncodeTensor, sort_keys=True)
+# df_X_train.to_csv("sample_data_norway_before_norm.csv")
+
+# TODO: put back once this is implemented in MBM core
+# plot_training_history(custom_nn.history, skip_first_n=5, save=False)
 plt.savefig(os.path.join(logdir, "training_history.pdf"))
 plt.close()
-
-repo = git.Repo(search_parent_directories=True)
-params["commit_hash"] = repo.head.object.hexsha
-with open(os.path.join(logdir, "params.json"), "w") as f:
-    json.dump(params, f, indent=4, sort_keys=True)

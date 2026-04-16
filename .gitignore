@@ -20,29 +20,28 @@ docs/generated/
 docs/notebooks/
 docs/MBM_logo.png
 
-# Local data folder
 .data/
 
-regions/Switzerland/models/**
-regions/Switzerland/results
-regions/Switzerland/figures
-regions/Switzerland/cache/**
-regions/Switzerland/logs
-regions/Switzerland/.ipynb_checkpoints
+regions/RGI_11_Switzerland/results
+regions/RGI_11_Switzerland/figures
+regions/RGI_11_Switzerland/.ipynb_checkpoints
 
-regions/French_Alps/models
-regions/French_Alps/.ipynb_checkpoints
+regions/RGI_11_French_Alps/models
+regions/RGI_11_French_Alps/.ipynb_checkpoints
 
-regions/Italy_and_Austria/models
-regions/Italy_and_Austria/.ipynb_checkpoints
+regions/RGI_11_Italy_and_Austria/.ipynb_checkpoints
 
-regions/Norway_mb/models
-regions/Norway_mb/.ipynb_checkpoints
+regions/RGI_08_Norway_mb/.ipynb_checkpoints
 
-regions/Iceland_mb/models
-regions/Iceland_mb/.ipynb_checkpoints
+regions/RGI_06_Iceland_mb/models
+regions/RGI_06_Iceland_mb/.ipynb_checkpoints
 
 regions/Overview
+
+
+regions/TF_Europe/figures/**
+regions/TF_Europe/results/**
+regions/TF_Europe/.ipynb_checkpoints/
 
 notes
 
@@ -52,3 +51,8 @@ regions/Norway/data/
 *.tox
 
 logs/
+venv/
+
+*.parquet
+*.pt
+*.ipynb_checkpoints/

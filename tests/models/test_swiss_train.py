@@ -6,13 +6,15 @@ import torch
 from torch import nn
 import massbalancemachine as mbm
 
-from regions.Switzerland.scripts.geodetic.geodetic_processing import get_geodetic_MB
-from regions.Switzerland.scripts.config_CH import (
+from regions.RGI_11_Switzerland.scripts.geodetic.geodetic_processing import (
+    get_geodetic_MB,
+)
+from regions.RGI_11_Switzerland.scripts.config_CH import (
     path_PMB_GLAMOS_csv,
     path_ERA5_raw,
     path_pcsr,
 )
-from regions.Switzerland.scripts.dataset.data_loader import (
+from regions.RGI_11_Switzerland.scripts.dataset.data_loader import (
     process_or_load_data,
     get_CV_splits,
     get_stakes_data,
@@ -77,7 +79,7 @@ def test_swiss_train_geo():
     }
     data_monthly = process_or_load_data(
         run_flag=True,
-        data_glamos=data_glamos,
+        df=data_glamos,
         paths=paths,
         cfg=cfg,
         vois_climate=vois_climate,
@@ -127,6 +129,7 @@ def test_swiss_train_geo():
         train_set["df_X"],
         months_head_pad=months_head_pad,
         months_tail_pad=months_tail_pad,
+        geodeticOggm=False,
     )
 
     nInp = len(feature_columns)
@@ -140,8 +143,18 @@ def test_swiss_train_geo():
     model = mbm.models.CustomTorchNeuralNetRegressor(network)
     optim = torch.optim.SGD(model.parameters(), lr=1e-4)
 
-    trainCfg = {"Nepochs": 1}
-    mbm.training.train_geo(model, gdl, optim, trainCfg)
+    params = {
+        "training": {
+            "Nepochs": 1,
+            "wGeo": 1.0,
+            "freqVal": 1,
+            "bestModelCriterion": "lossVal",
+            "scalingStakes": "glacier",
+            "log_dir": None,
+            "log_suffix": "",
+        }
+    }
+    mbm.training.train_geo(model, gdl, optim, params)
 
 
 if __name__ == "__main__":

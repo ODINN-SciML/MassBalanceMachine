@@ -62,6 +62,10 @@ numcodecs = "0.15.1"
 torchsummary = "^1.5"
 nbstripout = "^0.8.1"
 joypy = "^0.2.6"
+folium = "^0.20.0"
+geomloss = "^0.2.6"
+pykeops = "^2.3"
+setuptools = "81"
 
 [tool.poetry.group.docs.dependencies]
 sphinx = "^7.4.6"

@@ -15,10 +15,9 @@ from calendar import month_abbr
 import xarray as xr
 import numpy as np
 import pandas as pd
-import config
 
 import config
-import data_processing.utils
+from data_processing.utils.hydro_year import months_hydro_year, _rebuild_month_index
 
 
 def get_climate_features_(
@@ -38,7 +37,7 @@ def get_climate_features_(
 
     Args:
         df (pd.DataFrame): DataFrame containing stake measurement locations and years.
-        output_fname (str): Path to the output CSV file.
+        output_fname (str): Path to the output CSV file. If set to `None`, it is not saved.
         climate_data (str): Path to the ERA5-Land climate data file.
         geopotential_data (str): Path to the geopotential data file.
         change_units (bool): If True, change temperature to Celsius and precipitation to m.w.e.
@@ -110,7 +109,8 @@ def get_climate_features_(
     # of the stake and the recorded height of the climate.
     df = _calculate_elevation_difference(df)
 
-    df.to_csv(output_fname, index=False)
+    if output_fname is not None:
+        df.to_csv(output_fname, index=False)
 
     return df
 
@@ -283,7 +283,7 @@ def _generate_climate_variable_names(
 ) -> list:
     """Generate list of climate variable names for one hydrological year."""
     climate_variables = list(ds_climate.keys())
-    months_names = [f"_{month}" for month in data_processing.utils.months_hydro_year]
+    months_names = [f"_{month}" for month in months_hydro_year]
 
     # extend months on both sides for longer periods:
     months_names = (
@@ -300,13 +300,29 @@ def _generate_climate_variable_names(
 
 def _create_date_range(
     year: int,
-    months_tail_pad,
-    months_head_pad,
+    start_month: str,
+    end_month: str,
 ) -> pd.DatetimeIndex:
-    """Create a date range for a given hydrological year based on months_tail_pad and months_head_pad."""
+    """Create a date range for a given hydrological year based on start_month and end_month."""
     if pd.isna(year):
         return None
     year = int(year)
+    # Hydrological year 2000-10-01 to 2001-09-30 corresponds to year 2000
+
+    # start month is always in the PREVIOUS year
+    start = f"{year}-{start_month}-01"
+    # end month can be either the CURRENT year, or the NEXT one depending on the head padding
+    if int(end_month) <= 6:
+        # If end month is before June this is likely that the measurement associated with hydrological year Y spans after Y-12-31
+        end = f"{year + 2}-{end_month}-01"
+    else:
+        end = f"{year + 1}-{end_month}-01"
+
+    return pd.date_range(start=start, end=end, freq="MS")
+
+
+def _create_month_range(months_tail_pad, months_head_pad):
+    """Create a month range based on months_tail_pad and months_head_pad."""
 
     # mapping 'jan' -> '01', ..., 'dec' -> '12'
     abbr_to_num = {month_abbr[i].lower(): f"{i:02d}" for i in range(1, 13)}
@@ -317,28 +333,23 @@ def _create_date_range(
             return abbr_to_num[clean]
         raise ValueError(f"Unknown month token: {token}")
 
-    month_list, _ = data_processing.utils._rebuild_month_index(
-        months_head_pad, months_tail_pad
-    )
+    month_list, _ = _rebuild_month_index(months_head_pad, months_tail_pad)
     start_token, end_token = month_list[0], month_list[-1]
 
     start_month = token_to_num(start_token)
     end_month = token_to_num(end_token)
 
-    # start month is always in the PREVIOUS year
-    start = f"{year - 1}-{start_month}-01"
-    # end month is always in the CURRENT year
-    end = f"{year}-{end_month}-01"
-
-    return pd.date_range(start=start, end=end, freq="MS")
+    return start_month, end_month
 
 
 def _add_date_range(df: pd.DataFrame, months_tail_pad, months_head_pad) -> pd.DataFrame:
-    df = df.copy()
-    df["range_date"] = df["YEAR"].map(
-        lambda y: _create_date_range(y, months_tail_pad, months_head_pad)
+    start_month, end_month = _create_month_range(months_tail_pad, months_head_pad)
+
+    return df.assign(
+        range_date=df["YEAR"].map(
+            lambda y: _create_date_range(y, start_month, end_month)
+        )
     )
-    return df
 
 
 def _process_climate_data(
@@ -347,13 +358,59 @@ def _process_climate_data(
     months_tail_pad,
     months_head_pad,
 ) -> pd.DataFrame:
-    """Process climate data for all points and times."""
+    """Process climate data for all points and times.
 
-    # Create DataArrays for latitude and longitude
-    lat_da = xr.DataArray(df["POINT_LAT"].values, dims="points")
-    lon_da = xr.DataArray(df["POINT_LON"].values, dims="points")
+    Raises
+    ------
+    ValueError
+        If any POINT_LAT / POINT_LON fall outside the spatial bounds of ds_climate.
+    """
 
-    # Create a 2D array of dates ranges
+    # --- Bounds check (spatial) ---
+    if "latitude" not in ds_climate.coords or "longitude" not in ds_climate.coords:
+        raise ValueError("ds_climate must have 'latitude' and 'longitude' coordinates.")
+
+    lats = ds_climate["latitude"].values
+    lons = ds_climate["longitude"].values
+
+    lat_min, lat_max = float(np.nanmin(lats)), float(np.nanmax(lats))
+    lon_min, lon_max = float(np.nanmin(lons)), float(np.nanmax(lons))
+
+    pts_lat = df["POINT_LAT"].to_numpy(dtype=float)
+    pts_lon = df["POINT_LON"].to_numpy(dtype=float)
+
+    # Handle 0..360 longitudes (common in ERA5)
+    ds_uses_0360 = lon_max > 180.0
+    if ds_uses_0360:
+        pts_lon_chk = np.mod(pts_lon, 360.0)
+    else:
+        pts_lon_chk = pts_lon
+
+    # Check bounds
+    bad_lat = (pts_lat < lat_min) | (pts_lat > lat_max)
+    bad_lon = (pts_lon_chk < lon_min) | (pts_lon_chk > lon_max)
+    bad = bad_lat | bad_lon
+
+    if bad.any():
+        bad_rows = df.loc[bad, ["POINT_ID", "GLACIER", "POINT_LAT", "POINT_LON"]].copy()
+        # add also checked lon (after 0..360 conversion) for debugging
+        bad_rows["POINT_LON_CHECKED"] = pts_lon_chk[bad]
+        msg = (
+            "Some points fall outside the spatial bounds of ds_climate.\n"
+            f"ds_climate latitude bounds: [{lat_min}, {lat_max}]\n"
+            f"ds_climate longitude bounds: [{lon_min}, {lon_max}] "
+            f"({'0..360' if ds_uses_0360 else '-180..180'})\n"
+            f"Number of out-of-bounds points: {int(bad.sum())}\n"
+            "First few offending rows:\n"
+            f"{bad_rows.head(10).to_string(index=False)}"
+        )
+        raise ValueError(msg)
+
+    # --- Create DataArrays for selection ---
+    lat_da = xr.DataArray(pts_lat, dims="points")
+    lon_da = xr.DataArray(pts_lon_chk if ds_uses_0360 else pts_lon, dims="points")
+
+    # Create a 2D array of date ranges
     date_array = np.array([r.values for r in df["range_date"].values])
     time_da = xr.DataArray(date_array, dims=["points", "time"])
 
@@ -371,28 +428,19 @@ def _process_climate_data(
     if "expver" in climate_data_points.coords:
         dropColumns.append("expver")
 
-    # Create a dataframe from the DataArray
     climate_df = (
         climate_data_points.to_dataframe().drop(columns=dropColumns).reset_index()
     )
 
-    # Drop columns
     climate_df = climate_df.drop(columns=["points", "time"])
 
-    # Get the number of rows and columns
     num_rows, num_cols = climate_df.shape
-
-    # Reshape the DataFrame to a 3D array (groups, 12, columns)
     N_MONTHS = date_array.shape[1]
-    reshaped_array = climate_df.to_numpy().reshape(-1, N_MONTHS, num_cols)
 
-    # Transpose and reshape to get the desired flattening effect
+    reshaped_array = climate_df.to_numpy().reshape(-1, N_MONTHS, num_cols)
     result_array = reshaped_array.transpose(0, 2, 1).reshape(-1, N_MONTHS * num_cols)
 
-    # Convert back to a DataFrame if needed
     result_df = pd.DataFrame(result_array)
-    # Set the new column names for the dataframe (climate variables X months
-    # of the hydrological year)
     result_df.columns = _generate_climate_variable_names(
         ds_climate, months_tail_pad, months_head_pad
     )
@@ -444,5 +492,6 @@ def _combine_dataframes(
 
 def _calculate_elevation_difference(df: pd.DataFrame) -> pd.DataFrame:
     """Calculate the difference between geopotential height and stake measurement elevation."""
-    df["ELEVATION_DIFFERENCE"] = df["POINT_ELEVATION"] - df["ALTITUDE_CLIMATE"]
-    return df
+    return df.assign(
+        ELEVATION_DIFFERENCE=df["POINT_ELEVATION"] - df["ALTITUDE_CLIMATE"]
+    )

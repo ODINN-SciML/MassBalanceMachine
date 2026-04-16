@@ -11,7 +11,7 @@ def path_climate_data(region):
     """Return path of data for a given region (string or integer)."""
     if not isinstance(region, str):
         region = f"{region:02d}"
-    return f".data/{region}/"
+    return f".data/ERA5/{region}/"
 
 
 def download_climate_ERA5(region):
@@ -19,11 +19,12 @@ def download_climate_ERA5(region):
     os.makedirs(path_region, exist_ok=True)
 
     bounds = get_region_area_bounds(region)
+    # Increase bounds just in case
     area = [
-        np.ceil(bounds["lat"][1]),  # north
-        np.floor(bounds["lon"][0]),  # west
-        np.floor(bounds["lat"][0]),  # south
-        np.ceil(bounds["lon"][1]),  # east
+        np.ceil(bounds["lat"][1]) + 1,  # north
+        np.floor(bounds["lon"][0]) - 1,  # west
+        np.floor(bounds["lat"][0]) - 1,  # south
+        np.ceil(bounds["lon"][1]) + 1,  # east
     ]
     request_climate = {
         "product_type": ["monthly_averaged_reanalysis"],
@@ -64,7 +65,9 @@ def download_climate_ERA5(region):
 
     c = cdsapi.Client()
 
-    print("Downloading climate data")
+    print(
+        "Downloading climate data, please wait for the processing on the Copernicus server to finish..."
+    )
     c.retrieve("reanalysis-era5-land-monthly-means", request_climate, path_climate_zip)
     with zipfile.ZipFile(path_climate_zip, "r") as zip:
         zip.extractall(path_region)
@@ -75,7 +78,9 @@ def download_climate_ERA5(region):
     )  # Coordinates have changed recently in the API, this is to keep compatibility with our code
     dc2.to_netcdf(path_climate)
 
-    print("Downloading geopotential data")
+    print(
+        "Downloading geopotential data, please wait for the processing on the Copernicus server to finish..."
+    )
     c.retrieve(
         "reanalysis-era5-land-monthly-means", request_geopotential, path_geopot_zip
     )

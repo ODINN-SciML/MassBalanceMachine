@@ -1,0 +1,26 @@
+model:
+    type: sequential
+    layers: [32, 16, 8]
+    inputs:
+        - ELEVATION_DIFFERENCE
+        - aspect
+        - fal
+        - slhf
+        - slope
+        - sshf
+        - ssrd
+        - str
+        - t2m
+        - tp
+        - svf
+training:
+    source_data: norway
+    test_glaciers: null
+    train_glaciers: null
+    optim: ADAM
+    scheduler: StepLR
+    lr: 5e-3
+    scheduler_step_size: 500
+    Nepochs: 2000
+    scalingStakes: meas
+    bestModelCriterion: lossVal

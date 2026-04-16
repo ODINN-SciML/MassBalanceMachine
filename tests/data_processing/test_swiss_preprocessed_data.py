@@ -1,9 +1,11 @@
 import os
 import pytest
 import massbalancemachine as mbm
-from regions.Switzerland.scripts.geodetic.geodetic_processing import get_geodetic_MB
-from regions.Switzerland.scripts.config_CH import *
-from regions.Switzerland.scripts.dataset.data_loader import (
+from regions.RGI_11_Switzerland.scripts.geodetic.geodetic_processing import (
+    get_geodetic_MB,
+)
+from regions.RGI_11_Switzerland.scripts.config_CH import *
+from regions.RGI_11_Switzerland.scripts.dataset.data_loader import (
     process_or_load_data,
     get_CV_splits,
     get_stakes_data,
@@ -59,7 +61,7 @@ def test_process_or_load_data():
 
     data_monthly = process_or_load_data(
         run_flag=True,
-        data_glamos=data_glamos,
+        df=data_glamos,
         paths=paths,
         cfg=cfg,
         vois_climate=vois_climate,
@@ -113,7 +115,7 @@ def test_geodataloader():
 
     data_monthly = process_or_load_data(
         run_flag=False,
-        data_glamos=data_glamos,
+        df=data_glamos,
         paths=paths,
         cfg=cfg,
         vois_climate=vois_climate,
@@ -149,6 +151,7 @@ def test_geodataloader():
         train_set["df_X"],
         months_head_pad=months_head_pad,
         months_tail_pad=months_tail_pad,
+        geodeticOggm=False,
     )
     for g in gdl.glaciers():
         print(f"Glacier {g}")
@@ -156,12 +159,12 @@ def test_geodataloader():
     s, m, gt = gdl.stakes(g)
     nRows = 36934
     assert s.shape == (nRows, 16)
-    assert m.shape == (nRows, 8)
+    assert m.shape == (nRows, 14)
     assert gt.shape == (nRows,)
-    x, m, y = gdl.geo(g)
+    x, m, y, _, _ = gdl.geo(g)
     nRows = 227604
     assert x.shape == (nRows, 16)
-    assert m.shape == (nRows, 8)
+    assert m.shape == (nRows, 16), f"{m.shape=}"
     assert y.shape == (60,)
 
 

@@ -70,7 +70,7 @@ class Dataset:
         data: pd.DataFrame,
         region_name: str,
         region_id: int,
-        data_path: str,
+        data_path: str = None,
         output_format: str = "csv",
         months_tail_pad=None,  #: List[str] = ['aug_', 'sep_'], # before 'oct'
         months_head_pad=None,  #: List[str] = ['oct_'], # after 'sep'
@@ -81,7 +81,7 @@ class Dataset:
         self.region_id = region_id
         self.data_dir = data_path
         self.RGIIds = self.data["RGIId"]
-        if not os.path.isdir(self.data_dir):
+        if self.data_dir is not None and not os.path.isdir(self.data_dir):
             os.makedirs(self.data_dir, exist_ok=True)
         assert output_format in ["csv", "parquet"], "format must be csv or parquet"
         self.output_format = output_format
@@ -161,6 +161,7 @@ class Dataset:
         """
         Fetch monthly clear-sky radiation for each glacier and add padded-month
         columns according to self.months_tail_pad / self.months_head_pad.
+        Works only with the Swiss dataset.
 
         Parameters
         ----------
@@ -223,45 +224,59 @@ class Dataset:
         )
 
     def get_glacier_mask(
-        self, custom_working_dir: str = ""
+        self,
+        custom_working_dir: str = "",
+        rgi_id: str = None,
     ) -> tuple[xr.Dataset, tuple[np.array, np.array], oggm.GlacierDirectory]:
         """Creates an xarray that contains different variables from OGGM,
             mapped over the glacier outline. The glacier mask is also returned.
 
         Args:
             custom_working_dir (str, optional): working directory for the OGGM data. Defaults to ''.
+            rgi_id (str, optional): RGI ID of the glacier to get the mask from. If not provided, this method uses the dataframe of the dataset to retrieve the RGI ID.
+
         Returns:
             ds (xr.Dataset): the glacier data from OGGM masked over the glacier outline
             glacier_indices (np.array): indices of glacier pixels in OGGM grid
             gdir (oggm.GlacierDirectory): the OGGM glacier directory
-
         """
+
+        if rgi_id is None:
+            rgi_ids = self.data.RGIId.unique()
+            assert len(rgi_ids) == 1
+            rgi_id = rgi_ids[0]
+
         ds, glacier_indices, gdir = get_glacier_mask(
-            self.data, custom_working_dir, self.cfg
+            rgi_id, custom_working_dir, self.cfg
         )
         return ds, glacier_indices, gdir
 
-    def create_glacier_grid_RGI(self, custom_working_dir: str = "") -> pd.DataFrame:
+    def create_glacier_grid_RGI(
+        self, custom_working_dir: str = "", rgi_id: str = None, years=range(1951, 2024)
+    ) -> pd.DataFrame:
         """Creates a dataframe with the glacier grid data from RGI v.6,
             which contains the glacier data from OGGM mapped over the glacier outline in yearly format.
 
         Args:
             custom_working_dir (str, optional): working directory for the OGGM data. Defaults to ''.
+            rgi_id (str, optional): RGI ID of the glacier to get the mask from. If not provided, this method uses the dataframe of the dataset to retrieve the RGI ID.
+            years: Time range of the generated grid. Defaults to the fixed time range `range(1951, 2024)` because we want the grid from the beginning of climate data to end.
 
         Returns:
             df_grid (pd.DataFrame): yearly dataframe with the glacier grid data.
         """
+
+        if rgi_id is None:
+            rgi_ids = self.data.RGIId.unique()
+            assert len(rgi_ids) == 1
+            rgi_id = rgi_ids[0]
+
         # Get glacier mask from OGGM
         ds, glacier_indices, gdir = get_glacier_mask(
-            self.data, custom_working_dir, self.cfg
+            rgi_id, custom_working_dir, self.cfg
         )
-        # years_stake = self.data['YEAR'].unique()
 
-        # Fixed time range because we want the grid from the beginning
-        # of climate data to end (not just when there are stake measurements)
-        years = range(1951, 2024)
-        rgi_gl = self.data["RGIId"].unique()[0]
-        df_grid = create_glacier_grid_RGI(ds, years, glacier_indices, gdir, rgi_gl)
+        df_grid = create_glacier_grid_RGI(ds, years, glacier_indices, gdir, rgi_id)
         return df_grid
 
     def _get_output_filename(self, feature_type: str, output_format: str) -> str:
@@ -274,9 +289,12 @@ class Dataset:
         Returns:
             str: The full path to the output file
         """
-        return os.path.join(
-            self.data_dir, f"{self.region}_{feature_type}.{output_format}"
-        )
+        if self.data_dir is None:
+            return None
+        else:
+            return os.path.join(
+                self.data_dir, f"{self.region}_{feature_type}.{output_format}"
+            )
 
     def _copy_padded_month_columns(
         self, df: pd.DataFrame, prefixes=("pcsr",), overwrite: bool = False
@@ -503,6 +521,12 @@ class Normalizer:
     def __init__(self, bnds: dict[str, tuple[float, float]]) -> None:
         assert not np.isnan(list(bnds.values())).any(), "Bounds contain NaNs"
         self.bnds = bnds
+        self.lower_bnds = [self.bnds[k][0] for k in self.bnds]
+        self.upper_bnds = [self.bnds[k][1] for k in self.bnds]
+        self.lower_bnds_np = np.array(self.lower_bnds)
+        self.upper_bnds_np = np.array(self.upper_bnds)
+        self.lower_bnds_torch = torch.tensor(self.lower_bnds)
+        self.upper_bnds_torch = torch.tensor(self.upper_bnds)
 
     def _norm(self, data, lower_bnd, upper_bnd):
         return (data - lower_bnd) / (upper_bnd - lower_bnd)
@@ -522,10 +546,10 @@ class Normalizer:
             assert x.shape[-1] == len(
                 self.bnds
             ), f"Size of the input to normalize is {x.shape} and it doesn't match the number of bounds defined in the Normalizer object which is {len(self.bnds)}"
-            z = torch.zeros_like(x) if isinstance(x, torch.Tensor) else np.zeros_like(x)
-            for i, k in enumerate(self.bnds):
-                z[..., i] = fct(x[..., i], self.bnds[k][0], self.bnds[k][1])
-            return z
+            if isinstance(x, torch.Tensor):
+                return fct(x, self.lower_bnds_torch, self.upper_bnds_torch)
+            else:
+                return fct(x, self.lower_bnds_np, self.upper_bnds_np)
         else:
             raise NotImplementedError(f"Type {type(x)} is not supported yet")
 
@@ -540,6 +564,9 @@ class Normalizer:
     ) -> Union[dict, torch.Tensor, np.ndarray]:
         """Unnormalize data, the opposite operation of normalize"""
         return self._map(x, self._unorm)
+
+    def export_bounds(self):
+        return [(self.bnds[k][0], self.bnds[k][1]) for k in self.bnds]
 
 
 class SliceDatasetBinding(Dataset):
@@ -645,7 +672,6 @@ class MBSequenceDataset(Dataset):
             T=T,
             show_progress=show_progress,
             expect_target=expect_target,
-            # NEW:
             probe_cols=probe_cols,
         )
         return cls(data_dict, normalize_target=normalize_target)
@@ -703,32 +729,74 @@ class MBSequenceDataset(Dataset):
         val_ds = Subset(self, val_idx)
 
         if use_weighted_sampler:
-            # Compute weights: higher for minority class (annual)
-            iw = self.iw[train_idx].numpy()
-            ia = self.ia[train_idx].numpy()
-            n_w, n_a = iw.sum(), ia.sum()
-            w_w, w_a = 1.0, (n_w / max(n_a, 1))  # annual weight = ratio of counts
+            # Compute weights to balance winter/annual samples
+            iw = self.iw[train_idx].numpy().astype(bool)
+            ia = self.ia[train_idx].numpy().astype(bool)
+            n_w, n_a = int(iw.sum()), int(ia.sum())
 
-            sample_weights = np.where(ia, w_a, w_w).astype(np.float32)
-            sample_weights = torch.from_numpy(sample_weights)
+            # If one class is missing, WeightedRandomSampler may produce all-zero weights
+            # (e.g. n_w=0 -> w_a=0 and if all samples are annual => sum(weights)=0).
+            if (n_w == 0) or (n_a == 0):
+                if verbose:
+                    print(
+                        f"Weighted sampler disabled (one class missing): "
+                        f"{n_w} winter | {n_a} annual. Using shuffle instead."
+                    )
+                train_dl = DataLoader(
+                    train_ds,
+                    batch_size=batch_size_train,
+                    shuffle=shuffle_train,
+                    drop_last=drop_last_train,
+                    num_workers=num_workers,
+                    pin_memory=pin_memory,
+                    worker_init_fn=_seed_worker,
+                    generator=g,
+                )
+            else:
+                # Upweight the minority class (annual) relative to winter
+                w_w = 1.0
+                w_a = n_w / n_a  # > 0 because both are > 0
 
-            sampler = WeightedRandomSampler(
-                sample_weights,
-                num_samples=len(sample_weights),
-                replacement=True,
-                generator=g,
-            )
+                sample_weights = np.where(ia, w_a, w_w).astype(np.float32)
 
-            train_dl = DataLoader(
-                train_ds,
-                batch_size=batch_size_train,
-                sampler=sampler,
-                drop_last=drop_last_train,
-                num_workers=num_workers,
-                pin_memory=pin_memory,
-                worker_init_fn=_seed_worker,
-                generator=g,
-            )
+                # Safety: ensure valid distribution
+                sw_sum = float(sample_weights.sum())
+                if not np.isfinite(sw_sum) or sw_sum <= 0.0:
+                    if verbose:
+                        print(
+                            "Weighted sampler disabled (invalid weights distribution). "
+                            "Using shuffle instead."
+                        )
+                    train_dl = DataLoader(
+                        train_ds,
+                        batch_size=batch_size_train,
+                        shuffle=shuffle_train,
+                        drop_last=drop_last_train,
+                        num_workers=num_workers,
+                        pin_memory=pin_memory,
+                        worker_init_fn=_seed_worker,
+                        generator=g,
+                    )
+                else:
+                    sample_weights = torch.from_numpy(sample_weights)
+
+                    sampler = WeightedRandomSampler(
+                        sample_weights,
+                        num_samples=len(sample_weights),
+                        replacement=True,
+                        generator=g,
+                    )
+
+                    train_dl = DataLoader(
+                        train_ds,
+                        batch_size=batch_size_train,
+                        sampler=sampler,
+                        drop_last=drop_last_train,
+                        num_workers=num_workers,
+                        pin_memory=pin_memory,
+                        worker_init_fn=_seed_worker,
+                        generator=g,
+                    )
         else:
             train_dl = DataLoader(
                 train_ds,
@@ -829,7 +897,6 @@ class MBSequenceDataset(Dataset):
         T: int,
         show_progress: bool = True,
         expect_target: bool = True,
-        # NEW:
         probe_cols: Optional[List[str]] = None,
     ) -> Dict[str, np.ndarray]:
 
@@ -914,19 +981,6 @@ class MBSequenceDataset(Dataset):
             per_l = str(per).strip().lower()
 
             # ---- Seasonal loss masks ----
-            # # loss_mask = 1 for months where POINT_BALANCE is available
-            # loss_mask = np.zeros(T, dtype=np.float32)
-            # for _, r in subm.iterrows():
-            #     m = str(r["MONTHS"]).strip().lower()
-            #     pos = pos_map[m]
-            #     if not np.isnan(r["POINT_BALANCE"]):
-            #         loss_mask[pos] = 1.0
-            # if per_l == "winter":
-            #     mw_sample = loss_mask
-            #     ma_sample = np.zeros(T, dtype=np.float32)
-            # elif per_l == "annual":
-            #     mw_sample = np.zeros(T, dtype=np.float32)
-            #     ma_sample = loss_mask
             loss_mask = np.zeros(T)
             for _, r in subm.iterrows():
                 if not np.isnan(r["POINT_BALANCE"]):
@@ -1157,7 +1211,7 @@ class MBSequenceDataset(Dataset):
             keys=list(ds_src.keys),
         )
 
-        # NEW: copy all probe arrays if present
+        # copy all probe arrays if present
         if hasattr(ds_src, "probe_names"):
             for pname in ds_src.probe_names:
                 data_dict[f"probe__{pname}"] = (
@@ -1206,3 +1260,53 @@ class MBSequenceDataset(Dataset):
         rng.shuffle(idx)
         cut = max(1, int(n * (1 - val_ratio)))
         return idx[:cut], idx[cut:]
+
+
+# --------- Transfer Learning Dataset Wrapper ---------
+class MBSequenceDatasetTL(Dataset):
+    """
+    Thin wrapper around MBSequenceDataset that injects domain labels (SOURCE_CODE/domain_id)
+    into each batch item, without changing MBSequenceDataset.
+    """
+
+    def __init__(self, base_ds, source_codes, domain_vocab=None):
+        """
+        base_ds: MBSequenceDataset
+        source_codes: list[str] length == len(base_ds) (one per sequence)
+        domain_vocab: optional dict[str,int] OR list[str]
+            - dict: {"CH":0,"NOR":1,...}
+            - list: ["CH","NOR",...]
+        """
+        self.base = base_ds
+
+        if len(source_codes) != len(base_ds):
+            raise ValueError(
+                f"source_codes length {len(source_codes)} != len(base_ds) {len(base_ds)}"
+            )
+        self.source_codes = list(source_codes)
+
+        if domain_vocab is not None and not isinstance(domain_vocab, dict):
+            # accept list/tuple as vocab
+            domain_vocab = {sc: i for i, sc in enumerate(list(domain_vocab))}
+
+        self.domain_vocab = domain_vocab
+
+        if self.domain_vocab is not None:
+            dom = []
+            for sc in self.source_codes:
+                if sc not in self.domain_vocab:
+                    raise KeyError(f"SOURCE_CODE '{sc}' missing from domain_vocab")
+                dom.append(int(self.domain_vocab[sc]))
+            self.domain_id = dom  # store as plain ints
+        else:
+            self.domain_id = None
+
+    def __len__(self):
+        return len(self.base)
+
+    def __getitem__(self, idx):
+        b = dict(self.base[idx])
+        b["source_code"] = self.source_codes[idx]
+        if self.domain_id is not None:
+            b["domain_id"] = self.domain_id[idx]  # python int => collates cleanly
+        return b
