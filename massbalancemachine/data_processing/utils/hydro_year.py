@@ -99,6 +99,7 @@ def months_after(row):
 
 def _compute_head_tail_pads_from_df(df):
     df = df.copy()
+    df = df.astype({"FROM_DATE": str, "TO_DATE": str})
     df["FROM_DATE"] = pd.to_datetime(df["FROM_DATE"])
     df["TO_DATE"] = pd.to_datetime(df["TO_DATE"])
     df["HY_YEAR"] = df.apply(assign_hydro_year, axis=1)
