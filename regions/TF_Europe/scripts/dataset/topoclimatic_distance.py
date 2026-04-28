@@ -179,73 +179,137 @@ def mmd_squared_unbiased(
     return float(np.mean(mmd2_per_kernel))
 
 
-def estimate_global_bandwidths(
-    res_xreg_by_source: dict,
-    monthly_cols: list[str],
-    static_cols: list[str],
-    scaler_m: StandardScaler,
-    scaler_s: StandardScaler,
-    elev_diff_col: str = "ELEVATION_DIFFERENCE",
-    id_col: str = "ID",
-    blur_quantile_multiplier: float = 0.1,
-    seed: int = 0,
-) -> tuple[float, float, float]:
-    """
-    Estimate fixed blur/bandwidth from the global training distribution.
-    Pools all df_train rows across sources, scales them, then estimates
-    blur from the within-distribution pairwise distances.
-    These fixed values make Sinkhorn and MMD² comparable across all pairs.
+# def compute_domain_shift(
+#     df_src: pd.DataFrame,
+#     df_tgt: pd.DataFrame,
+#     monthly_cols: list[str],
+#     static_cols: list[str],
+#     elev_diff_col: str = "ELEVATION_DIFFERENCE",
+#     id_col: str = "ID",
+#     glacier_col: str = "GLACIER",
+#     seed: int = 0,
+#     scaler_m: StandardScaler | None = None,
+#     scaler_s: StandardScaler | None = None,
+#     blur_m: float | None = None,
+#     blur_s: float | None = None,
+#     blur_joint: float | None = None,
+#     bandwidths_m: list[float] | None = None,
+#     bandwidths_s: list[float] | None = None,
+#     device: str = "cpu",
+# ) -> dict:
+#     """
+#     Assess input-space domain shift between source and target.
 
-    Returns
-    -------
-    blur_m : float
-        Blur for climate feature space.
-    blur_s : float
-        Blur for topographic feature space.
-    blur_joint : float
-        Blur for joint (climate + topo stacked) feature space.
-    """
-    pure_static = [c for c in static_cols if c != elev_diff_col]
+#     Climate features are compared row-level (each monthly observation is a
+#     genuine data point). Topographic features are compared at ID level
+#     (.first() for static cols, .mean() for ELEVATION_DIFFERENCE).
 
-    def _stake_topo(df):
-        parts = [df.groupby(id_col)[pure_static].first()]
-        if elev_diff_col in static_cols:
-            parts.append(df.groupby(id_col)[[elev_diff_col]].mean())
-        return pd.concat(parts, axis=1)[static_cols].to_numpy(dtype=np.float64)
+#     Computes MMD², energy distance, and Sinkhorn divergence for climate,
+#     topo, a 50/50 averaged joint, and a true joint (climate + topo stacked
+#     into one feature space, single OT problem).
 
-    df_train_all = pd.concat(
-        [res_xreg["df_train"] for res_xreg in res_xreg_by_source.values()],
-        ignore_index=True,
-    ).drop_duplicates(subset=[id_col])
+#     For cross-pair comparability, pass fixed global blur_m/blur_s/blur_joint
+#     and bandwidths_m/bandwidths_s estimated from the global training
+#     distribution (via estimate_global_bandwidths).
+#     """
 
-    df_train_full = pd.concat(
-        [res_xreg["df_train"] for res_xreg in res_xreg_by_source.values()],
-        ignore_index=True,
-    )
+#     def _clip_mmd2(val: float) -> float:
+#         return float(max(val, 0.0))
 
-    Xm = scaler_m.transform(df_train_all[monthly_cols].to_numpy(dtype=np.float64))
-    Xs = scaler_s.transform(_stake_topo(df_train_full))
+#     pure_static = [c for c in static_cols if c != elev_diff_col]
 
-    blur_m = _estimate_blur(
-        Xm, Xm, blur_quantile_multiplier=blur_quantile_multiplier, seed=seed
-    )
-    blur_s = _estimate_blur(
-        Xs, Xs, blur_quantile_multiplier=blur_quantile_multiplier, seed=seed + 1
-    )
+#     def _stake_topo(df: pd.DataFrame) -> np.ndarray:
+#         parts = [df.groupby(id_col)[pure_static].first()]
+#         if elev_diff_col in static_cols:
+#             parts.append(df.groupby(id_col)[[elev_diff_col]].mean())
+#         return pd.concat(parts, axis=1)[static_cols].to_numpy(dtype=np.float64)
 
-    # Joint: broadcast topo to monthly rows then stack
-    Xs_full = scaler_s.transform(_stake_topo(df_train_full))
-    topo_per_row = Xs_full[pd.Categorical(df_train_full[id_col]).codes]
-    Xjoint = np.hstack([Xm, topo_per_row[: len(Xm)]])
+#     # --- raw features ---
+#     Xm_src = df_src[monthly_cols].to_numpy(dtype=np.float64)
+#     Xm_tgt = df_tgt[monthly_cols].to_numpy(dtype=np.float64)
+#     Xs_src = _stake_topo(df_src)
+#     Xs_tgt = _stake_topo(df_tgt)
 
-    blur_joint = _estimate_blur(
-        Xjoint,
-        Xjoint,
-        blur_quantile_multiplier=blur_quantile_multiplier,
-        seed=seed + 2,
-    )
+#     # --- scalers ---
+#     if scaler_m is None:
+#         scaler_m = StandardScaler().fit(np.vstack([Xm_src, Xm_tgt]))
+#     if scaler_s is None:
+#         scaler_s = StandardScaler().fit(np.vstack([Xs_src, Xs_tgt]))
 
-    return blur_m, blur_s, blur_joint
+#     Xm_src_z = scaler_m.transform(Xm_src)
+#     Xm_tgt_z = scaler_m.transform(Xm_tgt)
+#     Xs_src_z = scaler_s.transform(Xs_src)
+#     Xs_tgt_z = scaler_s.transform(Xs_tgt)
+
+#     # --- blur for Sinkhorn ---
+#     blur_m_ = (
+#         blur_m if blur_m is not None else _estimate_blur(Xm_src_z, Xm_tgt_z, seed=seed)
+#     )
+#     blur_s_ = (
+#         blur_s
+#         if blur_s is not None
+#         else _estimate_blur(Xs_src_z, Xs_tgt_z, seed=seed + 1)
+#     )
+
+#     # --- distances ---
+#     D_mmd2_climate = _clip_mmd2(
+#         mmd_squared_unbiased(Xm_src_z, Xm_tgt_z, bandwidths=bandwidths_m, seed=seed + 2)
+#     )
+#     D_energy_climate = energy_distance(Xm_src_z, Xm_tgt_z, seed=seed + 3)
+#     D_sinkhorn_climate = _sinkhorn_distance(
+#         Xm_src_z, Xm_tgt_z, blur=blur_m_, device=device, seed=seed + 4
+#     )
+
+#     D_mmd2_topo = _clip_mmd2(
+#         mmd_squared_unbiased(Xs_src_z, Xs_tgt_z, bandwidths=bandwidths_s, seed=seed + 5)
+#     )
+#     D_energy_topo = energy_distance(Xs_src_z, Xs_tgt_z, seed=seed + 6)
+#     D_sinkhorn_topo = _sinkhorn_distance(
+#         Xs_src_z, Xs_tgt_z, blur=blur_s_, device=device, seed=seed + 7
+#     )
+
+#     # --- true joint Sinkhorn: stack climate and topo per monthly row ---
+#     # Topo is ID-level — broadcast to monthly rows via ID index
+#     topo_only_idx = [j for j, c in enumerate(static_cols) if c not in set(monthly_cols)]
+#     if topo_only_idx:
+#         topo_src_per_row = scaler_s.transform(_stake_topo(df_src))[
+#             pd.Categorical(df_src[id_col]).codes
+#         ][:, topo_only_idx]
+#         topo_tgt_per_row = scaler_s.transform(_stake_topo(df_tgt))[
+#             pd.Categorical(df_tgt[id_col]).codes
+#         ][:, topo_only_idx]
+#         Xjoint_src = np.hstack([Xm_src_z, topo_src_per_row])
+#         Xjoint_tgt = np.hstack([Xm_tgt_z, topo_tgt_per_row])
+#     else:
+#         Xjoint_src = Xm_src_z
+#         Xjoint_tgt = Xm_tgt_z
+
+#     blur_joint_ = blur_joint if blur_joint is not None else 0.5 * (blur_m_ + blur_s_)
+#     D_sinkhorn_joint = _sinkhorn_distance(
+#         Xjoint_src, Xjoint_tgt, blur=blur_joint_, device=device, seed=seed + 8
+#     )
+
+#     out = {
+#         "n_src_rows": len(Xm_src),
+#         "n_tgt_rows": len(Xm_tgt),
+#         "n_src_glaciers": df_src[glacier_col].nunique(),
+#         "n_tgt_glaciers": df_tgt[glacier_col].nunique(),
+#         "n_src_ids": df_src[id_col].nunique(),
+#         "n_tgt_ids": df_tgt[id_col].nunique(),
+#         # --- averaged joint (50/50 mean of climate and topo) ---
+#         "D_mmd2_joint": 0.5 * D_mmd2_climate + 0.5 * D_mmd2_topo,
+#         "D_energy_joint": 0.5 * D_energy_climate + 0.5 * D_energy_topo,
+#         "D_sinkhorn_joint": D_sinkhorn_joint,
+#         # --- climate ---
+#         "D_mmd2_climate": D_mmd2_climate,
+#         "D_energy_climate": D_energy_climate,
+#         "D_sinkhorn_climate": D_sinkhorn_climate,
+#         # --- topo ---
+#         "D_mmd2_topo": D_mmd2_topo,
+#         "D_energy_topo": D_energy_topo,
+#         "D_sinkhorn_topo": D_sinkhorn_topo,
+#     }
+#     return out
 
 
 def compute_domain_shift(
@@ -259,6 +323,7 @@ def compute_domain_shift(
     seed: int = 0,
     scaler_m: StandardScaler | None = None,
     scaler_s: StandardScaler | None = None,
+    scaler_joint: StandardScaler | None = None,  # NEW: joint scaler for grid data
     blur_m: float | None = None,
     blur_s: float | None = None,
     blur_joint: float | None = None,
@@ -266,22 +331,6 @@ def compute_domain_shift(
     bandwidths_s: list[float] | None = None,
     device: str = "cpu",
 ) -> dict:
-    """
-    Assess input-space domain shift between source and target.
-
-    Climate features are compared row-level (each monthly observation is a
-    genuine data point). Topographic features are compared at ID level
-    (.first() for static cols, .mean() for ELEVATION_DIFFERENCE).
-
-    Computes MMD², energy distance, and Sinkhorn divergence for climate,
-    topo, a 50/50 averaged joint, and a true joint (climate + topo stacked
-    into one feature space, single OT problem).
-
-    For cross-pair comparability, pass fixed global blur_m/blur_s/blur_joint
-    and bandwidths_m/bandwidths_s estimated from the global training
-    distribution (via estimate_global_bandwidths).
-    """
-
     def _clip_mmd2(val: float) -> float:
         return float(max(val, 0.0))
 
@@ -310,7 +359,7 @@ def compute_domain_shift(
     Xs_src_z = scaler_s.transform(Xs_src)
     Xs_tgt_z = scaler_s.transform(Xs_tgt)
 
-    # --- blur for Sinkhorn ---
+    # --- blur ---
     blur_m_ = (
         blur_m if blur_m is not None else _estimate_blur(Xm_src_z, Xm_tgt_z, seed=seed)
     )
@@ -320,7 +369,7 @@ def compute_domain_shift(
         else _estimate_blur(Xs_src_z, Xs_tgt_z, seed=seed + 1)
     )
 
-    # --- distances ---
+    # --- climate distances ---
     D_mmd2_climate = _clip_mmd2(
         mmd_squared_unbiased(Xm_src_z, Xm_tgt_z, bandwidths=bandwidths_m, seed=seed + 2)
     )
@@ -329,6 +378,7 @@ def compute_domain_shift(
         Xm_src_z, Xm_tgt_z, blur=blur_m_, device=device, seed=seed + 4
     )
 
+    # --- topo distances ---
     D_mmd2_topo = _clip_mmd2(
         mmd_squared_unbiased(Xs_src_z, Xs_tgt_z, bandwidths=bandwidths_s, seed=seed + 5)
     )
@@ -337,48 +387,53 @@ def compute_domain_shift(
         Xs_src_z, Xs_tgt_z, blur=blur_s_, device=device, seed=seed + 7
     )
 
-    # --- true joint Sinkhorn: stack climate and topo per monthly row ---
-    # Topo is ID-level — broadcast to monthly rows via ID index
-    topo_only_idx = [j for j, c in enumerate(static_cols) if c not in set(monthly_cols)]
-    if topo_only_idx:
-        topo_src_per_row = scaler_s.transform(_stake_topo(df_src))[
-            pd.Categorical(df_src[id_col]).codes
-        ][:, topo_only_idx]
-        topo_tgt_per_row = scaler_s.transform(_stake_topo(df_tgt))[
-            pd.Categorical(df_tgt[id_col]).codes
-        ][:, topo_only_idx]
-        Xjoint_src = np.hstack([Xm_src_z, topo_src_per_row])
-        Xjoint_tgt = np.hstack([Xm_tgt_z, topo_tgt_per_row])
-    else:
-        Xjoint_src = Xm_src_z
-        Xjoint_tgt = Xm_tgt_z
-
+    # --- true joint Sinkhorn ---
     blur_joint_ = blur_joint if blur_joint is not None else 0.5 * (blur_m_ + blur_s_)
-    D_sinkhorn_joint_true = _sinkhorn_distance(
+
+    if scaler_joint is not None:
+        # Grid data path: scale all cols directly, no ID-level aggregation
+        all_cols = monthly_cols + static_cols
+        Xjoint_src = scaler_joint.transform(df_src[all_cols].to_numpy(dtype=np.float64))
+        Xjoint_tgt = scaler_joint.transform(df_tgt[all_cols].to_numpy(dtype=np.float64))
+    else:
+        # Stake data path: broadcast ID-level topo to monthly rows
+        topo_only_idx = [
+            j for j, c in enumerate(static_cols) if c not in set(monthly_cols)
+        ]
+        if topo_only_idx:
+            topo_src_per_row = scaler_s.transform(_stake_topo(df_src))[
+                pd.Categorical(df_src[id_col]).codes
+            ][:, topo_only_idx]
+            topo_tgt_per_row = scaler_s.transform(_stake_topo(df_tgt))[
+                pd.Categorical(df_tgt[id_col]).codes
+            ][:, topo_only_idx]
+            Xjoint_src = np.hstack([Xm_src_z, topo_src_per_row])
+            Xjoint_tgt = np.hstack([Xm_tgt_z, topo_tgt_per_row])
+        else:
+            Xjoint_src = Xm_src_z
+            Xjoint_tgt = Xm_tgt_z
+
+    D_sinkhorn_joint = _sinkhorn_distance(
         Xjoint_src, Xjoint_tgt, blur=blur_joint_, device=device, seed=seed + 8
     )
 
-    out = {
+    return {
         "n_src_rows": len(Xm_src),
         "n_tgt_rows": len(Xm_tgt),
         "n_src_glaciers": df_src[glacier_col].nunique(),
         "n_tgt_glaciers": df_tgt[glacier_col].nunique(),
         "n_src_ids": df_src[id_col].nunique(),
         "n_tgt_ids": df_tgt[id_col].nunique(),
-        # --- averaged joint (50/50 mean of climate and topo) ---
         "D_mmd2_joint": 0.5 * D_mmd2_climate + 0.5 * D_mmd2_topo,
         "D_energy_joint": 0.5 * D_energy_climate + 0.5 * D_energy_topo,
-        "D_sinkhorn_joint": D_sinkhorn_joint_true,
-        # --- climate ---
+        "D_sinkhorn_joint": D_sinkhorn_joint,
         "D_mmd2_climate": D_mmd2_climate,
         "D_energy_climate": D_energy_climate,
         "D_sinkhorn_climate": D_sinkhorn_climate,
-        # --- topo ---
         "D_mmd2_topo": D_mmd2_topo,
         "D_energy_topo": D_energy_topo,
         "D_sinkhorn_topo": D_sinkhorn_topo,
     }
-    return out
 
 
 def split_pool_holdout(
@@ -589,31 +644,133 @@ def compute_glacier_shift_vs_source(
     return pd.DataFrame(records).set_index(glacier_col)
 
 
-def build_global_scalers_multi_source(
+# def estimate_global_bandwidths(
+#     res_xreg_by_source: dict,
+#     monthly_cols: list[str],
+#     static_cols: list[str],
+#     scaler_m: StandardScaler,
+#     scaler_s: StandardScaler,
+#     elev_diff_col: str = "ELEVATION_DIFFERENCE",
+#     id_col: str = "ID",
+#     blur_quantile_multiplier: float = 0.1,
+#     seed: int = 0,
+# ) -> tuple[float, float, float]:
+#     """
+#     Estimate fixed blur/bandwidth from the global training distribution.
+#     Pools all df_train rows across sources, scales them, then estimates
+#     blur from the within-distribution pairwise distances.
+#     These fixed values make Sinkhorn and MMD² comparable across all pairs.
+
+#     Returns
+#     -------
+#     blur_m : float
+#         Blur for climate feature space.
+#     blur_s : float
+#         Blur for topographic feature space.
+#     blur_joint : float
+#         Blur for joint (climate + topo stacked) feature space.
+#     """
+#     pure_static = [c for c in static_cols if c != elev_diff_col]
+
+#     def _stake_topo(df):
+#         parts = [df.groupby(id_col)[pure_static].first()]
+#         if elev_diff_col in static_cols:
+#             parts.append(df.groupby(id_col)[[elev_diff_col]].mean())
+#         return pd.concat(parts, axis=1)[static_cols].to_numpy(dtype=np.float64)
+
+#     df_train_all = pd.concat(
+#         [res_xreg["df_train"] for res_xreg in res_xreg_by_source.values()],
+#         ignore_index=True,
+#     ).drop_duplicates(subset=[id_col])
+
+#     df_train_full = pd.concat(
+#         [res_xreg["df_train"] for res_xreg in res_xreg_by_source.values()],
+#         ignore_index=True,
+#     )
+
+#     Xm = scaler_m.transform(df_train_all[monthly_cols].to_numpy(dtype=np.float64))
+#     Xs = scaler_s.transform(_stake_topo(df_train_full))
+
+#     blur_m = _estimate_blur(
+#         Xm, Xm, blur_quantile_multiplier=blur_quantile_multiplier, seed=seed
+#     )
+#     blur_s = _estimate_blur(
+#         Xs, Xs, blur_quantile_multiplier=blur_quantile_multiplier, seed=seed + 1
+#     )
+
+#     # Joint: broadcast topo to monthly rows then stack
+#     Xs_full = scaler_s.transform(_stake_topo(df_train_full))
+#     topo_per_row = Xs_full[pd.Categorical(df_train_full[id_col]).codes]
+#     Xjoint = np.hstack([Xm, topo_per_row[: len(Xm)]])
+
+#     blur_joint = _estimate_blur(
+#         Xjoint,
+#         Xjoint,
+#         blur_quantile_multiplier=blur_quantile_multiplier,
+#         seed=seed + 2,
+#     )
+
+#     return blur_m, blur_s, blur_joint
+
+# def build_global_scalers_multi_source(
+#     res_xreg_by_source: dict,
+#     monthly_cols: list[str],
+#     static_cols: list[str],
+#     elev_diff_col: str = "ELEVATION_DIFFERENCE",
+#     id_col: str = "ID",
+# ) -> tuple[StandardScaler, StandardScaler]:
+#     """
+#     Build global StandardScalers fitted on the full dataset.
+
+#     Pools df_train and df_test across all sources, deduplicates by ID,
+#     then fits:
+#       - scaler_m: on monthly climate rows, deduplicated by ID so each
+#         stake-year contributes exactly once
+#       - scaler_s: on ID-level topographic aggregates — static cols via
+#         .first() per ID, ELEVATION_DIFFERENCE via .mean() per ID
+#     """
+#     pure_static = [c for c in static_cols if c != elev_diff_col]
+
+#     def _stake_topo(df: pd.DataFrame) -> np.ndarray:
+#         parts = [df.groupby(id_col)[pure_static].first()]
+#         if elev_diff_col in static_cols:
+#             parts.append(df.groupby(id_col)[[elev_diff_col]].mean())
+#         return pd.concat(parts, axis=1)[static_cols].to_numpy(dtype=np.float64)
+
+#     df_all = pd.concat(
+#         [
+#             res_xreg[split]
+#             for res_xreg in res_xreg_by_source.values()
+#             for split in ["df_train", "df_test"]
+#         ],
+#         ignore_index=True,
+#     )
+
+#     # Climate: deduplicate by ID so each stake-year contributes once
+#     df_dedup = df_all.drop_duplicates(subset=[id_col])
+#     scaler_m = StandardScaler().fit(df_dedup[monthly_cols].to_numpy(dtype=np.float64))
+
+#     # Topo: groupby handles deduplication correctly for mixed static/monthly cols
+#     scaler_s = StandardScaler().fit(_stake_topo(df_all))
+
+#     return scaler_m, scaler_s
+
+
+def build_global_scalers_multi_source_simple(
     res_xreg_by_source: dict,
     monthly_cols: list[str],
     static_cols: list[str],
-    elev_diff_col: str = "ELEVATION_DIFFERENCE",
-    id_col: str = "ID",
-) -> tuple[StandardScaler, StandardScaler]:
+) -> tuple[StandardScaler, StandardScaler, StandardScaler]:
     """
-    Build global StandardScalers fitted on the full dataset.
+    Simple version of build_global_scalers_multi_source.
+    Pools df_train and df_test across all sources and fits scalers directly
+    without ID deduplication or topo aggregation.
 
-    Pools df_train and df_test across all sources, deduplicates by ID,
-    then fits:
-      - scaler_m: on monthly climate rows, deduplicated by ID so each
-        stake-year contributes exactly once
-      - scaler_s: on ID-level topographic aggregates — static cols via
-        .first() per ID, ELEVATION_DIFFERENCE via .mean() per ID
+    Fits:
+      - scaler_m: on monthly climate columns
+      - scaler_s: on static/topographic columns
+      - scaler_joint: on all columns combined
     """
-    pure_static = [c for c in static_cols if c != elev_diff_col]
-
-    def _stake_topo(df: pd.DataFrame) -> np.ndarray:
-        parts = [df.groupby(id_col)[pure_static].first()]
-        if elev_diff_col in static_cols:
-            parts.append(df.groupby(id_col)[[elev_diff_col]].mean())
-        return pd.concat(parts, axis=1)[static_cols].to_numpy(dtype=np.float64)
-
     df_all = pd.concat(
         [
             res_xreg[split]
@@ -623,14 +780,49 @@ def build_global_scalers_multi_source(
         ignore_index=True,
     )
 
-    # Climate: deduplicate by ID so each stake-year contributes once
-    df_dedup = df_all.drop_duplicates(subset=[id_col])
-    scaler_m = StandardScaler().fit(df_dedup[monthly_cols].to_numpy(dtype=np.float64))
+    scaler_m = StandardScaler().fit(df_all[monthly_cols].to_numpy(dtype=np.float64))
+    scaler_s = StandardScaler().fit(df_all[static_cols].to_numpy(dtype=np.float64))
+    scaler_joint = StandardScaler().fit(
+        df_all[monthly_cols + static_cols].to_numpy(dtype=np.float64)
+    )
 
-    # Topo: groupby handles deduplication correctly for mixed static/monthly cols
-    scaler_s = StandardScaler().fit(_stake_topo(df_all))
+    return scaler_m, scaler_s, scaler_joint
 
-    return scaler_m, scaler_s
+
+def estimate_global_bandwidths_simple(
+    res_xreg_by_source: dict,
+    monthly_cols: list[str],
+    static_cols: list[str],
+    scaler_m: StandardScaler,
+    scaler_s: StandardScaler,
+    blur_quantile_multiplier: float = 0.1,
+    seed: int = 0,
+) -> tuple[float, float, float]:
+    """
+    Simple version of estimate_global_bandwidths.
+    Pools df_train across all sources and estimates blurs directly
+    without ID deduplication or topo aggregation.
+    """
+    df_all = pd.concat(
+        [res_xreg["df_train"] for res_xreg in res_xreg_by_source.values()],
+        ignore_index=True,
+    )
+
+    Xm = scaler_m.transform(df_all[monthly_cols].to_numpy(dtype=np.float64))
+    Xs = scaler_s.transform(df_all[static_cols].to_numpy(dtype=np.float64))
+    Xjoint = np.hstack([Xm, Xs])
+
+    blur_m = _estimate_blur(
+        Xm, Xm, blur_quantile_multiplier=blur_quantile_multiplier, seed=seed
+    )
+    blur_s = _estimate_blur(
+        Xs, Xs, blur_quantile_multiplier=blur_quantile_multiplier, seed=seed + 1
+    )
+    blur_joint = _estimate_blur(
+        Xjoint, Xjoint, blur_quantile_multiplier=blur_quantile_multiplier, seed=seed + 2
+    )
+
+    return blur_m, blur_s, blur_joint
 
 
 def build_global_scalers_from_dfs(

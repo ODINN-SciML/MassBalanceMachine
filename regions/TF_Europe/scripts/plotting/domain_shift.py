@@ -150,7 +150,7 @@ def plot_domain_shift_across_regions(all_shifts: dict, src_region: str):
         en_joint.append(shift["D_energy_joint"])
         en_climate.append(shift["D_energy_climate"])
         en_topo.append(shift["D_energy_topo"])
-        sk_joint.append(shift["D_sinkhorn_joint_true"])
+        sk_joint.append(shift["D_sinkhorn_joint"])
         sk_climate.append(shift["D_sinkhorn_climate"])
         sk_topo.append(shift["D_sinkhorn_topo"])
 
@@ -254,7 +254,7 @@ def plot_region_shift_vs_performance_single_d(
     blur_s: float | None = None,
     blur_joint: float | None = None,
     joint_variant: str = "averaged",
-    distance_cols_override: list[str] | None = None,  # e.g. ["D_sinkhorn_joint_true"]
+    distance_cols_override: list[str] | None = None,  # e.g. ["D_sinkhorn_joint"]
     ax_list: list | None = None,  # pass existing axes to skip fig creation
 ):
     from scipy import stats
@@ -280,7 +280,7 @@ def plot_region_shift_vs_performance_single_d(
         print(f"Auto-detected performance columns: {performance_cols}")
 
     if joint_variant == "true" and distance_variant == "sinkhorn":
-        joint_col = "D_sinkhorn_joint_true"
+        joint_col = "D_sinkhorn_joint"
         joint_label = "sinkhorn joint (true)"
     else:
         if joint_variant == "true":
@@ -317,7 +317,7 @@ def plot_region_shift_vs_performance_single_d(
             blur_map["D_sinkhorn_climate"] = blur_m
             blur_map["D_sinkhorn_topo"] = blur_s
         if blur_joint is not None:
-            blur_map["D_sinkhorn_joint_true"] = blur_joint
+            blur_map["D_sinkhorn_joint"] = blur_joint
 
     # --- build flat region DataFrame ---
     records = []

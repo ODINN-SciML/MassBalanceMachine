@@ -655,7 +655,7 @@ def evaluate_all_models(
         if domain_shifts is not None and domain_shift_key in domain_shifts:
             shift = domain_shifts[domain_shift_key]
             txt = (
-                f"Sinkhorn joint: {shift['D_sinkhorn_joint_true']:.3f}\n"
+                f"Sinkhorn joint: {shift['D_sinkhorn_joint']:.3f}\n"
                 f"clim: {shift['D_sinkhorn_climate']:.3f} | topo: {shift['D_sinkhorn_topo']:.3f}"
             )
             ax_grid.text(
