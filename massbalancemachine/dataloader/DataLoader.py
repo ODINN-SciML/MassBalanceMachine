@@ -69,7 +69,7 @@ class DataLoader:
         *,
         test_size: float = None,
         type_fold: str = "group-meas-id",
-        random_state: bool = False,
+        use_random_seed: bool = True,
     ) -> Tuple[Iterator[Any], Iterator[Any]]:
         """
         Split the dataset into training and testing sets.
@@ -77,6 +77,7 @@ class DataLoader:
         Args:
             test_size (float): Proportion of the dataset to include in the test split.
             type_fold (str): Type of splitting between train and test sets. Options are 'group-rgi','group-c_region' or 'group-meas-id'.
+            use_random_seed (bool): Whether the random seed should be used or not. This allows having reproducible splits.
 
         Returns:
             Tuple[Iterator[Any], Iterator[Any]]: Iterators for training and testing indices.
@@ -96,13 +97,13 @@ class DataLoader:
         X, y, glacier_ids, stake_meas_id, regions = self._prepare_data_for_cv(
             self.data, self.meta_data_columns
         )
-        if random_state == False:
+        if use_random_seed:
             gss = GroupShuffleSplit(
                 n_splits=1,
                 test_size=test_size,
-                random_state=self.random_seed,  # commenting this improve randomness
+                random_state=self.random_seed,
             )
-        elif random_state == True:
+        else:
             gss = GroupShuffleSplit(
                 n_splits=1,
                 test_size=test_size,
