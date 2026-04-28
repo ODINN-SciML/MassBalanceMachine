@@ -35,10 +35,11 @@ warnings.filterwarnings("ignore")
 parser = argparse.ArgumentParser()
 parser.add_argument("modelType", type=str, help="Type of model to train.")
 parser.add_argument(
-    "--gpu",
-    type=bool,
+    "--cpu",
+    dest="cpu",
     default=False,
-    help="Train on GPU. By default training runs on CPU.",
+    action="store_true",
+    help="Force model to run on CPU, even if a GPU is available.",
 )
 parser.add_argument(
     "-s",
@@ -49,7 +50,7 @@ parser.add_argument(
 )
 args = parser.parse_args()
 
-runOnGpu = args.gpu
+cpu = args.cpu
 suffix = args.suffix
 params = loadParams(args.modelType)
 featuresInpModel = params["model"]["inputs"]
@@ -126,7 +127,7 @@ df_X_train, y_train, df_X_val, y_val = trainValData(cfg, train_set, featuresInpM
 
 early_stop = EarlyStopping(
     monitor="valid_loss",
-    patience=20,
+    patience=50,
     threshold=1e-4,  # Optional: stop only when improvement is very small
 )
 lr_scheduler_cb = LRScheduler(
@@ -134,7 +135,7 @@ lr_scheduler_cb = LRScheduler(
     monitor="valid_loss",
     mode="min",
     factor=0.5,
-    patience=5,
+    patience=20,
     threshold=0.01,
     threshold_mode="rel",
     verbose=True,
@@ -147,7 +148,8 @@ def my_train_split(ds, y=None, **fit_params):
     return dataset, dataset_val
 
 
-param_init = {"device": "cuda:0" if runOnGpu else "cpu"}
+device = torch.device("cuda:0" if torch.cuda.is_available() and not cpu else "cpu")
+param_init = {"device": device}
 
 
 model = mbm.models.buildModel(cfg, params=params)

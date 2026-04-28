@@ -66,6 +66,7 @@ folium = "^0.20.0"
 geomloss = "^0.2.6"
 pykeops = "^2.3"
 setuptools = "81"
+huggingface-hub = "^1.10.2"
 
 [tool.poetry.group.docs.dependencies]
 sphinx = "^7.4.6"
