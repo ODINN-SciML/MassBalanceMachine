@@ -66,7 +66,9 @@ folium = "^0.20.0"
 geomloss = "^0.2.6"
 pykeops = "^2.3"
 setuptools = "81"
-huggingface-hub = "^1.10.2"
+
+[tool.poetry.group.docs]
+optional = false
 
 [tool.poetry.group.docs.dependencies]
 sphinx = "^7.4.6"
@@ -81,6 +83,9 @@ nbsphinx = "^0.9"
 ipykernel = "^6.0"
 pandoc = "2.4"
 
+[tool.poetry.group.dev]
+optional = false
+
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.2"
 pytest-cov = "^6.1.1"
@@ -91,6 +96,12 @@ tox = "^4.16.0"
 ruff = "^0.6.2"
 nbdime = "^4.0.1"
 nbdev = "^2.3.28"
+
+[tool.poetry.group.publish]
+optional = true
+
+[tool.poetry.group.publish.dependencies]
+huggingface-hub = "^1.10.2"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
