@@ -25,6 +25,13 @@ parser.add_argument(
     help="Force model to run on CPU, even if a GPU is available.",
 )
 parser.add_argument(
+    "-s",
+    "--suffix",
+    type=str,
+    default=None,
+    help="Suffix to add to the folder that contains the model once trained.",
+)
+parser.add_argument(
     "--noTest",
     dest="noTest",
     default=False,
@@ -56,6 +63,7 @@ args = parser.parse_args()
 params = loadParams(args.modelType)
 modelToLoad = args.load
 cpu = args.cpu
+suffix = args.suffix
 noTest = args.noTest
 timeExec = args.time
 prof = args.prof
@@ -65,6 +73,8 @@ if wGeo is not None:  # Overwrite geodetic weight
 wGeo = params["training"]["wGeo"]
 if params["training"]["log_suffix"] == "":
     params["training"]["log_suffix"] = f"wgeo={wGeo}" if wGeo > 0 else ""
+if suffix is not None:
+    params["training"]["log_suffix"] += f"_{suffix}"
 featuresInpModel = params["model"]["inputs"]
 sourceData = params["training"]["source_data"]
 

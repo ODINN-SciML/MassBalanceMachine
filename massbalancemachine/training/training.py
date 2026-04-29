@@ -620,6 +620,7 @@ def train_geo(
         ):
 
             avg_training_loss = 0.0
+            iter_counter = 0
             model.train()
             with tqdm.tqdm(
                 total=iterPerEpoch,
@@ -786,7 +787,10 @@ def train_geo(
                     statsTraining["lossGeo"].append(lossGeo.item())
                     statsTraining["loss"].append(loss.item())
                     statsTraining["lr"].append(lr)
-                    avg_training_loss += statsTraining["loss"][-1]
+                    if not torch.isnan(loss):
+                        # This happens when there is no data to compute the loss (no geodetic term + no stakes)
+                        avg_training_loss += loss.item()
+                        iter_counter += 1
 
                     # Log to TensorBoard
                     globalStep = iterPerEpoch * epoch + batch_idx
@@ -826,7 +830,7 @@ def train_geo(
                     )
                     batch_bar.update(1)
 
-            avg_training_loss /= iterPerEpoch
+            avg_training_loss /= iter_counter
             if scheduler is not None:
                 scheduler.step()
 
