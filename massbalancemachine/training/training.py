@@ -226,9 +226,7 @@ def eval_geodetic(model, geo_dataloader, return_grid_pred=[]):
 
                 # pbar = tqdm.tqdm(geo_dataloader.glaciersGeo(), total=geo_dataloader.lenGeo())
                 # for g in pbar:
-                pbar.set_description(
-                    "Making geodetic pred for %s" % (current_g), refresh=True
-                )
+                pbar.set_description("Geodetic pred for %s" % (current_g), refresh=True)
                 pbar.update(1)
                 # consume prefetched current batch
                 if current_geo_future is not None:
@@ -564,7 +562,7 @@ def train_geo(
     scalingStakes = params["training"]["scalingStakes"]
     assert scalingStakes in ["meas", "glacier"]
     iterPerEpoch = len(geodataloader)
-    nColsProgressBar = 500 if _inJupyterNotebook else 100
+    nColsProgressBar = 500 if _inJupyterNotebook else 85
 
     # Setup logging
     run_name = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -824,9 +822,9 @@ def train_geo(
                     batch_idx += 1
 
                     batch_bar.set_postfix(
-                        loss=f"{statsTraining['loss'][-1]:.4f}",
-                        lossStake=f"{statsTraining['lossStake'][-1]:.4f}",
-                        lossGeo=f"{statsTraining['lossGeo'][-1]:.4f}",
+                        l=f"{statsTraining['loss'][-1]:.3f}",
+                        lStake=f"{statsTraining['lossStake'][-1]:.3f}",
+                        lGeo=f"{statsTraining['lossGeo'][-1]:.3f}",
                     )
                     batch_bar.update(1)
 
@@ -1087,16 +1085,14 @@ def train_geo(
                             assessOnTest(log_dir, model, geodataloader_test, light=True)
 
             rmse = statsVal["rmse"][-1] if len(statsVal["rmse"]) > 0 else np.nan
-            pearson = (
-                statsVal["pearson"][-1] if len(statsVal["pearson"]) > 0 else np.nan
-            )
+            r2 = statsVal["r2"][-1] if len(statsVal["r2"]) > 0 else np.nan
             loss = statsVal["lossVal"][-1] if len(statsVal["lossVal"]) > 0 else np.nan
 
             geodataloader.onEpochEnd()
 
             # Show progress bar
             tqdm.tqdm.write(
-                f"[Epoch {epoch+1} / {Nepochs}] Avg training loss: {avg_training_loss:.3f}, Val loss: {loss:.3f}, RMSE: {rmse:.3f}, Pearson: {pearson:.3f}"
+                f"[Epoch {epoch+1} / {Nepochs}] Avg training loss: {avg_training_loss:.3f}, Loss: {loss:.3f}, RMSE: {rmse:.3f}, R2: {r2:.3f}"
             )
 
     except KeyboardInterrupt:
