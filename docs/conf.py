@@ -112,6 +112,9 @@ intersphinx_disabled_domains = ["std"]
 
 templates_path = ["_templates"]
 
+# Print timing report
+duration_show_summary = True
+
 # -- Options for EPUB output
 epub_show_urls = "footnote"
 

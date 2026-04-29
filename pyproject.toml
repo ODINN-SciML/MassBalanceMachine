@@ -57,8 +57,6 @@ nbconvert = "7.16.6"
 numcodecs = "0.15.1"
 torchsummary = "^1.5"
 nbstripout = "^0.8.1"
-geomloss = "^0.2.6"
-pykeops = "^2.3"
 setuptools = "81"
 tensorboard = "^2.19.0"
 
@@ -77,6 +75,7 @@ sphinxemoji = "^0.3.0"
 myst-parser = "^2.0"
 nbsphinx = "^0.9"
 ipykernel = "^6.0"
+jupyterlab-execute-time = "^3.3.0"
 
 [tool.poetry.group.viz]
 optional = false
@@ -100,6 +99,13 @@ tox = "^4.16.0"
 ruff = "^0.6.2"
 nbdime = "^4.0.1"
 nbdev = "^2.3.28"
+
+[tool.poetry.group.advanced]
+optional = false
+
+[tool.poetry.group.advanced.dependencies]
+geomloss = "^0.2.6"
+pykeops = "^2.3"
 
 [tool.poetry.group.publish]
 optional = true
