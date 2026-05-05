@@ -68,6 +68,9 @@ def build_monthly_data(data, cfg, rgi_region=None):
         ~((data.RGIId == "RGI60-01.23646") & (data.MONTH_DIFF == 24))
     ]  # West Yakutat
 
+    # Discard points before 1950 since ERA5 Land does not cover this period
+    data = data[data.YEAR > 1950]
+
     region_name = get_region_name(rgi_region)
     dataset = Dataset(cfg, data=data, region_name=region_name, region_id=rgi_region)
 
