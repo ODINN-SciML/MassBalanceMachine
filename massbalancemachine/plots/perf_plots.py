@@ -291,9 +291,10 @@ def predVSTruthGlacierWide(
     geoErr,
     ax=None,
     title="Glacier wide MB",
-    ax_xlim=(-1.5, 0.5),
+    ax_xlim=(-1.5, 1.0),
     ax_ylim=(-1.5, 1.0),
     color="orange",
+    legend=True,
 ):
 
     if ax is None:
@@ -305,7 +306,8 @@ def predVSTruthGlacierWide(
         ax.errorbar(
             geoTarget[g], geoPred[g], xerr=2 * geoErr[g], label=g, fmt="o", color=color
         )
-        plt.text(geoTarget[g] + 0.02, geoPred[g] + 0.02, g, fontsize=10)
+        if legend:
+            plt.text(geoTarget[g] + 0.02, geoPred[g] + 0.02, g, fontsize=10)
 
     # Diagonal line
     pt = (0, 0)

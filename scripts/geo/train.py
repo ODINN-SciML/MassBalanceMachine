@@ -178,7 +178,7 @@ gdl = mbm.dataloader.GeoDataLoader(
     months_tail_pad=months_tail_pad,
     valStakesDf=df_X_val,
     keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
-    preloadGeodetic=True,
+    preloadGeodetic=wGeo > 0,
 )
 
 
@@ -236,7 +236,7 @@ if not noTest:
         months_head_pad=months_head_pad,
         months_tail_pad=months_tail_pad,
         keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
-        preloadGeodetic=True,
+        preloadGeodetic=wGeo > 0,
     )
 else:
     gdl_test = None
@@ -301,7 +301,7 @@ if noTest:
         months_head_pad=months_head_pad,
         months_tail_pad=months_tail_pad,
         keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
-        preloadGeodetic=True,
+        preloadGeodetic=wGeo > 0,
     )
 
 model.eval()
