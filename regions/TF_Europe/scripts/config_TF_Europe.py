@@ -51,8 +51,28 @@ RGI_REGIONS = {
         "subregions": ["France", "Switzerland", "Italy_Austria"],
         "subregions_codes": ["FR", "CH", "IT_AT"],
     },
+    "13": {
+        "name": "CentralAsia",
+        "folder": "RGI_13_CentralAsia",
+        "file": "13_rgi60_CentralAsia.shp",
+        "code": "CAU",
+        "countries": ["AF", "BT", "CN", "IN", "KG", "KZ", "NP", "TJ", "UZ"],
+    },
+    "14": {
+        "name": "SouthAsiaWest",
+        "folder": "RGI_14_SouthAsiaWest",
+        "file": "14_rgi60_SouthAsiaWest.shp",
+        "code": "WNA",
+        "countries": ["AF", "CN", "IN", "PK", "TJ"],
+    },
+    "15": {
+        "name": "SouthAsiaEast",
+        "folder": "RGI_15_SouthAsiaEast",
+        "file": "15_rgi60_SouthAsiaEast.shp",
+        "code": "ENA",
+        "countries": ["BT", "CN", "IN", "MM", "NP"],
+    },
 }
-
 
 # --- 1) One place to define the per-target region metadata you need for mapping ---
 TARGET_REGION_META = {

@@ -825,27 +825,60 @@ def estimate_global_bandwidths_simple(
     return blur_m, blur_s, blur_joint
 
 
+# def build_global_scalers_from_dfs(
+#     dfs: list[pd.DataFrame] | dict[str, pd.DataFrame],
+#     monthly_cols: list[str],
+#     static_cols: list[str],
+# ) -> tuple[StandardScaler, StandardScaler, StandardScaler]:
+#     """
+#     Build global StandardScalers fitted on a collection of dataframes.
+#     Accepts either a list or a dict of dataframes (values only are used).
+
+#     Fits:
+#       - scaler_m: on monthly climate columns
+#       - scaler_s: on static/topographic columns
+#       - scaler_all: on all columns combined
+#     """
+#     if isinstance(dfs, dict):
+#         dfs = list(dfs.values())
+
+#     df_all = pd.concat(dfs, ignore_index=True)
+
+#     scaler_m = StandardScaler().fit(df_all[monthly_cols].to_numpy(dtype=np.float64))
+#     scaler_s = StandardScaler().fit(df_all[static_cols].to_numpy(dtype=np.float64))
+#     scaler_all = StandardScaler().fit(
+#         df_all[monthly_cols + static_cols].to_numpy(dtype=np.float64)
+#     )
+
+#     return scaler_m, scaler_s, scaler_all
+
+
 def build_global_scalers_from_dfs(
     dfs: list[pd.DataFrame] | dict[str, pd.DataFrame],
     monthly_cols: list[str],
     static_cols: list[str],
+    topo_id_col: str = "ID",
+    glacier_col: str = "GLACIER",
 ) -> tuple[StandardScaler, StandardScaler, StandardScaler]:
-    """
-    Build global StandardScalers fitted on a collection of dataframes.
-    Accepts either a list or a dict of dataframes (values only are used).
 
-    Fits:
-      - scaler_m: on monthly climate columns
-      - scaler_s: on static/topographic columns
-      - scaler_all: on all columns combined
-    """
     if isinstance(dfs, dict):
         dfs = list(dfs.values())
 
     df_all = pd.concat(dfs, ignore_index=True)
 
+    # Climate scaler: all rows (monthly variability matters)
     scaler_m = StandardScaler().fit(df_all[monthly_cols].to_numpy(dtype=np.float64))
-    scaler_s = StandardScaler().fit(df_all[static_cols].to_numpy(dtype=np.float64))
+
+    # Topo scaler: one row per unique (GLACIER, ID) spatial point
+    if topo_id_col in df_all.columns and glacier_col in df_all.columns:
+        topo_data = df_all.drop_duplicates(subset=[glacier_col, topo_id_col])[
+            static_cols
+        ]
+    else:
+        topo_data = df_all.drop_duplicates(subset=static_cols)[static_cols]
+    scaler_s = StandardScaler().fit(topo_data.to_numpy(dtype=np.float64))
+
+    # Joint scaler: all rows (climate variability matters for joint)
     scaler_all = StandardScaler().fit(
         df_all[monthly_cols + static_cols].to_numpy(dtype=np.float64)
     )

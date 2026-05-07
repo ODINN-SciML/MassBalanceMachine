@@ -200,6 +200,7 @@ def evaluate_one_model_TL(
     batch_size=128,
     domain_vocab=None,  # optional: {"CH":0,"NOR":1,...}
     show_plot=True,
+    show_legend=True,
 ):
     """
     TL-only evaluator.
@@ -310,18 +311,21 @@ def evaluate_one_model_TL(
             ]
         )
 
-        ax.text(
-            0.02,
-            0.98,
-            legend_NN,
-            transform=ax.transAxes,
-            va="top",
-            fontsize=legend_fontsize,
-            bbox=dict(boxstyle="round", facecolor="white", alpha=0.5),
-        )
+        if show_legend:
+            ax.text(
+                0.02,
+                0.98,
+                legend_NN,
+                transform=ax.transAxes,
+                va="top",
+                fontsize=legend_fontsize,
+                bbox=dict(boxstyle="round", facecolor="white", alpha=0.5),
+            )
+        else:
+            ax.legend_.remove()
 
         if title:
-            ax.set_title(title, fontsize=20)
+            ax.set_title(title, fontsize=24)
 
     return out, test_df_preds, created_fig, ax
 

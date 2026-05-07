@@ -20,10 +20,14 @@ def create_masked_glacier_grid(path_RGIs, rgi_gl):
         ds["glacier_mask"].values == 0, np.nan, ds["glacier_mask"].values
     )
 
+    # --- Convert slope and aspect from radians to degrees ---
+    slope_deg = np.degrees(ds["slope"])
+    aspect_deg = np.degrees(ds["aspect"])
+
     # --- Apply mask to core variables ---
-    ds = ds.assign(masked_slope=glacier_mask * ds["slope"])
+    ds = ds.assign(masked_slope=glacier_mask * slope_deg)
     ds = ds.assign(masked_elev=glacier_mask * ds["topo"])
-    ds = ds.assign(masked_aspect=glacier_mask * ds["aspect"])
+    ds = ds.assign(masked_aspect=glacier_mask * aspect_deg)
     ds = ds.assign(masked_dis=glacier_mask * ds["dis_from_border"])
 
     # --- Optional fields ---

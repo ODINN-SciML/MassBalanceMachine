@@ -256,6 +256,8 @@ def plot_region_shift_vs_performance_single_d(
     joint_variant: str = "averaged",
     distance_cols_override: list[str] | None = None,  # e.g. ["D_sinkhorn_joint"]
     ax_list: list | None = None,  # pass existing axes to skip fig creation
+    color_palette: dict | None = None,
+    panel_titles: dict | None = None,
 ):
     from scipy import stats
 
@@ -360,13 +362,13 @@ def plot_region_shift_vs_performance_single_d(
     print(f"Plotting {len(df_region)} source→target pairs: {list(df_region['region'])}")
 
     unique_sources = df_region["src"].unique()
-    # src_colors = {
-    #     s: c
-    #     for s, c in zip(unique_sources,
-    #                     get_cmap_hex(cm.batlow, max(len(unique_sources), 4)))
-    # }
-    src_colors = {s: c for s, c in zip(unique_sources, NATURE_COLORS)}
-
+    if color_palette is not None:
+        src_colors = {
+            s: color_palette.get(s, NATURE_COLORS[i % len(NATURE_COLORS)])
+            for i, s in enumerate(unique_sources)
+        }
+    else:
+        src_colors = {s: c for s, c in zip(unique_sources, NATURE_COLORS)}
     nrows = len(performance_cols)
     ncols = len(distance_cols)
 
@@ -421,11 +423,12 @@ def plot_region_shift_vs_performance_single_d(
             n_valid = mask.sum()
             if n_valid >= 3:
                 rho, pval = stats.spearmanr(x[mask], y[mask])
-                corr_txt = (
-                    f"rho = {rho:.2f}  blur = {blur_map[dc]:.3f}  n = {n_valid}"
-                    if dc in blur_map
-                    else f"rho = {rho:.2f}  p = {pval:.2f}  n = {n_valid}"
-                )
+                if dc in blur_map:
+                    corr_txt = (
+                        f"rho = {rho:.2f}\nblur = {blur_map[dc]:.3f}\nn = {n_valid}"
+                    )
+                else:
+                    corr_txt = f"rho = {rho:.2f}\np = {pval:.2f}\nn = {n_valid}"
                 slope, intercept, *_ = stats.linregress(x[mask], y[mask])
                 x_line = np.linspace(x[mask].min(), x[mask].max(), 100)
                 ax.plot(
@@ -438,7 +441,7 @@ def plot_region_shift_vs_performance_single_d(
                     zorder=2,
                 )
             else:
-                corr_txt = f"n = {n_valid} (too few for rho)"
+                corr_txt = f"n = {n_valid}\n(too few for rho)"
 
             ax.text(
                 0.04,
@@ -447,7 +450,7 @@ def plot_region_shift_vs_performance_single_d(
                 transform=ax.transAxes,
                 va="top",
                 ha="left",
-                fontsize=NATURE_SPECS["font_min_pt"],  # was 8
+                fontsize=NATURE_SPECS["font_min_pt"] + 2,  # ← bigger
                 bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="none", alpha=0.8),
             )
 
@@ -455,6 +458,10 @@ def plot_region_shift_vs_performance_single_d(
             # ax.spines[["top", "right"]].set_visible(False)
             # ax.set_axisbelow(True)
             apply_nature_style(ax, fontsize=NATURE_SPECS["font_min_pt"], box=True)
+
+            # Optional per-panel title
+            if panel_titles is not None and c < len(panel_titles):
+                ax.set_title(panel_titles[c], fontsize=8, fontweight="bold", pad=3)
             XLABEL_MAP = {
                 "sinkhorn joint (true)": "Sinkhorn Distance (Joint)",
                 "sinkhorn climate": "Sinkhorn Distance (Climate)",
