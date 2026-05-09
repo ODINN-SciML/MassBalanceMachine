@@ -56,6 +56,7 @@ def parseParams(params):
             "bestModelCriterion": params["training"].get(
                 "bestModelCriterion", "lossVal"
             ),
+            "splitVal": params["training"].get("splitVal", "group-meas-id"),
             "freqVal": params["training"].get("freqVal", 1),
             "log_suffix": params["training"].get("log_suffix", ""),
             "log_prefix": params["training"].get("log_prefix", ""),

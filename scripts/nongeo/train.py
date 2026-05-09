@@ -122,7 +122,9 @@ data_train = train_set["df_X"]
 data_train["y"] = train_set["y"]
 
 setFeatures(cfg, data_train, featuresInpModel)
-df_X_train, y_train, df_X_val, y_val = trainValData(cfg, train_set, featuresInpModel)
+df_X_train, y_train, df_X_val, y_val = trainValData(
+    cfg, train_set, featuresInpModel, split_key=params["training"]["splitVal"]
+)
 
 
 early_stop = EarlyStopping(
