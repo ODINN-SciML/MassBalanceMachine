@@ -320,9 +320,6 @@ if len(df_X_test_subset) > 0 and not noTest:
     # Geodetic performance
     with torch.no_grad():
         resTest = mbm.training.assessOnTest(pathFolder, model, test_gdl)
-        resVal = mbm.training.assessOnVal(model, train_gdl, params)
-        with open(os.path.join(pathFolder, "perf.json"), "w") as f:
-            json.dump({"test": resTest, "val": resVal}, f, indent=4)
 
     geoPred, geoTarget, geoErr, dict_df_gridded = mbm.training.eval_geodetic(
         model, test_gdl, return_grid_pred=["annual", "monthly"]
@@ -344,16 +341,26 @@ if len(df_X_test_subset) > 0 and not noTest:
         df_geo.to_csv(f"{pathFolder}/gridded_geodetic_test.csv")
         df_gridded_annual.to_csv(f"{pathFolder}/gridded_annual_test.csv")
         df_gridded_monthly.to_csv(f"{pathFolder}/gridded_monthly_test.csv")
-    if maps:
+    if maps and len(test_glaciers) > 0:
         mapsFolder = f"{pathFolder}/maps"
         os.makedirs(mapsFolder, exist_ok=True)
-        for rgi_id in test_glaciers:
+        # Initialize OGGM once for all to avoid repeated and useless computations
+        mbm.data_processing.oggm_utils._initialize_oggm_config("")
+        gdirs = mbm.data_processing.oggm_utils._initialize_glacier_directories(
+            test_glaciers, cfg
+        )
+        for rgi_id, gdir in zip(test_glaciers, gdirs):
             years = df_gridded_annual[df_gridded_annual.RGIId == rgi_id].YEAR.unique()
             for year in years:
-                fig = mbm.plots.mapGlacier(df_gridded_annual, rgi_id, year, cfg)
+                fig = mbm.plots.mapGlacier(
+                    df_gridded_annual, rgi_id, year, cfg, gdir=gdir
+                )
                 fig.savefig(f"{mapsFolder}/{rgi_id}_{year}.pdf")
                 plt.close(fig)
     del df_gridded_annual, df_gridded_monthly
+
+else:
+    resTest = None
 
 
 if sourceData == "switzerland":
@@ -388,8 +395,16 @@ train_gdl = mbm.dataloader.GeoDataLoader(
     keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
 )
 
-# PMB train
+with torch.no_grad():
+    resVal = mbm.training.assessOnVal(model, train_gdl, params)
+    with open(os.path.join(pathFolder, "perf.json"), "w") as f:
+        json.dump({"test": resTest, "val": resVal}, f, indent=4)
+
+# PMB predictions
 grouped_ids_train = model.evaluate_group_pred(train_gdl)
+grouped_ids_valid = model.evaluate_group_pred(train_gdl, val=True)
+
+# PMB train
 scores_train = mbm.metrics.seasonal_scores(
     grouped_ids_train, target_col="target", pred_col="pred"
 )
@@ -459,8 +474,11 @@ for train_gl in datasetManager.train_glaciers:
         scores[train_gl]["r2"]["s"] = scores_glacier["summer"]["r2"]
         scores[train_gl]["bias"]["s"] = scores_glacier["summer"]["bias"]
 
+grouped_ids_train_valid = pd.concat(
+    [grouped_ids_train, grouped_ids_valid], ignore_index=True
+)
 fig = mbm.plots.predVSTruthPerGlacier(
-    grouped_ids_train,
+    grouped_ids_train_valid,
     scores=scores,
     custom_order=train_gl_per_el,
     hue="PERIOD",
@@ -472,7 +490,6 @@ plt.close(fig)
 
 
 # PMB validation
-grouped_ids_valid = model.evaluate_group_pred(train_gdl, val=True)
 scores_valid = mbm.metrics.seasonal_scores(
     grouped_ids_valid, target_col="target", pred_col="pred"
 )
@@ -579,10 +596,15 @@ plt.close(fig)
 if len(mapsTrain) > 0:
     mapsFolder = f"{pathFolder}/maps"
     os.makedirs(mapsFolder, exist_ok=True)
-    for rgi_id in mapsTrain:
+    # Initialize OGGM once for all to avoid repeated and useless computations
+    mbm.data_processing.oggm_utils._initialize_oggm_config("")
+    gdirs = mbm.data_processing.oggm_utils._initialize_glacier_directories(
+        mapsTrain, cfg
+    )
+    for rgi_id, gdir in zip(mapsTrain, gdirs):
         years = df_gridded_annual[df_gridded_annual.RGIId == rgi_id].YEAR.unique()
         for year in years:
-            fig = mbm.plots.mapGlacier(df_gridded_annual, rgi_id, year, cfg)
+            fig = mbm.plots.mapGlacier(df_gridded_annual, rgi_id, year, cfg, gdir=gdir)
             fig.savefig(f"{mapsFolder}/{rgi_id}_{year}.pdf")
             plt.close(fig)
 del df_gridded_annual, df_gridded_monthly

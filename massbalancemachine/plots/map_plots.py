@@ -7,13 +7,16 @@ import matplotlib.colors as mcolors
 import data_processing
 
 
-def mapGlacier(df, rgi_id, year, cfg, ax=None, max_abs=None, title=None):
+def mapGlacier(df, rgi_id, year, cfg, ax=None, max_abs=None, title=None, gdir=None):
 
     df_glacier_year = df[(df.RGIId == rgi_id) & (df.YEAR == year)]
 
-    # Initialize the OGGM Config
-    data_processing.oggm_utils._initialize_oggm_config("")
-    gdir = data_processing.oggm_utils._initialize_glacier_directories([rgi_id], cfg)[0]
+    if gdir is None:
+        # Initialize the OGGM Config
+        data_processing.oggm_utils._initialize_oggm_config("")
+        gdir = data_processing.oggm_utils._initialize_glacier_directories(
+            [rgi_id], cfg
+        )[0]
 
     with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
         ds = ds.load()

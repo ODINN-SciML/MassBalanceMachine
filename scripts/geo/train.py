@@ -411,7 +411,7 @@ with torch.no_grad():
     print("Computing performance on test set")
     resTest = mbm.training.assessOnTest(ret["misc"]["log_dir"], model, gdl_test)
     with open(os.path.join(ret["misc"]["log_dir"], "perf.json"), "w") as f:
-        json.dump(resTest, f, indent=4)
+        json.dump({"test": resTest, "val": resVal}, f, indent=4)
     resVal = mbm.training.assessOnVal(model, gdl, params)
 print("Performance:")
 print(

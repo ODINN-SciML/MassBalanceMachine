@@ -481,10 +481,13 @@ def assessOnTest(log_dir, model, geodataloader_test, light=False):
     return stats
 
 
-def assessOnVal(model, geodataloader, params):
+def assessOnVal(model, geodataloader, params, async_transfer=None):
     wGeo = params["training"]["wGeo"]
     scalingStakes = params["training"]["scalingStakes"]
     statsVal = {}
+
+    if async_transfer is None:
+        async_transfer = check_async_transfer_compatibility(geodataloader)
 
     model.eval()
     with torch.no_grad():
@@ -1002,7 +1005,9 @@ def train_geo(
                 scheduler.step()
 
             if freqVal and geodataloader.lenVal() > 0:
-                statsValEpoch = assessOnVal(model, geodataloader, params)
+                statsValEpoch = assessOnVal(
+                    model, geodataloader, params, async_transfer=async_transfer
+                )
                 metric2tbEntry = {
                     "lossValStake": "LossStake/val",
                     "lossValGeo": "LossGeo/val",

@@ -294,7 +294,7 @@ def predVSTruthGlacierWide(
     ax_xlim=(-1.5, 1.0),
     ax_ylim=(-1.5, 1.0),
     color="orange",
-    legend=True,
+    legend=False,
 ):
 
     if ax is None:
