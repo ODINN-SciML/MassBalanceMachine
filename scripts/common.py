@@ -6,6 +6,8 @@ sys.path.append(mbm_path)  # Add root of repo to import MBM
 import yaml
 import pandas as pd
 from sklearn.model_selection import train_test_split
+from collections.abc import Mapping, Sequence
+import math
 
 import massbalancemachine as mbm
 
@@ -55,6 +57,7 @@ def parseParams(params):
             ),
             "freqVal": params["training"].get("freqVal", 1),
             "log_suffix": params["training"].get("log_suffix", ""),
+            "log_prefix": params["training"].get("log_prefix", ""),
             "log_dir": params["training"].get("log_dir"),
         },
     }
@@ -133,3 +136,33 @@ def default_glacier_name(rgi_id):
         "RGI60-11.02634": "Prafleuri",
         "RGI60-11.01946": "Morteratsch",
     }.get(rgi_id)
+
+
+def canonicalize(x):
+    """Convert params into a stable, comparable representation."""
+    if isinstance(x, Mapping):
+        return tuple(sorted((str(k), canonicalize(v)) for k, v in x.items()))
+    if isinstance(x, tuple):
+        return tuple(canonicalize(v) for v in x)
+    if isinstance(x, list):
+        return tuple(canonicalize(v) for v in x)
+    if isinstance(x, float):
+        if math.isnan(x):
+            return "__nan__"
+        return x
+    return x
+
+
+def already_completed_trial(study, candidate_params: dict):
+    from optuna.trial import TrialState
+
+    candidate_key = canonicalize(candidate_params)
+
+    for t in study.get_trials(
+        deepcopy=False,
+        states=(TrialState.COMPLETE,),
+    ):
+        if canonicalize(t.params) == candidate_key:
+            return True, t
+
+    return False, None

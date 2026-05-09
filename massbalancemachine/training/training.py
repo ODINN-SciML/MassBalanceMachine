@@ -526,7 +526,7 @@ def loadBestModel(log_dir, model):
     if best is None:
         raise Exception("No model found.")
     model.load_state_dict(torch.load(files[best], weights_only=True))
-    return files[best]
+    return files[best], bestVal
 
 
 def train_geo(
@@ -569,10 +569,13 @@ def train_geo(
     log_suffix = params["training"]["log_suffix"]
     if log_suffix != "":
         log_suffix = "_" + log_suffix
+    log_prefix = params["training"]["log_prefix"]
+    if log_prefix != "":
+        log_prefix = log_prefix + "_"
     if params["training"]["log_dir"] is None:
         log_dir = os.path.join(
             _default_log_dir,
-            f"geo_{run_name}{log_suffix}",
+            f"{log_prefix}geo_{run_name}{log_suffix}",
         )
     else:
         log_dir = params["training"]["log_dir"]

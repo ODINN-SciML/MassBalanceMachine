@@ -11,6 +11,7 @@ import massbalancemachine as mbm
 
 from scripts.common import (
     loadParams,
+    already_completed_trial,
 )
 from scripts.nongeo.utils import getMetaData, setFeatures, trainValData, testData
 
@@ -58,6 +59,13 @@ parser.add_argument(
     default=None,
     help="Weight of the geodetic term.",
 )
+parser.add_argument(
+    "--gridsearch",
+    dest="gridsearch",
+    default=[],
+    nargs="+",
+    help="Grid search configuration file (name only) and grid search name.",
+)
 args = parser.parse_args()
 
 params = loadParams(args.modelType)
@@ -68,6 +76,87 @@ noTest = args.noTest
 timeExec = args.time
 prof = args.prof
 wGeo = args.wGeo
+
+gridsearch = args.gridsearch
+do_gridsearch = len(gridsearch) > 0
+if do_gridsearch:
+    assert len(gridsearch) == 2
+    gridsearch_name = gridsearch[1]
+    gridsearch_config = gridsearch[0]
+    import yaml
+    import optuna
+
+    with open("scripts/netcfg/" + gridsearch_config + ".yml") as stream:
+        try:
+            gridsearch_params = yaml.safe_load(stream)
+        except yaml.YAMLError as exc:
+            print(exc)
+
+    def flatten_dict(d, parent_key="", sep="."):
+        result = {}
+        for key, value in d.items():
+            new_key = f"{parent_key}{sep}{key}" if parent_key else key
+            if isinstance(value, dict):
+                result.update(flatten_dict(value, new_key, sep))
+            else:
+                if isinstance(value, list):
+                    if isinstance(value[0], (tuple, list)):
+                        result[new_key] = tuple(tuple(v) for v in value)
+                    else:
+                        result[new_key] = tuple(value)
+                else:
+                    result[new_key] = value
+        return result
+
+    search_space = flatten_dict(gridsearch_params)
+    print(f"{search_space=}")
+    study = optuna.create_study(
+        study_name=gridsearch_name,
+        storage=optuna.storages.JournalStorage(
+            optuna.storages.journal.JournalFileBackend(
+                file_path="./journal_gridsearch.log"
+            )
+        ),
+        sampler=optuna.samplers.GridSampler(search_space),
+        direction="minimize",
+        load_if_exists=True,
+    )
+    trial = study.ask()
+    print(f"{trial.number=}")
+    params["training"]["log_prefix"] = gridsearch_name + f"_{trial.number}"
+    params["gridsearch"] = {
+        "study_name": trial.study.study_name,
+        "trial_number": trial.number,
+        "search_space": search_space,
+    }
+
+    def recursive_update_from_flat(target, source, sep="."):
+        for flat_key, value in source.items():
+            parts = flat_key.split(sep)
+            _set_recursive(target, parts, value)
+
+    def _set_recursive(current, parts, value):
+        key = parts[0]
+        if len(parts) == 1:
+            current[key] = value
+            return
+        if key not in current or not isinstance(current[key], dict):
+            current[key] = {}
+        _set_recursive(current[key], parts[1:], value)
+
+    candidate_params = {
+        k: trial.suggest_categorical(k, v) for k, v in search_space.items()
+    }
+    print(f"{candidate_params=}")
+    exists, old_trial = already_completed_trial(study, candidate_params)
+    if exists:
+        print("This combination has already been tested.")
+        print("metric:", old_trial.value)
+        sys.exit(0)
+    recursive_update_from_flat(params, candidate_params)
+else:
+    trial = None
+
 if wGeo is not None:  # Overwrite geodetic weight
     params["training"]["wGeo"] = wGeo
 wGeo = params["training"]["wGeo"]
@@ -188,7 +277,9 @@ model = mbm.models.CustomTorchNeuralNetRegressor(network)
 model = model.to(device)
 
 if modelToLoad != "":
-    bestModelPath = mbm.training.loadBestModel(os.path.join("logs", modelToLoad), model)
+    bestModelPath, _ = mbm.training.loadBestModel(
+        os.path.join("logs", modelToLoad), model
+    )
     print(f"Loaded model {bestModelPath}")
 
 optimType = params["training"]["optim"]
@@ -253,7 +344,7 @@ ret = mbm.training.train_geo(
 )
 
 print()
-bestModelPath = mbm.training.loadBestModel(ret["misc"]["log_dir"], model)
+bestModelPath, bestVal = mbm.training.loadBestModel(ret["misc"]["log_dir"], model)
 print(f"Best model is {bestModelPath}")
 
 
@@ -317,3 +408,7 @@ print(
         indent=2,
     )
 )
+
+if trial is not None:
+    trial.set_user_attr("log_dir", ret["misc"]["log_dir"])
+    study.tell(trial, float(bestVal))

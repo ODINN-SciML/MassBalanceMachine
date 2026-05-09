@@ -106,6 +106,7 @@ optional = false
 [tool.poetry.group.advanced.dependencies]
 geomloss = "^0.2.6"
 pykeops = "^2.3"
+optuna = "^4.8.0"
 
 [tool.poetry.group.publish]
 optional = true
