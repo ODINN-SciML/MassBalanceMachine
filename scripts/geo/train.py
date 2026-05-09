@@ -109,6 +109,9 @@ if do_gridsearch:
         return result
 
     search_space = flatten_dict(gridsearch_params)
+    for k, v in search_space.items():
+        if isinstance(v, (list, tuple)) and isinstance(v[0], (list, tuple)):
+            search_space[k] = tuple([",".join([str(e) for e in t]) for t in v])
     print(f"{search_space=}")
     study = optuna.create_study(
         study_name=gridsearch_name,
@@ -147,6 +150,9 @@ if do_gridsearch:
     candidate_params = {
         k: trial.suggest_categorical(k, v) for k, v in search_space.items()
     }
+    for k, v in candidate_params.items():
+        if isinstance(v, str):
+            candidate_params[k] = [int(e) for e in v.split(",")]
     print(f"{candidate_params=}")
     exists, old_trial = already_completed_trial(study, candidate_params)
     if exists:
@@ -401,6 +407,7 @@ with torch.no_grad():
     resTest = mbm.training.assessOnTest(ret["misc"]["log_dir"], model, gdl_test)
     with open(os.path.join(ret["misc"]["log_dir"], "perf.json"), "w") as f:
         json.dump(resTest, f, indent=4)
+    resVal = mbm.training.assessOnVal(model, gdl, params)
 print("Performance:")
 print(
     json.dumps(
@@ -411,4 +418,10 @@ print(
 
 if trial is not None:
     trial.set_user_attr("log_dir", ret["misc"]["log_dir"])
+    trial.set_user_attr("r2", resVal["r2"])
+    trial.set_user_attr("bias", resVal["bias"])
+    trial.set_user_attr("lossValStake", resVal["lossValStake"])
+    trial.set_user_attr("lossValGeo", resVal["lossValGeo"])
+    trial.set_user_attr("lossVal", resVal["lossVal"])
+    trial.set_user_attr("rmse", resVal["rmse"])
     study.tell(trial, float(bestVal))

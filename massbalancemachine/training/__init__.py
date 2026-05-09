@@ -3,5 +3,6 @@ from training.training import (
     loadBestModel,
     compute_stake_loss,
     assessOnTest,
+    assessOnVal,
     eval_geodetic,
 )

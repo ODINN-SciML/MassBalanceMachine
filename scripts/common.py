@@ -32,6 +32,7 @@ def parseParams(params):
         "model": {
             "type": params["model"]["type"],
             "layers": params["model"]["layers"],
+            "dropout": params["model"].get("dropout", 0.0),
             "inputs": inputs,
             "downscale": downscale,
         },

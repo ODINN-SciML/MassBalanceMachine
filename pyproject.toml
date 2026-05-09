@@ -107,6 +107,8 @@ optional = false
 geomloss = "^0.2.6"
 pykeops = "^2.3"
 optuna = "^4.8.0"
+plotly = "^6.7.0"
+optuna-dashboard = "^0.20.0"
 
 [tool.poetry.group.publish]
 optional = true

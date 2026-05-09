@@ -7,13 +7,18 @@ import yaml
 
 def createModel(cfg, modelParams):
     nInp = len(cfg.featureColumns)
+    dropout = modelParams.get("dropout", 0.0)
     if modelParams["type"] == "sequential":
         assert len(modelParams["layers"]) > 0
         l = [nn.Linear(nInp, modelParams["layers"][0])]
         for i in range(len(modelParams["layers"]) - 1):
             l.append(nn.ReLU())
+            if dropout > 0:
+                l.append(nn.Dropout(dropout))
             l.append(nn.Linear(modelParams["layers"][i], modelParams["layers"][i + 1]))
         l.append(nn.ReLU())
+        if dropout > 0:
+            l.append(nn.Dropout(dropout))
         l.append(nn.Linear(modelParams["layers"][-1], 1))
         network = nn.Sequential(*l)
         return network
@@ -178,12 +183,14 @@ class CustomTorchNeuralNetRegressor(nn.Module):
         # TODO: implement
         pass
 
-    def evaluate_group_pred(self, geodataloader):
+    def evaluate_group_pred(self, geodataloader, val=False):
         grouped_ids = pd.DataFrame()
         with torch.no_grad():
-            for g in geodataloader.glaciers():
+            iterator = geodataloader.glaciersVal if val else geodataloader.glaciers
+            stakeMethod = geodataloader.stakesVal if val else geodataloader.stakes
+            for g in iterator():
                 # Get input features, metadata and ground truth
-                stakes, metadata, point_balance = geodataloader.stakes(g)
+                stakes, metadata, point_balance = stakeMethod(g)
                 idAggr = metadata["ID"].values
 
                 # Make prediction
