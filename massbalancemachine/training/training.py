@@ -440,7 +440,7 @@ def assessOnTest(log_dir, model, geodataloader_test, light=False):
         ) = scores(predSummer, targetSummer)
 
     # Make plots
-    plot_pred_vs_obs(log_dir, targetAll, predAll, {"rmse": rmse, "mae": mae})
+    plot_pred_vs_obs(log_dir, targetAll, predAll, {"rmse": rmse, "mae": mae, "r2": r2})
 
     if not light:
         # Geodetic prediction
