@@ -136,6 +136,18 @@ STAKES_SPECS = {
         / "CAW_wgms_dataset_all.csv",
         "post": _post_default,
     },
+    "CENTRALASIA": {
+        "relpath": Path("WGMS") / "HMA" / "csv" / "CentralAsia_wgms_dataset_all.csv",
+        "post": _post_default,
+    },
+    "SOUTHASIAWEST": {
+        "relpath": Path("WGMS") / "HMA" / "csv" / "SouthAsiaWest_wgms_dataset_all.csv",
+        "post": _post_default,
+    },
+    "SOUTHASIAEAST": {
+        "relpath": Path("WGMS") / "HMA" / "csv" / "SouthAsiaEast_wgms_dataset_all.csv",
+        "post": _post_default,
+    },
 }
 
 
