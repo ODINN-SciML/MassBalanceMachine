@@ -226,9 +226,7 @@ def eval_geodetic(model, geo_dataloader, return_grid_pred=[]):
 
                 # pbar = tqdm.tqdm(geo_dataloader.glaciersGeo(), total=geo_dataloader.lenGeo())
                 # for g in pbar:
-                pbar.set_description(
-                    "Making geodetic pred for %s" % (current_g), refresh=True
-                )
+                pbar.set_description("Geodetic pred for %s" % (current_g), refresh=True)
                 pbar.update(1)
                 # consume prefetched current batch
                 if current_geo_future is not None:
@@ -442,7 +440,7 @@ def assessOnTest(log_dir, model, geodataloader_test, light=False):
         ) = scores(predSummer, targetSummer)
 
     # Make plots
-    plot_pred_vs_obs(log_dir, targetAll, predAll, {"rmse": rmse, "mae": mae})
+    plot_pred_vs_obs(log_dir, targetAll, predAll, {"rmse": rmse, "mae": mae, "r2": r2})
 
     if not light:
         # Geodetic prediction
@@ -481,6 +479,174 @@ def assessOnTest(log_dir, model, geodataloader_test, light=False):
         stats["r2_summer"] = r2_summer.item()
         stats["bias_summer"] = bias_summer.item()
     return stats
+
+
+def assessOnVal(model, geodataloader, params, async_transfer=None):
+    wGeo = params["training"]["wGeo"]
+    scalingStakes = params["training"]["scalingStakes"]
+    statsVal = {}
+
+    if async_transfer is None:
+        async_transfer = check_async_transfer_compatibility(geodataloader)
+
+    model.eval()
+    with torch.no_grad():
+        cntStake = 0
+        cntGeo = 0
+        lossStake = 0.0
+        lossGeo = 0.0
+        targetAll = torch.zeros(0)
+        predAll = torch.zeros(0)
+        periodAll = np.zeros(
+            0, dtype=np.array(list(geodataloader.periodToInt.keys())).dtype
+        )  # Initialize with correct dtype
+
+        glacier_iter = iter(geodataloader.glaciersVal())
+        try:
+            current_g = next(glacier_iter)
+        except StopIteration:
+            current_g = None
+
+        # geo future loaded at the first iteration
+        current_geo_future = None
+        if current_g is not None and wGeo > 0 and geodataloader.hasGeo(current_g):
+            current_geo_future = geodataloader.submit_geo(current_g)
+
+        batch_idx = 0
+        while current_g is not None:
+            # for g in geodataloader.glaciersVal():
+
+            # Look ahead and start loading geo for the next iteration
+            try:
+                next_g = next(glacier_iter)
+            except StopIteration:
+                next_g = None
+
+            next_geo_future = None
+            if next_g is not None and wGeo > 0 and geodataloader.hasGeo(next_g):
+                next_geo_future = geodataloader.submit_geo(next_g)
+
+            stakes, metadata, point_balance = geodataloader.stakesVal(current_g)
+            stakes = torch.tensor(stakes.astype(np.float32)).to(geodataloader.device)
+            point_balance = torch.tensor(point_balance.astype(np.float32)).to(
+                geodataloader.device
+            )
+            l, ret, int_id = compute_stake_loss(
+                model, stakes, metadata, point_balance, returnPred=True
+            )
+            target = ret["target"]
+            pred = ret["pred"]
+            targetAll = torch.concatenate((targetAll, target))
+            predAll = torch.concatenate((predAll, pred))
+            metadata = metadata.assign(ID_int=int_id)
+            grouped_ids = metadata.groupby("ID_int").agg({"PERIOD": "first"})
+            periodAll = np.concatenate(
+                (periodAll, np.array(grouped_ids["PERIOD"].values))
+            )
+
+            valScalingStakes = stakes.shape[0] if scalingStakes == "meas" else 1.0
+            l = l * valScalingStakes
+
+            lossStake += l
+
+            if wGeo > 0 and geodataloader.hasGeo(current_g):
+
+                # consume prefetched current batch
+                if current_geo_future is not None:
+                    geoGrid, metadata, ygeo, errgeo, precomputed_meta = (
+                        current_geo_future.result()
+                    )
+                else:
+                    geoGrid, metadata, ygeo, errgeo, precomputed_meta = (
+                        geodataloader.geo(current_g)
+                    )
+
+                # geoGrid, metadata, ygeo, errgeo = geodataloader.geo(g)
+                # geoGrid = torch.tensor(geoGrid.astype(np.float32)).to(
+                #     geodataloader.device
+                # )
+                # ygeo = torch.tensor(ygeo.astype(np.float32)).to(
+                #     geodataloader.device
+                # )
+                # errgeo = torch.tensor(errgeo.astype(np.float32)).to(
+                #     geodataloader.device
+                # )
+                geoGrid = geoGrid.to(geodataloader.device, non_blocking=async_transfer)
+                ygeo = ygeo.to(geodataloader.device, non_blocking=async_transfer)
+                errgeo = errgeo.to(geodataloader.device, non_blocking=async_transfer)
+                geod_periods = geodataloader.periods_per_glacier[current_g]
+                lossGeo += compute_geo_loss(
+                    model,
+                    geoGrid,
+                    metadata,
+                    ygeo,
+                    errgeo,
+                    geod_periods,
+                    precomputed_meta,
+                )
+                cntGeo += 1
+
+            # Shift pipeline
+            current_g = next_g
+            current_geo_future = next_geo_future
+            batch_idx += 1
+
+            cntStake += valScalingStakes
+        lossStake /= cntStake
+        if wGeo > 0 and cntGeo > 0:
+            lossGeo /= cntGeo
+            loss = lossStake + wGeo * lossGeo
+        else:
+            lossGeo = torch.tensor(torch.nan)
+            loss = lossStake
+        mse, rmse, mae, pearson_corr, r2, bias = scores(predAll, targetAll)
+
+        indAnnual = np.argwhere(periodAll == "annual")[:, 0]
+        indWinter = np.argwhere(periodAll == "winter")[:, 0]
+        predAnnual = predAll[indAnnual]
+        targetAnnual = targetAll[indAnnual]
+        predWinter = predAll[indWinter]
+        targetWinter = targetAll[indWinter]
+        (
+            mse_annual,
+            rmse_annual,
+            mae_annual,
+            pearson_corr_annual,
+            r2_annual,
+            bias_annual,
+        ) = scores(predAnnual, targetAnnual)
+        (
+            mse_winter,
+            rmse_winter,
+            mae_winter,
+            pearson_corr_winter,
+            r2_winter,
+            bias_winter,
+        ) = scores(predWinter, targetWinter)
+
+        statsVal["lossValStake"] = lossStake.item()
+        statsVal["lossValGeo"] = lossGeo.item()
+        statsVal["lossVal"] = loss.item()
+        statsVal["mse"] = mse.item()
+        statsVal["rmse"] = rmse.item()
+        statsVal["mae"] = mae.item()
+        statsVal["pearson"] = pearson_corr.item()
+        statsVal["r2"] = r2.item()
+        statsVal["bias"] = bias.item()
+        statsVal["mse_annual"] = mse_annual.item()
+        statsVal["rmse_annual"] = rmse_annual.item()
+        statsVal["mae_annual"] = mae_annual.item()
+        statsVal["pearson_annual"] = pearson_corr_annual.item()
+        statsVal["r2_annual"] = r2_annual.item()
+        statsVal["bias_annual"] = bias_annual.item()
+        statsVal["mse_winter"] = mse_winter.item()
+        statsVal["rmse_winter"] = rmse_winter.item()
+        statsVal["mae_winter"] = mae_winter.item()
+        statsVal["pearson_winter"] = pearson_corr_winter.item()
+        statsVal["r2_winter"] = r2_winter.item()
+        statsVal["bias_winter"] = bias_winter.item()
+
+    return statsVal
 
 
 def plot_pred_vs_obs(log_dir, target, pred, scores):
@@ -528,7 +694,7 @@ def loadBestModel(log_dir, model):
     if best is None:
         raise Exception("No model found.")
     model.load_state_dict(torch.load(files[best], weights_only=True))
-    return files[best]
+    return files[best], bestVal
 
 
 def train_geo(
@@ -564,17 +730,20 @@ def train_geo(
     scalingStakes = params["training"]["scalingStakes"]
     assert scalingStakes in ["meas", "glacier"]
     iterPerEpoch = len(geodataloader)
-    nColsProgressBar = 500 if _inJupyterNotebook else 100
+    nColsProgressBar = 500 if _inJupyterNotebook else 85
 
     # Setup logging
     run_name = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_suffix = params["training"]["log_suffix"]
     if log_suffix != "":
         log_suffix = "_" + log_suffix
+    log_prefix = params["training"].get("log_prefix", "")
+    if log_prefix != "":
+        log_prefix = log_prefix + "_"
     if params["training"]["log_dir"] is None:
         log_dir = os.path.join(
             _default_log_dir,
-            f"geo_{run_name}{log_suffix}",
+            f"{log_prefix}geo_{run_name}{log_suffix}",
         )
     else:
         log_dir = params["training"]["log_dir"]
@@ -620,6 +789,7 @@ def train_geo(
         ):
 
             avg_training_loss = 0.0
+            iter_counter = 0
             model.train()
             with tqdm.tqdm(
                 total=iterPerEpoch,
@@ -699,6 +869,7 @@ def train_geo(
                             torch.cuda.synchronize()
                             stakesInferenceTime = time.time() - st
 
+                        # TODO: is it scaled by the number of measurements properly?
                         valScalingStakes = (
                             stakes.shape[0] if scalingStakes == "meas" else 1.0
                         )
@@ -786,7 +957,10 @@ def train_geo(
                     statsTraining["lossGeo"].append(lossGeo.item())
                     statsTraining["loss"].append(loss.item())
                     statsTraining["lr"].append(lr)
-                    avg_training_loss += statsTraining["loss"][-1]
+                    if not torch.isnan(loss):
+                        # This happens when there is no data to compute the loss (no geodetic term + no stakes)
+                        avg_training_loss += loss.item()
+                        iter_counter += 1
 
                     # Log to TensorBoard
                     globalStep = iterPerEpoch * epoch + batch_idx
@@ -820,279 +994,100 @@ def train_geo(
                     batch_idx += 1
 
                     batch_bar.set_postfix(
-                        loss=f"{statsTraining['loss'][-1]:.4f}",
-                        lossStake=f"{statsTraining['lossStake'][-1]:.4f}",
-                        lossGeo=f"{statsTraining['lossGeo'][-1]:.4f}",
+                        l=f"{statsTraining['loss'][-1]:.3f}",
+                        lStake=f"{statsTraining['lossStake'][-1]:.3f}",
+                        lGeo=f"{statsTraining['lossGeo'][-1]:.3f}",
                     )
                     batch_bar.update(1)
 
-            avg_training_loss /= iterPerEpoch
+            avg_training_loss /= iter_counter
             if scheduler is not None:
                 scheduler.step()
 
             if freqVal and geodataloader.lenVal() > 0:
-                model.eval()
-                with torch.no_grad():
-                    cntStake = 0
-                    cntGeo = 0
-                    lossStake = 0.0
-                    lossGeo = 0.0
-                    targetAll = torch.zeros(0)
-                    predAll = torch.zeros(0)
-                    periodAll = np.zeros(
-                        0, dtype=np.array(list(geodataloader.periodToInt.keys())).dtype
-                    )  # Initialize with correct dtype
-
-                    glacier_iter = iter(geodataloader.glaciersVal())
-                    try:
-                        current_g = next(glacier_iter)
-                    except StopIteration:
-                        current_g = None
-
-                    # geo future loaded at the first iteration
-                    current_geo_future = None
-                    if (
-                        current_g is not None
-                        and wGeo > 0
-                        and geodataloader.hasGeo(current_g)
-                    ):
-                        current_geo_future = geodataloader.submit_geo(current_g)
-
-                    batch_idx = 0
-                    while current_g is not None:
-                        # for g in geodataloader.glaciersVal():
-
-                        # Look ahead and start loading geo for the next iteration
-                        try:
-                            next_g = next(glacier_iter)
-                        except StopIteration:
-                            next_g = None
-
-                        next_geo_future = None
-                        if (
-                            next_g is not None
-                            and wGeo > 0
-                            and geodataloader.hasGeo(next_g)
-                        ):
-                            next_geo_future = geodataloader.submit_geo(next_g)
-
-                        stakes, metadata, point_balance = geodataloader.stakesVal(
-                            current_g
-                        )
-                        stakes = torch.tensor(stakes.astype(np.float32)).to(
-                            geodataloader.device
-                        )
-                        point_balance = torch.tensor(
-                            point_balance.astype(np.float32)
-                        ).to(geodataloader.device)
-                        l, ret, int_id = compute_stake_loss(
-                            model, stakes, metadata, point_balance, returnPred=True
-                        )
-                        target = ret["target"]
-                        pred = ret["pred"]
-                        targetAll = torch.concatenate((targetAll, target))
-                        predAll = torch.concatenate((predAll, pred))
-                        metadata = metadata.assign(ID_int=int_id)
-                        grouped_ids = metadata.groupby("ID_int").agg(
-                            {"PERIOD": "first"}
-                        )
-                        periodAll = np.concatenate(
-                            (periodAll, np.array(grouped_ids["PERIOD"].values))
-                        )
-
-                        valScalingStakes = (
-                            stakes.shape[0] if scalingStakes == "meas" else 1.0
-                        )
-                        l = l * valScalingStakes
-
-                        lossStake += l
-
-                        if wGeo > 0 and geodataloader.hasGeo(current_g):
-
-                            # consume prefetched current batch
-                            if current_geo_future is not None:
-                                geoGrid, metadata, ygeo, errgeo, precomputed_meta = (
-                                    current_geo_future.result()
-                                )
-                            else:
-                                geoGrid, metadata, ygeo, errgeo, precomputed_meta = (
-                                    geodataloader.geo(current_g)
-                                )
-
-                            # geoGrid, metadata, ygeo, errgeo = geodataloader.geo(g)
-                            # geoGrid = torch.tensor(geoGrid.astype(np.float32)).to(
-                            #     geodataloader.device
-                            # )
-                            # ygeo = torch.tensor(ygeo.astype(np.float32)).to(
-                            #     geodataloader.device
-                            # )
-                            # errgeo = torch.tensor(errgeo.astype(np.float32)).to(
-                            #     geodataloader.device
-                            # )
-                            geoGrid = geoGrid.to(
-                                geodataloader.device, non_blocking=async_transfer
-                            )
-                            ygeo = ygeo.to(
-                                geodataloader.device, non_blocking=async_transfer
-                            )
-                            errgeo = errgeo.to(
-                                geodataloader.device, non_blocking=async_transfer
-                            )
-                            geod_periods = geodataloader.periods_per_glacier[current_g]
-                            lossGeo += compute_geo_loss(
-                                model,
-                                geoGrid,
-                                metadata,
-                                ygeo,
-                                errgeo,
-                                geod_periods,
-                                precomputed_meta,
-                            )
-                            cntGeo += 1
-
-                        # Shift pipeline
-                        current_g = next_g
-                        current_geo_future = next_geo_future
-                        batch_idx += 1
-
-                        cntStake += valScalingStakes
-                    lossStake /= cntStake
-                    if wGeo > 0 and cntGeo > 0:
-                        lossGeo /= cntGeo
-                        loss = lossStake + wGeo * lossGeo
-                    else:
-                        lossGeo = torch.tensor(torch.nan)
-                        loss = lossStake
-                    mse, rmse, mae, pearson_corr, r2, bias = scores(predAll, targetAll)
-
-                    indAnnual = np.argwhere(periodAll == "annual")[:, 0]
-                    indWinter = np.argwhere(periodAll == "winter")[:, 0]
-                    predAnnual = predAll[indAnnual]
-                    targetAnnual = targetAll[indAnnual]
-                    predWinter = predAll[indWinter]
-                    targetWinter = targetAll[indWinter]
-                    (
-                        mse_annual,
-                        rmse_annual,
-                        mae_annual,
-                        pearson_corr_annual,
-                        r2_annual,
-                        bias_annual,
-                    ) = scores(predAnnual, targetAnnual)
-                    (
-                        mse_winter,
-                        rmse_winter,
-                        mae_winter,
-                        pearson_corr_winter,
-                        r2_winter,
-                        bias_winter,
-                    ) = scores(predWinter, targetWinter)
-
-                    statsVal["lossValStake"].append(lossStake.item())
-                    statsVal["lossValGeo"].append(lossGeo.item())
-                    statsVal["lossVal"].append(loss.item())
-                    statsVal["mse"].append(mse.item())
-                    statsVal["rmse"].append(rmse.item())
-                    statsVal["mae"].append(mae.item())
-                    statsVal["pearson"].append(pearson_corr.item())
-                    statsVal["r2"].append(r2.item())
-                    statsVal["bias"].append(bias.item())
-                    statsVal["mse_annual"].append(mse_annual.item())
-                    statsVal["rmse_annual"].append(rmse_annual.item())
-                    statsVal["mae_annual"].append(mae_annual.item())
-                    statsVal["pearson_annual"].append(pearson_corr_annual.item())
-                    statsVal["r2_annual"].append(r2_annual.item())
-                    statsVal["bias_annual"].append(bias_annual.item())
-                    statsVal["mse_winter"].append(mse_winter.item())
-                    statsVal["rmse_winter"].append(rmse_winter.item())
-                    statsVal["mae_winter"].append(mae_winter.item())
-                    statsVal["pearson_winter"].append(pearson_corr_winter.item())
-                    statsVal["r2_winter"].append(r2_winter.item())
-                    statsVal["bias_winter"].append(bias_winter.item())
-
+                statsValEpoch = assessOnVal(
+                    model, geodataloader, params, async_transfer=async_transfer
+                )
+                metric2tbEntry = {
+                    "lossValStake": "LossStake/val",
+                    "lossValGeo": "LossGeo/val",
+                    "lossVal": "Loss/val",
+                    "rmse": "RMSE/val",
+                    "rmse_annual": "RMSE_annual/val",
+                    "rmse_winter": "RMSE_winter/val",
+                    "mae": "MAE/val",
+                    "mae_annual": "MAE_annual/val",
+                    "mae_winter": "MAE_winter/val",
+                    "pearson": "Pearson/val",
+                    "pearson_annual": "Pearson_annual/val",
+                    "pearson_winter": "Pearson_winter/val",
+                    "r2": "R2/val",
+                    "r2_annual": "R2_annual/val",
+                    "r2_winter": "R2_winter/val",
+                    "bias": "bias/val",
+                    "bias_annual": "bias_annual/val",
+                    "bias_winter": "bias_winter/val",
+                }
+                for k, v in statsValEpoch.items():
+                    statsVal[k].append(v)
                     # Log to TensorBoard
-                    writer.add_scalar("LossStake/val", lossStake.item(), epoch)
-                    writer.add_scalar("LossGeo/val", lossGeo.item(), epoch)
-                    writer.add_scalar("Loss/val", loss.item(), epoch)
-                    writer.add_scalar("RMSE/val", rmse.item(), epoch)
-                    writer.add_scalar("RMSE_annual/val", rmse_annual.item(), epoch)
-                    writer.add_scalar("RMSE_winter/val", rmse_winter.item(), epoch)
-                    writer.add_scalar("MAE/val", mae.item(), epoch)
-                    writer.add_scalar("MAE_annual/val", mae_annual.item(), epoch)
-                    writer.add_scalar("MAE_winter/val", mae_winter.item(), epoch)
-                    writer.add_scalar("Pearson/val", pearson_corr.item(), epoch)
-                    writer.add_scalar(
-                        "Pearson_annual/val", pearson_corr_annual.item(), epoch
-                    )
-                    writer.add_scalar(
-                        "Pearson_winter/val", pearson_corr_winter.item(), epoch
-                    )
-                    writer.add_scalar("R2/val", r2.item(), epoch)
-                    writer.add_scalar("R2_annual/val", r2_annual.item(), epoch)
-                    writer.add_scalar("R2_winter/val", r2_winter.item(), epoch)
-                    writer.add_scalar("bias/val", bias.item(), epoch)
-                    writer.add_scalar("bias_annual/val", bias_annual.item(), epoch)
-                    writer.add_scalar("bias_winter/val", bias_winter.item(), epoch)
+                    if k in metric2tbEntry:
+                        writer.add_scalar(metric2tbEntry[k], statsVal[k][-1], epoch)
 
-                    # Check if current model is among the top 5
-                    scalarBestModelCriterion = (
-                        statsVal[bestModelCriterion][-1]
-                        if len(statsVal[bestModelCriterion]) > 0
-                        else np.nan
+                # Check if current model is among the top 5
+                scalarBestModelCriterion = (
+                    statsVal[bestModelCriterion][-1]
+                    if len(statsVal[bestModelCriterion]) > 0
+                    else np.nan
+                )
+                assert not np.isnan(
+                    scalarBestModelCriterion
+                ), f"The statistics {bestModelCriterion} used for best model selection contains NaN."
+                higherBetterCriterion = (
+                    1
+                    if any(crit in bestModelCriterion for crit in _maxCriterion)
+                    else -1
+                )
+                model_path = os.path.join(
+                    log_dir,
+                    f"model_epoch{epoch}_{bestModelCriterion}{scalarBestModelCriterion:.4f}.pt",
+                )
+
+                if (
+                    len(top_models) < 5
+                    or scalarBestModelCriterion
+                    < higherBetterCriterion * top_models[0][0]
+                ):
+
+                    if len(top_models) >= 5:
+                        # Pop the worst among top 5
+                        _, worst_path = heapq.heappop(top_models)
+                        if os.path.exists(worst_path):
+                            os.remove(worst_path)
+
+                    # Save the new model
+                    # Use -scalarBestModelCriterion for max-heap
+                    heapq.heappush(
+                        top_models,
+                        (
+                            higherBetterCriterion * scalarBestModelCriterion,
+                            model_path,
+                        ),
                     )
-                    assert not np.isnan(
-                        scalarBestModelCriterion
-                    ), f"The statistics {bestModelCriterion} used for best model selection contains NaN."
-                    higherBetterCriterion = (
-                        1
-                        if any(crit in bestModelCriterion for crit in _maxCriterion)
-                        else -1
-                    )
-                    model_path = os.path.join(
-                        log_dir,
-                        f"model_epoch{epoch}_{bestModelCriterion}{scalarBestModelCriterion:.4f}.pt",
-                    )
+                    torch.save(model.state_dict(), model_path)
 
-                    if (
-                        len(top_models) < 5
-                        or scalarBestModelCriterion
-                        < higherBetterCriterion * top_models[0][0]
-                    ):
-
-                        if len(top_models) >= 5:
-                            # Pop the worst among top 5
-                            _, worst_path = heapq.heappop(top_models)
-                            if os.path.exists(worst_path):
-                                os.remove(worst_path)
-
-                        # Save the new model
-                        # Use -scalarBestModelCriterion for max-heap
-                        heapq.heappush(
-                            top_models,
-                            (
-                                higherBetterCriterion * scalarBestModelCriterion,
-                                model_path,
-                            ),
-                        )
-                        torch.save(model.state_dict(), model_path)
-
-                        if (
-                            geodataloader_test is not None
-                            and len(geodataloader_test) > 0
-                        ):
-                            assessOnTest(log_dir, model, geodataloader_test, light=True)
+                    if geodataloader_test is not None and len(geodataloader_test) > 0:
+                        assessOnTest(log_dir, model, geodataloader_test, light=True)
 
             rmse = statsVal["rmse"][-1] if len(statsVal["rmse"]) > 0 else np.nan
-            pearson = (
-                statsVal["pearson"][-1] if len(statsVal["pearson"]) > 0 else np.nan
-            )
+            r2 = statsVal["r2"][-1] if len(statsVal["r2"]) > 0 else np.nan
             loss = statsVal["lossVal"][-1] if len(statsVal["lossVal"]) > 0 else np.nan
 
             geodataloader.onEpochEnd()
 
             # Show progress bar
             tqdm.tqdm.write(
-                f"[Epoch {epoch+1} / {Nepochs}] Avg training loss: {avg_training_loss:.3f}, Val loss: {loss:.3f}, RMSE: {rmse:.3f}, Pearson: {pearson:.3f}"
+                f"[Epoch {epoch+1} / {Nepochs}] Avg training loss: {avg_training_loss:.3f}, Loss: {loss:.3f}, RMSE: {rmse:.3f}, R2: {r2:.3f}"
             )
 
     except KeyboardInterrupt:

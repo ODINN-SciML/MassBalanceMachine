@@ -52,6 +52,7 @@ regions/Norway/data/
 
 logs/
 venv/
+publish/
 
 *.parquet
 *.pt

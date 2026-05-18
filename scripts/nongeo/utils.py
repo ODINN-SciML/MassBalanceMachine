@@ -173,7 +173,7 @@ class NetworkBinding(nn.Module):
         return self.model(x)
 
 
-def trainValData(cfg, train_set, feature_columns):
+def trainValData(cfg, train_set, feature_columns, split_key="group-meas-id"):
     """
     Split training dataset into train and validation sets.
 
@@ -187,7 +187,9 @@ def trainValData(cfg, train_set, feature_columns):
     data_train["y"] = train_set["y"]
     dataloader = mbm.dataloader.DataLoader(cfg, data=data_train)
 
-    train_itr, val_itr = dataloader.set_train_test_split(test_size=0.2)
+    train_itr, val_itr = dataloader.set_train_test_split(
+        test_size=0.2, type_fold=split_key
+    )
 
     # Get all indices of the training and valing dataset at once from the iterators. Once called, the iterators are empty.
     train_indices, val_indices = list(train_itr), list(val_itr)

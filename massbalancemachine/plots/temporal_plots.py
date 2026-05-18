@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.ticker import FormatStrFormatter
 from calendar import month_abbr
 import time
 
@@ -68,7 +69,7 @@ def cumulatedMassChange(
         first_year = np.sort(monthly_df.YEAR.unique())[0]
         t = np.concatenate([[first_year], t])
         y = np.concatenate([[0.0], y])
-        ax.plot(t, np.cumsum(y), color=color_pred)
+        (line,) = ax.plot(t, np.cumsum(y), color=color_pred)
 
         nyear = monthly_df.YEAR.nunique()
         if geo is not None and test_gl in geo:
@@ -95,6 +96,24 @@ def cumulatedMassChange(
         glacier_title = titles.get(test_gl) if titles is not None else None
         ax.set_title(glacier_title or test_gl.capitalize(), fontsize=20)
 
+        ax.tick_params(axis="x", labelsize=12)
+        ax.tick_params(axis="y", labelsize=12)
+        step_years_xticks = nyear // 10
+        ax.set_xticks(
+            np.arange(
+                first_year, first_year + nyear + step_years_xticks, step_years_xticks
+            )
+        )
+        ax.xaxis.set_major_formatter(FormatStrFormatter("%.0f"))
+
+    # Remove unused axes
+    for i in range(len(custom_order), len(axs)):
+        if isinstance(axs, list):
+            ax = axs[i]
+        else:
+            ax = axs.flatten()[i]
+        ax.set_visible(False)
+
     # # Set axes limits
     # if ax_xlim is not None:
     #     ax.set_xlim(ax_xlim)
@@ -103,4 +122,4 @@ def cumulatedMassChange(
 
     plt.tight_layout()
 
-    return fig
+    return fig, line

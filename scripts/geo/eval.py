@@ -21,6 +21,7 @@ from scripts.nongeo.utils import (
     testData,
     setFeatures,
 )
+from scripts.common import default_glacier_name
 
 warnings.filterwarnings("ignore")
 
@@ -62,6 +63,20 @@ parser.add_argument(
     action="store_true",
     help="Save predictions as CSV for further analysis or comparison.",
 )
+parser.add_argument(
+    "--maps",
+    dest="maps",
+    default=False,
+    action="store_true",
+    help="Generate annual MB maps for test glaciers.",
+)
+parser.add_argument(
+    "--mapsTrain",
+    dest="mapsTrain",
+    default=[],
+    nargs="+",
+    help="Generate annual MB maps for specific train glaciers.",
+)
 args = parser.parse_args()
 
 modelFolder = args.modelFolder
@@ -70,6 +85,8 @@ plot = args.plot
 noTest = args.noTest
 onRegion = args.onRegion
 savePred = args.savePred
+maps = args.maps
+mapsTrain = args.mapsTrain
 pathFolder = os.path.join("logs", modelFolder)
 
 if not plot:
@@ -167,7 +184,12 @@ data_test = test_set["df_X"]
 data_test["y"] = test_set["y"]
 
 setFeatures(cfg, data_train, featuresInpModel)
-df_X_train, y_train, df_X_val, y_val = trainValData(cfg, train_set, featuresInpModel)
+df_X_train, y_train, df_X_val, y_val = trainValData(
+    cfg,
+    train_set,
+    featuresInpModel,
+    split_key=params["training"].get("splitVal", "group-meas-id"),
+)
 df_X_test_subset = testData(cfg, test_set, featuresInpModel)
 
 
@@ -184,7 +206,7 @@ model = model.to(device)
 
 
 # Load model and set to CPU
-bestModelPath = mbm.training.loadBestModel(pathFolder, model)
+bestModelPath, _ = mbm.training.loadBestModel(pathFolder, model)
 print(f"Loaded model {bestModelPath}")
 # loaded_model = mbm.models.CustomNeuralNetRegressor.load_model(
 #     cfg,
@@ -195,6 +217,7 @@ print(f"Loaded model {bestModelPath}")
 # model = model.to("cpu")
 
 
+test_glacierNames = {}
 if len(df_X_test_subset) > 0 and not noTest:
     if sourceData == "switzerland":
         test_glaciers = list(data_test.GLACIER.unique())
@@ -202,6 +225,9 @@ if len(df_X_test_subset) > 0 and not noTest:
         test_glaciers = list(data_test.RGIId.unique())
     elif "wgms" in sourceData:
         test_glaciers = list(data_test.RGIId.unique())
+    test_glacierNames = mbm.data_processing.oggm_utils._glacier_name(
+        list(data_test.RGIId.unique()), cfg
+    )
 
     assert set(df_X_test_subset.RGIId.unique()) == set(test_glaciers)
 
@@ -249,6 +275,7 @@ if len(df_X_test_subset) > 0 and not noTest:
         scores_summer=scores_summer,
         ax_xlim=(-8, 6),
         ax_ylim=(-8, 6),
+        precLegend=2,
     )
     fig.savefig(f"{pathFolder}/prediction_test_PMB.pdf")
     if plot:
@@ -314,15 +341,46 @@ if len(df_X_test_subset) > 0 and not noTest:
         df_geo.to_csv(f"{pathFolder}/gridded_geodetic_test.csv")
         df_gridded_annual.to_csv(f"{pathFolder}/gridded_annual_test.csv")
         df_gridded_monthly.to_csv(f"{pathFolder}/gridded_monthly_test.csv")
-        del df_gridded_annual, df_gridded_monthly
+    if maps and len(test_glaciers) > 0:
+        mapsFolder = f"{pathFolder}/maps"
+        os.makedirs(mapsFolder, exist_ok=True)
+        # Initialize OGGM once for all to avoid repeated and useless computations
+        mbm.data_processing.oggm_utils._initialize_oggm_config("")
+        gdirs = mbm.data_processing.oggm_utils._initialize_glacier_directories(
+            test_glaciers, cfg
+        )
+        for rgi_id, gdir in zip(test_glaciers, gdirs):
+            years = df_gridded_annual[df_gridded_annual.RGIId == rgi_id].YEAR.unique()
+            for year in years:
+                fig = mbm.plots.mapGlacier(
+                    df_gridded_annual, rgi_id, year, cfg, gdir=gdir
+                )
+                fig.savefig(f"{mapsFolder}/{rgi_id}_{year}.pdf")
+                plt.close(fig)
+    del df_gridded_annual, df_gridded_monthly
+
+else:
+    resTest = None
 
 
 if sourceData == "switzerland":
-    train_glaciers = list(data_train.GLACIER.unique())
+    train_glaciers = list(df_X_train.GLACIER.unique())
+    valid_glaciers = list(df_X_val.GLACIER.unique())
 elif sourceData in ["iceland", "norway"]:
-    train_glaciers = list(data_train.RGIId.unique())
+    train_glaciers = list(df_X_train.RGIId.unique())
+    valid_glaciers = list(df_X_val.RGIId.unique())
 elif "wgms" in sourceData:
-    train_glaciers = list(data_train.RGIId.unique())
+    train_glaciers = list(df_X_train.RGIId.unique())
+    valid_glaciers = list(df_X_val.RGIId.unique())
+train_glacierNames = mbm.data_processing.oggm_utils._glacier_name(
+    list(data_train.RGIId.unique()), cfg
+)
+glacierNames = train_glacierNames | test_glacierNames
+for k in glacierNames:
+    if glacierNames[k] == "":
+        glacierNames[k] = default_glacier_name(k)
+with open(os.path.join(pathFolder, "glacierNames.json"), "w") as f:
+    json.dump(glacierNames, f, indent=4, sort_keys=True)
 
 # Create dataloader
 train_gdl = mbm.dataloader.GeoDataLoader(
@@ -330,12 +388,23 @@ train_gdl = mbm.dataloader.GeoDataLoader(
     train_glaciers,
     device=device,
     trainStakesDf=data_train,
+    glacierListVal=valid_glaciers,
     months_head_pad=months_head_pad,
     months_tail_pad=months_tail_pad,
+    valStakesDf=df_X_val,
     keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
 )
 
+with torch.no_grad():
+    resVal = mbm.training.assessOnVal(model, train_gdl, params)
+    with open(os.path.join(pathFolder, "perf.json"), "w") as f:
+        json.dump({"test": resTest, "val": resVal}, f, indent=4)
+
+# PMB predictions
 grouped_ids_train = model.evaluate_group_pred(train_gdl)
+grouped_ids_valid = model.evaluate_group_pred(train_gdl, val=True)
+
+# PMB train
 scores_train = mbm.metrics.seasonal_scores(
     grouped_ids_train, target_col="target", pred_col="pred"
 )
@@ -365,6 +434,7 @@ fig = mbm.plots.predVSTruthTimeSeries(
     scores_summer=scores_summer,
     ax_xlim=(-14, 8),
     ax_ylim=(-14, 8),
+    precLegend=2,
 )
 fig.savefig(f"{pathFolder}/prediction_train_PMB.pdf")
 if plot:
@@ -404,13 +474,54 @@ for train_gl in datasetManager.train_glaciers:
         scores[train_gl]["r2"]["s"] = scores_glacier["summer"]["r2"]
         scores[train_gl]["bias"]["s"] = scores_glacier["summer"]["bias"]
 
+grouped_ids_train_valid = pd.concat(
+    [grouped_ids_train, grouped_ids_valid], ignore_index=True
+)
 fig = mbm.plots.predVSTruthPerGlacier(
-    grouped_ids_train,
+    grouped_ids_train_valid,
     scores=scores,
     custom_order=train_gl_per_el,
     hue="PERIOD",
 )
 fig.savefig(f"{pathFolder}/individual_glaciers_train_PMB.pdf")
+if plot:
+    plt.show()
+plt.close(fig)
+
+
+# PMB validation
+scores_valid = mbm.metrics.seasonal_scores(
+    grouped_ids_valid, target_col="target", pred_col="pred"
+)
+scores_annual = {
+    "rmse": scores_valid["annual"]["rmse"],
+    "r2": scores_valid["annual"]["r2"],
+    "bias": scores_valid["annual"]["bias"],
+}
+scores_winter = {
+    "rmse": scores_valid["winter"]["rmse"],
+    "r2": scores_valid["winter"]["r2"],
+    "bias": scores_valid["winter"]["bias"],
+}
+if "summer" in scores_valid:
+    scores_summer = {
+        "rmse": scores_valid["summer"]["rmse"],
+        "r2": scores_valid["summer"]["r2"],
+        "bias": scores_valid["summer"]["bias"],
+    }
+else:
+    scores_summer = None
+
+fig = mbm.plots.predVSTruthTimeSeries(
+    grouped_ids=grouped_ids_valid,
+    scores_annual=scores_annual,
+    scores_winter=scores_winter,
+    scores_summer=scores_summer,
+    ax_xlim=(-14, 8),
+    ax_ylim=(-14, 8),
+    precLegend=2,
+)
+fig.savefig(f"{pathFolder}/prediction_validation_PMB.pdf")
 if plot:
     plt.show()
 plt.close(fig)
@@ -440,7 +551,13 @@ if savePred:
 
 # Geodetic performance
 fig = mbm.plots.predVSTruthGlacierWide(
-    geoTarget, geoPred, geoErr, title="Glacier wide MB on train"
+    geoTarget,
+    geoPred,
+    geoErr,
+    title="Glacier wide MB on train",
+    ax_xlim=(-2.5, 2.0),
+    ax_ylim=(-2.5, 2.0),
+    legend=False,
 )
 plt.savefig(os.path.join(pathFolder, "geodetic_train.png"))
 if plot:
@@ -450,7 +567,12 @@ plt.close(fig)
 
 # Plot MB profile
 fig = mbm.plots.profilePerGlacier(
-    df_gridded_annual, custom_order=train_gl_per_el
+    df_gridded_annual,
+    custom_order=train_gl_per_el,
+    titles={
+        k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
+        for k in glacierNames
+    },
 )  # , df_stakes=data_train)
 fig.savefig(f"{pathFolder}/PMB_profile_individual_glaciers_train.pdf")
 if plot:
@@ -459,7 +581,7 @@ plt.close(fig)
 
 
 # Plot cumulated mass change
-fig = mbm.plots.cumulatedMassChange(
+fig, _ = mbm.plots.cumulatedMassChange(
     df_gridded_monthly,
     geo={
         rgi_id: {"mean": geoTarget[rgi_id], "err": geoErr[rgi_id]}
@@ -470,6 +592,22 @@ fig.savefig(f"{pathFolder}/cumulated_mass_change_glaciers_train.pdf")
 if plot:
     plt.show()
 plt.close(fig)
+
+if len(mapsTrain) > 0:
+    mapsFolder = f"{pathFolder}/maps"
+    os.makedirs(mapsFolder, exist_ok=True)
+    # Initialize OGGM once for all to avoid repeated and useless computations
+    mbm.data_processing.oggm_utils._initialize_oggm_config("")
+    gdirs = mbm.data_processing.oggm_utils._initialize_glacier_directories(
+        mapsTrain, cfg
+    )
+    for rgi_id, gdir in zip(mapsTrain, gdirs):
+        years = df_gridded_annual[df_gridded_annual.RGIId == rgi_id].YEAR.unique()
+        for year in years:
+            fig = mbm.plots.mapGlacier(df_gridded_annual, rgi_id, year, cfg, gdir=gdir)
+            fig.savefig(f"{mapsFolder}/{rgi_id}_{year}.pdf")
+            plt.close(fig)
+del df_gridded_annual, df_gridded_monthly
 
 # TODO: since we changed the iterator, is the evaluation consistent on train/test ?
 
@@ -494,7 +632,11 @@ if onRegion:
 
     # Geodetic performance
     fig = mbm.plots.predVSTruthGlacierWide(
-        geoTarget, geoPred, geoErr, title="Glacier wide MB on the whole region"
+        geoTarget,
+        geoPred,
+        geoErr,
+        title="Glacier wide MB on the whole region",
+        legend=False,
     )
     plt.savefig(os.path.join(pathFolder, "geodetic_region.png"))
     if plot:
