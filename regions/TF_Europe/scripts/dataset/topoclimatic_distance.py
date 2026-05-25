@@ -768,3 +768,144 @@ def estimate_global_bandwidths_from_dfs(
     )
 
     return blur_m, blur_s, blur_joint
+
+
+def rank_glaciers_by_distance_to_target(
+    res_xreg_by_source: dict,
+    training_regions: list,
+    test_region: str,
+    monthly_cols: list,
+    static_cols: list,
+    scaler_m,
+    scaler_s,
+    blur_joint: float,
+    glacier_col: str = "GLACIER",
+    id_col: str = "ID",
+    elev_diff_col: str = "ELEVATION_DIFFERENCE",
+    max_samples: int = 2000,
+    seed: int = 42,
+    mode: str = "joint",  # <-- new: "joint" or "topo"
+    topo_extra_cols: list = None,  # <-- new: e.g. ["ELEVATION_DIFFERENCE"]
+) -> pd.DataFrame:
+    """
+    Rank training glaciers by Sinkhorn distance to the test region.
+    mode="joint" : climate + topo features (same as split_pool_holdout_sinkhorn_v2)
+    mode="topo"  : topo features only (static_cols + topo_extra_cols)
+    """
+    topo_extra_cols = topo_extra_cols or []
+
+    def _build_X(df):
+        pure_static = [c for c in static_cols if c != elev_diff_col]
+
+        def _stake_topo(df_):
+            parts = [df_.groupby(id_col)[pure_static].first()]
+            if elev_diff_col in static_cols:
+                parts.append(df_.groupby(id_col)[[elev_diff_col]].mean())
+            return pd.concat(parts, axis=1)[static_cols].to_numpy(dtype=np.float64)
+
+        id_codes_cat = pd.Categorical(df[id_col]).codes
+        Xs_id = scaler_s.transform(_stake_topo(df))
+        topo_per_row = Xs_id[id_codes_cat]
+
+        if mode == "joint":
+            Xm_all = scaler_m.transform(df[monthly_cols].to_numpy(dtype=np.float64))
+            return np.hstack([Xm_all, topo_per_row]).astype(np.float32)
+
+        else:  # topo
+            extra_parts = []
+            for col in topo_extra_cols:
+                col_idx = monthly_cols.index(col)
+                col_vals = df[col].to_numpy(dtype=np.float64).reshape(-1, 1)
+                extra_parts.append(
+                    (col_vals - scaler_m.mean_[col_idx]) / scaler_m.scale_[col_idx]
+                )
+            if extra_parts:
+                return np.hstack([topo_per_row] + extra_parts).astype(np.float32)
+            return topo_per_row.astype(np.float32)
+
+    # blur: scale for topo-only mode same as split_pool_holdout_sinkhorn_v2
+    if mode == "topo":
+        n_joint = len(monthly_cols) + len(static_cols)
+        n_topo = len(static_cols) + len(topo_extra_cols)
+        blur = blur_joint * np.sqrt(n_topo / n_joint)
+        print(
+            f"  Mode: TOPO  blur={blur:.4f}  features={static_cols + topo_extra_cols}"
+        )
+    else:
+        blur = blur_joint
+        print(f"  Mode: JOINT  blur={blur:.4f}")
+
+    loss_fn = SamplesLoss(
+        loss="sinkhorn",
+        p=2,
+        blur=blur,
+        scaling=0.9,
+        debias=True,
+        backend="tensorized",
+    )
+
+    def _sinkhorn(Xa, Xb):
+        if len(Xa) < 2 or len(Xb) < 2:
+            return float("nan")
+        rng = np.random.default_rng(seed)
+        if len(Xa) > max_samples:
+            Xa = Xa[rng.choice(len(Xa), max_samples, replace=False)]
+        if len(Xb) > max_samples:
+            Xb = Xb[rng.choice(len(Xb), max_samples, replace=False)]
+        ta = torch.as_tensor(Xa, dtype=torch.float32)
+        tb = torch.as_tensor(Xb, dtype=torch.float32)
+        wa = torch.ones(len(ta)) / len(ta)
+        wb = torch.ones(len(tb)) / len(tb)
+        with torch.no_grad():
+            return float(loss_fn(wa, ta, wb, tb).item())
+
+    # --- test region feature matrix ---
+    df_test = res_xreg_by_source[test_region]["data_monthly"]
+    X_test = _build_X(df_test)
+    print(
+        f"Test region ({test_region}): {len(X_test)} rows, "
+        f"{df_test[glacier_col].nunique()} glaciers"
+    )
+
+    # --- per-glacier distances ---
+    rows = []
+    for region in training_regions:
+        df_region = res_xreg_by_source[region]["data_monthly"]
+        glaciers = df_region[glacier_col].unique()
+        print(f"\n{region}: {len(glaciers)} glaciers")
+
+        for glacier in glaciers:
+            df_gl = df_region[df_region[glacier_col] == glacier]
+            if len(df_gl) < 2:
+                continue
+            X_gl = _build_X(df_gl)
+            d = _sinkhorn(X_gl, X_test)
+            rows.append(
+                {
+                    "glacier": glacier,
+                    "region": region,
+                    "distance": d,
+                    "n_meas": len(df_gl),
+                }
+            )
+            print(f"  {glacier:40s}  d={d:.4f}  n={len(df_gl)}")
+
+    df_ranked = pd.DataFrame(rows).sort_values("distance").reset_index(drop=True)
+    df_ranked["rank"] = np.arange(len(df_ranked))
+    df_ranked["cum_meas"] = df_ranked["n_meas"].cumsum()
+    df_ranked["cum_frac"] = df_ranked["cum_meas"] / df_ranked["n_meas"].sum()
+
+    print(f"\n=== Ranking complete ({mode}) ===")
+    print(f"  Total glaciers : {len(df_ranked)}")
+    print(
+        f"  Distance range : [{df_ranked['distance'].min():.4f} "
+        f"— {df_ranked['distance'].max():.4f}]"
+    )
+    print(f"\n  Closest 10 to {test_region}:")
+    print(
+        df_ranked.head(10)[
+            ["rank", "glacier", "region", "distance", "n_meas", "cum_frac"]
+        ].to_string(index=False)
+    )
+
+    return df_ranked

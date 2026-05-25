@@ -781,6 +781,9 @@ def code_to_rgi_id(code: str) -> str:
         "IT_AT": "11",
         "CEU": "11",
         "USCA": "MULTI",
+        "CENTRALASIA": "13",  # <-- add this
+        "SOUTHASIAWEST": "14",  # <-- add while you're at it
+        "SOUTHASIAEAST": "15",  # <-- add while you're at it
     }
 
     if code not in mapping:

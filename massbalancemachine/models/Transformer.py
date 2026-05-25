@@ -44,6 +44,35 @@ Notes
   small glaciological datasets.
 """
 
+
+class BottleneckAdapter(nn.Module):
+    """
+    Residual bottleneck adapter: x + W_up(ReLU(W_down(LN(x))))
+    Works on (..., D) tensors.
+    """
+
+    def __init__(
+        self,
+        dim: int,
+        bottleneck: int = 32,
+        dropout: float = 0.0,
+        use_ln: bool = True,
+    ):
+        super().__init__()
+        self.norm = nn.LayerNorm(dim) if use_ln else nn.Identity()
+        self.down = nn.Linear(dim, bottleneck)
+        self.act = nn.ReLU()
+        self.drop = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
+        self.up = nn.Linear(bottleneck, dim)
+
+        # Optional: start near-identity by making adapter initially small
+        nn.init.zeros_(self.up.weight)
+        nn.init.zeros_(self.up.bias)
+
+    def forward(self, x):
+        return x + self.up(self.drop(self.act(self.down(self.norm(x)))))
+
+
 # ---------------------------------------------------------------------------
 # Positional embedding helper
 # ---------------------------------------------------------------------------
@@ -103,20 +132,21 @@ class Transformer_MB(nn.Module):
         # --- Heads ---
         two_heads: bool = False,
         head_dropout: float = 0.0,
+        # --- Adapter ---
+        use_adapter: bool = False,
+        adapter_bottleneck: int = 32,
+        adapter_dropout: float = 0.0,
+        adapter_use_ln: bool = True,
     ):
         super().__init__()
         self.cfg = cfg
         self.two_heads = two_heads
         self.seed_all()
 
-        assert (
-            d_model % nhead == 0
-        ), f"d_model ({d_model}) must be divisible by nhead ({nhead})"
+        assert d_model % nhead == 0
 
         # ---- Monthly input projection ----
         self.input_proj = nn.Linear(Fm, d_model)
-
-        # ---- Learned positional embeddings ----
         self.pos_emb = LearnedPositionalEmbedding(T_max, d_model)
 
         # ---- Transformer encoder ----
@@ -126,12 +156,11 @@ class Transformer_MB(nn.Module):
             dim_feedforward=dim_feedforward,
             dropout=dropout,
             batch_first=True,
-            norm_first=True,  # Pre-LN: more stable on small datasets
+            norm_first=True,
         )
         self.transformer = nn.TransformerEncoder(
             encoder_layer,
             num_layers=num_layers,
-            # Final layer norm (Post-encoder)
             norm=nn.LayerNorm(d_model),
         )
 
@@ -153,10 +182,21 @@ class Transformer_MB(nn.Module):
         self.static_mlp = nn.Sequential(*mlp) if mlp else nn.Identity()
         static_out_dim = in_dim if mlp else Fs
 
-        fused_dim = d_model + static_out_dim
+        fused_dim = d_model + static_out_dim  # <-- defined BEFORE adapter
+
         self.head_pre_dropout = (
             nn.Dropout(head_dropout) if head_dropout > 0 else nn.Identity()
         )
+
+        # ---- Adapter (after fused_dim is known) ----
+        self.use_adapter = use_adapter
+        if use_adapter:
+            self.adapter = BottleneckAdapter(
+                dim=fused_dim,
+                bottleneck=adapter_bottleneck,
+                dropout=adapter_dropout,
+                use_ln=adapter_use_ln,
+            )
 
         # ---- Heads ----
         if self.two_heads:
@@ -238,6 +278,10 @@ class Transformer_MB(nn.Module):
 
         if debug:
             print(f"[Fusion z] {tuple(z.shape)}")
+
+        # ---- Adapter
+        if self.use_adapter:
+            z = self.adapter(z)
 
         # ---- Heads ----
         if self.two_heads:
@@ -711,7 +755,6 @@ class Transformer_MB(nn.Module):
     # ------------------------------------------------------------------ #
     #  Factory  (mirrors LSTM_MB.build_model_from_params)                 #
     # ------------------------------------------------------------------ #
-
     @classmethod
     def build_model_from_params(cls, cfg, params, device, verbose=True):
         """
@@ -749,6 +792,11 @@ class Transformer_MB(nn.Module):
             "static_dropout": static_dropout,
             "two_heads": bool(params.get("two_heads", False)),
             "head_dropout": float(params.get("head_dropout", 0.0)),
+            # adapter
+            "use_adapter": bool(params.get("use_adapter", False)),
+            "adapter_bottleneck": int(params.get("adapter_bottleneck", 32)),
+            "adapter_dropout": float(params.get("adapter_dropout", 0.0)),
+            "adapter_use_ln": bool(params.get("adapter_use_ln", True)),
         }
 
         if verbose:

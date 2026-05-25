@@ -454,15 +454,16 @@ def train_or_load_one_within_region(
 # Run for all dataset keys (train subset, load others)
 def train_within_region_models_all(
     cfg,
-    lstm_assets_by_key: dict,  # e.g. lstm_assets["08_NOR"] -> {...}
-    params_by_key: dict,  # e.g. params_by_key["08_NOR"] -> {...}
+    lstm_assets_by_key: dict,
+    params_by_key: dict,
     device,
-    train_keys=None,  # e.g. ["08_NOR"] to retrain only Norway
+    train_keys=None,
     force_retrain=False,
     models_dir="models",
     prefix="lstm_within",
     epochs=150,
     date=None,
+    model_type="lstm",  # "lstm" or "transformer"
 ):
     models = {}
     infos = {}
@@ -471,15 +472,13 @@ def train_within_region_models_all(
 
     for key in sorted(lstm_assets_by_key.keys()):
         best_params = params_by_key[key]
+        train_flag = True if train_keys_set is None else key in train_keys_set
 
-        # train only selected keys; others will load if checkpoint exists
-        train_flag = True
-        if train_keys_set is not None:
-            train_flag = key in train_keys_set
+        print(
+            f"\n=== {key} === train_flag={train_flag}, force_retrain={force_retrain}, model_type={model_type}"
+        )
 
-        print(f"\n=== {key} === train_flag={train_flag}, force_retrain={force_retrain}")
-
-        model, path, info = train_or_load_one_within_region(
+        model, path, info = train_or_load_one_source_model(
             cfg=cfg,
             key=key,
             lstm_assets=lstm_assets_by_key[key],
@@ -491,65 +490,7 @@ def train_within_region_models_all(
             force_retrain=force_retrain if train_flag else False,
             epochs=epochs,
             date=date,
-        )
-
-        models[key] = model
-        infos[key] = {"model_path": path, **(info or {})}
-
-    return models, infos
-
-
-def train_crossregional_models_all(
-    cfg,
-    lstm_assets_by_key: dict,  # outputs_xreg["FR"] -> {"ds_train","ds_test","train_idx","val_idx",...}
-    default_params: dict,
-    device,
-    train_keys=None,  # e.g. ["FR"] to retrain only France target
-    force_retrain=False,
-    models_dir="models",
-    prefix="lstm_xreg_CH_to",
-    epochs=150,
-    date=None,
-):
-    models = {}
-    infos = {}
-
-    train_keys_set = set(train_keys) if train_keys else None
-
-    for key in sorted(lstm_assets_by_key.keys()):
-        assets = lstm_assets_by_key[key]
-
-        # skip empty regions (if you kept those)
-        if assets is None or assets.get("ds_test", None) is None:
-            print(f"\n=== {key} === skipped (no test dataset)")
-            models[key] = None
-            infos[key] = {"model_path": None, "note": "No test dataset / skipped"}
-            continue
-
-        # train only selected keys; others load if checkpoint exists
-        train_flag = True
-        if train_keys_set is not None:
-            train_flag = key in train_keys_set
-
-        print(
-            f"\n=== CH -> {key} === train_flag={train_flag}, force_retrain={force_retrain}"
-        )
-
-        # IMPORTANT: key becomes target-specific so model filenames are unique
-        model_key = key
-
-        model, path, info = train_or_load_one_within_region(
-            cfg=cfg,
-            key=model_key,
-            lstm_assets=assets,
-            best_params=default_params,
-            device=device,
-            models_dir=models_dir,
-            prefix=prefix,
-            train_flag=train_flag,
-            force_retrain=force_retrain if train_flag else False,
-            epochs=epochs,
-            date=date,
+            model_type=model_type,
         )
 
         models[key] = model
@@ -561,30 +502,40 @@ def train_crossregional_models_all(
 def train_or_load_one_source_model(
     cfg,
     key: str,
-    lstm_assets: dict,  # only needs ds_train, train_idx, val_idx
+    lstm_assets: dict,
     best_params: dict,
     device,
     models_dir="models",
     prefix="lstm_xreg",
     train_flag=True,
-    force_retrain=False,
+    force_retrain=True,
     epochs=150,
     batch_size_train=64,
     batch_size_val=128,
     verbose=True,
     date=None,
+    model_type="lstm",  # "lstm" or "transformer"
 ):
     """Train or load a single source-region model. No test set needed."""
+    assert model_type in (
+        "lstm",
+        "transformer",
+    ), f"model_type must be 'lstm' or 'transformer', got '{model_type}'"
+
+    # ---- resolve model class once ----
+    model_cls = (
+        mbm.models.LSTM_MB if model_type == "lstm" else mbm.models.Transformer_MB
+    )
+
     run_date = datetime.now().strftime("%Y-%m-%d") if date is None else date
     os.makedirs(models_dir, exist_ok=True)
     model_filename = os.path.join(models_dir, f"{prefix}_{key}_{run_date}.pt")
 
-    model = mbm.models.LSTM_MB.build_model_from_params(
-        cfg, best_params, device, verbose=verbose
-    )
-    loss_fn = mbm.models.LSTM_MB.resolve_loss_fn(best_params)
+    # ---- these are the only two lines that used to be hardcoded ----
+    model = model_cls.build_model_from_params(cfg, best_params, device, verbose=verbose)
+    loss_fn = model_cls.resolve_loss_fn(best_params)
 
-    # Load existing checkpoint if available and not forcing retrain
+    # everything below is unchanged
     if train_flag and (not force_retrain) and os.path.exists(model_filename):
         state = torch.load(model_filename, map_location=device)
         model.load_state_dict(state)
@@ -655,6 +606,164 @@ def train_or_load_one_source_model(
     model.load_state_dict(state)
 
     return model, model_filename, {"history": history, "best_val": best_val}
+
+
+def train_crossregional_models_all(
+    cfg,
+    lstm_assets_by_key: dict,  # outputs_xreg["FR"] -> {"ds_train","ds_test","train_idx","val_idx",...}
+    default_params: dict,
+    device,
+    train_keys=None,  # e.g. ["FR"] to retrain only France target
+    force_retrain=False,
+    models_dir="models",
+    prefix="lstm_xreg_CH_to",
+    epochs=150,
+    date=None,
+):
+    models = {}
+    infos = {}
+
+    train_keys_set = set(train_keys) if train_keys else None
+
+    for key in sorted(lstm_assets_by_key.keys()):
+        assets = lstm_assets_by_key[key]
+
+        # skip empty regions (if you kept those)
+        if assets is None or assets.get("ds_test", None) is None:
+            print(f"\n=== {key} === skipped (no test dataset)")
+            models[key] = None
+            infos[key] = {"model_path": None, "note": "No test dataset / skipped"}
+            continue
+
+        # train only selected keys; others load if checkpoint exists
+        train_flag = True
+        if train_keys_set is not None:
+            train_flag = key in train_keys_set
+
+        print(
+            f"\n=== CH -> {key} === train_flag={train_flag}, force_retrain={force_retrain}"
+        )
+
+        # IMPORTANT: key becomes target-specific so model filenames are unique
+        model_key = key
+
+        model, path, info = train_or_load_one_within_region(
+            cfg=cfg,
+            key=model_key,
+            lstm_assets=assets,
+            best_params=default_params,
+            device=device,
+            models_dir=models_dir,
+            prefix=prefix,
+            train_flag=train_flag,
+            force_retrain=force_retrain if train_flag else False,
+            epochs=epochs,
+            date=date,
+        )
+
+        models[key] = model
+        infos[key] = {"model_path": path, **(info or {})}
+
+    return models, infos
+
+
+# def train_or_load_one_source_model(
+#     cfg,
+#     key: str,
+#     lstm_assets: dict,  # only needs ds_train, train_idx, val_idx
+#     best_params: dict,
+#     device,
+#     models_dir="models",
+#     prefix="lstm_xreg",
+#     train_flag=True,
+#     force_retrain=False,
+#     epochs=150,
+#     batch_size_train=64,
+#     batch_size_val=128,
+#     verbose=True,
+#     date=None,
+# ):
+#     """Train or load a single source-region model. No test set needed."""
+#     run_date = datetime.now().strftime("%Y-%m-%d") if date is None else date
+#     os.makedirs(models_dir, exist_ok=True)
+#     model_filename = os.path.join(models_dir, f"{prefix}_{key}_{run_date}.pt")
+
+#     model = mbm.models.LSTM_MB.build_model_from_params(
+#         cfg, best_params, device, verbose=verbose
+#     )
+#     loss_fn = mbm.models.LSTM_MB.resolve_loss_fn(best_params)
+
+#     # Load existing checkpoint if available and not forcing retrain
+#     if train_flag and (not force_retrain) and os.path.exists(model_filename):
+#         state = torch.load(model_filename, map_location=device)
+#         model.load_state_dict(state)
+#         return model, model_filename, None
+
+#     if not train_flag and not os.path.exists(model_filename):
+#         raise FileNotFoundError(f"No checkpoint found for {key}: {model_filename}")
+
+#     if not train_flag and os.path.exists(model_filename):
+#         state = torch.load(model_filename, map_location=device)
+#         model.load_state_dict(state)
+#         return model, model_filename, None
+
+#     # --- Train ---
+#     mbm.utils.seed_all(cfg.seed)
+
+#     ds_train = lstm_assets["ds_train"]
+#     train_idx = lstm_assets["train_idx"]
+#     val_idx = lstm_assets["val_idx"]
+
+#     ds_train_copy = mbm.data_processing.MBSequenceDataset._clone_untransformed_dataset(
+#         ds_train
+#     )
+
+#     train_dl, val_dl = ds_train_copy.make_loaders(
+#         train_idx=train_idx,
+#         val_idx=val_idx,
+#         batch_size_train=batch_size_train,
+#         batch_size_val=batch_size_val,
+#         seed=cfg.seed,
+#         fit_and_transform=True,
+#         shuffle_train=True,
+#         use_weighted_sampler=True,
+#         verbose=verbose,
+#     )
+
+#     if os.path.exists(model_filename):
+#         os.remove(model_filename)
+#         if verbose:
+#             print(f"Deleted existing model file: {model_filename}")
+
+#     history, best_val, best_state = model.train_loop(
+#         device=device,
+#         train_dl=train_dl,
+#         val_dl=val_dl,
+#         epochs=epochs,
+#         lr=best_params["lr"],
+#         weight_decay=best_params["weight_decay"],
+#         clip_val=1,
+#         sched_factor=0.5,
+#         sched_patience=6,
+#         sched_threshold=0.01,
+#         sched_threshold_mode="rel",
+#         sched_cooldown=1,
+#         sched_min_lr=1e-6,
+#         es_patience=15,
+#         es_min_delta=1e-4,
+#         log_every=5,
+#         verbose=verbose,
+#         save_best_path=model_filename,
+#         loss_fn=loss_fn,
+#     )
+
+#     if verbose:
+#         plot_history_lstm(history)
+
+#     state = torch.load(model_filename, map_location=device)
+#     model.load_state_dict(state)
+
+#     return model, model_filename, {"history": history, "best_val": best_val}
 
 
 def prepare_test_loader_for_target(
