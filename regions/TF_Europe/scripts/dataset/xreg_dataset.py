@@ -171,6 +171,10 @@ def build_monthly_cache(
             output_file=f"{code}_wgms_dataset_monthly_Aug.csv",
         )
 
+        # add SOURCE_CODE
+        data_monthly["SOURCE_CODE"] = code.upper()
+        data_monthly_aug["SOURCE_CODE"] = code.upper()
+
         cache[code.upper()] = {
             "data_monthly": data_monthly,
             "data_monthly_aug": data_monthly_aug,
