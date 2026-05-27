@@ -80,20 +80,14 @@ def count_touched_months(start, end):
 def months_before(row):
     # extra interval before hydrological year
     extra_start = row["FROM_DATE"]
-    extra_end = row["HY_START"] - pd.Timedelta(days=1)
-
-    if extra_start > extra_end:
-        return 0
+    extra_end = row["HY_START"]
     return count_touched_months(extra_start, extra_end)
 
 
 def months_after(row):
     # extra interval after hydrological year
-    extra_start = row["HY_END"] + pd.Timedelta(days=1)
+    extra_start = row["HY_END"]
     extra_end = row["TO_DATE"]
-
-    if extra_start > extra_end:
-        return 0
     return count_touched_months(extra_start, extra_end)
 
 

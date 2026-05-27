@@ -71,6 +71,13 @@ parser.add_argument(
     help="Generate annual MB maps for test glaciers.",
 )
 parser.add_argument(
+    "--mapsTest",
+    dest="mapsTest",
+    default=[],
+    nargs="+",
+    help="Generate annual MB maps for specific test glaciers.",
+)
+parser.add_argument(
     "--mapsTrain",
     dest="mapsTrain",
     default=[],
@@ -86,6 +93,7 @@ noTest = args.noTest
 onRegion = args.onRegion
 savePred = args.savePred
 maps = args.maps
+mapsTest = args.mapsTest
 mapsTrain = args.mapsTrain
 pathFolder = os.path.join("logs", modelFolder)
 
@@ -297,8 +305,11 @@ if len(df_X_test_subset) > 0 and not noTest:
     # # save solution
     # solution_df.to_csv(f"{pathFolder}/solution.csv", index=False)
 
+    test_glaciers_with_stakes = set(datasetManager.test_glaciers).intersection(
+        set(datasetManager.mean_stakes_elevation.keys())
+    )
     test_gl_per_el = {
-        k: datasetManager.mean_stakes_elevation[k] for k in datasetManager.test_glaciers
+        k: datasetManager.mean_stakes_elevation[k] for k in test_glaciers_with_stakes
     }
     test_gl_per_el = list(
         dict(sorted(test_gl_per_el.items(), key=lambda item: item[1])).keys()
@@ -341,15 +352,30 @@ if len(df_X_test_subset) > 0 and not noTest:
         df_geo.to_csv(f"{pathFolder}/gridded_geodetic_test.csv")
         df_gridded_annual.to_csv(f"{pathFolder}/gridded_annual_test.csv")
         df_gridded_monthly.to_csv(f"{pathFolder}/gridded_monthly_test.csv")
-    if maps and len(test_glaciers) > 0:
+
+    # Plot cumulated mass change
+    fig, _ = mbm.plots.cumulatedMassChange(
+        df_gridded_monthly,
+        geo={
+            rgi_id: {"mean": geoTarget[rgi_id], "err": geoErr[rgi_id]}
+            for rgi_id in geoTarget
+        },
+    )
+    fig.savefig(f"{pathFolder}/cumulated_mass_change_glaciers_test.pdf")
+    if plot:
+        plt.show()
+    plt.close(fig)
+
+    if (maps or len(mapsTest) > 0) and len(test_glaciers) > 0:
         mapsFolder = f"{pathFolder}/maps"
         os.makedirs(mapsFolder, exist_ok=True)
         # Initialize OGGM once for all to avoid repeated and useless computations
         mbm.data_processing.oggm_utils._initialize_oggm_config("")
+        rgi_ids = test_glaciers if maps else mapsTest
         gdirs = mbm.data_processing.oggm_utils._initialize_glacier_directories(
-            test_glaciers, cfg
+            rgi_ids, cfg
         )
-        for rgi_id, gdir in zip(test_glaciers, gdirs):
+        for rgi_id, gdir in zip(rgi_ids, gdirs):
             years = df_gridded_annual[df_gridded_annual.RGIId == rgi_id].YEAR.unique()
             for year in years:
                 fig = mbm.plots.mapGlacier(

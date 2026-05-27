@@ -152,7 +152,7 @@ def _generate_monthly_ranges(df: pd.DataFrame) -> pd.DataFrame:
 
     # Apply the tagging function to the MONTHS column
     df["MONTHS"] = df["MONTHS"].apply(tag_hydro_year)
-    df["N_MONTHS"] = df["MONTHS"].apply(len) - 1
+    df["N_MONTHS"] = df["MONTHS"].apply(len)
     df = df.drop(columns=["FROM_DATE_RND", "TO_DATE_RND"])
     return df
 

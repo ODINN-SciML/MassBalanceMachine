@@ -59,6 +59,13 @@ parser.add_argument(
     help="Generate annual MB maps for test glaciers.",
 )
 parser.add_argument(
+    "--mapsTest",
+    dest="mapsTest",
+    default=[],
+    nargs="+",
+    help="Generate annual MB maps for specific test glaciers.",
+)
+parser.add_argument(
     "--mapsTrain",
     dest="mapsTrain",
     default=[],
@@ -74,6 +81,7 @@ name2 = args.name2
 plot = args.plot
 noTrain = args.noTrain
 maps = args.maps
+mapsTest = args.mapsTest
 mapsTrain = args.mapsTrain
 pathFolder1 = os.path.join("logs", modelFolder1)
 pathFolder2 = os.path.join("logs", modelFolder2)
@@ -193,7 +201,7 @@ _, l2 = mbm.plots.cumulatedMassChange(
     df_gridded_monthly2,
     geo=None,
     axs=fig.axes,
-    color_pred="orange",
+    color_pred="red",
     titles={
         k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
         for k in glacierNames
@@ -217,15 +225,18 @@ if plot:
     plt.show()
 plt.close(fig)
 
-if maps:
+if maps or len(mapsTest) > 0:
     df_gridded_annual1 = pd.read_csv(f"{pathFolder1}/gridded_annual_test.csv")
     df_gridded_annual2 = pd.read_csv(f"{pathFolder2}/gridded_annual_test.csv")
 
     mapsFolder = f"{pathFolder}/maps"
     os.makedirs(mapsFolder, exist_ok=True)
-    rgi_ids = df_gridded_annual1.RGIId.unique()
+    rgi_ids = df_gridded_annual1.RGIId.unique() if maps else mapsTest
     cfg = mbm.Config("11")  # Fake cfg which is needed just for OGGM
-    assert set(rgi_ids) == set(df_gridded_annual2.RGIId.unique())
+    if maps:
+        assert set(rgi_ids) == set(df_gridded_annual2.RGIId.unique())
+    else:
+        assert set(rgi_ids).issubset(set(df_gridded_annual2.RGIId.unique()))
     for rgi_id in rgi_ids:
         years = df_gridded_annual1[df_gridded_annual1.RGIId == rgi_id].YEAR.unique()
         max1 = df_gridded_annual1[df_gridded_annual1.RGIId == rgi_id].pred.abs().max()
