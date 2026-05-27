@@ -151,7 +151,7 @@ def plot_ranking_results_extended(
     save_path=None,
 ):
     if metrics is None:
-        metrics = ["RMSE_annual", "RMSE_winter", "Bias_annual", "Bias_winter"]
+        metrics = ["RMSE_annual", "RMSE_winter", "R2_annual", "R2_winter"]
 
     df_sub = df_results[
         (df_results["ranking_target"] == ranking_label)
@@ -241,6 +241,151 @@ def plot_ranking_results_extended(
     mode = ranking_label.split("_")[-1]
     fig.suptitle(
         f"{model_label.upper()}: closest vs random ({mode}) → {test_region} (zero-shot)\n"
+        f"Training pool: {' + '.join(source_regions)}  |  {n_rand_seeds} random seeds",
+        fontsize=13,
+    )
+    fig.tight_layout()
+
+    if save_path:
+        fig.savefig(str(save_path) + ".pdf", bbox_inches="tight")
+        fig.savefig(str(save_path) + ".png", dpi=150, bbox_inches="tight")
+
+    plt.show()
+    return fig
+
+
+def plot_ranking_results_extended_(
+    df_results,
+    ranking_label,
+    test_region,
+    source_regions,
+    n_rand_seeds,
+    model_label="transformer",
+    metrics=None,
+    save_path=None,
+):
+    if metrics is None:
+        metrics = ["RMSE_annual", "RMSE_winter", "Bias_annual", "Bias_winter"]
+
+    # primary model (transformer or lstm)
+    df_sub = df_results[
+        (df_results["ranking_target"] == ranking_label)
+        & (df_results["model"] == model_label)
+    ].copy()
+
+    # comparison model (always the other one)
+    other_label = "lstm" if model_label == "transformer" else "transformer"
+    df_other = df_results[
+        (df_results["ranking_target"] == ranking_label)
+        & (df_results["model"] == other_label)
+    ].copy()
+
+    PCTS_PLOT = sorted(df_sub[df_sub["pct"] != 100]["pct"].unique())
+    x = np.array(PCTS_PLOT)
+
+    fig, axes = plt.subplots(2, 2, figsize=(12, 8), sharex=False)
+    axes = axes.flatten()
+
+    for ax, metric in zip(axes, metrics):
+        is_r2 = metric.startswith("R2")
+
+        # --- random (primary model) ---
+        df_rnd = df_sub[df_sub["strategy"] == "random"]
+        agg = df_rnd.groupby("pct")[metric].agg(["mean", "std"]).reindex(PCTS_PLOT)
+
+        ax.plot(
+            PCTS_PLOT,
+            agg["mean"],
+            marker="o",
+            color="steelblue",
+            label=f"Random {model_label} (mean)",
+            zorder=4,
+        )
+        ax.fill_between(
+            PCTS_PLOT,
+            agg["mean"] - agg["std"],
+            agg["mean"] + agg["std"],
+            alpha=0.2,
+            color="steelblue",
+            label=f"Random {model_label} ±1 std",
+        )
+        for _, row in df_rnd.iterrows():
+            ax.scatter(
+                row["pct"], row[metric], color="steelblue", alpha=0.25, s=15, zorder=3
+            )
+
+        mean_rnd = agg["mean"].values
+
+        # --- closest (primary model) ---
+        df_close = df_sub[df_sub["strategy"] == "closest"]
+        close_vals = df_close.set_index("pct")[metric].reindex(PCTS_PLOT).values
+
+        ax.plot(
+            PCTS_PLOT,
+            close_vals,
+            marker="D",
+            linestyle="--",
+            color="darkorange",
+            label=f"Closest {model_label} (Sinkhorn)",
+            zorder=5,
+            markersize=8,
+        )
+        better = close_vals < mean_rnd if not is_r2 else close_vals > mean_rnd
+        ax.fill_between(
+            x, mean_rnd, close_vals, where=better, alpha=0.12, color="green"
+        )
+        ax.fill_between(x, mean_rnd, close_vals, where=~better, alpha=0.12, color="red")
+
+        # --- closest (other model, overlapped) ---
+        df_close_other = df_other[df_other["strategy"] == "closest"]
+        close_vals_other = (
+            df_close_other.set_index("pct")[metric].reindex(PCTS_PLOT).values
+        )
+
+        ax.plot(
+            PCTS_PLOT,
+            close_vals_other,
+            marker="s",
+            linestyle=":",
+            color="firebrick",
+            label=f"Closest {other_label} (Sinkhorn)",
+            zorder=5,
+            markersize=7,
+        )
+
+        # --- full baselines ---
+        for bl_model, color, ls in [
+            (model_label, "darkorange", "--"),
+            (other_label, "firebrick", ":"),
+        ]:
+            full_label = f"{bl_model}_full"
+            row = df_results[
+                (df_results["ranking_target"] == ranking_label)
+                & (df_results["strategy"] == full_label)
+            ]
+            if not row.empty:
+                ax.axhline(
+                    float(row[metric].iloc[0]),
+                    color=color,
+                    linestyle=ls,
+                    linewidth=1.5,
+                    label=f"{full_label} (100%)",
+                    zorder=2,
+                )
+
+        ax.set_title(metric, fontsize=14)
+        ax.set_ylabel(metric, fontsize=14)
+        ax.set_xlabel("Training data fraction (%)", fontsize=14)
+        ax.set_xticks(PCTS_PLOT)
+        ax.xaxis.set_major_formatter(mtick.FormatStrFormatter("%d%%"))
+        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=9, framealpha=0.9)
+        apply_nature_style(ax, fontsize=NATURE_SPECS["font_min_pt"] + 2, box=True)
+
+    mode = ranking_label.split("_")[-1]
+    fig.suptitle(
+        f"{model_label.upper()} vs {other_label.upper()}: closest (Sinkhorn, {mode}) "
+        f"→ {test_region} (zero-shot)\n"
         f"Training pool: {' + '.join(source_regions)}  |  {n_rand_seeds} random seeds",
         fontsize=13,
     )

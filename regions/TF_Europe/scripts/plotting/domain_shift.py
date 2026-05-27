@@ -258,6 +258,7 @@ def plot_region_shift_vs_performance_single_d(
     ax_list: list | None = None,  # pass existing axes to skip fig creation
     color_palette: dict | None = None,
     panel_titles: dict | None = None,
+    suptitle: str = "Region-level domain shift vs transfer performance",
 ):
     from scipy import stats
 
@@ -497,7 +498,7 @@ def plot_region_shift_vs_performance_single_d(
 
     joint_desc = "true joint" if joint_variant == "true" else "averaged joint"
     fig.suptitle(
-        f"Region-level domain shift vs transfer performance",
+        suptitle,
         fontsize=NATURE_SPECS["font_max_pt"] + 1,  # was 13
         y=1.01,
     )

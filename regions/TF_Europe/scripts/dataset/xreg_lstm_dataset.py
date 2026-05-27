@@ -348,7 +348,7 @@ def build_transfer_learning_assets(
     val_ratio=0.2,
     show_progress=True,
     src_code="CH",
-    region_groups: dict | None = None,  # e.g. {"CEU": ["FR", "IT_AT", "CH"]}
+    region_groups: dict | None = None,
 ):
     logging.info("\n" + "=" * 70)
     logging.info("TRANSFER LEARNING ASSET PREPARATION")
@@ -401,6 +401,15 @@ def build_transfer_learning_assets(
     )
 
     # ------------------------------------------------------------------
+    # Full lookup dataframe: covers both train_aug and test_aug so that
+    # build_source_codes_for_dataset can resolve any sequence key,
+    # regardless of which side of the split it originated from.
+    # ------------------------------------------------------------------
+    _df_full_lookup = pd.concat(
+        [res_xreg["df_train_aug"], res_xreg["df_test_aug"]], ignore_index=True
+    ).drop_duplicates(subset=["GLACIER", "YEAR", "ID", "PERIOD"])
+
+    # ------------------------------------------------------------------
     # 2) PER REGION × SPLIT
     # ------------------------------------------------------------------
     for reg, splits in FT_GLACIERS.items():
@@ -409,7 +418,6 @@ def build_transfer_learning_assets(
         logging.info(f"TARGET REGION: {reg}")
         logging.info("-" * 60)
 
-        # Resolve member codes for group regions
         member_codes = region_groups.get(reg, [reg])
         if len(member_codes) > 1:
             logging.info(f"Group region '{reg}' expanded to: {member_codes}")
@@ -424,7 +432,6 @@ def build_transfer_learning_assets(
 
             # ----------------------------------------------------------
             # Slice finetune + holdout
-            # For group regions, filter res_xreg to member codes first
             # ----------------------------------------------------------
             member_codes = region_groups.get(reg, [reg])
             if len(member_codes) > 1:
@@ -529,14 +536,17 @@ def build_transfer_learning_assets(
             else:
                 logging.warning(f"{exp_key}: No holdout test set available.")
 
+            # ----------------------------------------------------------
+            # Source codes — use full lookup so all ds keys are resolvable
+            # ----------------------------------------------------------
             ft_source_codes = build_source_codes_for_dataset(
-                ds_ft, res_ft["df_train_aug"], source_col="SOURCE_CODE"
+                ds_ft, _df_full_lookup, source_col="SOURCE_CODE"
             )
 
             test_source_codes = None
             if ds_test is not None:
                 test_source_codes = build_source_codes_for_dataset(
-                    ds_test, res_test["df_test_aug"], source_col="SOURCE_CODE"
+                    ds_test, _df_full_lookup, source_col="SOURCE_CODE"
                 )
 
             domain_vocab = sorted(
