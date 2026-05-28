@@ -532,3 +532,215 @@ def plot_pred_vs_truth_grid(
 
     plt.show()
     return fig
+
+
+def finetune_dan_transformer_on_target(
+    cfg,
+    model_foundation,  # trained Transformer_MB
+    assets_full,  # foundation training assets (ds_train, train_idx, val_idx)
+    ft_assets_region,  # ft_assets[region] — ds_ft, ds_test, ft_train_idx, ft_val_idx
+    ds_pooled_scaler,  # fitted scaler donor from assets_full
+    source_codes_pretrain,  # list[str] aligned with assets_full["ds_train"]
+    source_codes_ft,  # list[str] aligned with ft_assets_region["ds_ft"]
+    device,
+    best_params,
+    model_filename,
+    *,
+    dan_alpha=0.1,
+    grl_lambda=1.0,
+    pool="mean",
+    disc_hidden=128,
+    disc_dropout=0.1,
+    mix_ratio_ft=1.0,
+    epochs=60,
+    lr_backbone=5e-5,
+    lr_domain=1e-4,
+    es_patience=8,
+    log_every=5,
+    force_retrain=False,
+    verbose=True,
+):
+    import copy
+    import torch.nn.functional as F
+
+    os.makedirs(os.path.dirname(model_filename), exist_ok=True)
+
+    # --- build domain vocab from all source codes ---
+    domain_vocab = {
+        sc: i
+        for i, sc in enumerate(
+            sorted(set(source_codes_pretrain) | set(source_codes_ft))
+        )
+    }
+    n_domains = len(domain_vocab)
+    print(f"[DAN] domain_vocab: {domain_vocab}")
+
+    # --- load from cache if exists ---
+    model_ft = copy.deepcopy(model_foundation)
+    if not force_retrain and os.path.exists(model_filename):
+        print(f"Loading [dan] from {model_filename}")
+        model_ft.load_state_dict(torch.load(model_filename, map_location=device))
+        return model_ft, domain_vocab
+
+    # --- clone + scale pretrain dataset ---
+    ds_pretrain = mbm.data_processing.MBSequenceDataset._clone_untransformed_dataset(
+        assets_full["ds_train"]
+    )
+    ds_pretrain.set_scalers_from(ds_pooled_scaler)
+    ds_pretrain.transform_inplace()
+
+    ds_ft = mbm.data_processing.MBSequenceDataset._clone_untransformed_dataset(
+        ft_assets_region["ds_ft"]
+    )
+    ds_ft.set_scalers_from(ds_pooled_scaler)
+    ds_ft.transform_inplace()
+
+    # --- wrap with domain_id ---
+    ds_pretrain_tl = mbm.data_processing.MBSequenceDatasetTL(
+        base_ds=ds_pretrain,
+        source_codes=source_codes_pretrain,
+        domain_vocab=domain_vocab,
+    )
+    ds_ft_tl = mbm.data_processing.MBSequenceDatasetTL(
+        base_ds=ds_ft,
+        source_codes=source_codes_ft,
+        domain_vocab=domain_vocab,
+    )
+
+    # --- subsets ---
+    from torch.utils.data import Subset, ConcatDataset, DataLoader
+
+    pretrain_train = Subset(ds_pretrain_tl, assets_full["train_idx"])
+    ft_train = Subset(ds_ft_tl, ft_assets_region["ft_train_idx"])
+    ft_val = Subset(ds_ft_tl, ft_assets_region["ft_val_idx"])
+
+    # --- mix: upsample ft so it isn't drowned by pretrain ---
+    n_pre = len(pretrain_train)
+    n_ft = max(len(ft_train), 1)
+    k = max(1, int(np.ceil((n_pre * mix_ratio_ft) / n_ft)))
+    train_mix = ConcatDataset([pretrain_train] + [ft_train] * k)
+
+    train_dl = DataLoader(train_mix, batch_size=64, shuffle=True)
+    val_dl = DataLoader(ft_val, batch_size=128, shuffle=False)
+
+    if verbose:
+        print(
+            f"[DAN] pretrain={len(pretrain_train)} | ft={len(ft_train)} | "
+            f"ft_val={len(ft_val)} | mix={len(train_mix)} | k={k}"
+        )
+        b = next(iter(train_dl))
+        print(f"[DAN] batch domain_id unique: {torch.unique(b['domain_id']).tolist()}")
+
+    # --- wrap in DAN ---
+    dan = mbm.models.LSTM_MB_DAN(
+        base=model_ft,
+        n_domains=n_domains,
+        grl_lambda=grl_lambda,
+        dan_alpha=dan_alpha,
+        pool=pool,
+        disc_hidden=disc_hidden,
+        disc_dropout=disc_dropout,
+    ).to(device)
+
+    base_loss_fn = mbm.models.Transformer_MB.resolve_loss_fn(best_params)
+
+    opt = torch.optim.AdamW(
+        [
+            {"params": dan.base.parameters(), "lr": lr_backbone},
+            {"params": dan.domain_disc.parameters(), "lr": lr_domain},
+        ],
+        weight_decay=float(best_params.get("weight_decay", 1e-4)),
+    )
+
+    # --- training loop ---
+    best_val, wait = float("inf"), 0
+    history = {"train_loss": [], "val_loss": [], "dom_loss": [], "dom_acc": []}
+
+    for ep in range(1, epochs + 1):
+        dan.train()
+        tr_tot, tr_n = 0.0, 0
+        dom_tot_loss, dom_tot_acc, dom_n = 0.0, 0.0, 0
+
+        for batch in train_dl:
+            batch = mbm.models.Transformer_MB.to_device(device, batch)
+            y_m, y_w, y_a, dom_logits = dan(
+                batch["x_m"],
+                batch["x_s"],
+                batch["mv"],
+                batch["mw"],
+                batch["ma"],
+                domain_id=batch.get("domain_id", None),
+            )
+            loss = dan.dan_loss((y_m, y_w, y_a, dom_logits), batch, base_loss_fn)
+
+            opt.zero_grad(set_to_none=True)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(dan.parameters(), 1.0)
+            opt.step()
+
+            bs = batch["x_m"].shape[0]
+            tr_tot += loss.item() * bs
+            tr_n += bs
+
+            dom_y = batch.get("domain_id", None)
+            if dom_y is not None:
+                dom_y = dom_y.to(device).long()
+                dloss = F.cross_entropy(dom_logits, dom_y)
+                dacc = (dom_logits.argmax(1) == dom_y).float().mean()
+                dom_tot_loss += dloss.item() * bs
+                dom_tot_acc += dacc.item() * bs
+                dom_n += bs
+
+        tr_loss = tr_tot / max(tr_n, 1)
+        dom_loss = dom_tot_loss / max(dom_n, 1) if dom_n > 0 else float("nan")
+        dom_acc = dom_tot_acc / max(dom_n, 1) if dom_n > 0 else float("nan")
+
+        # val: task loss only on ft_val
+        dan.eval()
+        va_tot, va_n = 0.0, 0
+        with torch.no_grad():
+            for batch in val_dl:
+                batch = mbm.models.Transformer_MB.to_device(device, batch)
+                y_m, y_w, y_a = dan.base(
+                    batch["x_m"],
+                    batch["x_s"],
+                    batch["mv"],
+                    batch["mw"],
+                    batch["ma"],
+                )
+                loss_task = base_loss_fn((y_m, y_w, y_a), batch)
+                bs = batch["x_m"].shape[0]
+                va_tot += loss_task.item() * bs
+                va_n += bs
+
+        va_loss = va_tot / max(va_n, 1)
+
+        history["train_loss"].append(tr_loss)
+        history["val_loss"].append(va_loss)
+        history["dom_loss"].append(dom_loss)
+        history["dom_acc"].append(dom_acc)
+
+        if verbose and (ep == 1 or ep % log_every == 0):
+            print(
+                f"[DAN] ep {ep:03d} | train {tr_loss:.4f} | val {va_loss:.4f} | "
+                f"dom_loss {dom_loss:.4f} | dom_acc {dom_acc*100:.1f}% | "
+                f"best {best_val:.4f} | wait {wait}/{es_patience}"
+            )
+
+        if va_loss < best_val - 1e-6:
+            best_val, wait = va_loss, 0
+            best_state = {
+                k: v.detach().cpu().clone() for k, v in dan.base.state_dict().items()
+            }
+            torch.save(best_state, model_filename)
+        else:
+            wait += 1
+            if wait >= es_patience:
+                if verbose:
+                    print(f"[DAN] Early stopping at ep {ep}")
+                break
+
+    # reload best base weights
+    model_ft.load_state_dict(torch.load(model_filename, map_location=device))
+    plot_history_lstm(history)
+    return model_ft, domain_vocab
