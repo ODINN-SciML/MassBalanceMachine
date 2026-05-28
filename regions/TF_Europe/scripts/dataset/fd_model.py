@@ -123,7 +123,7 @@ def build_assets_from_glacier_list(
         months_tail_pad=months_tail_pad,
         normalize_target=True,
         expect_target=True,
-        show_progress=False,
+        show_progress=True,
     )
 
     train_idx, val_idx = mbm.data_processing.MBSequenceDataset.split_indices(
