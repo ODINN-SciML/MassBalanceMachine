@@ -524,7 +524,7 @@ def plot_pred_vs_truth_grid(
         fontsize=14,
     )
     fig.suptitle(title, fontsize=18, y=1.01)
-    fig.tight_layout()
+    fig.tight_layout(rect=[0, 0.06, 1, 1])  # <-- reserve 6% at bottom for legend
 
     if save_path:
         fig.savefig(str(save_path) + ".pdf", bbox_inches="tight")
