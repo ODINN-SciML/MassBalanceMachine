@@ -211,16 +211,19 @@ class CustomTorchNeuralNetRegressor(nn.Module):
 
                 # Create grouped prediction DataFrame
                 assert grouped_ids_glacier.index.name == "ID_int"
-                grouped_ids_glacier = pd.DataFrame(
-                    {
-                        "target": trueMean.cpu(),
-                        "ID_int": grouped_ids_glacier.index,
-                        "pred": predSum.cpu(),
-                        "PERIOD": grouped_ids_glacier.PERIOD,
-                        "YEAR": grouped_ids_glacier.YEAR,
-                        "RGIId": grouped_ids_glacier.RGIId,
-                    }
-                )
+                d = {
+                    "target": trueMean.cpu(),
+                    "ID_int": grouped_ids_glacier.index,
+                    "pred": predSum.cpu(),
+                    "PERIOD": grouped_ids_glacier.PERIOD,
+                    "YEAR": grouped_ids_glacier.YEAR,
+                    "RGIId": grouped_ids_glacier.RGIId,
+                }
+                if "POINT_ELEVATION" in grouped_ids_glacier.columns:
+                    d["POINT_ELEVATION"] = grouped_ids_glacier.POINT_ELEVATION
+                if "PERIOD" in grouped_ids_glacier.columns:
+                    d["PERIOD"] = grouped_ids_glacier.PERIOD
+                grouped_ids_glacier = pd.DataFrame(d)
 
                 grouped_ids = pd.concat(
                     [grouped_ids, grouped_ids_glacier], ignore_index=True
