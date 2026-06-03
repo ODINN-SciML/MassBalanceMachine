@@ -17,7 +17,7 @@ _wgms_data_columns = {
 }
 
 
-@pytest.mark.order1
+@pytest.mark.order(1)
 def test_data_preprocessing():
     target_raw_data_fname = (
         "./notebooks/example_data/iceland/files/iceland_stake_dataset.csv"
@@ -68,7 +68,7 @@ def test_data_preprocessing():
     assert data.shape == (Nrows, len(_wgms_data_columns))
 
 
-@pytest.mark.order2
+@pytest.mark.order(2)
 def test_data_processing_wgms():
     cfg = mbm.Config()
 

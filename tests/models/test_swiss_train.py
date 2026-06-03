@@ -31,7 +31,7 @@ else:
     dataPath = None
 
 
-@pytest.mark.order3
+@pytest.mark.order(3)
 def test_swiss_train_geo():
     cfg = mbm.SwitzerlandConfig(
         metaData=[

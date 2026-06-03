@@ -10,13 +10,13 @@ from massbalancemachine.data_processing.wgms import (
 )
 
 
-@pytest.mark.order1
+@pytest.mark.order(1)
 def test_data_retrieval():
     _clean_extracted_wgms()
     mbm.data_processing.check_and_download_wgms()
 
 
-@pytest.mark.order2
+@pytest.mark.order(2)
 def test_data_preprocessing_wgms():
     df = load_processed_wgms()
     expected_columns = [

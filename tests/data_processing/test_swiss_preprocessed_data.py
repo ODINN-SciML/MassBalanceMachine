@@ -22,7 +22,7 @@ else:
     dataPath = None
 
 
-@pytest.mark.order1
+@pytest.mark.order(1)
 def test_geodetic_data():
     cfg = mbm.SwitzerlandConfig(dataPath=dataPath, seed=30)
 
@@ -31,7 +31,7 @@ def test_geodetic_data():
     assert geodetic_mb.shape == (70, 19)
 
 
-@pytest.mark.order1
+@pytest.mark.order(1)
 def test_process_or_load_data():
     cfg = mbm.SwitzerlandConfig(dataPath=dataPath, seed=30)
 
@@ -84,7 +84,7 @@ def test_process_or_load_data():
     assert data_monthly.shape == (39559, 30)
 
 
-@pytest.mark.order2
+@pytest.mark.order(2)
 def test_geodataloader():
     # This test needs to run after test_process_or_load_data since we use the
     # results of process_or_load_data by reading on disk
