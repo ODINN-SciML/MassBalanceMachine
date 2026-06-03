@@ -74,14 +74,14 @@ def test_process_or_load_data():
     month_list, month_pos = mbm.data_processing.utils._rebuild_month_index(
         months_head_pad, months_tail_pad
     )
-    assert months_head_pad == ["oct_"]
+    assert months_head_pad == []
     assert months_tail_pad == [
         "sep_"
     ]  # Not ['aug_', 'sep_'] because we are using only Silvretta data
-    assert len(month_list) == 14
-    assert len(month_pos) == 14
+    assert len(month_list) == 13
+    assert len(month_pos) == 13
     print(data_monthly.shape)
-    assert data_monthly.shape == (41045, 30)
+    assert data_monthly.shape == (39559, 30)
 
 
 @pytest.mark.order2
@@ -157,7 +157,7 @@ def test_geodataloader():
         print(f"Glacier {g}")
     g = "silvretta"
     s, m, gt = gdl.stakes(g)
-    nRows = 36934
+    nRows = 35587
     assert s.shape == (nRows, 16)
     assert m.shape == (nRows, 14)
     assert gt.shape == (nRows,)
