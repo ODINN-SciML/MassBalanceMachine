@@ -27,6 +27,54 @@ def overlap_days(a_start, a_end, b_start, b_end):
 
 
 def assign_hydro_year(row):
+    """
+    Assign a single hydrological year to a time interval defined by FROM_DATE and TO_DATE.
+
+    A hydrological year `hy` runs from October 1st of year (hy-1) to September 30th
+    of year hy (e.g., hydrological year 2023 spans Oct 1 2022 to Sep 30 2023).
+
+    Parameters
+    ----------
+    row : pd.Series
+        A DataFrame row containing:
+        - FROM_DATE : pd.Timestamp – start of the interval (inclusive)
+        - TO_DATE   : pd.Timestamp – end of the interval (inclusive)
+
+    Returns
+    -------
+    int or pd.NA
+        The assigned hydrological year, or pd.NA if the input is invalid.
+
+    Notes
+    -----
+    Selection follows three rules applied in order:
+
+    1. **Exactly one fully covered year** – if the interval fully contains exactly
+       one hydrological year (FROM_DATE <= hy_start and TO_DATE >= hy_end),
+       that year is returned.
+    2. **Multiple fully covered years** – if the interval spans several full
+       hydrological years, the earliest one is returned.
+    3. **No fully covered year** – if no hydrological year is fully contained,
+       the year with the greatest day overlap with the interval is returned.
+       In case of a tie, the earliest tied year is chosen.
+
+    Invalid inputs (missing dates or TO_DATE < FROM_DATE) return pd.NA.
+
+    Examples
+    --------
+    # Interval spanning two full hydrological years -> earliest fully covered is returned
+    >>> row = pd.Series({"FROM_DATE": pd.Timestamp("2022-11-01"),
+    ...                  "TO_DATE":   pd.Timestamp("2025-02-28")})
+    >>> assign_hydro_year(row)
+    2024
+
+    # Partial overlap only -> hydrological year with most overlap days is returned
+    >>> row = pd.Series({"FROM_DATE": pd.Timestamp("2023-07-01"),
+    ...                  "TO_DATE":   pd.Timestamp("2023-11-30")})
+    >>> assign_hydro_year(row)
+    2023
+    """
+
     from_date = row["FROM_DATE"]
     to_date = row["TO_DATE"]
 

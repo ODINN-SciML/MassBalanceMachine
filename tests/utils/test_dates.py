@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import massbalancemachine as mbm
 from massbalancemachine.data_processing.utils import _compute_head_tail_pads_from_df
+from massbalancemachine.data_processing.utils.hydro_year import assign_hydro_year
 
 
 @pytest.mark.order(1)
@@ -308,6 +309,19 @@ def test_generate_monthly_ranges():
     ]
 
 
+def test_assign_hydro_year():
+    row = pd.Series(
+        {"FROM_DATE": pd.Timestamp("2022-11-01"), "TO_DATE": pd.Timestamp("2025-02-28")}
+    )
+    assert assign_hydro_year(row) == 2024
+
+    row = pd.Series(
+        {"FROM_DATE": pd.Timestamp("2023-07-01"), "TO_DATE": pd.Timestamp("2023-11-30")}
+    )
+    assert assign_hydro_year(row) == 2023
+
+
 if __name__ == "__main__":
     test_padding()
     test_generate_monthly_ranges()
+    test_assign_hydro_year()
