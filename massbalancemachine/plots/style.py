@@ -24,8 +24,5 @@ def use_mbm_style(force: bool = False):
     _STYLE_APPLIED = True
 
 
-# COLOR_ANNUAL = "#c51b7d"
-# COLOR_WINTER = "#011959"
-
 COLOR_ANNUAL = "#cc79a7"
 COLOR_WINTER = "#0072b2"

@@ -15,10 +15,9 @@ from calendar import month_abbr
 import xarray as xr
 import numpy as np
 import pandas as pd
-import config
 
 import config
-import data_processing.utils
+from data_processing.utils.hydro_year import months_hydro_year, _rebuild_month_index
 
 
 def get_climate_features_(
@@ -38,7 +37,7 @@ def get_climate_features_(
 
     Args:
         df (pd.DataFrame): DataFrame containing stake measurement locations and years.
-        output_fname (str): Path to the output CSV file.
+        output_fname (str): Path to the output CSV file. If set to `None`, it is not saved.
         climate_data (str): Path to the ERA5-Land climate data file.
         geopotential_data (str): Path to the geopotential data file.
         change_units (bool): If True, change temperature to Celsius and precipitation to m.w.e.
@@ -110,7 +109,8 @@ def get_climate_features_(
     # of the stake and the recorded height of the climate.
     df = _calculate_elevation_difference(df)
 
-    df.to_csv(output_fname, index=False)
+    if output_fname is not None:
+        df.to_csv(output_fname, index=False)
 
     return df
 
@@ -283,7 +283,7 @@ def _generate_climate_variable_names(
 ) -> list:
     """Generate list of climate variable names for one hydrological year."""
     climate_variables = list(ds_climate.keys())
-    months_names = [f"_{month}" for month in data_processing.utils.months_hydro_year]
+    months_names = [f"_{month}" for month in months_hydro_year]
 
     # extend months on both sides for longer periods:
     months_names = (
@@ -300,13 +300,29 @@ def _generate_climate_variable_names(
 
 def _create_date_range(
     year: int,
-    months_tail_pad,
-    months_head_pad,
+    start_month: str,
+    end_month: str,
 ) -> pd.DatetimeIndex:
-    """Create a date range for a given hydrological year based on months_tail_pad and months_head_pad."""
+    """Create a date range for a given hydrological year based on start_month and end_month."""
     if pd.isna(year):
         return None
     year = int(year)
+    # Period from 2000-10-01 to 2001-09-30 corresponds to the 2001 hydrological year
+
+    # start month is always in the PREVIOUS year
+    start = f"{year - 1}-{start_month}-01"
+    # end month can be either the CURRENT year, or the NEXT one depending on the head padding
+    if int(end_month) <= 6:
+        # If end month is before June this is likely that the measurement associated with hydrological year Y spans after (Y-1)-12-31
+        end = f"{year + 1}-{end_month}-01"
+    else:
+        end = f"{year}-{end_month}-01"
+
+    return pd.date_range(start=start, end=end, freq="MS")
+
+
+def _create_month_range(months_tail_pad, months_head_pad):
+    """Create a month range based on months_tail_pad and months_head_pad."""
 
     # mapping 'jan' -> '01', ..., 'dec' -> '12'
     abbr_to_num = {month_abbr[i].lower(): f"{i:02d}" for i in range(1, 13)}
@@ -317,28 +333,23 @@ def _create_date_range(
             return abbr_to_num[clean]
         raise ValueError(f"Unknown month token: {token}")
 
-    month_list, _ = data_processing.utils._rebuild_month_index(
-        months_head_pad, months_tail_pad
-    )
+    month_list, _ = _rebuild_month_index(months_head_pad, months_tail_pad)
     start_token, end_token = month_list[0], month_list[-1]
 
     start_month = token_to_num(start_token)
     end_month = token_to_num(end_token)
 
-    # start month is always in the PREVIOUS year
-    start = f"{year - 1}-{start_month}-01"
-    # end month is always in the CURRENT year
-    end = f"{year}-{end_month}-01"
-
-    return pd.date_range(start=start, end=end, freq="MS")
+    return start_month, end_month
 
 
 def _add_date_range(df: pd.DataFrame, months_tail_pad, months_head_pad) -> pd.DataFrame:
-    df = df.copy()
-    df["range_date"] = df["YEAR"].map(
-        lambda y: _create_date_range(y, months_tail_pad, months_head_pad)
+    start_month, end_month = _create_month_range(months_tail_pad, months_head_pad)
+
+    return df.assign(
+        range_date=df["YEAR"].map(
+            lambda y: _create_date_range(y, start_month, end_month)
+        )
     )
-    return df
 
 
 def _process_climate_data(
@@ -358,6 +369,20 @@ def _process_climate_data(
     # --- Bounds check (spatial) ---
     if "latitude" not in ds_climate.coords or "longitude" not in ds_climate.coords:
         raise ValueError("ds_climate must have 'latitude' and 'longitude' coordinates.")
+
+    # Check that the time window of all the entries is included in the range of the climate data
+    start_climate = ds_climate.time.min().values
+    end_climate = ds_climate.time.max().values
+    min_start_df = pd.to_datetime(df.FROM_DATE).min()
+    max_end_df = pd.to_datetime(df.TO_DATE).max() + pd.tseries.offsets.MonthBegin(
+        0
+    )  # Offset to beginning of next month for the end of the period
+    assert (
+        min_start_df >= start_climate
+    ), f"The measurement periods start outside of the climate time range. Climate data start on {start_climate} but measurements start up to {min_start_df}."
+    assert (
+        max_end_df <= end_climate
+    ), f"The measurement periods end outside of the climate time range. Climate data end on {end_climate} but measurements end up to {max_end_df}."
 
     lats = ds_climate["latitude"].values
     lons = ds_climate["longitude"].values
@@ -481,5 +506,6 @@ def _combine_dataframes(
 
 def _calculate_elevation_difference(df: pd.DataFrame) -> pd.DataFrame:
     """Calculate the difference between geopotential height and stake measurement elevation."""
-    df["ELEVATION_DIFFERENCE"] = df["POINT_ELEVATION"] - df["ALTITUDE_CLIMATE"]
-    return df
+    return df.assign(
+        ELEVATION_DIFFERENCE=df["POINT_ELEVATION"] - df["ALTITUDE_CLIMATE"]
+    )

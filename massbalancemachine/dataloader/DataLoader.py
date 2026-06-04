@@ -69,7 +69,7 @@ class DataLoader:
         *,
         test_size: float = None,
         type_fold: str = "group-meas-id",
-        random_state: bool = False,
+        use_random_seed: bool = True,
     ) -> Tuple[Iterator[Any], Iterator[Any]]:
         """
         Split the dataset into training and testing sets.
@@ -77,6 +77,7 @@ class DataLoader:
         Args:
             test_size (float): Proportion of the dataset to include in the test split.
             type_fold (str): Type of splitting between train and test sets. Options are 'group-rgi','group-c_region' or 'group-meas-id'.
+            use_random_seed (bool): Whether the random seed should be used or not. This allows having reproducible splits.
 
         Returns:
             Tuple[Iterator[Any], Iterator[Any]]: Iterators for training and testing indices.
@@ -96,13 +97,13 @@ class DataLoader:
         X, y, glacier_ids, stake_meas_id, regions = self._prepare_data_for_cv(
             self.data, self.meta_data_columns
         )
-        if random_state == False:
+        if use_random_seed:
             gss = GroupShuffleSplit(
                 n_splits=1,
                 test_size=test_size,
-                random_state=self.random_seed,  # commenting this improve randomness
+                random_state=self.random_seed,
             )
-        elif random_state == True:
+        else:
             gss = GroupShuffleSplit(
                 n_splits=1,
                 test_size=test_size,
@@ -311,3 +312,60 @@ class DataLoader:
 
         split_args = [X, y, groups] if groups is not None else [X, y]
         return list(kf.split(*split_args))
+
+
+def set_dataloader_splits(
+    dataloader, test_split_on="YEAR", test_splits=None, random_state=0, test_size=0.2
+):
+    """
+    Set the splits of the dataloader in order to generate the train/test datasets.
+    """
+
+    # Split into training and test splits with train_test_split
+    if test_splits is None:
+        train_splits, test_splits = train_test_split(
+            dataloader.data[test_split_on].unique(),
+            test_size=test_size,
+            random_state=random_state,
+        )
+    else:
+        split_data = dataloader.data[test_split_on].unique()
+        train_splits = [x for x in split_data if x not in test_splits]
+
+    train_indices = dataloader.data[
+        dataloader.data[test_split_on].isin(train_splits)
+    ].index
+    test_indices = dataloader.data[
+        dataloader.data[test_split_on].isin(test_splits)
+    ].index
+
+    dataloader.set_custom_train_test_indices(train_indices, test_indices)
+
+    # Get the features and targets of the training data for the indices as defined above, that will be used during the cross validation.
+    df_X_train = dataloader.data.iloc[train_indices]
+    y_train = df_X_train["POINT_BALANCE"].values
+    train_meas_id = df_X_train["ID"].unique()
+
+    # Get test set
+    df_X_test = dataloader.data.iloc[test_indices]
+    y_test = df_X_test["POINT_BALANCE"].values
+    test_meas_id = df_X_test["ID"].unique()
+
+    # Values split in training and test set
+    train_splits = df_X_train[test_split_on].unique()
+    test_splits = df_X_test[test_split_on].unique()
+
+    test_set = {
+        "df_X": df_X_test,
+        "y": y_test,
+        "meas_id": test_meas_id,
+        "splits_vals": test_splits,
+    }
+    train_set = {
+        "df_X": df_X_train,
+        "y": y_train,
+        "splits_vals": train_splits,
+        "meas_id": train_meas_id,
+    }
+
+    return train_set, test_set

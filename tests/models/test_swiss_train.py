@@ -31,7 +31,7 @@ else:
     dataPath = None
 
 
-@pytest.mark.order3
+@pytest.mark.order(3)
 def test_swiss_train_geo():
     cfg = mbm.SwitzerlandConfig(
         metaData=[
@@ -129,6 +129,7 @@ def test_swiss_train_geo():
         train_set["df_X"],
         months_head_pad=months_head_pad,
         months_tail_pad=months_tail_pad,
+        geodeticOggm=False,
     )
 
     nInp = len(feature_columns)
@@ -142,8 +143,18 @@ def test_swiss_train_geo():
     model = mbm.models.CustomTorchNeuralNetRegressor(network)
     optim = torch.optim.SGD(model.parameters(), lr=1e-4)
 
-    trainCfg = {"Nepochs": 1}
-    mbm.training.train_geo(model, gdl, optim, trainCfg)
+    params = {
+        "training": {
+            "Nepochs": 1,
+            "wGeo": 1.0,
+            "freqVal": 1,
+            "bestModelCriterion": "lossVal",
+            "scalingStakes": "glacier",
+            "log_dir": None,
+            "log_suffix": "",
+        }
+    }
+    mbm.training.train_geo(model, gdl, optim, params)
 
 
 if __name__ == "__main__":
