@@ -11,6 +11,80 @@ from geomloss import SamplesLoss
 from sklearn.preprocessing import StandardScaler
 
 
+def _estimate_blur(
+    X_scaled: np.ndarray, p, rng, blur_quantile_multiplier, max_points: int = 4000
+) -> float:
+    """
+    Estimate blur automatically from the median pairwise squared distance.
+
+    For p=2:
+        epsilon ~= alpha * median(||x_i - x_j||^2)
+        blur = sqrt(epsilon)
+    """
+    if len(X_scaled) > max_points:
+        idx = rng.choice(len(X_scaled), size=max_points, replace=False)
+        X_sub = X_scaled[idx]
+    else:
+        X_sub = X_scaled
+
+    n = len(X_sub)
+    if n < 2:
+        return 0.5
+
+    n_pairs = min(20000, n * (n - 1) // 2)
+    i = rng.integers(0, n, size=n_pairs)
+    j = rng.integers(0, n, size=n_pairs)
+    mask = i != j
+    i, j = i[mask], j[mask]
+
+    if len(i) == 0:
+        return 0.5
+
+    sq_dists = np.sum((X_sub[i] - X_sub[j]) ** 2, axis=1)
+    median_sq_dist = max(float(np.median(sq_dists)), 1e-8)
+
+    epsilon = blur_quantile_multiplier * median_sq_dist
+    if p == 2:
+        blur = math.sqrt(epsilon)
+    else:
+        blur = epsilon ** (1.0 / p)
+
+    return max(float(blur), 1e-4)
+
+
+class SinkhornDistance(nn.Module):
+    def __init__(
+        self,
+        X_scaled,
+        rng,
+        dtype=torch.float32,
+        device=None,
+        p=2,
+        blur_quantile_multiplier=0.1,
+        scaling=0.9,
+        reach=None,
+        sinkhorn_backend="auto",
+    ) -> None:
+        super().__init__()
+
+        self.dtype = dtype
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+
+        blur_ = _estimate_blur(X_scaled, p, rng, blur_quantile_multiplier)
+        self.loss_fn_ = SamplesLoss(
+            loss="sinkhorn",
+            p=p,
+            blur=blur_,
+            scaling=scaling,
+            reach=reach,
+            backend=sinkhorn_backend,
+            debias=True,
+        )
+
+    def forward(self, a, b, xt):
+        return self.loss_fn_(a, xt, b, xt).cpu().item()
+
+
 @dataclass
 class RelaxedSplitResult:
     pi_groups: np.ndarray
@@ -1009,42 +1083,9 @@ class SinkhornGroupSplit(nn.Module):
         )
 
     def _estimate_blur(self, X_scaled: np.ndarray, max_points: int = 4000) -> float:
-        """
-        Estimate blur automatically from the median pairwise squared distance.
-
-        For p=2:
-            epsilon ~= alpha * median(||x_i - x_j||^2)
-            blur = sqrt(epsilon)
-        """
-        if len(X_scaled) > max_points:
-            idx = self._rng.choice(len(X_scaled), size=max_points, replace=False)
-            X_sub = X_scaled[idx]
-        else:
-            X_sub = X_scaled
-
-        n = len(X_sub)
-        if n < 2:
-            return 0.5
-
-        n_pairs = min(20000, n * (n - 1) // 2)
-        i = self._rng.integers(0, n, size=n_pairs)
-        j = self._rng.integers(0, n, size=n_pairs)
-        mask = i != j
-        i, j = i[mask], j[mask]
-
-        if len(i) == 0:
-            return 0.5
-
-        sq_dists = np.sum((X_sub[i] - X_sub[j]) ** 2, axis=1)
-        median_sq_dist = max(float(np.median(sq_dists)), 1e-8)
-
-        epsilon = self.blur_quantile_multiplier * median_sq_dist
-        if self.p == 2:
-            blur = math.sqrt(epsilon)
-        else:
-            blur = epsilon ** (1.0 / self.p)
-
-        return max(float(blur), 1e-4)
+        return _estimate_blur(
+            X_scaled, self.p, self._rng, self.blur_quantile_multiplier, max_points
+        )
 
     def _compute_grad_norm(self) -> float:
         if self.logits_.grad is None:

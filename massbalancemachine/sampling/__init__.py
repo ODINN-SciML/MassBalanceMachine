@@ -1,1 +1,1 @@
-from sampling.sinkhorn import sinkhorn_train_test_split
+from sampling.sinkhorn import sinkhorn_train_test_split, SinkhornDistance
