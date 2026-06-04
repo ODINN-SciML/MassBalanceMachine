@@ -14,6 +14,7 @@ from typing import Dict, List, Optional, Tuple
 from data_processing.utils.hydro_year import (
     tag_hydro_year,
     _compute_months_before_after,
+    months_hydro_year,
 )
 
 
@@ -51,6 +52,11 @@ def transform_to_monthly(
 
     # Explode the dataframe based on the date range
     df_exploded = _explode_dataframe(df)
+
+    # Check that we don't have inconsistent values in MONTHS, every entry should contain a month tag
+    assert all(
+        [any(m2 in m for m2 in months_hydro_year) for m in df_exploded.MONTHS.unique()]
+    ), "MONTHS column in exploded dataframe contains inconsistent values. This is likely because of a nan in MONTHS."
 
     # Get the column names for the new dataframe
     column_names = _get_column_names(meta_data_columns, vois_topographical)
