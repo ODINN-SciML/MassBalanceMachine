@@ -111,6 +111,7 @@ Known Installation Issues
   .. code-block:: bash
 
       poetry config virtualenvs.create false --local
+
 Additional Installation for Windows Users
 -----------------------------------------
 
