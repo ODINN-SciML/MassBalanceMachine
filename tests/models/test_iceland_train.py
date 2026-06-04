@@ -9,7 +9,7 @@ from skorch.helper import SliceDataset
 import massbalancemachine as mbm
 
 
-@pytest.mark.order3
+@pytest.mark.order(3)
 def test_iceland_train():
     data = pd.read_csv(
         "./notebooks/example_data/iceland/files/iceland_monthly_dataset.csv"

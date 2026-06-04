@@ -14,10 +14,10 @@ def profilePerGlacier(
     lw=1.2,
     mean_linestyle="-",
     title="",
+    color=None,
 ):
     assert "POINT_ELEVATION" in df_gridded.columns
     if df_stakes is not None:
-        assert False, "Not supported yet"
         assert "POINT_ELEVATION" in df_stakes.columns
 
     order_key = "GLACIER" if "GLACIER" in df_gridded.keys() else "RGIId"
@@ -37,13 +37,15 @@ def profilePerGlacier(
         fig = None
 
     for i, test_gl in enumerate(custom_order):
-        df_gl = df_gridded[df_gridded[order_key] == test_gl]
+        df_gl = df_gridded[df_gridded[order_key] == test_gl].copy()
+        min_year = df_gl.YEAR.min()
+        max_year = df_gl.YEAR.max()
         if df_stakes is not None:
             df_gl_stakes = df_stakes[df_stakes[order_key] == test_gl]
         else:
             df_gl_stakes = None
 
-        ax = axs.flatten()[i]
+        ax = (axs if isinstance(axs, list) else axs.flatten())[i]
 
         nbins = int(
             np.ceil(
@@ -73,18 +75,28 @@ def profilePerGlacier(
             altitude_interval,
             min_per_bin,
             max_per_bin,
-            # color=color_annual,
+            color=color,
             alpha=band_alpha,
             # label=f"{label_prefix} band (annual)",
         )
         ax.plot(
             mean_per_bin,
             altitude_interval,
-            # color=color_annual,
+            color=color,
             linestyle=mean_linestyle,
             linewidth=lw,
             # label=f"{label_prefix} mean (annual)",
         )
+        if df_gl_stakes is not None:
+            selected_stakes = df_gl_stakes[
+                (df_gl_stakes.YEAR >= min_year) & (df_gl_stakes.YEAR <= max_year)
+            ]
+            selected_stakes = selected_stakes[selected_stakes.PERIOD == "annual"]
+            grouped_df = selected_stakes.groupby("POINT_ELEVATION").mean(
+                numeric_only=True
+            )
+            ax.scatter(grouped_df.target, grouped_df.index, marker="+", color=color)
+            ax.scatter(grouped_df.pred, grouped_df.index, marker="o", color=color)
 
         ax.grid()
 

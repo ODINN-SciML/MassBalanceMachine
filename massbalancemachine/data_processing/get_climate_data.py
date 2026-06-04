@@ -307,16 +307,16 @@ def _create_date_range(
     if pd.isna(year):
         return None
     year = int(year)
-    # Hydrological year 2000-10-01 to 2001-09-30 corresponds to year 2000
+    # Period from 2000-10-01 to 2001-09-30 corresponds to the 2001 hydrological year
 
     # start month is always in the PREVIOUS year
-    start = f"{year}-{start_month}-01"
+    start = f"{year - 1}-{start_month}-01"
     # end month can be either the CURRENT year, or the NEXT one depending on the head padding
     if int(end_month) <= 6:
-        # If end month is before June this is likely that the measurement associated with hydrological year Y spans after Y-12-31
-        end = f"{year + 2}-{end_month}-01"
-    else:
+        # If end month is before June this is likely that the measurement associated with hydrological year Y spans after (Y-1)-12-31
         end = f"{year + 1}-{end_month}-01"
+    else:
+        end = f"{year}-{end_month}-01"
 
     return pd.date_range(start=start, end=end, freq="MS")
 
@@ -369,6 +369,20 @@ def _process_climate_data(
     # --- Bounds check (spatial) ---
     if "latitude" not in ds_climate.coords or "longitude" not in ds_climate.coords:
         raise ValueError("ds_climate must have 'latitude' and 'longitude' coordinates.")
+
+    # Check that the time window of all the entries is included in the range of the climate data
+    start_climate = ds_climate.time.min().values
+    end_climate = ds_climate.time.max().values
+    min_start_df = pd.to_datetime(df.FROM_DATE).min()
+    max_end_df = pd.to_datetime(df.TO_DATE).max() + pd.tseries.offsets.MonthBegin(
+        0
+    )  # Offset to beginning of next month for the end of the period
+    assert (
+        min_start_df >= start_climate
+    ), f"The measurement periods start outside of the climate time range. Climate data start on {start_climate} but measurements start up to {min_start_df}."
+    assert (
+        max_end_df <= end_climate
+    ), f"The measurement periods end outside of the climate time range. Climate data end on {end_climate} but measurements end up to {max_end_df}."
 
     lats = ds_climate["latitude"].values
     lons = ds_climate["longitude"].values

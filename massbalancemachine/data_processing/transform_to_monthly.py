@@ -11,6 +11,12 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Tuple
 
+from data_processing.utils.hydro_year import (
+    tag_hydro_year,
+    _compute_months_before_after,
+    months_hydro_year,
+)
+
 
 def transform_to_monthly(
     df: pd.DataFrame,
@@ -47,6 +53,11 @@ def transform_to_monthly(
     # Explode the dataframe based on the date range
     df_exploded = _explode_dataframe(df)
 
+    # Check that we don't have inconsistent values in MONTHS, every entry should contain a month tag
+    assert all(
+        [any(m2 in m for m2 in months_hydro_year) for m in df_exploded.MONTHS.unique()]
+    ), "MONTHS column in exploded dataframe contains inconsistent values. This is likely because of a nan in MONTHS."
+
     # Get the column names for the new dataframe
     column_names = _get_column_names(meta_data_columns, vois_topographical)
 
@@ -76,8 +87,7 @@ def _round_to_start_of_month(date):
     If day < 15, round down to start of current month.
     If day >= 15, round up to start of next month.
     """
-    if date.day < 15 & date.day > 1:
-        print(date - pd.offsets.MonthBegin())
+    if date.day < 15 and date.day > 1:
         return date - pd.offsets.MonthBegin()
     elif date.day == 1:
         return date
@@ -90,70 +100,20 @@ def _generate_monthly_ranges(df: pd.DataFrame) -> pd.DataFrame:
     df["FROM_DATE_RND"] = df["FROM_DATE"].apply(_round_to_start_of_month)
     df["TO_DATE_RND"] = df["TO_DATE"].apply(_round_to_start_of_month)
 
-    df["MONTHS"] = df.apply(
-        lambda row: pd.date_range(
-            start=row["FROM_DATE_RND"],
-            end=row["TO_DATE_RND"],
-            freq="MS",
-            inclusive="left",
-        )
-        .strftime("%b")
-        .str.lower()
-        .tolist(),
-        axis=1,
+    df = _compute_months_before_after(df)
+    df["MONTHS"] = df.apply(tag_hydro_year, axis=1)
+    df["N_MONTHS"] = df["MONTHS"].apply(len)
+    df = df.drop(
+        columns=[
+            "FROM_DATE_RND",
+            "TO_DATE_RND",
+            "HY_YEAR",
+            "HY_START",
+            "HY_END",
+            "MONTHS_BEFORE",
+            "MONTHS_AFTER",
+        ]
     )
-
-    def tag_hydro_year(months: List[str]) -> List[str]:
-        """
-        Tag month tokens to disambiguate padding around the Oct→Sep hydrological core.
-
-        Rules:
-        - Leading (tail) padding: starting 'aug'/'sep' should be tagged 'aug_'/'sep_'
-        if they appear before the first 'oct' (or if no 'oct' exists, they are still tagged if at the start).
-        - Trailing (head) padding: ending 'oct'/'nov' should be tagged 'oct_'/'nov_'
-        if they appear after the last 'sep' (or if no 'sep' exists, they are still tagged if at the end).
-        - Middle months are untouched.
-        """
-        base = [str(m).strip().lower() for m in months]
-        n = len(base)
-        if n == 0:
-            return base
-
-        # Find anchors (may be missing)
-        try:
-            first_oct = base.index("oct")
-        except ValueError:
-            first_oct = None
-
-        try:
-            last_sep = n - 1 - base[::-1].index("sep")
-        except ValueError:
-            last_sep = None
-
-        tagged = base[:]  # copy
-
-        # --- Tag leading tail padding: starting run of aug/sep before first oct (or if no oct, still at start) ---
-        i = 0
-        while (
-            i < n and base[i] in ("aug", "sep") and (first_oct is None or i < first_oct)
-        ):
-            tagged[i] = base[i] + "_"
-            i += 1
-
-        # --- Tag trailing head padding: ending run of oct/nov after last sep (or if no sep, still at end) ---
-        j = n - 1
-        while (
-            j >= 0 and base[j] in ("oct", "nov") and (last_sep is None or j > last_sep)
-        ):
-            tagged[j] = base[j] + "_"
-            j -= 1
-
-        return tagged
-
-    # Apply the tagging function to the MONTHS column
-    df["MONTHS"] = df["MONTHS"].apply(tag_hydro_year)
-    df["N_MONTHS"] = df["MONTHS"].apply(len) - 1
-    df = df.drop(columns=["FROM_DATE_RND", "TO_DATE_RND"])
     return df
 
 
@@ -184,7 +144,7 @@ def _get_column_names(
     ]
     column_names.extend(meta_data_columns)
     column_names.extend(vois_topographical)
-    return column_names
+    return list(set(column_names))  # Delete duplicate column names
 
 
 def _get_climate_values(

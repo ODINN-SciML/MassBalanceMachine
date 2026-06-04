@@ -44,7 +44,7 @@ def download_climate_ERA5(region):
             "surface_solar_radiation_downwards",
             "total_precipitation",
         ],
-        "year": list(map(str, range(1950, 2025))),
+        "year": list(map(str, range(1950, 2026))),
         "month": list(map(lambda i: f"{i:02d}", range(1, 13))),
         "time": ["00:00"],
         "data_format": "netcdf",

@@ -99,6 +99,7 @@ tox = "^4.16.0"
 ruff = "^0.6.2"
 nbdime = "^4.0.1"
 nbdev = "^2.3.28"
+pytest-order = "^1.4.0"
 
 [tool.poetry.group.advanced]
 optional = false
