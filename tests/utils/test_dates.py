@@ -4,7 +4,10 @@ import numpy as np
 import pandas as pd
 import massbalancemachine as mbm
 from massbalancemachine.data_processing.utils import _compute_head_tail_pads_from_df
-from massbalancemachine.data_processing.utils.hydro_year import assign_hydro_year
+from massbalancemachine.data_processing.utils.hydro_year import (
+    assign_hydro_year,
+    _rebuild_month_index,
+)
 
 
 @pytest.mark.order(1)
@@ -321,7 +324,46 @@ def test_assign_hydro_year():
     assert assign_hydro_year(row) == 2023
 
 
+def test_rebuild_month_index():
+    months_head_pad = ["oct_"]
+    months_tail_pad = ["sep_"]
+    month_list, month_pos = _rebuild_month_index(months_head_pad, months_tail_pad)
+    assert month_list == [
+        "sep_",
+        "oct",
+        "nov",
+        "dec",
+        "jan",
+        "feb",
+        "mar",
+        "apr",
+        "may",
+        "jun",
+        "jul",
+        "aug",
+        "sep",
+        "oct_",
+    ]
+    assert month_pos == {
+        "sep_": 1,
+        "oct": 2,
+        "nov": 3,
+        "dec": 4,
+        "jan": 5,
+        "feb": 6,
+        "mar": 7,
+        "apr": 8,
+        "may": 9,
+        "jun": 10,
+        "jul": 11,
+        "aug": 12,
+        "sep": 13,
+        "oct_": 14,
+    }
+
+
 if __name__ == "__main__":
     test_padding()
     test_generate_monthly_ranges()
     test_assign_hydro_year()
+    test_rebuild_month_index()
