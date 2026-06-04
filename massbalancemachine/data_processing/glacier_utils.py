@@ -28,6 +28,7 @@ def create_glacier_grid_RGI(
     gdir: oggm.GlacierDirectory,
     rgi_gl: str,
     ds_svf=None,
+    calendar_year=False,
 ) -> pd.DataFrame:
     """Creates a DataFrame of glacier grid data for each year
 
@@ -37,6 +38,10 @@ def create_glacier_grid_RGI(
         glacier_indices (np.array): indices of glacier mask in the OGGM grid
         gdir (oggm directory): oggm glacier directory
         rgi_gl (str): RGI Id of the glacier
+        ds_svf (xarray.Dataset): Sky view factor data.
+        calendar_year (bool): Whether the glacier grid must be generated for
+            the calendar year or the hydrological year. This influences the
+            fields FROM_DATE and TO_DATE.
     Returns:
         df_grid (pd.DataFrame): dataframe of glacier grid data, for each year
     """
@@ -94,8 +99,12 @@ def create_glacier_grid_RGI(
     df_grid["YEAR"] = np.repeat(
         years, num_rows_per_year
     )  # 'year' column that has len(df_grid) instances of year
-    df_grid["FROM_DATE"] = df_grid["YEAR"].apply(lambda x: str(x) + "1001")
-    df_grid["TO_DATE"] = df_grid["YEAR"].apply(lambda x: str(x + 1) + "0930")
+    if calendar_year:
+        df_grid["FROM_DATE"] = df_grid["YEAR"].apply(lambda x: str(x) + "0101")
+        df_grid["TO_DATE"] = df_grid["YEAR"].apply(lambda x: str(x) + "1231")
+    else:
+        df_grid["FROM_DATE"] = df_grid["YEAR"].apply(lambda x: str(x - 1) + "1001")
+        df_grid["TO_DATE"] = df_grid["YEAR"].apply(lambda x: str(x) + "0930")
     df_grid["PERIOD"] = "annual"
 
     return df_grid

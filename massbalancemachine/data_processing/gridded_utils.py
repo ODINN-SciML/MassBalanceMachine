@@ -113,7 +113,13 @@ def create_gridded_features_from_mask_per_year(args):
 
             # Create glacier grid
             df_grid = create_glacier_grid_RGI(
-                ds, [year], glacier_indices, gdir, rgi_id, ds_svf=svf
+                ds,
+                [year],
+                glacier_indices,
+                gdir,
+                rgi_id,
+                ds_svf=svf,
+                calendar_year=True,
             )
 
             dataset_grid = Dataset(
