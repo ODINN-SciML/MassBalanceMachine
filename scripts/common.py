@@ -89,6 +89,8 @@ def default_glacier_name(rgi_id):
         "RGI60-11.01473": "Laaser Ferner",
         "RGI60-11.00597": "Übeltalferner",
         "RGI60-11.01776": "Langenferner/Vedretta Lunga",
+        "RGI60-11.03166": "Grand Etret",
+        "RGI60-11.00647": "Gigante Occidentale (Ries Ovest) / Westl. Rieser",
         # France, Mont Blanc
         "RGI60-11.03643": "Mer de Glace/Geant",
         "RGI60-11.03638": "Argentière",
@@ -116,6 +118,11 @@ def default_glacier_name(rgi_id):
         # Austria
         "RGI60-11.00897": "Hintereisferner",
         "RGI60-11.00787": "Kesselwandferner",
+        "RGI60-11.00781": "Jamtalferner",
+        "RGI60-11.00116": "Venedigerkees",
+        "RGI60-11.00251": "Kleinfleisskees",
+        "RGI60-11.00289": "Goldbergkees",
+        "RGI60-11.00006": "Schladminger",
         # Switzerland
         "RGI60-11.01270": "Grindelwald",
         "RGI60-11.01450": "Aletsch",
@@ -124,7 +131,7 @@ def default_glacier_name(rgi_id):
         "RGI60-11.01238": "Rhone",
         "RGI60-11.02249": "Tsanfleuron",
         "RGI60-11.01702": "Kander",
-        "RGI60-11.00872": "Hüfi",
+        "RGI60-11.00872": "Hüfifirn",
         "RGI60-11.02774": "Giétro",
         "RGI60-11.01876": "Gries",
         "RGI60-11.02746": "Schwarzberg",
@@ -137,6 +144,19 @@ def default_glacier_name(rgi_id):
         "RGI60-11.01267": "Porchabella",
         "RGI60-11.02634": "Prafleuri",
         "RGI60-11.01946": "Morteratsch",
+        "RGI60-11.00878": "Claridenfirn I",
+        "RGI60-11.00843": "Claridenfirn II",
+        "RGI60-11.00819": "Claridenfirn III",
+        "RGI60-11.01962": "Corvatsch",
+        "RGI60-11.02740": "Trient",
+        "RGI60-11.01367": "St. Annafirn",
+        "RGI60-11.02745": "Allalin",
+        "RGI60-11.01280": "Glatscher da Plattas",
+        "RGI60-11.02679": "Hohlaubgletscher",
+        "RGI60-11.02773": "Findelen",
+        "RGI60-11.02448": "Plan Névé",
+        "RGI60-11.02282": "Vadrec dal Castel Nord",
+        "RGI60-11.02624": "Feegletscher",
     }.get(rgi_id)
 
 

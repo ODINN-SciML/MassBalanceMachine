@@ -53,6 +53,10 @@ def build_monthly_data(data, cfg, rgi_region=None):
     # Filter out measurements that cannot be represented with padding (more than 12 padded months to add)
     data = df_check[df_check.MONTH_DIFF <= 24]
 
+    # Filter out measurements with period too small
+    data = data[data.MONTH_DIFF > 0]
+    data = data[(data.TO_DATE_DT - data.FROM_DATE_DT).dt.days >= 30]
+
     # Filter out specific measurements with a time window that is too large and that prevent from correctly computing the padding
     # RGI60-11
     data = data[~((data.RGIId == "RGI60-11.01450") & (data.MONTH_DIFF > 15))]  # Aletsch

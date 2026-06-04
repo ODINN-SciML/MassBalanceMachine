@@ -4,17 +4,21 @@ import tempfile
 import pandas as pd
 import geopandas as gpd
 import massbalancemachine as mbm
+from massbalancemachine.data_processing.wgms import (
+    _clean_extracted_wgms,
+    load_processed_wgms,
+)
 
 
-@pytest.mark.order1
+@pytest.mark.order(1)
 def test_data_retrieval():
-    mbm.data_processing.wgms._clean_extracted_wgms()
+    _clean_extracted_wgms()
     mbm.data_processing.check_and_download_wgms()
 
 
-@pytest.mark.order2
+@pytest.mark.order(2)
 def test_data_preprocessing_wgms():
-    df = mbm.data_processing.wgms.load_processed_wgms()
+    df = load_processed_wgms()
     expected_columns = [
         "YEAR",
         "ID",
@@ -31,7 +35,7 @@ def test_data_preprocessing_wgms():
         set(df.columns)
     ), f"Not all features are in the dataframe. Expected {set(expected_columns)} but {set(expected_columns).difference(set(df.columns))} are missing."
     assert df.shape == (64143, 10)
-    df_alps = mbm.data_processing.wgms.load_processed_wgms(rgi_region=11)
+    df_alps = load_processed_wgms(rgi_region=11)
     assert df_alps.shape == (27137, 10)
 
 
