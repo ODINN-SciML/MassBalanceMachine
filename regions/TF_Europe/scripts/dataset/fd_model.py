@@ -742,5 +742,6 @@ def finetune_dan_transformer_on_target(
 
     # reload best base weights
     model_ft.load_state_dict(torch.load(model_filename, map_location=device))
-    plot_history_lstm(history)
+    if verbose:
+        plot_history_lstm(history)
     return model_ft, domain_vocab

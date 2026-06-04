@@ -19,6 +19,7 @@ def finetune_transformer_on_target(
     epochs=50,
     lr_factor=0.1,
     force_retrain=False,
+    verbose=True,
 ):
     import copy
 
@@ -62,7 +63,7 @@ def finetune_transformer_on_target(
         fit_and_transform=False,
         seed=cfg.seed,
         use_weighted_sampler=True,
-        verbose=True,
+        verbose=verbose,
     )
 
     # --- freeze/unfreeze ---
@@ -110,10 +111,11 @@ def finetune_transformer_on_target(
         sched_patience=4,
         sched_min_lr=1e-7,
         log_every=5,
-        verbose=True,
+        verbose=verbose,
         save_best_path=model_filename,
     )
 
-    plot_history_lstm(history)
+    if verbose:
+        plot_history_lstm(history)
     model_ft.load_state_dict(torch.load(model_filename, map_location=device))
     return model_ft
