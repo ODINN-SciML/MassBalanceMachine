@@ -27,7 +27,7 @@ def create_gridded_features_RGI(
     years=range(2000, 2020),
     multi=True,
 ):
-    grid_path = os.path.join(data_path, "grids")
+    grid_path = os.path.join(data_path, "grids", "Hugonnet21")
     for rgi_id in rgi_ids:
         region_id = int(rgi_id.split("-")[1].split(".")[0])
 
@@ -37,7 +37,7 @@ def create_gridded_features_RGI(
             save_path = os.path.abspath(os.path.join(path_rgi_id, f"{year}.parquet"))
             products[year] = Product(save_path)
 
-        # Add clear sky radiation product
+        # Add sky view factor product
         svf_file = os.path.join(path_rgi_id, "svf.nc")
         products["svf"] = Product(svf_file)
 
@@ -199,7 +199,7 @@ def geodetic_input(
     rgi_id,
     years=range(2000, 2020),
 ):
-    grid_path = os.path.join(data_path, "grids")
+    grid_path = os.path.join(data_path, "grids", "Hugonnet21")
 
     df_X_geod = pd.DataFrame()
     maxId = -1

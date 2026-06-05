@@ -197,7 +197,7 @@ def _load_gridded_svf(
 ) -> list:
     """Load sky view factor data for each glacier directory."""
     grouped_rgi_ids = set(grouped_stakes.groups.keys())
-    grid_path = os.path.join(data_path, "grids")
+    grid_path = os.path.join(data_path, "grids", "Hugonnet21")
     loaded_svf = []
     for gdir in glacier_directories:
         if gdir.rgi_id in grouped_rgi_ids:
