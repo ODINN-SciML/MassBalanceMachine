@@ -218,17 +218,43 @@ fig.legend(
 )
 plt.tight_layout(rect=[0, 0.1, 1, 1])
 
-
 fig.savefig(f"{pathFolder}/cumulated_mass_change_glaciers_test.pdf")
 fig.savefig(f"{pathFolder}/cumulated_mass_change_glaciers_test.png", dpi=300)
 if plot:
     plt.show()
 plt.close(fig)
 
-if maps or len(mapsTest) > 0:
-    df_gridded_annual1 = pd.read_csv(f"{pathFolder1}/gridded_annual_test.csv")
-    df_gridded_annual2 = pd.read_csv(f"{pathFolder2}/gridded_annual_test.csv")
 
+# Load annual data
+df_gridded_annual1 = pd.read_csv(f"{pathFolder1}/gridded_annual_test.csv")
+df_gridded_annual2 = pd.read_csv(f"{pathFolder2}/gridded_annual_test.csv")
+
+
+# Plot MB profile
+fig = mbm.plots.profilePerGlacier(
+    df_gridded_annual1,
+    color="blue",
+    titles={
+        k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
+        for k in glacierNames
+    },
+)
+_ = mbm.plots.profilePerGlacier(
+    df_gridded_annual2,
+    color="red",
+    axs=fig.axes,
+    titles={
+        k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
+        for k in glacierNames
+    },
+)
+fig.savefig(f"{pathFolder}/MB_profile_individual_glaciers_test.pdf")
+if plot:
+    plt.show()
+plt.close(fig)
+
+
+if maps or len(mapsTest) > 0:
     mapsFolder = f"{pathFolder}/maps"
     os.makedirs(mapsFolder, exist_ok=True)
     rgi_ids = df_gridded_annual1.RGIId.unique() if maps else mapsTest
@@ -266,4 +292,4 @@ if maps or len(mapsTest) > 0:
             plt.tight_layout()
             fig.savefig(f"{mapsFolder}/{rgi_id}_{year}.pdf")
             plt.close(fig)
-    del df_gridded_annual1, df_gridded_annual2
+del df_gridded_annual1, df_gridded_annual2
