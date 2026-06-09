@@ -244,11 +244,14 @@ data_train = train_set["df_X"]
 data_train["y"] = train_set["y"]
 
 setFeatures(cfg, data_train, featuresInpModel)
+split_key = params["training"].get("splitVal", "group-meas-id")
+val_glaciers = params["training"].get("val_glaciers", None)
 df_X_train, y_train, df_X_val, y_val = trainValData(
     cfg,
     train_set,
     featuresInpModel,
-    split_key=params["training"].get("splitVal", "group-meas-id"),
+    split_key=split_key,
+    val_glaciers=val_glaciers,
 )
 
 

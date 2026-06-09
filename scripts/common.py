@@ -52,6 +52,7 @@ def parseParams(params):
             "scalingStakes": scalingStakes,
             "test_glaciers": params["training"].get("test_glaciers"),
             "train_glaciers": params["training"].get("train_glaciers"),
+            "val_glaciers": params["training"].get("val_glaciers"),
             "wGeo": params["training"].get("wGeo", 0.0),
             "bestModelCriterion": params["training"].get(
                 "bestModelCriterion", "lossVal"

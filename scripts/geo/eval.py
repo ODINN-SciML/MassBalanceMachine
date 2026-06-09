@@ -599,7 +599,8 @@ fig = mbm.plots.profilePerGlacier(
         k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
         for k in glacierNames
     },
-)  # , df_stakes=data_train)
+    df_stakes=grouped_ids_train,
+)
 fig.savefig(f"{pathFolder}/PMB_profile_individual_glaciers_train.pdf")
 if plot:
     plt.show()
