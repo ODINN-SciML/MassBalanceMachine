@@ -11,3 +11,4 @@ from .physical_analysis import *
 from .pmb_maps import *
 from .monitoring import *
 from .domain_shift import *
+from .folium import *

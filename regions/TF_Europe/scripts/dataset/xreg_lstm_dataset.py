@@ -145,7 +145,7 @@ def make_res_transfer_learning(
 ):
     """
     Returns:
-      res_pretrain: CH-only (df_train/df_train_aug + pads)
+      res_pretrain: source-only (df_train/df_train_aug + pads)
       res_ft: target finetune subset (df_train/df_train_aug + pads)
       res_test: target holdout (df_test/df_test_aug + pads)
     """
@@ -156,11 +156,28 @@ def make_res_transfer_learning(
         "months_tail_pad": res_xreg["months_tail_pad"],
     }
 
-    df_t_all = res_xreg["df_test"]
-    df_t_all_aug = res_xreg["df_test_aug"]
+    # Look for target in df_test first, fall back to df_train
+    df_test_all = res_xreg["df_test"]
+    df_test_all_aug = res_xreg["df_test_aug"]
+    df_train_all = res_xreg["df_train"]
+    df_train_all_aug = res_xreg["df_train_aug"]
 
-    df_target = df_t_all.loc[df_t_all[source_col] == target_code].copy()
-    df_target_aug = df_t_all_aug.loc[df_t_all_aug[source_col] == target_code].copy()
+    in_test = (df_test_all[source_col] == target_code).any()
+    in_train = (df_train_all[source_col] == target_code).any()
+
+    if in_test:
+        df_target = df_test_all.loc[df_test_all[source_col] == target_code].copy()
+        df_target_aug = df_test_all_aug.loc[
+            df_test_all_aug[source_col] == target_code
+        ].copy()
+    elif in_train:
+        df_target = df_train_all.loc[df_train_all[source_col] == target_code].copy()
+        df_target_aug = df_train_all_aug.loc[
+            df_train_all_aug[source_col] == target_code
+        ].copy()
+    else:
+        df_target = df_test_all.iloc[0:0].copy()  # empty
+        df_target_aug = df_test_all_aug.iloc[0:0].copy()
 
     df_ft = df_target.loc[df_target[glacier_col].isin(ft_glaciers)].copy()
     df_ft_aug = df_target_aug.loc[df_target_aug[glacier_col].isin(ft_glaciers)].copy()
@@ -330,6 +347,8 @@ def build_transfer_learning_assets(
     force_recompute=False,
     val_ratio=0.2,
     show_progress=True,
+    src_code="CH",
+    region_groups: dict | None = None,
 ):
     logging.info("\n" + "=" * 70)
     logging.info("TRANSFER LEARNING ASSET PREPARATION")
@@ -337,14 +356,15 @@ def build_transfer_learning_assets(
     logging.info(f"Cache directory: {cache_dir}")
     logging.info(f"Regions in FT_GLACIERS: {list(FT_GLACIERS.keys())}")
 
+    region_groups = region_groups or {}
     assets = {}
 
     # ------------------------------------------------------------------
-    # 1) CH PRETRAIN DATASET (shared across all TL experiments)
+    # 1) SRC PRETRAIN DATASET (shared across all TL experiments)
     # ------------------------------------------------------------------
-    key_train = "TL_CH_TRAIN"
+    key_train = f"TL_{src_code}_TRAIN"
 
-    logging.info("\n--- CH PRETRAIN DATASET ---")
+    logging.info("\n--- SRC PRETRAIN DATASET ---")
     logging.info(f"Cache key: {key_train}")
     logging.info(f"Force recompute: {force_recompute}")
 
@@ -356,12 +376,11 @@ def build_transfer_learning_assets(
     }
 
     logging.info(
-        f"CH train rows: {len(res_train['df_train'])} | "
+        f"{src_code} train rows: {len(res_train['df_train'])} | "
         f"Aug rows: {len(res_train['df_train_aug'])}"
     )
 
-    # ---- Option 2: also returns ds_ch_scalers (cached) ----
-    ds_ch, train_idx, val_idx, ds_ch_scalers = build_or_load_lstm_train_only(
+    ds_src, train_idx, val_idx, ds_src_scalers = build_or_load_lstm_train_only(
         cfg=cfg,
         key_train=key_train,
         res_train=res_train,
@@ -372,17 +391,23 @@ def build_transfer_learning_assets(
         force_recompute=force_recompute,
     )
 
-    ch_source_codes = build_source_codes_for_dataset(
-        ds_ch, res_xreg["df_train_aug"], source_col="SOURCE_CODE"
+    src_source_codes = build_source_codes_for_dataset(
+        ds_src, res_xreg["df_train_aug"], source_col="SOURCE_CODE"
     )
-
-    # IMPORTANT: do NOT fit scalers on ds_ch here anymore
-    # ds_ch_scalers is the scaler donor; ds_ch stays pristine.
 
     logging.info(
-        f"CH dataset size (sequences): {len(ds_ch)} | "
+        f"SRC dataset size (sequences): {len(ds_src)} | "
         f"Train split: {len(train_idx)} | Val split: {len(val_idx)}"
     )
+
+    # ------------------------------------------------------------------
+    # Full lookup dataframe: covers both train_aug and test_aug so that
+    # build_source_codes_for_dataset can resolve any sequence key,
+    # regardless of which side of the split it originated from.
+    # ------------------------------------------------------------------
+    _df_full_lookup = pd.concat(
+        [res_xreg["df_train_aug"], res_xreg["df_test_aug"]], ignore_index=True
+    ).drop_duplicates(subset=["GLACIER", "YEAR", "ID", "PERIOD"])
 
     # ------------------------------------------------------------------
     # 2) PER REGION × SPLIT
@@ -393,9 +418,13 @@ def build_transfer_learning_assets(
         logging.info(f"TARGET REGION: {reg}")
         logging.info("-" * 60)
 
+        member_codes = region_groups.get(reg, [reg])
+        if len(member_codes) > 1:
+            logging.info(f"Group region '{reg}' expanded to: {member_codes}")
+
         for split_name, ft_gls in splits.items():
 
-            exp_key = f"TL_CH_to_{reg}_{split_name}"
+            exp_key = f"TL_{src_code}_to_{reg}_{split_name}"
 
             logging.info("\n" + "-" * 40)
             logging.info(f"Experiment: {exp_key}")
@@ -404,8 +433,29 @@ def build_transfer_learning_assets(
             # ----------------------------------------------------------
             # Slice finetune + holdout
             # ----------------------------------------------------------
+            member_codes = region_groups.get(reg, [reg])
+            if len(member_codes) > 1:
+                logging.info(f"Group region '{reg}' expanded to: {member_codes}")
+
+                def _relabel(df, codes, group_name):
+                    df = df.copy()
+                    df.loc[df["SOURCE_CODE"].isin(codes), "SOURCE_CODE"] = group_name
+                    return df
+
+                res_xreg_for_reg = {
+                    **res_xreg,
+                    "df_train": _relabel(res_xreg["df_train"], member_codes, reg),
+                    "df_test": _relabel(res_xreg["df_test"], member_codes, reg),
+                    "df_train_aug": _relabel(
+                        res_xreg["df_train_aug"], member_codes, reg
+                    ),
+                    "df_test_aug": _relabel(res_xreg["df_test_aug"], member_codes, reg),
+                }
+            else:
+                res_xreg_for_reg = res_xreg
+
             res_pre, res_ft, res_test = make_res_transfer_learning(
-                res_xreg=res_xreg,
+                res_xreg=res_xreg_for_reg,
                 target_code=reg,
                 ft_glaciers=ft_gls,
             )
@@ -414,7 +464,6 @@ def build_transfer_learning_assets(
                 f"FT rows: {len(res_ft['df_train'])} | "
                 f"FT aug rows: {len(res_ft['df_train_aug'])}"
             )
-
             logging.info(
                 f"Holdout rows: {len(res_test['df_test'])} | "
                 f"Holdout aug rows: {len(res_test['df_test_aug'])}"
@@ -487,34 +536,34 @@ def build_transfer_learning_assets(
             else:
                 logging.warning(f"{exp_key}: No holdout test set available.")
 
+            # ----------------------------------------------------------
+            # Source codes — use full lookup so all ds keys are resolvable
+            # ----------------------------------------------------------
             ft_source_codes = build_source_codes_for_dataset(
-                ds_ft, res_ft["df_train_aug"], source_col="SOURCE_CODE"
+                ds_ft, _df_full_lookup, source_col="SOURCE_CODE"
             )
 
             test_source_codes = None
             if ds_test is not None:
                 test_source_codes = build_source_codes_for_dataset(
-                    ds_test, res_test["df_test_aug"], source_col="SOURCE_CODE"
+                    ds_test, _df_full_lookup, source_col="SOURCE_CODE"
                 )
 
             domain_vocab = sorted(
-                set(ch_source_codes)
+                set(src_source_codes)
                 | set(ft_source_codes)
                 | (set(test_source_codes) if test_source_codes is not None else set())
             )
 
-            # ----------------------------------------------------------
-            # Store assets (include ds_ch_scalers!)
-            # ----------------------------------------------------------
             assets[exp_key] = {
-                "ds_pretrain": ds_ch,  # pristine CH dataset
-                "ds_pretrain_scalers": ds_ch_scalers,  # <-- IMPORTANT: scaler donor
+                "ds_pretrain": ds_src,
+                "ds_pretrain_scalers": ds_src_scalers,
                 "pretrain_train_idx": train_idx,
                 "pretrain_val_idx": val_idx,
-                "ds_finetune": ds_ft,  # pristine FT dataset
+                "ds_finetune": ds_ft,
                 "finetune_train_idx": ft_train_idx,
                 "finetune_val_idx": ft_val_idx,
-                "ds_test": ds_test,  # pristine test dataset
+                "ds_test": ds_test,
                 "target_code": reg,
                 "split_name": split_name,
                 "ft_glaciers": ft_gls,
@@ -525,7 +574,7 @@ def build_transfer_learning_assets(
                 },
                 "ft_source_codes": ft_source_codes,
                 "test_source_codes": test_source_codes,
-                "pretrain_source_codes": ch_source_codes,
+                "pretrain_source_codes": src_source_codes,
                 "domain_vocab": domain_vocab,
             }
 
@@ -719,7 +768,7 @@ def build_or_load_lstm_all_xreg(
     target_source_codes=None,
     region_groups: dict | None = None,
     source_col="SOURCE_CODE",
-    ch_code="CH",
+    ch_code="CH",  # the source/train region
     cache_dir="logs/LSTM_cache",
     force_recompute_train=False,
     force_recompute_tests=False,
@@ -729,31 +778,13 @@ def build_or_load_lstm_all_xreg(
     expect_target=True,
     strict_nan=True,
 ):
-    """
-    Build or load LSTM datasets for cross-regional transfer (CH → targets).
-
-    Supports both individual region codes and grouped regions (pooled df_test).
-    Groups are keyed as "XREG_CH_TO_{GROUP_NAME}" and pool all member codes
-    into a single test dataset.
-
-    Parameters
-    ----------
-    region_groups : dict[str, list[str]] or None
-        e.g. {"CEU": ["FR", "IT_AT"], "USCA": ["ALA", "CAW"]}
-        Codes in groups are excluded from individual auto-discovery unless
-        explicitly listed in target_source_codes.
-    (all other parameters unchanged from original)
-    """
     logging.info("\n" + "=" * 60)
-    logging.info("CROSS-REGIONAL LSTM DATASET PREPARATION (CH → EU)")
+    logging.info(f"CROSS-REGIONAL LSTM DATASET PREPARATION ({ch_code} → EU)")
     logging.info("=" * 60)
 
     region_groups = region_groups or {}
-
-    # codes already covered by a group
     grouped_codes = {c for codes in region_groups.values() for c in codes}
 
-    # ---- discover individual target codes ----
     df_test_all = res_xreg["df_test"]
     df_test_aug_all = res_xreg["df_test_aug"]
 
@@ -777,10 +808,10 @@ def build_or_load_lstm_all_xreg(
     )
     logging.info(f"Cache directory: {cache_dir}")
 
-    # ---- train (CH) cached once ----
-    key_train = "XREG_CH_TRAIN"
+    # ---- train cached once, keyed by source ----
+    key_train = f"XREG_{ch_code}_TRAIN"  # was hardcoded "XREG_CH_TRAIN"
 
-    logging.info("\n--- CH TRAIN DATASET ---")
+    logging.info(f"\n--- {ch_code} TRAIN DATASET ---")
     logging.info(f"Cache key: {key_train}")
     logging.info(f"Force recompute train: {force_recompute_train}")
 
@@ -792,7 +823,7 @@ def build_or_load_lstm_all_xreg(
     }
 
     logging.info(
-        f"CH train rows: {len(res_train['df_train'])} | "
+        f"{ch_code} train rows: {len(res_train['df_train'])} | "
         f"Aug rows: {len(res_train['df_train_aug'])}"
     )
 
@@ -811,7 +842,7 @@ def build_or_load_lstm_all_xreg(
     )
 
     logging.info(
-        f"CH train dataset size: {len(ds_train)} | "
+        f"{ch_code} train dataset size: {len(ds_train)} | "
         f"Train split: {len(train_idx)} | Val split: {len(val_idx)}"
     )
 
@@ -872,7 +903,7 @@ def build_or_load_lstm_all_xreg(
     only_set = set(only_test_keys) if only_test_keys else None
 
     for sc in target_source_codes:
-        key_test = f"XREG_CH_TO_{sc}"
+        key_test = f"XREG_{ch_code}_TO_{sc}"  # was hardcoded "XREG_CH_TO_{sc}"
 
         if only_set is not None:
             if sc not in only_set and key_test not in only_set:
@@ -894,7 +925,9 @@ def build_or_load_lstm_all_xreg(
         logging.info("\n--- GROUPED TARGET REGION TEST DATASETS ---")
 
     for group_name, codes in region_groups.items():
-        key_test = f"XREG_CH_TO_{group_name}"
+        key_test = (
+            f"XREG_{ch_code}_TO_{group_name}"  # was hardcoded "XREG_CH_TO_{group_name}"
+        )
 
         if only_set is not None:
             if group_name not in only_set and key_test not in only_set:
@@ -908,7 +941,7 @@ def build_or_load_lstm_all_xreg(
         df_test_aug_group = df_test_aug_all.loc[mask_aug].copy()
 
         logging.info(
-            f"Group '{group_name}': pooled {len(df_test_group)} rows " f"from {codes}."
+            f"Group '{group_name}': pooled {len(df_test_group)} rows from {codes}."
         )
 
         outputs[key_test] = _build_test_entry(

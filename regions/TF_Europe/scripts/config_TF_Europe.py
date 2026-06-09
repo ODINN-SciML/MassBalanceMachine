@@ -16,24 +16,21 @@ RGI_REGIONS = {
         "folder": "RGI_01_Alaska",
         "file": "01_rgi60_Alaska.shp",
         "code": "ALA",
-    },
-    "02": {
-        "name": "WesternCanadaUS",
-        "folder": "RGI_02_WesternCanadaUS",
-        "file": "02_rgi60_WesternCanadaUS.shp",
-        "code": "CAW",
+        "era5_source": "EU_US_CANADA",
     },
     "06": {
         "name": "Iceland",
         "folder": "RGI_06_Iceland",
         "file": "06_rgi60_Iceland.shp",
         "code": "ISL",
+        "era5_source": "EU_US_CANADA",
     },
     "07": {
         "name": "Svalbard",
         "folder": "RGI_07_Svalbard",
         "file": "07_rgi60_Svalbard.shp",
         "code": "SJM",
+        "era5_source": "EU_US_CANADA",
     },
     "08": {
         "name": "Scandinavia",
@@ -42,6 +39,7 @@ RGI_REGIONS = {
         "code": "SCA",
         "subregions": ["Norway"],
         "subregions_codes": ["NOR"],
+        "era5_source": "EU_US_CANADA",
     },
     "11": {
         "name": "CentralEurope",
@@ -50,9 +48,41 @@ RGI_REGIONS = {
         "code": "CEU",
         "subregions": ["France", "Switzerland", "Italy_Austria"],
         "subregions_codes": ["FR", "CH", "IT_AT"],
+        "era5_source": "EU_US_CANADA",
+    },
+    "13": {
+        "name": "CentralAsia",
+        "folder": "RGI_13_CentralAsia",
+        "file": "13_rgi60_CentralAsia.shp",
+        "code": "CENTRALASIA",
+        "countries": ["CentralAsia"],
+        "era5_source": "HMA",
+    },
+    "14": {
+        "name": "SouthAsiaWest",
+        "folder": "RGI_14_SouthAsiaWest",
+        "file": "14_rgi60_SouthAsiaWest.shp",
+        "code": "SOUTHASIAWEST",
+        "countries": ["SouthAsiaWest"],
+        "era5_source": "HMA",
+    },
+    "15": {
+        "name": "SouthAsiaEast",
+        "folder": "RGI_15_SouthAsiaEast",
+        "file": "15_rgi60_SouthAsiaEast.shp",
+        "code": "SOUTHASIAEAST",
+        "countries": ["SouthAsiaEast"],
+        "era5_source": "HMA",
     },
 }
 
+# Derived automatically from RGI_REGIONS — do not edit manually
+REGION_CODE_TO_ERA5 = {}
+for _spec in RGI_REGIONS.values():
+    _source = _spec["era5_source"]
+    REGION_CODE_TO_ERA5[_spec["code"].upper()] = _source
+    for _sub in _spec.get("subregions_codes", []):
+        REGION_CODE_TO_ERA5[_sub.upper()] = _source
 
 # --- 1) One place to define the per-target region metadata you need for mapping ---
 TARGET_REGION_META = {

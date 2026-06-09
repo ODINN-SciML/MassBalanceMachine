@@ -478,14 +478,8 @@ def evaluate_one_model(
     ax_xlim=(-16, 9),
     ax_ylim=(-16, 9),
     title=None,
-    legend_fontsize=16,
+    legend_fontsize=NATURE_SPECS["font_min_pt"],
 ):
-    """
-    Evaluate a single model and optionally plot pred-vs-truth density on an axis.
-
-    If `ax` is None, a new (fig, ax) is created and returned.
-    If `ax` is provided, plotting happens into that axis and fig may be None.
-    """
     ds_train_copy, ds_test_copy, test_dl = make_test_loader_for_key(
         cfg, lstm_assets_for_key
     )
@@ -493,6 +487,7 @@ def evaluate_one_model(
     test_metrics, test_df_preds = model.evaluate_with_preds(
         device, test_dl, ds_test_copy
     )
+    test_df_preds = test_df_preds.dropna(subset=["target", "pred"])
 
     scores_annual, scores_winter = compute_seasonal_scores(
         test_df_preds, target_col="target", pred_col="pred"
@@ -506,7 +501,6 @@ def evaluate_one_model(
         "Bias_annual": float(scores_annual["Bias"]),
         "Bias_winter": float(scores_winter["Bias"]),
         "n_preds": int(len(test_df_preds)),
-        # useful if you added n in your safe scorer
         "n_annual": (
             int(scores_annual.get("n", np.nan))
             if isinstance(scores_annual, dict)
@@ -519,10 +513,9 @@ def evaluate_one_model(
         ),
     }
 
-    # Plot
     created_fig = None
     if ax is None:
-        created_fig = plt.figure(figsize=(15, 10))
+        created_fig = plt.figure(figsize=nature_figsize(cols=2, height_mm=120))
         ax = plt.subplot(1, 1, 1)
 
     pred_vs_truth_density(
@@ -533,9 +526,9 @@ def evaluate_one_model(
         palette=[mbm.plots.COLOR_ANNUAL, mbm.plots.COLOR_WINTER],
         ax_xlim=ax_xlim,
         ax_ylim=ax_ylim,
+        s=50,
     )
 
-    # Legend text (handle NaNs nicely)
     def _fmt(x):
         return (
             "NA"
@@ -562,7 +555,9 @@ def evaluate_one_model(
     )
 
     if title:
-        ax.set_title(title, fontsize=20)
+        ax.set_title(title, fontsize=NATURE_SPECS["font_max_pt"])
+
+    apply_nature_style(ax, fontsize=NATURE_SPECS["font_min_pt"], box=True)
 
     return out, test_df_preds, created_fig, ax
 
@@ -572,8 +567,8 @@ def evaluate_all_models(
     models_by_key: dict,
     lstm_assets_by_key: dict,
     device,
-    save_dir=None,  # e.g. "figures/eval"
-    grid_shape=(2, 3),  # 2x3 for 6 regions
+    save_dir=None,
+    grid_shape=(2, 3),
     grid_figsize=(20, 12),
     ax_xlim=(-16, 9),
     ax_ylim=(-16, 9),
@@ -587,18 +582,26 @@ def evaluate_all_models(
     else:
         save_abs = None
 
-    if custom_order == None:
+    src_label = (
+        complement_key.replace("XREG_", "").replace("_TO_", "")
+        if complement_key
+        else ""
+    )
+
+    if custom_order is None:
         keys = sorted(models_by_key.keys())
     else:
         keys = custom_order
 
-    # --- combined grid ---
     nrows, ncols = grid_shape
     fig_grid, axes = plt.subplots(
-        nrows, ncols, figsize=grid_figsize, sharex=True, sharey=True
+        nrows,
+        ncols,
+        figsize=(12, (90 * nrows) / 25.4),
+        sharex=True,
+        sharey=True,
     )
-    axes = np.array(axes).reshape(-1)  # flat
-    # If fewer/more keys than slots, we handle gracefully
+    axes = np.array(axes).reshape(-1)
     n_slots = len(axes)
 
     rows = []
@@ -608,7 +611,6 @@ def evaluate_all_models(
     for i, key in enumerate(keys):
         domain_shift_key = complement_key + key
         model = models_by_key[domain_shift_key]
-        # print(f"\nEvaluating {key} ...")
 
         # --- individual fig ---
         metrics, df_preds, fig_ind, ax_ind = evaluate_one_model(
@@ -619,8 +621,8 @@ def evaluate_all_models(
             ax=None,
             ax_xlim=ax_xlim,
             ax_ylim=ax_ylim,
-            title=f"{domain_shift_key} – Pred vs Truth (Test)",
-            legend_fontsize=14,
+            title=f"{src_label} → {key} – Pred vs Truth (Test)",
+            legend_fontsize=NATURE_SPECS["font_max_pt"],
         )
 
         metrics["key"] = domain_shift_key
@@ -630,10 +632,10 @@ def evaluate_all_models(
 
         if save_abs:
             out_png = os.path.join(save_abs, f"pred_vs_truth_{domain_shift_key}.png")
-            fig_ind.savefig(out_png, dpi=200, bbox_inches="tight")
-        plt.close(fig_ind)  # prevents duplicate display in notebooks
+            fig_ind.savefig(out_png, dpi=NATURE_SPECS["dpi"], bbox_inches="tight")
+        plt.close(fig_ind)
 
-        # --- grid subplot (if slot available) ---
+        # --- grid subplot ---
         if i < n_slots:
             ax_grid = axes[i]
             evaluate_one_model(
@@ -644,29 +646,26 @@ def evaluate_all_models(
                 ax=ax_grid,
                 ax_xlim=ax_xlim,
                 ax_ylim=ax_ylim,
-                title=key,
-                legend_fontsize=15,
+                title=f"{src_label} → {key}",
+                legend_fontsize=NATURE_SPECS["font_max_pt"],
             )
+            apply_nature_style(ax_grid, fontsize=NATURE_SPECS["font_max_pt"], box=True)
 
-        # --- add domain shift annotation (MMD² + energy distance) ---
+        # --- domain shift annotation ---
         if domain_shifts is not None and domain_shift_key in domain_shifts:
             shift = domain_shifts[domain_shift_key]
-
             txt = (
-                f"MMD² joint: {shift['D_mmd2_joint']:.3f}\n"
-                f"clim: {shift['D_mmd2_climate']:.3f} | topo: {shift['D_mmd2_topo']:.3f}\n"
-                f"E joint: {shift['D_energy_joint']:.3f}\n"
-                f"clim: {shift['D_energy_climate']:.3f} | topo: {shift['D_energy_topo']:.3f}"
+                f"Sinkhorn joint: {shift['D_sinkhorn_joint']:.3f}\n"
+                f"clim: {shift['D_sinkhorn_climate']:.3f} | topo: {shift['D_sinkhorn_topo']:.3f}"
             )
-
             ax_grid.text(
                 0.98,
-                0.98,
+                0.02,
                 txt,
                 transform=ax_grid.transAxes,
-                va="top",
+                va="bottom",
                 ha="right",
-                fontsize=11,
+                fontsize=NATURE_SPECS["font_max_pt"] + 2,
                 color="red",
                 bbox=dict(
                     boxstyle="round,pad=0.3",
@@ -683,26 +682,49 @@ def evaluate_all_models(
     for idx, ax in enumerate(axes[:n_slots]):
         row = idx // ncols
         col = idx % ncols
-
         if row < nrows - 1:
             ax.set_xlabel("")
         if col == 0:
-            ax.set_ylabel("Modeled PMB [m w.e.]")
+            ax.set_ylabel("Modeled PMB (m w.e.)", fontsize=NATURE_SPECS["font_max_pt"])
         else:
             ax.set_ylabel("")
 
     for i, ax in enumerate(axes):
-        if i != 0:  # keep only first subplot legend
+        if i != 0:
             leg = ax.get_legend()
             if leg is not None:
                 leg.remove()
 
-    fig_grid.suptitle("Pred vs Truth (Test) — All Datasets", fontsize=20)
-    fig_grid.tight_layout()
+    # remove all per-axis legends
+    for ax in axes[:n_slots]:
+        leg = ax.get_legend()
+        if leg is not None:
+            leg.remove()
+
+    # add a single clean figure-level legend
+    legend_handles = [
+        mpatches.Patch(color=mbm.plots.COLOR_ANNUAL, label="Annual"),
+        mpatches.Patch(color=mbm.plots.COLOR_WINTER, label="Winter"),
+    ]
+    fig_grid.legend(
+        handles=legend_handles,
+        loc="lower center",
+        bbox_to_anchor=(0.5, -0.02),
+        ncols=2,
+        frameon=False,
+        fontsize=NATURE_SPECS["font_max_pt"],
+    )
+
+    fig_grid.suptitle(
+        f"Zero-shot transfer performance - source: {src_label}",
+        fontsize=NATURE_SPECS["font_max_pt"] + 3,
+        y=0.98,
+    )
+    fig_grid.tight_layout(rect=[0, 0, 1, 0.98])
 
     if save_abs:
         out_grid = os.path.join(save_abs, "pred_vs_truth_ALL_REGIONS_grid.png")
-        fig_grid.savefig(out_grid, dpi=200, bbox_inches="tight")
+        fig_grid.savefig(out_grid, dpi=NATURE_SPECS["dpi"], bbox_inches="tight")
 
     df_metrics = pd.DataFrame(rows).set_index("key").sort_index()
 

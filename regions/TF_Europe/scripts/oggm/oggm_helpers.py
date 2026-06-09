@@ -27,6 +27,7 @@ def initialize_oggm_glacier_directories(
     task_list=None,
     from_prepro_level=2,
     prepro_border=10,
+    rgi_ids_list=None,
 ):
     """
     Initialize OGGM GlacierDirectories from preprocessed data and run a task list.
@@ -78,26 +79,38 @@ def initialize_oggm_glacier_directories(
         working_dir = os.path.join(cfg.dataPath, "OGGM", f"rgi_region_{rgi_region}")
 
     # empty the working directory if it exists
+    log.info("Emptying working directory: ", working_dir)
     emptyfolder(working_dir)
     oggmCfg.PATHS["working_dir"] = working_dir
+    log.info("Collecting from base_url: ", base_url)
 
     # Get RGI file
-    # rgi_dir = utils.get_rgi_dir(version=rgi_version, reset=False)
-    path = utils.get_rgi_region_file(
-        region=rgi_region, version=rgi_version, reset=False
-    )
-    rgidf = gpd.read_file(path)
-
-    # Initialize glacier directories from preprocessed data
-    print("Collecting from base_url: ", base_url)
-    gdirs = workflow.init_glacier_directories(
-        rgidf,
-        from_prepro_level=from_prepro_level,
-        prepro_base_url=base_url,
-        prepro_border=prepro_border,
-        reset=True,
-        force=True,
-    )
+    if rgi_ids_list is None:
+        rgi_dir = utils.get_rgi_dir(version=rgi_version, reset=False)
+        path = utils.get_rgi_region_file(
+            region=rgi_region, version=rgi_version, reset=False
+        )
+        rgidf = gpd.read_file(path)
+        # Initialize glacier directories from preprocessed data
+        gdirs = workflow.init_glacier_directories(
+            rgidf,
+            from_prepro_level=from_prepro_level,
+            prepro_base_url=base_url,
+            prepro_border=prepro_border,
+            reset=True,
+            force=True,
+        )
+        rgi_ids_list = rgidf["RGIId"].tolist()
+    else:
+        # Initialize glacier directories from preprocessed data
+        gdirs = workflow.init_glacier_directories(
+            rgi_ids_list,
+            from_prepro_level=from_prepro_level,
+            prepro_base_url=base_url,
+            prepro_border=prepro_border,
+            reset=True,
+            force=True,
+        )
 
     # Default task list if none provided
     if task_list is None:
@@ -111,7 +124,7 @@ def initialize_oggm_glacier_directories(
     for task in task_list:
         workflow.execute_entity_task(task, gdirs, print_log=False)
 
-    return gdirs, rgidf
+    return gdirs, rgi_ids_list
 
 
 def export_oggm_grids(cfg, gdirs, subset_rgis=None, output_path=None, rgi_region="11"):

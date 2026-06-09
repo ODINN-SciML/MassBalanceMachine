@@ -2,6 +2,7 @@
 *.idea
 
 poetry.lock
+dist
 
 __pycache__/
 massbalancemachine/__pycache__/
