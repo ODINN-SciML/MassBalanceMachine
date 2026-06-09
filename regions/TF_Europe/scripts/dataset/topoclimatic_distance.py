@@ -4,6 +4,66 @@ from scipy.stats import wasserstein_distance
 from sklearn.preprocessing import StandardScaler
 from scipy.stats import wasserstein_distance
 from sklearn.preprocessing import StandardScaler
+import torch
+from geomloss import SamplesLoss
+from tqdm import tqdm
+
+
+def _estimate_blur(
+    X: np.ndarray,
+    Y: np.ndarray,
+    blur_quantile_multiplier: float = 0.1,
+    max_points: int = 4000,
+    seed: int = 0,
+) -> float:
+    """Estimate blur from median pairwise squared distance on pooled sample."""
+    rng = np.random.default_rng(seed)
+    Z = np.vstack([X, Y]).astype(np.float32)
+    if len(Z) > max_points:
+        Z = Z[rng.choice(len(Z), size=max_points, replace=False)]
+
+    n = len(Z)
+    n_pairs = min(20000, n * (n - 1) // 2)
+    i = rng.integers(0, n, size=n_pairs)
+    j = rng.integers(0, n, size=n_pairs)
+    mask = i != j
+    i, j = i[mask], j[mask]
+
+    if len(i) == 0:
+        return 0.5
+
+    sq_dists = np.sum((Z[i] - Z[j]) ** 2, axis=1)
+    median_sq_dist = max(float(np.median(sq_dists)), 1e-8)
+    return max(float(np.sqrt(blur_quantile_multiplier * median_sq_dist)), 1e-4)
+
+
+def _sinkhorn_distance(
+    X: np.ndarray,
+    Y: np.ndarray,
+    blur: float = 0.5,
+    max_samples: int = 5000,
+    device: str = "cpu",
+    seed: int = 0,
+) -> float:
+    """Sinkhorn divergence between two sets of samples."""
+    rng = np.random.default_rng(seed)
+
+    def _subsample(A):
+        if len(A) <= max_samples:
+            return A
+        return A[rng.choice(len(A), size=max_samples, replace=False)]
+
+    X = _subsample(X).astype(np.float32)
+    Y = _subsample(Y).astype(np.float32)
+
+    loss_fn = SamplesLoss(loss="sinkhorn", p=2, blur=blur, scaling=0.9, debias=True)
+    Xt = torch.as_tensor(X, dtype=torch.float32, device=device)
+    Yt = torch.as_tensor(Y, dtype=torch.float32, device=device)
+    a = torch.ones(len(Xt), device=device) / len(Xt)
+    b = torch.ones(len(Yt), device=device) / len(Yt)
+
+    with torch.no_grad():
+        return float(loss_fn(a, Xt, b, Yt).item())
 
 
 def compute_wasserstein_per_var(df_src, df_tgt, cols, id_col="ID"):
@@ -124,36 +184,39 @@ def compute_domain_shift(
     df_tgt: pd.DataFrame,
     monthly_cols: list[str],
     static_cols: list[str],
+    elev_diff_col: str = "ELEVATION_DIFFERENCE",
+    id_col: str = "ID",
     glacier_col: str = "GLACIER",
     seed: int = 0,
-    compute_marginals: bool = False,
     scaler_m: StandardScaler | None = None,
     scaler_s: StandardScaler | None = None,
+    scaler_joint: StandardScaler | None = None,  # NEW: joint scaler for grid data
+    blur_m: float | None = None,
+    blur_s: float | None = None,
+    blur_joint: float | None = None,
+    bandwidths_m: list[float] | None = None,
+    bandwidths_s: list[float] | None = None,
+    device: str = "cpu",
 ) -> dict:
-    """
-    Assess input-space domain shift between source and target.
-
-    MMD² values are clipped to zero — the unbiased estimator can return small
-    negative values when distributions are very similar or sample sizes are
-    small (especially for topo variables at glacier level). Negative MMD²
-    is a statistical zero and clipping avoids propagating sign artifacts
-    into joint distances and per-variable summaries.
-    Energy distance is always non-negative by construction.
-    """
 
     def _clip_mmd2(val: float) -> float:
-        """Clip unbiased MMD² estimate to zero."""
         return float(max(val, 0.0))
 
-    # --- climate: row-level ---
+    pure_static = [c for c in static_cols if c != elev_diff_col]
+
+    def _stake_topo(df: pd.DataFrame) -> np.ndarray:
+        parts = [df.groupby(id_col)[pure_static].first()]
+        if elev_diff_col in static_cols:
+            parts.append(df.groupby(id_col)[[elev_diff_col]].mean())
+        return pd.concat(parts, axis=1)[static_cols].to_numpy(dtype=np.float64)
+
+    # --- raw features ---
     Xm_src = df_src[monthly_cols].to_numpy(dtype=np.float64)
     Xm_tgt = df_tgt[monthly_cols].to_numpy(dtype=np.float64)
+    Xs_src = _stake_topo(df_src)
+    Xs_tgt = _stake_topo(df_tgt)
 
-    # --- topo: glacier-level (deduplicated) ---
-    Xs_src = df_src.groupby(glacier_col)[static_cols].first().to_numpy(dtype=np.float64)
-    Xs_tgt = df_tgt.groupby(glacier_col)[static_cols].first().to_numpy(dtype=np.float64)
-
-    # --- scalers (fit if not provided) ---
+    # --- scalers ---
     if scaler_m is None:
         scaler_m = StandardScaler().fit(np.vstack([Xm_src, Xm_tgt]))
     if scaler_s is None:
@@ -164,66 +227,81 @@ def compute_domain_shift(
     Xs_src_z = scaler_s.transform(Xs_src)
     Xs_tgt_z = scaler_s.transform(Xs_tgt)
 
-    # --- distances ---
-    D_mmd2_climate = _clip_mmd2(mmd_squared_unbiased(Xm_src_z, Xm_tgt_z, seed=seed + 2))
-    D_energy_climate = energy_distance(Xm_src_z, Xm_tgt_z, seed=seed + 3)
-    D_mmd2_topo = _clip_mmd2(mmd_squared_unbiased(Xs_src_z, Xs_tgt_z, seed=seed + 4))
-    D_energy_topo = energy_distance(Xs_src_z, Xs_tgt_z, seed=seed + 5)
+    # --- blur ---
+    blur_m_ = (
+        blur_m if blur_m is not None else _estimate_blur(Xm_src_z, Xm_tgt_z, seed=seed)
+    )
+    blur_s_ = (
+        blur_s
+        if blur_s is not None
+        else _estimate_blur(Xs_src_z, Xs_tgt_z, seed=seed + 1)
+    )
 
-    out = {
+    # --- climate distances ---
+    D_mmd2_climate = _clip_mmd2(
+        mmd_squared_unbiased(Xm_src_z, Xm_tgt_z, bandwidths=bandwidths_m, seed=seed + 2)
+    )
+    D_energy_climate = energy_distance(Xm_src_z, Xm_tgt_z, seed=seed + 3)
+    D_sinkhorn_climate = _sinkhorn_distance(
+        Xm_src_z, Xm_tgt_z, blur=blur_m_, device=device, seed=seed + 4
+    )
+
+    # --- topo distances ---
+    D_mmd2_topo = _clip_mmd2(
+        mmd_squared_unbiased(Xs_src_z, Xs_tgt_z, bandwidths=bandwidths_s, seed=seed + 5)
+    )
+    D_energy_topo = energy_distance(Xs_src_z, Xs_tgt_z, seed=seed + 6)
+    D_sinkhorn_topo = _sinkhorn_distance(
+        Xs_src_z, Xs_tgt_z, blur=blur_s_, device=device, seed=seed + 7
+    )
+
+    # --- true joint Sinkhorn ---
+    blur_joint_ = blur_joint if blur_joint is not None else 0.5 * (blur_m_ + blur_s_)
+
+    if scaler_joint is not None:
+        # Grid data path: scale all cols directly, no ID-level aggregation
+        all_cols = monthly_cols + static_cols
+        Xjoint_src = scaler_joint.transform(df_src[all_cols].to_numpy(dtype=np.float64))
+        Xjoint_tgt = scaler_joint.transform(df_tgt[all_cols].to_numpy(dtype=np.float64))
+    else:
+        # Stake data path: broadcast ID-level topo to monthly rows
+        topo_only_idx = [
+            j for j, c in enumerate(static_cols) if c not in set(monthly_cols)
+        ]
+        if topo_only_idx:
+            topo_src_per_row = scaler_s.transform(_stake_topo(df_src))[
+                pd.Categorical(df_src[id_col]).codes
+            ][:, topo_only_idx]
+            topo_tgt_per_row = scaler_s.transform(_stake_topo(df_tgt))[
+                pd.Categorical(df_tgt[id_col]).codes
+            ][:, topo_only_idx]
+            Xjoint_src = np.hstack([Xm_src_z, topo_src_per_row])
+            Xjoint_tgt = np.hstack([Xm_tgt_z, topo_tgt_per_row])
+        else:
+            Xjoint_src = Xm_src_z
+            Xjoint_tgt = Xm_tgt_z
+
+    D_sinkhorn_joint = _sinkhorn_distance(
+        Xjoint_src, Xjoint_tgt, blur=blur_joint_, device=device, seed=seed + 8
+    )
+
+    return {
         "n_src_rows": len(Xm_src),
         "n_tgt_rows": len(Xm_tgt),
-        "n_src_glaciers": len(Xs_src),
-        "n_tgt_glaciers": len(Xs_tgt),
-        # --- joint ---
+        "n_src_glaciers": df_src[glacier_col].nunique(),
+        "n_tgt_glaciers": df_tgt[glacier_col].nunique(),
+        "n_src_ids": df_src[id_col].nunique(),
+        "n_tgt_ids": df_tgt[id_col].nunique(),
         "D_mmd2_joint": 0.5 * D_mmd2_climate + 0.5 * D_mmd2_topo,
         "D_energy_joint": 0.5 * D_energy_climate + 0.5 * D_energy_topo,
-        # --- climate only ---
+        "D_sinkhorn_joint": D_sinkhorn_joint,
         "D_mmd2_climate": D_mmd2_climate,
         "D_energy_climate": D_energy_climate,
-        # --- topo only ---
+        "D_sinkhorn_climate": D_sinkhorn_climate,
         "D_mmd2_topo": D_mmd2_topo,
         "D_energy_topo": D_energy_topo,
+        "D_sinkhorn_topo": D_sinkhorn_topo,
     }
-
-    # --- optional per-variable marginal distances ---
-    if compute_marginals:
-        # climate vars: row-level
-        for j, col in enumerate(monthly_cols):
-            out[f"D_mmd2_{col}"] = _clip_mmd2(
-                mmd_squared_unbiased(
-                    Xm_src_z[:, j : j + 1],
-                    Xm_tgt_z[:, j : j + 1],
-                    seed=seed + 10 + j,
-                )
-            )
-            out[f"D_energy_{col}"] = float(
-                energy_distance(
-                    Xm_src_z[:, j : j + 1],
-                    Xm_tgt_z[:, j : j + 1],
-                    seed=seed + 100 + j,
-                )
-            )
-
-        # topo vars: glacier-level
-        offset = len(monthly_cols)
-        for j, col in enumerate(static_cols):
-            out[f"D_mmd2_{col}"] = _clip_mmd2(
-                mmd_squared_unbiased(
-                    Xs_src_z[:, j : j + 1],
-                    Xs_tgt_z[:, j : j + 1],
-                    seed=seed + 10 + offset + j,
-                )
-            )
-            out[f"D_energy_{col}"] = float(
-                energy_distance(
-                    Xs_src_z[:, j : j + 1],
-                    Xs_tgt_z[:, j : j + 1],
-                    seed=seed + 100 + offset + j,
-                )
-            )
-
-    return out
 
 
 def split_pool_holdout(
@@ -320,4 +398,909 @@ def split_pool_holdout(
         "actual_holdout_frac": float(actual_frac),
         "mmd2_holdout_vs_region": float(mmd2_holdout),
         "mmd2_pool_vs_region": float(mmd2_pool),
+    }
+
+
+def split_pool_holdout_sinkhorn(
+    df_region: pd.DataFrame,
+    monthly_cols: list[str],
+    static_cols: list[str],
+    scaler_m,
+    scaler_s,
+    blur_joint: float,
+    glacier_col: str = "GLACIER",
+    id_col: str = "ID",
+    elev_diff_col: str = "ELEVATION_DIFFERENCE",
+    pool_frac: float = 0.2,
+    seed: int = 0,
+    n_restarts: int = 50,
+    frac_tol: float = 0.05,
+    min_pool_glaciers: int = 3,
+) -> dict:
+    """
+    Split a target region into a fine-tuning pool and a holdout set.
+
+    Distances are computed at measurement-row level using the true joint
+    (climate + topo stacked) Sinkhorn divergence, consistent with
+    D_sinkhorn_joint in compute_domain_shift.
+
+    The split is optimized so that:
+      (1) Sinkhorn(pool → holdout) is small  — pool covers the holdout distribution
+      (2) |Sinkhorn(pool → all) - Sinkhorn(holdout → all)| is small — balanced shift
+
+    Parameters
+    ----------
+    df_region : pd.DataFrame
+        All rows for the target region.
+    monthly_cols : list[str]
+        Monthly feature column names.
+    static_cols : list[str]
+        Static feature column names.
+    scaler_m :
+        Global monthly scaler fitted via build_global_scalers_multi_source.
+    scaler_s :
+        Global static scaler fitted via build_global_scalers_multi_source.
+    blur_joint : float
+        Sinkhorn blur for the joint space — pass blur_joint from 1.7.
+    glacier_col : str
+        Column identifying glaciers.
+    id_col : str
+        Column identifying individual measurements.
+    elev_diff_col : str
+        Name of the elevation difference column (averaged per ID, not .first()).
+    pool_frac : float
+        Target fraction of measurements to use as fine-tuning pool.
+    seed : int
+        Base random seed.
+    n_restarts : int
+        Number of random orderings to try; best split by score is kept.
+    frac_tol : float
+        Splits where |achieved_frac - pool_frac| > frac_tol are skipped.
+    min_pool_glaciers : int
+        Minimum number of glaciers required in the pool.
+
+    Returns
+    -------
+    dict with keys:
+        pool_glaciers, holdout_glaciers,
+        n_meas_pool, n_meas_holdout,
+        actual_pool_frac,
+        sinkhorn_pool_vs_holdout,
+        sinkhorn_pool_vs_region,
+        sinkhorn_holdout_vs_region,
+        blur_joint, best_seed, best_score
+    """
+    # ------------------------------------------------------------------
+    # 1. Glacier inventory — names and measurement counts
+    # ------------------------------------------------------------------
+    glaciers = df_region[glacier_col].unique().tolist()
+    n_glaciers = len(glaciers)
+    glacier_to_idx = {g: i for i, g in enumerate(glaciers)}
+
+    n_meas = np.array(
+        [(df_region[glacier_col] == g).sum() for g in glaciers], dtype=int
+    )
+
+    n_total_meas = int(n_meas.sum())
+    target_pool_meas = int(round(pool_frac * n_total_meas))
+
+    print(f"  Total measurements : {n_total_meas}")
+    print(f"  Target pool meas   : {target_pool_meas} ({pool_frac:.0%})")
+    print(f"  Total glaciers     : {n_glaciers}")
+    print(f"  blur_joint         : {blur_joint:.4f}")
+
+    # ------------------------------------------------------------------
+    # 2. Precompute row-level joint features for the whole region
+    #    (consistent with compute_domain_shift's D_sinkhorn_joint)
+    # ------------------------------------------------------------------
+    pure_static = [c for c in static_cols if c != elev_diff_col]
+
+    def _stake_topo(df):
+        parts = [df.groupby(id_col)[pure_static].first()]
+        if elev_diff_col in static_cols:
+            parts.append(df.groupby(id_col)[[elev_diff_col]].mean())
+        return pd.concat(parts, axis=1)[static_cols].to_numpy(dtype=np.float64)
+
+    Xm_all = scaler_m.transform(df_region[monthly_cols].to_numpy(dtype=np.float64))
+    Xs_id = scaler_s.transform(_stake_topo(df_region))
+    id_codes = pd.Categorical(df_region[id_col]).codes
+    topo_per_row = Xs_id[id_codes]
+    X_joint_all = np.hstack([Xm_all, topo_per_row]).astype(np.float32)
+
+    # row-to-glacier mapping for fast subsetting
+    glacier_codes = np.array(
+        [glacier_to_idx[g] for g in df_region[glacier_col]], dtype=int
+    )
+
+    loss_fn = SamplesLoss(
+        loss="sinkhorn",
+        p=2,
+        blur=blur_joint,
+        scaling=0.9,
+        debias=True,
+        backend="tensorized",
+    )
+
+    def _sinkhorn(mask_a, mask_b, max_samples=2000):
+        Xa = X_joint_all[mask_a]
+        Xb = X_joint_all[mask_b]
+        if len(Xa) < 2 or len(Xb) < 2:
+            return 0.0
+        if len(Xa) > max_samples:
+            Xa = Xa[np.random.choice(len(Xa), max_samples, replace=False)]
+        if len(Xb) > max_samples:
+            Xb = Xb[np.random.choice(len(Xb), max_samples, replace=False)]
+        ta = torch.as_tensor(Xa, dtype=torch.float32)
+        tb = torch.as_tensor(Xb, dtype=torch.float32)
+        wa = torch.ones(len(ta)) / len(ta)
+        wb = torch.ones(len(tb)) / len(tb)
+        with torch.no_grad():
+            return float(loss_fn(wa, ta, wb, tb).item())
+
+    def _mask_for(glacier_idxs):
+        return np.isin(glacier_codes, list(glacier_idxs))
+
+    all_mask = np.ones(len(X_joint_all), dtype=bool)
+
+    # ------------------------------------------------------------------
+    # 3. Greedy split with n_restarts random orderings, keep best score
+    # ------------------------------------------------------------------
+    best_score = np.inf
+    best_result = None
+
+    for restart in range(n_restarts):
+        rng = np.random.default_rng(seed + restart)
+        order = np.arange(n_glaciers)
+        rng.shuffle(order)
+
+        pool_idxs = set()
+        holdout_idxs = set()
+        pool_meas_count = 0
+
+        for glacier_idx in order:
+            gl_meas = int(n_meas[glacier_idx])
+            pool_full = pool_meas_count + gl_meas > target_pool_meas * (1 + frac_tol)
+
+            if pool_full:
+                holdout_idxs.add(glacier_idx)
+                continue
+
+            trial_pool = pool_idxs | {glacier_idx}
+            trial_holdout = holdout_idxs | {glacier_idx}
+
+            holdout_mask = _mask_for(holdout_idxs) if holdout_idxs else all_mask
+            pool_mask = _mask_for(pool_idxs) if pool_idxs else all_mask
+
+            score_if_pool = _sinkhorn(_mask_for(trial_pool), holdout_mask) + abs(
+                _sinkhorn(_mask_for(trial_pool), all_mask)
+                - _sinkhorn(holdout_mask, all_mask)
+            )
+            score_if_holdout = _sinkhorn(pool_mask, _mask_for(trial_holdout)) + abs(
+                _sinkhorn(pool_mask, all_mask)
+                - _sinkhorn(_mask_for(trial_holdout), all_mask)
+            )
+
+            if score_if_pool <= score_if_holdout:
+                pool_idxs.add(glacier_idx)
+                pool_meas_count += gl_meas
+            else:
+                holdout_idxs.add(glacier_idx)
+
+        achieved_frac = pool_meas_count / n_total_meas
+        if abs(achieved_frac - pool_frac) > frac_tol:
+            continue
+        if len(pool_idxs) < min_pool_glaciers:
+            continue
+
+        pool_mask = _mask_for(pool_idxs)
+        holdout_mask = _mask_for(holdout_idxs)
+
+        sk_pool_holdout = _sinkhorn(pool_mask, holdout_mask)
+        sk_pool_region = _sinkhorn(pool_mask, all_mask)
+        sk_holdout_region = _sinkhorn(holdout_mask, all_mask)
+
+        score = sk_pool_holdout + abs(sk_pool_region - sk_holdout_region)
+
+        print(
+            f"  restart {restart:3d} | frac={achieved_frac:.2f} | "
+            f"sk(pool↔holdout)={sk_pool_holdout:.4f} | "
+            f"balance={abs(sk_pool_region - sk_holdout_region):.4f} | "
+            f"score={score:.4f}"
+        )
+
+        if score < best_score:
+            best_score = score
+            best_result = {
+                "pool_idxs": pool_idxs,
+                "holdout_idxs": holdout_idxs,
+                "pool_meas_count": pool_meas_count,
+                "achieved_frac": achieved_frac,
+                "sk_pool_holdout": sk_pool_holdout,
+                "sk_pool_region": sk_pool_region,
+                "sk_holdout_region": sk_holdout_region,
+                "best_seed": seed + restart,
+            }
+
+    if best_result is None:
+        raise RuntimeError(
+            f"No valid split found within frac_tol={frac_tol} and "
+            f"min_pool_glaciers={min_pool_glaciers} after {n_restarts} restarts. "
+            f"Try increasing n_restarts or frac_tol."
+        )
+
+    r = best_result
+    pool_glaciers = [glaciers[i] for i in r["pool_idxs"]]
+    holdout_glaciers = [glaciers[i] for i in r["holdout_idxs"]]
+
+    print(f"\n  Best split (seed={r['best_seed']}):")
+    print(
+        f"  Pool    : {len(pool_glaciers)} glaciers, {r['pool_meas_count']} meas ({r['achieved_frac']:.1%})"
+    )
+    print(
+        f"  Holdout : {len(holdout_glaciers)} glaciers, {n_total_meas - r['pool_meas_count']} meas ({1 - r['achieved_frac']:.1%})"
+    )
+    print(f"  Sinkhorn(pool → holdout)  : {r['sk_pool_holdout']:.4f}")
+    print(f"  Sinkhorn(pool → region)   : {r['sk_pool_region']:.4f}")
+    print(f"  Sinkhorn(holdout → region): {r['sk_holdout_region']:.4f}")
+    print(f"  Score                     : {best_score:.4f}")
+
+    return {
+        "pool_glaciers": pool_glaciers,
+        "holdout_glaciers": holdout_glaciers,
+        "n_meas_pool": int(r["pool_meas_count"]),
+        "n_meas_holdout": int(n_total_meas - r["pool_meas_count"]),
+        "actual_pool_frac": float(r["achieved_frac"]),
+        "sinkhorn_pool_vs_holdout": float(r["sk_pool_holdout"]),
+        "sinkhorn_pool_vs_region": float(r["sk_pool_region"]),
+        "sinkhorn_holdout_vs_region": float(r["sk_holdout_region"]),
+        "blur_joint": float(blur_joint),
+        "best_seed": int(r["best_seed"]),
+        "best_score": float(best_score),
+    }
+
+
+def compute_glacier_shift_vs_source(
+    df_train: pd.DataFrame,
+    df_test: pd.DataFrame,
+    monthly_cols: list[str],
+    static_cols: list[str],
+    scaler_m,
+    scaler_s,
+    glacier_col: str = "GLACIER",
+    min_ids: int = 3,
+    max_train_samples: int = 5000,
+    blur_quantile_multiplier: float = 0.1,
+    device: str = "cpu",
+    backend: str = "tensorized",  # "tensorized" avoids KeOps CUDA issues
+    seed: int = 0,
+) -> pd.DataFrame:
+    pure_static = [c for c in static_cols if c != "ELEVATION_DIFFERENCE"]
+
+    def _stake_topo(df):
+        parts = [df.groupby("ID")[pure_static].first()]
+        if "ELEVATION_DIFFERENCE" in static_cols:
+            parts.append(df.groupby("ID")[["ELEVATION_DIFFERENCE"]].mean())
+        return pd.concat(parts, axis=1)[static_cols].to_numpy(dtype=np.float64)
+
+    # Scale once
+    Xm_train_full = scaler_m.transform(
+        df_train[monthly_cols].to_numpy(dtype=np.float64)
+    )
+    Xs_train_full = scaler_s.transform(_stake_topo(df_train))
+
+    # Subsample train for blur estimation
+    rng = np.random.default_rng(seed)
+
+    def _subsample(X):
+        if len(X) <= max_train_samples:
+            return X
+        return X[rng.choice(len(X), size=max_train_samples, replace=False)]
+
+    Xm_train = _subsample(Xm_train_full)
+    Xs_train = _subsample(Xs_train_full)
+
+    # Estimate blur ONCE on the subsampled train distribution
+    # This matches what SinkhornGroupSplit does in _prepare_data
+    blur_m = _estimate_blur(
+        Xm_train, Xm_train, blur_quantile_multiplier=blur_quantile_multiplier, seed=seed
+    )
+    blur_s = _estimate_blur(
+        Xs_train,
+        Xs_train,
+        blur_quantile_multiplier=blur_quantile_multiplier,
+        seed=seed + 1,
+    )
+
+    # Build loss functions once, reuse for all glaciers
+    loss_m = SamplesLoss(
+        loss="sinkhorn",
+        p=2,
+        blur=blur_m,
+        scaling=0.9,
+        debias=True,
+        backend="tensorized",
+    )  # avoid KeOps
+    loss_s = SamplesLoss(
+        loss="sinkhorn",
+        p=2,
+        blur=blur_s,
+        scaling=0.9,
+        debias=True,
+        backend="tensorized",
+    )
+
+    Xm_train_t = torch.as_tensor(Xm_train, dtype=torch.float32, device=device)
+    Xs_train_t = torch.as_tensor(Xs_train, dtype=torch.float32, device=device)
+
+    records = []
+    for glacier, df_gl in tqdm(df_test.groupby(glacier_col), desc="glaciers"):
+        if df_gl["ID"].nunique() < min_ids:
+            continue
+
+        Xm_gl = torch.as_tensor(
+            scaler_m.transform(df_gl[monthly_cols].to_numpy(dtype=np.float64)),
+            dtype=torch.float32,
+            device=device,
+        )
+        Xs_gl = torch.as_tensor(
+            scaler_s.transform(_stake_topo(df_gl)), dtype=torch.float32, device=device
+        )
+
+        # Uniform weights
+        a_m = torch.ones(len(Xm_train_t), device=device) / len(Xm_train_t)
+        b_m = torch.ones(len(Xm_gl), device=device) / len(Xm_gl)
+        a_s = torch.ones(len(Xs_train_t), device=device) / len(Xs_train_t)
+        b_s = torch.ones(len(Xs_gl), device=device) / len(Xs_gl)
+
+        with torch.no_grad():
+            D_climate = float(loss_m(a_m, Xm_train_t, b_m, Xm_gl).item())
+            D_topo = float(loss_s(a_s, Xs_train_t, b_s, Xs_gl).item())
+
+        records.append(
+            {
+                glacier_col: glacier,
+                "n_ids": df_gl["ID"].nunique(),
+                "n_rows": len(df_gl),
+                "D_sinkhorn_joint": 0.5 * D_climate + 0.5 * D_topo,
+                "D_sinkhorn_climate": D_climate,
+                "D_sinkhorn_topo": D_topo,
+            }
+        )
+
+    return pd.DataFrame(records).set_index(glacier_col)
+
+
+def build_global_scalers_multi_source_simple(
+    res_xreg_by_source: dict,
+    monthly_cols: list[str],
+    static_cols: list[str],
+) -> tuple[StandardScaler, StandardScaler, StandardScaler]:
+    """
+    Simple version of build_global_scalers_multi_source.
+    Pools df_train and df_test across all sources and fits scalers directly
+    without ID deduplication or topo aggregation.
+
+    Fits:
+      - scaler_m: on monthly climate columns
+      - scaler_s: on static/topographic columns
+      - scaler_joint: on all columns combined
+    """
+    df_all = pd.concat(
+        [
+            res_xreg[split]
+            for res_xreg in res_xreg_by_source.values()
+            for split in ["df_train", "df_test"]
+        ],
+        ignore_index=True,
+    )
+
+    scaler_m = StandardScaler().fit(df_all[monthly_cols].to_numpy(dtype=np.float64))
+    scaler_s = StandardScaler().fit(df_all[static_cols].to_numpy(dtype=np.float64))
+    scaler_joint = StandardScaler().fit(
+        df_all[monthly_cols + static_cols].to_numpy(dtype=np.float64)
+    )
+
+    return scaler_m, scaler_s, scaler_joint
+
+
+def estimate_global_bandwidths_simple(
+    res_xreg_by_source: dict,
+    monthly_cols: list[str],
+    static_cols: list[str],
+    scaler_m: StandardScaler,
+    scaler_s: StandardScaler,
+    blur_quantile_multiplier: float = 0.1,
+    seed: int = 0,
+) -> tuple[float, float, float]:
+    """
+    Simple version of estimate_global_bandwidths.
+    Pools df_train across all sources and estimates blurs directly
+    without ID deduplication or topo aggregation.
+    """
+    df_all = pd.concat(
+        [res_xreg["df_train"] for res_xreg in res_xreg_by_source.values()],
+        ignore_index=True,
+    )
+
+    Xm = scaler_m.transform(df_all[monthly_cols].to_numpy(dtype=np.float64))
+    Xs = scaler_s.transform(df_all[static_cols].to_numpy(dtype=np.float64))
+    Xjoint = np.hstack([Xm, Xs])
+
+    blur_m = _estimate_blur(
+        Xm, Xm, blur_quantile_multiplier=blur_quantile_multiplier, seed=seed
+    )
+    blur_s = _estimate_blur(
+        Xs, Xs, blur_quantile_multiplier=blur_quantile_multiplier, seed=seed + 1
+    )
+    blur_joint = _estimate_blur(
+        Xjoint, Xjoint, blur_quantile_multiplier=blur_quantile_multiplier, seed=seed + 2
+    )
+
+    return blur_m, blur_s, blur_joint
+
+
+def build_global_scalers_from_dfs(
+    dfs: list[pd.DataFrame] | dict[str, pd.DataFrame],
+    monthly_cols: list[str],
+    static_cols: list[str],
+    topo_id_col: str = "ID",
+    glacier_col: str = "GLACIER",
+) -> tuple[StandardScaler, StandardScaler, StandardScaler]:
+
+    if isinstance(dfs, dict):
+        dfs = list(dfs.values())
+
+    df_all = pd.concat(dfs, ignore_index=True)
+
+    # Climate scaler: all rows (monthly variability matters)
+    scaler_m = StandardScaler().fit(df_all[monthly_cols].to_numpy(dtype=np.float64))
+
+    # Topo scaler: one row per unique (GLACIER, ID) spatial point
+    if topo_id_col in df_all.columns and glacier_col in df_all.columns:
+        topo_data = df_all.drop_duplicates(subset=[glacier_col, topo_id_col])[
+            static_cols
+        ]
+    else:
+        topo_data = df_all.drop_duplicates(subset=static_cols)[static_cols]
+    scaler_s = StandardScaler().fit(topo_data.to_numpy(dtype=np.float64))
+
+    # Joint scaler: all rows (climate variability matters for joint)
+    scaler_all = StandardScaler().fit(
+        df_all[monthly_cols + static_cols].to_numpy(dtype=np.float64)
+    )
+
+    return scaler_m, scaler_s, scaler_all
+
+
+def estimate_global_bandwidths_from_dfs(
+    dfs: list[pd.DataFrame] | dict[str, pd.DataFrame],
+    monthly_cols: list[str],
+    static_cols: list[str],
+    scaler_m: StandardScaler,
+    scaler_s: StandardScaler,
+    blur_quantile_multiplier: float = 0.1,
+    seed: int = 0,
+) -> tuple[float, float, float]:
+    """
+    Estimate fixed blur/bandwidth from the pooled distribution of all dfs.
+    Simple version for grid data — no ID deduplication or topo aggregation.
+    """
+    if isinstance(dfs, dict):
+        dfs = list(dfs.values())
+
+    df_all = pd.concat(dfs, ignore_index=True)
+
+    Xm = scaler_m.transform(df_all[monthly_cols].to_numpy(dtype=np.float64))
+    Xs = scaler_s.transform(df_all[static_cols].to_numpy(dtype=np.float64))
+    Xjoint = np.hstack([Xm, Xs])
+
+    blur_m = _estimate_blur(
+        Xm, Xm, blur_quantile_multiplier=blur_quantile_multiplier, seed=seed
+    )
+    blur_s = _estimate_blur(
+        Xs, Xs, blur_quantile_multiplier=blur_quantile_multiplier, seed=seed + 1
+    )
+    blur_joint = _estimate_blur(
+        Xjoint, Xjoint, blur_quantile_multiplier=blur_quantile_multiplier, seed=seed + 2
+    )
+
+    return blur_m, blur_s, blur_joint
+
+
+def rank_glaciers_by_distance_to_target(
+    res_xreg_by_source: dict,
+    training_regions: list,
+    test_region: str,
+    monthly_cols: list,
+    static_cols: list,
+    scaler_m,
+    scaler_s,
+    blur_joint: float,
+    glacier_col: str = "GLACIER",
+    id_col: str = "ID",
+    elev_diff_col: str = "ELEVATION_DIFFERENCE",
+    max_samples: int = 2000,
+    seed: int = 42,
+    mode: str = "joint",  # <-- new: "joint" or "topo"
+    topo_extra_cols: list = None,  # <-- new: e.g. ["ELEVATION_DIFFERENCE"]
+) -> pd.DataFrame:
+    """
+    Rank training glaciers by Sinkhorn distance to the test region.
+    mode="joint" : climate + topo features (same as split_pool_holdout_sinkhorn_v2)
+    mode="topo"  : topo features only (static_cols + topo_extra_cols)
+    """
+    topo_extra_cols = topo_extra_cols or []
+
+    def _build_X(df):
+        pure_static = [c for c in static_cols if c != elev_diff_col]
+
+        def _stake_topo(df_):
+            parts = [df_.groupby(id_col)[pure_static].first()]
+            if elev_diff_col in static_cols:
+                parts.append(df_.groupby(id_col)[[elev_diff_col]].mean())
+            return pd.concat(parts, axis=1)[static_cols].to_numpy(dtype=np.float64)
+
+        id_codes_cat = pd.Categorical(df[id_col]).codes
+        Xs_id = scaler_s.transform(_stake_topo(df))
+        topo_per_row = Xs_id[id_codes_cat]
+
+        if mode == "joint":
+            Xm_all = scaler_m.transform(df[monthly_cols].to_numpy(dtype=np.float64))
+            return np.hstack([Xm_all, topo_per_row]).astype(np.float32)
+
+        else:  # topo
+            extra_parts = []
+            for col in topo_extra_cols:
+                col_idx = monthly_cols.index(col)
+                col_vals = df[col].to_numpy(dtype=np.float64).reshape(-1, 1)
+                extra_parts.append(
+                    (col_vals - scaler_m.mean_[col_idx]) / scaler_m.scale_[col_idx]
+                )
+            if extra_parts:
+                return np.hstack([topo_per_row] + extra_parts).astype(np.float32)
+            return topo_per_row.astype(np.float32)
+
+    # blur: scale for topo-only mode same as split_pool_holdout_sinkhorn_v2
+    if mode == "topo":
+        n_joint = len(monthly_cols) + len(static_cols)
+        n_topo = len(static_cols) + len(topo_extra_cols)
+        blur = blur_joint * np.sqrt(n_topo / n_joint)
+        print(
+            f"  Mode: TOPO  blur={blur:.4f}  features={static_cols + topo_extra_cols}"
+        )
+    else:
+        blur = blur_joint
+        print(f"  Mode: JOINT  blur={blur:.4f}")
+
+    loss_fn = SamplesLoss(
+        loss="sinkhorn",
+        p=2,
+        blur=blur,
+        scaling=0.9,
+        debias=True,
+        backend="tensorized",
+    )
+
+    def _sinkhorn(Xa, Xb):
+        if len(Xa) < 2 or len(Xb) < 2:
+            return float("nan")
+        rng = np.random.default_rng(seed)
+        if len(Xa) > max_samples:
+            Xa = Xa[rng.choice(len(Xa), max_samples, replace=False)]
+        if len(Xb) > max_samples:
+            Xb = Xb[rng.choice(len(Xb), max_samples, replace=False)]
+        ta = torch.as_tensor(Xa, dtype=torch.float32)
+        tb = torch.as_tensor(Xb, dtype=torch.float32)
+        wa = torch.ones(len(ta)) / len(ta)
+        wb = torch.ones(len(tb)) / len(tb)
+        with torch.no_grad():
+            return float(loss_fn(wa, ta, wb, tb).item())
+
+    # --- test region feature matrix ---
+    df_test = res_xreg_by_source[test_region]["data_monthly"]
+    X_test = _build_X(df_test)
+    print(
+        f"Test region ({test_region}): {len(X_test)} rows, "
+        f"{df_test[glacier_col].nunique()} glaciers"
+    )
+
+    # --- per-glacier distances ---
+    rows = []
+    for region in training_regions:
+        df_region = res_xreg_by_source[region]["data_monthly"]
+        glaciers = df_region[glacier_col].unique()
+        print(f"\n{region}: {len(glaciers)} glaciers")
+
+        for glacier in glaciers:
+            df_gl = df_region[df_region[glacier_col] == glacier]
+            if len(df_gl) < 2:
+                continue
+            X_gl = _build_X(df_gl)
+            d = _sinkhorn(X_gl, X_test)
+            rows.append(
+                {
+                    "glacier": glacier,
+                    "region": region,
+                    "distance": d,
+                    "n_meas": len(df_gl),
+                }
+            )
+            print(f"  {glacier:40s}  d={d:.4f}  n={len(df_gl)}")
+
+    df_ranked = pd.DataFrame(rows).sort_values("distance").reset_index(drop=True)
+    df_ranked["rank"] = np.arange(len(df_ranked))
+    df_ranked["cum_meas"] = df_ranked["n_meas"].cumsum()
+    df_ranked["cum_frac"] = df_ranked["cum_meas"] / df_ranked["n_meas"].sum()
+
+    print(f"\n=== Ranking complete ({mode}) ===")
+    print(f"  Total glaciers : {len(df_ranked)}")
+    print(
+        f"  Distance range : [{df_ranked['distance'].min():.4f} "
+        f"— {df_ranked['distance'].max():.4f}]"
+    )
+    print(f"\n  Closest 10 to {test_region}:")
+    print(
+        df_ranked.head(10)[
+            ["rank", "glacier", "region", "distance", "n_meas", "cum_frac"]
+        ].to_string(index=False)
+    )
+
+    return df_ranked
+
+
+def split_pool_holdout_sinkhorn(
+    df_region: pd.DataFrame,
+    monthly_cols: list[str],
+    static_cols: list[str],
+    scaler_m,
+    scaler_s,
+    blur_joint: float,
+    glacier_col: str = "GLACIER",
+    id_col: str = "ID",
+    elev_diff_col: str = "ELEVATION_DIFFERENCE",
+    pool_frac: float = 0.2,
+    seed: int = 0,
+    n_restarts: int = 50,
+    frac_tol: float = 0.05,
+    min_pool_glaciers: int = 3,
+) -> dict:
+    """
+    Split a target region into a fine-tuning pool and a holdout set.
+
+    Distances are computed at measurement-row level using the true joint
+    (climate + topo stacked) Sinkhorn divergence, consistent with
+    D_sinkhorn_joint in compute_domain_shift.
+
+    The split is optimized so that:
+      (1) Sinkhorn(pool → holdout) is small  — pool covers the holdout distribution
+      (2) |Sinkhorn(pool → all) - Sinkhorn(holdout → all)| is small — balanced shift
+
+    Parameters
+    ----------
+    df_region : pd.DataFrame
+        All rows for the target region.
+    monthly_cols : list[str]
+        Monthly feature column names.
+    static_cols : list[str]
+        Static feature column names.
+    scaler_m :
+        Global monthly scaler fitted via build_global_scalers_multi_source.
+    scaler_s :
+        Global static scaler fitted via build_global_scalers_multi_source.
+    blur_joint : float
+        Sinkhorn blur for the joint space — pass blur_joint from 1.7.
+    glacier_col : str
+        Column identifying glaciers.
+    id_col : str
+        Column identifying individual measurements.
+    elev_diff_col : str
+        Name of the elevation difference column (averaged per ID, not .first()).
+    pool_frac : float
+        Target fraction of measurements to use as fine-tuning pool.
+    seed : int
+        Base random seed.
+    n_restarts : int
+        Number of random orderings to try; best split by score is kept.
+    frac_tol : float
+        Splits where |achieved_frac - pool_frac| > frac_tol are skipped.
+    min_pool_glaciers : int
+        Minimum number of glaciers required in the pool.
+
+    Returns
+    -------
+    dict with keys:
+        pool_glaciers, holdout_glaciers,
+        n_meas_pool, n_meas_holdout,
+        actual_pool_frac,
+        sinkhorn_pool_vs_holdout,
+        sinkhorn_pool_vs_region,
+        sinkhorn_holdout_vs_region,
+        blur_joint, best_seed, best_score
+    """
+    # ------------------------------------------------------------------
+    # 1. Glacier inventory — names and measurement counts
+    # ------------------------------------------------------------------
+    glaciers = df_region[glacier_col].unique().tolist()
+    n_glaciers = len(glaciers)
+    glacier_to_idx = {g: i for i, g in enumerate(glaciers)}
+
+    n_meas = np.array(
+        [(df_region[glacier_col] == g).sum() for g in glaciers], dtype=int
+    )
+
+    n_total_meas = int(n_meas.sum())
+    target_pool_meas = int(round(pool_frac * n_total_meas))
+
+    print(f"  Total measurements : {n_total_meas}")
+    print(f"  Target pool meas   : {target_pool_meas} ({pool_frac:.0%})")
+    print(f"  Total glaciers     : {n_glaciers}")
+    print(f"  blur_joint         : {blur_joint:.4f}")
+
+    # ------------------------------------------------------------------
+    # 2. Precompute row-level joint features for the whole region
+    #    (consistent with compute_domain_shift's D_sinkhorn_joint)
+    # ------------------------------------------------------------------
+    pure_static = [c for c in static_cols if c != elev_diff_col]
+
+    def _stake_topo(df):
+        parts = [df.groupby(id_col)[pure_static].first()]
+        if elev_diff_col in static_cols:
+            parts.append(df.groupby(id_col)[[elev_diff_col]].mean())
+        return pd.concat(parts, axis=1)[static_cols].to_numpy(dtype=np.float64)
+
+    Xm_all = scaler_m.transform(df_region[monthly_cols].to_numpy(dtype=np.float64))
+    Xs_id = scaler_s.transform(_stake_topo(df_region))
+    id_codes = pd.Categorical(df_region[id_col]).codes
+    topo_per_row = Xs_id[id_codes]
+    X_joint_all = np.hstack([Xm_all, topo_per_row]).astype(np.float32)
+
+    # row-to-glacier mapping for fast subsetting
+    glacier_codes = np.array(
+        [glacier_to_idx[g] for g in df_region[glacier_col]], dtype=int
+    )
+
+    loss_fn = SamplesLoss(
+        loss="sinkhorn",
+        p=2,
+        blur=blur_joint,
+        scaling=0.9,
+        debias=True,
+        backend="tensorized",
+    )
+
+    def _sinkhorn(mask_a, mask_b, max_samples=2000):
+        Xa = X_joint_all[mask_a]
+        Xb = X_joint_all[mask_b]
+        if len(Xa) < 2 or len(Xb) < 2:
+            return 0.0
+        if len(Xa) > max_samples:
+            Xa = Xa[np.random.choice(len(Xa), max_samples, replace=False)]
+        if len(Xb) > max_samples:
+            Xb = Xb[np.random.choice(len(Xb), max_samples, replace=False)]
+        ta = torch.as_tensor(Xa, dtype=torch.float32)
+        tb = torch.as_tensor(Xb, dtype=torch.float32)
+        wa = torch.ones(len(ta)) / len(ta)
+        wb = torch.ones(len(tb)) / len(tb)
+        with torch.no_grad():
+            return float(loss_fn(wa, ta, wb, tb).item())
+
+    def _mask_for(glacier_idxs):
+        return np.isin(glacier_codes, list(glacier_idxs))
+
+    all_mask = np.ones(len(X_joint_all), dtype=bool)
+
+    # ------------------------------------------------------------------
+    # 3. Greedy split with n_restarts random orderings, keep best score
+    # ------------------------------------------------------------------
+    best_score = np.inf
+    best_result = None
+
+    for restart in range(n_restarts):
+        rng = np.random.default_rng(seed + restart)
+        order = np.arange(n_glaciers)
+        rng.shuffle(order)
+
+        pool_idxs = set()
+        holdout_idxs = set()
+        pool_meas_count = 0
+
+        for glacier_idx in order:
+            gl_meas = int(n_meas[glacier_idx])
+            pool_full = pool_meas_count + gl_meas > target_pool_meas * (1 + frac_tol)
+
+            if pool_full:
+                holdout_idxs.add(glacier_idx)
+                continue
+
+            trial_pool = pool_idxs | {glacier_idx}
+            trial_holdout = holdout_idxs | {glacier_idx}
+
+            holdout_mask = _mask_for(holdout_idxs) if holdout_idxs else all_mask
+            pool_mask = _mask_for(pool_idxs) if pool_idxs else all_mask
+
+            score_if_pool = _sinkhorn(_mask_for(trial_pool), holdout_mask) + abs(
+                _sinkhorn(_mask_for(trial_pool), all_mask)
+                - _sinkhorn(holdout_mask, all_mask)
+            )
+            score_if_holdout = _sinkhorn(pool_mask, _mask_for(trial_holdout)) + abs(
+                _sinkhorn(pool_mask, all_mask)
+                - _sinkhorn(_mask_for(trial_holdout), all_mask)
+            )
+
+            if score_if_pool <= score_if_holdout:
+                pool_idxs.add(glacier_idx)
+                pool_meas_count += gl_meas
+            else:
+                holdout_idxs.add(glacier_idx)
+
+        achieved_frac = pool_meas_count / n_total_meas
+        if abs(achieved_frac - pool_frac) > frac_tol:
+            continue
+        if len(pool_idxs) < min_pool_glaciers:
+            continue
+
+        pool_mask = _mask_for(pool_idxs)
+        holdout_mask = _mask_for(holdout_idxs)
+
+        sk_pool_holdout = _sinkhorn(pool_mask, holdout_mask)
+        sk_pool_region = _sinkhorn(pool_mask, all_mask)
+        sk_holdout_region = _sinkhorn(holdout_mask, all_mask)
+
+        score = sk_pool_holdout + abs(sk_pool_region - sk_holdout_region)
+
+        print(
+            f"  restart {restart:3d} | frac={achieved_frac:.2f} | "
+            f"sk(pool↔holdout)={sk_pool_holdout:.4f} | "
+            f"balance={abs(sk_pool_region - sk_holdout_region):.4f} | "
+            f"score={score:.4f}"
+        )
+
+        if score < best_score:
+            best_score = score
+            best_result = {
+                "pool_idxs": pool_idxs,
+                "holdout_idxs": holdout_idxs,
+                "pool_meas_count": pool_meas_count,
+                "achieved_frac": achieved_frac,
+                "sk_pool_holdout": sk_pool_holdout,
+                "sk_pool_region": sk_pool_region,
+                "sk_holdout_region": sk_holdout_region,
+                "best_seed": seed + restart,
+            }
+
+    if best_result is None:
+        raise RuntimeError(
+            f"No valid split found within frac_tol={frac_tol} and "
+            f"min_pool_glaciers={min_pool_glaciers} after {n_restarts} restarts. "
+            f"Try increasing n_restarts or frac_tol."
+        )
+
+    r = best_result
+    pool_glaciers = [glaciers[i] for i in r["pool_idxs"]]
+    holdout_glaciers = [glaciers[i] for i in r["holdout_idxs"]]
+
+    print(f"\n  Best split (seed={r['best_seed']}):")
+    print(
+        f"  Pool    : {len(pool_glaciers)} glaciers, {r['pool_meas_count']} meas ({r['achieved_frac']:.1%})"
+    )
+    print(
+        f"  Holdout : {len(holdout_glaciers)} glaciers, {n_total_meas - r['pool_meas_count']} meas ({1 - r['achieved_frac']:.1%})"
+    )
+    print(f"  Sinkhorn(pool → holdout)  : {r['sk_pool_holdout']:.4f}")
+    print(f"  Sinkhorn(pool → region)   : {r['sk_pool_region']:.4f}")
+    print(f"  Sinkhorn(holdout → region): {r['sk_holdout_region']:.4f}")
+    print(f"  Score                     : {best_score:.4f}")
+
+    return {
+        "pool_glaciers": pool_glaciers,
+        "holdout_glaciers": holdout_glaciers,
+        "n_meas_pool": int(r["pool_meas_count"]),
+        "n_meas_holdout": int(n_total_meas - r["pool_meas_count"]),
+        "actual_pool_frac": float(r["achieved_frac"]),
+        "sinkhorn_pool_vs_holdout": float(r["sk_pool_holdout"]),
+        "sinkhorn_pool_vs_region": float(r["sk_pool_region"]),
+        "sinkhorn_holdout_vs_region": float(r["sk_holdout_region"]),
+        "blur_joint": float(blur_joint),
+        "best_seed": int(r["best_seed"]),
+        "best_score": float(best_score),
     }

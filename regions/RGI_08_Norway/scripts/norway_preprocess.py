@@ -13,8 +13,7 @@ from oggm import utils, workflow, tasks
 from oggm import cfg as oggmCfg
 from scipy.spatial.distance import cdist
 
-from scripts.config_NOR import *
-from scripts.helpers import *
+from regions.RGI_08_Norway.scripts.config_NOR import *
 
 # Setup logging
 logging.basicConfig(

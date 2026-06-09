@@ -17,6 +17,8 @@ from sklearn.impute import SimpleImputer
 from scipy.stats import pearsonr
 import colormaps as cmaps
 
+from sklearn.metrics import r2_score
+
 from regions.RGI_11_Switzerland.scripts.plotting.palettes import get_cmap_hex
 
 
@@ -28,10 +30,10 @@ def plot_mbm_vs_geodetic_by_area_bin(
     figsize=(25, 10),
     annotate_rmse=True,
     rmse_box=True,
-    geodetic_sigma_col="Geodetic MB sigma",  # <-- NEW
-    errorbar_alpha=0.5,  # <-- NEW
-    errorbar_elinewidth=1.0,  # <-- NEW
-    errorbar_capsize=2.0,  # <-- NEW
+    geodetic_sigma_col="Geodetic MB sigma",
+    errorbar_alpha=0.5,
+    errorbar_elinewidth=1.0,
+    errorbar_capsize=2.0,
 ):
     """
     Compare MBM and geodetic glacier-wide mass balance across glacier area bins.

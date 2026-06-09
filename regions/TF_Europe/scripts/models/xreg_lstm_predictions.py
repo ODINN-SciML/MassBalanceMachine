@@ -15,6 +15,13 @@ def _pick_tl_exp_key_for_region(tl_assets_by_key, region, split_name="5pct"):
     return k
 
 
+def _pick_tl_exp_key_for_region(tl_assets_by_key, region, split_name, src_code="CH"):
+    k = f"TL_{src_code}_to_{region}_{split_name}"
+    if k not in tl_assets_by_key:
+        raise KeyError(f"Missing TL assets for {k}")
+    return k
+
+
 def evaluate_transfer_learning_grid(
     cfg,
     regions,
@@ -23,10 +30,11 @@ def evaluate_transfer_learning_grid(
     tl_assets_by_key: dict,
     device,
     *,
+    src_code="CH",  # <-- new
     split_name="5pct",
-    strategies=None,  # : which columns to plot
-    strategy_labels=None,  # : pretty names for column headers
-    include_region_in_titles=True,  # : convenience
+    strategies=None,
+    strategy_labels=None,
+    include_region_in_titles=True,
     save_dir=None,
     fig_size_per_cell=(5.2, 5.2),
     ax_xlim=None,
@@ -35,32 +43,12 @@ def evaluate_transfer_learning_grid(
     batch_size_eval=128,
     domain_vocab=None,
 ):
-    """
-    Flexible TL grid evaluator.
-
-    Parameters
-    ----------
-    strategies : list[str] or None
-        Strategies to plot as columns. Examples:
-          ["no_ft", "safe", "two_stage"]
-          ["no_ft", "safe", "l2sp_safe", "disc_full", "disc_l2sp_full"]
-        If None, defaults to ["no_ft","safe","full","two_stage"].
-
-    strategy_labels : dict[str,str] or None
-        Mapping strategy -> column label. If None, uses defaults and falls back
-        to the strategy string.
-
-    Notes
-    -----
-    - Uses assets_row["ds_test"] as holdout set for that region.
-    - Uses CH scalers via assets_row["ds_pretrain_scalers"] through evaluate_one_model_TL.
-    """
     if strategies is None:
         strategies = ["no_ft", "safe", "full", "two_stage"]
     strategies = list(strategies)
 
     default_labels = {
-        "no_ft": "No fine-tuning (xreg CH)",
+        "no_ft": f"No fine-tuning (xreg {src_code})",
         "safe": "Heads-only FT",
         "full": "Full FT",
         "two_stage": "Two-stage FT",
@@ -97,11 +85,10 @@ def evaluate_transfer_learning_grid(
 
     for r, region in enumerate(regions):
         exp_key = _pick_tl_exp_key_for_region(
-            tl_assets_by_key, region, split_name=split_name
+            tl_assets_by_key, region, split_name=split_name, src_code=src_code
         )
         assets_row = tl_assets_by_key.get(exp_key, None)
 
-        # validate assets
         if assets_row is None or assets_row.get("ds_test", None) is None:
             logging.warning(f"Skipping region {region}: no ds_test in {exp_key}")
             for c in range(ncols):
@@ -119,7 +106,6 @@ def evaluate_transfer_learning_grid(
         for c, strat in enumerate(strategies):
             ax = axes[r, c]
 
-            # pick model
             if strat == "no_ft":
                 model = models_xreg_by_region.get(region, None)
             else:
@@ -131,7 +117,6 @@ def evaluate_transfer_learning_grid(
                 logging.warning(f"Missing model for region={region}, strategy={strat}")
                 continue
 
-            # title inside each cell (optional; you also set titles later)
             cell_title = f"{region}\n{strat}" if include_region_in_titles else strat
 
             dv = (
@@ -165,37 +150,32 @@ def evaluate_transfer_learning_grid(
             rows.append(metrics)
             preds[(region, strat)] = df_preds
 
-            # remove legend if present
             leg = ax.get_legend()
             if leg is not None:
                 leg.remove()
 
-    # ---- nicer axis titles: region as row + strategy label as column ----
     for rr in range(nrows):
         for cc in range(ncols):
             strat = strategies[cc]
             col_name = col_labels.get(strat, strat)
             axes[rr, cc].set_title(f"{regions[rr]} - {col_name}", fontsize=14)
-
             if cc == 0:
                 axes[rr, cc].set_ylabel("Modeled PMB [m w.e.]", fontsize=12)
             else:
                 axes[rr, cc].set_ylabel("")
-
             if rr == nrows - 1:
                 axes[rr, cc].set_xlabel("Observed PMB [m w.e.]", fontsize=12)
             else:
                 axes[rr, cc].set_xlabel("")
 
     fig.suptitle(
-        f"Transfer learning evaluation (holdout test) — split={split_name}",
+        f"Transfer learning evaluation (holdout test) — src={src_code}, split={split_name}",
         fontsize=18,
         y=0.995,
     )
     fig.tight_layout(rect=[0, 0, 1, 0.98])
 
     if save_abs:
-        # include strategies in filename to avoid overwriting
         tag = "_".join(strategies)
         out_png = os.path.join(save_abs, f"TL_grid_{split_name}_{tag}.png")
         fig.savefig(out_png, dpi=200, bbox_inches="tight")
@@ -220,6 +200,7 @@ def evaluate_one_model_TL(
     batch_size=128,
     domain_vocab=None,  # optional: {"CH":0,"NOR":1,...}
     show_plot=True,
+    show_legend=True,
 ):
     """
     TL-only evaluator.
@@ -259,6 +240,11 @@ def evaluate_one_model_TL(
 
     if domain_vocab is not None:
         test_df_preds["domain_id"] = test_df_preds["SOURCE_CODE"].map(domain_vocab)
+
+    # print(f"test_df_preds shape: {test_df_preds.shape}")
+    # print(f"NaNs in target: {test_df_preds['target'].isna().sum()}")
+    # print(f"NaNs in pred: {test_df_preds['pred'].isna().sum()}")
+    # print(f"Seasons present: {test_df_preds['season'].unique() if 'season' in test_df_preds.columns else 'no season col'}")
 
     # seasonal scores
     scores_annual, scores_winter = compute_seasonal_scores(
@@ -325,18 +311,21 @@ def evaluate_one_model_TL(
             ]
         )
 
-        ax.text(
-            0.02,
-            0.98,
-            legend_NN,
-            transform=ax.transAxes,
-            va="top",
-            fontsize=legend_fontsize,
-            bbox=dict(boxstyle="round", facecolor="white", alpha=0.5),
-        )
+        if show_legend:
+            ax.text(
+                0.02,
+                0.98,
+                legend_NN,
+                transform=ax.transAxes,
+                va="top",
+                fontsize=legend_fontsize,
+                bbox=dict(boxstyle="round", facecolor="white", alpha=0.5),
+            )
+        else:
+            ax.legend_.remove()
 
         if title:
-            ax.set_title(title, fontsize=20)
+            ax.set_title(title, fontsize=24)
 
     return out, test_df_preds, created_fig, ax
 

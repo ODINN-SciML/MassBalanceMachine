@@ -126,14 +126,32 @@ def pick_glaciers_by_row_fraction(
 
 
 def verify_row_percentage(
-    df_test, FT_GLACIERS, source_col="SOURCE_CODE", glacier_col="GLACIER"
+    df_test,
+    FT_GLACIERS,
+    source_col="SOURCE_CODE",
+    glacier_col="GLACIER",
+    region_groups: dict | None = None,
 ):
+    """
+    Verify row percentages for FT glacier splits.
 
+    Parameters
+    ----------
+    region_groups : dict or None
+        Maps group name to list of SOURCE_CODE values, e.g.
+        {"CEU": ["FR", "IT_AT", "CH"]}. When a region in FT_GLACIERS
+        matches a group key, all member codes are pooled.
+    """
+    region_groups = region_groups or {}
     results = []
 
     for region, splits in FT_GLACIERS.items():
 
-        df_reg = df_test[df_test[source_col] == region]
+        if region in region_groups:
+            member_codes = region_groups[region]
+            df_reg = df_test[df_test[source_col].isin(member_codes)]
+        else:
+            df_reg = df_test[df_test[source_col] == region]
 
         total_rows = len(df_reg)
         if total_rows == 0:
@@ -141,10 +159,8 @@ def verify_row_percentage(
             continue
 
         for split_name, glacier_list in splits.items():
-
             df_ft = df_reg[df_reg[glacier_col].isin(glacier_list)]
             ft_rows = len(df_ft)
-
             pct = 100 * ft_rows / total_rows
 
             results.append(

@@ -6,3 +6,5 @@ from .xreg_dataloaders import *
 from .monitoring_dataset import *
 from .topoclimatic_distance import *
 from .dan_dataloaders import *
+from .sinkhorn import *
+from .fd_model import *
