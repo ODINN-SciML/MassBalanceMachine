@@ -49,8 +49,8 @@ NATURE_SPECS = {
     "single_col_mm": 89,
     "double_col_mm": 183,
     "max_height_mm": 170,
-    "font_min_pt": 5,
-    "font_max_pt": 7,
+    "font_min_pt": 10,
+    "font_max_pt": 12,
     "font_family": "Arial",
     "dpi": 300,
 }
