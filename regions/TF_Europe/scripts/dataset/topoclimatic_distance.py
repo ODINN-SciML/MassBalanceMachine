@@ -785,12 +785,17 @@ def build_global_scalers_multi_source_simple(
       - scaler_s: on static/topographic columns
       - scaler_joint: on all columns combined
     """
+    # df_all = pd.concat(
+    #     [
+    #         res_xreg[split]
+    #         for res_xreg in res_xreg_by_source.values()
+    #         for split in ["df_train", "df_test"]
+    #     ],
+    #     ignore_index=True,
+    # )
+
     df_all = pd.concat(
-        [
-            res_xreg[split]
-            for res_xreg in res_xreg_by_source.values()
-            for split in ["df_train", "df_test"]
-        ],
+        [res_xreg["df_train"] for res_xreg in res_xreg_by_source.values()],
         ignore_index=True,
     )
 
