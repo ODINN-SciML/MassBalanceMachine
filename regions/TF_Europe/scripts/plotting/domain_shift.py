@@ -2,6 +2,8 @@ from matplotlib import pyplot as plt
 import matplotlib.patches as mpatches
 import numpy as np
 from cmcrameri import cm
+from matplotlib.ticker import FuncFormatter
+import scipy.stats as scipy_stats
 
 import pandas as pd
 
@@ -504,3 +506,101 @@ def plot_region_shift_vs_performance_single_d(
     )
     plt.tight_layout(rect=[0, 0.08, 1, 1])
     return fig, df_region
+
+
+def format_axis_ticks(ax, label_size=8):
+    """Format tick labels to avoid huge 1e6/1e7 offset labels."""
+    # check if scientific notation offset is being used
+    ax.xaxis.get_major_formatter().set_useOffset(False)
+    try:
+        # scale large numbers to readable units
+        xmax = abs(ax.get_xlim()[1])
+        if xmax > 1e6:
+            scale = 1e6
+            ax.xaxis.set_major_formatter(FuncFormatter(lambda x, _: f"{x/scale:.1f}"))
+            ax.set_xlabel(f"(×10⁶)", label_size=label_size, labelpad=1)
+        elif xmax > 1e4:
+            scale = 1e3
+            ax.xaxis.set_major_formatter(FuncFormatter(lambda x, _: f"{x/scale:.0f}"))
+            ax.set_xlabel(f"(×10³)", label_size=label_size, labelpad=1)
+    except Exception:
+        pass
+
+
+def plot_kde_pair(glaciers_to_plot, selected_cols, save_prefix):
+    """KDE panels for a pair of glaciers."""
+    ncols = 3
+    nrows = int(np.ceil(len(selected_cols) / ncols))
+    w, h = nature_figsize(cols=1, height_mm=160)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(w * 2, h), squeeze=False)
+
+    legend_handles = []
+
+    for idx, col in enumerate(selected_cols):
+        ax = axes[idx // ncols][idx % ncols]
+
+        all_vals = pd.concat(
+            [cfg_gl["df"][col].dropna() for cfg_gl in glaciers_to_plot.values()]
+        )
+        x_grid = np.linspace(float(all_vals.min()), float(all_vals.max()), 500)
+
+        for label, cfg_gl in glaciers_to_plot.items():
+            vals = cfg_gl["df"][col].dropna().values
+            if len(vals) < 10:
+                continue
+            kde = scipy_stats.gaussian_kde(vals, bw_method=0.3)
+            y = kde(x_grid)
+            y = y / y.max()
+            (line,) = ax.plot(
+                x_grid, y, color=cfg_gl["color"], linewidth=0.8, label=label
+            )
+            ax.fill_between(x_grid, y, alpha=0.08, color=cfg_gl["color"])
+
+            # collect handles only from first panel to avoid duplicates
+            if idx == 0:
+                legend_handles.append(line)
+
+        ax.set_title(col, fontsize=8)
+        ax.set_ylim(0, 1.15)
+        ax.set_xlabel("")
+        ax.tick_params(labelsize=8, width=0.4, length=2, direction="in")
+        ax.spines[["top", "right", "left", "bottom"]].set_visible(True)
+        for spine in ax.spines.values():
+            spine.set_linewidth(0.4)
+        ax.grid(axis="x", color="#e0e0e0", linewidth=0.3)
+        ax.set_axisbelow(True)
+        format_axis_ticks(ax, label_size=6)
+
+    # ── place legend in first empty axis if one exists, else above figure ──
+    empty_axes = [
+        axes[idx // ncols][idx % ncols]
+        for idx in range(len(selected_cols), nrows * ncols)
+    ]
+
+    if empty_axes:
+        leg_ax = empty_axes[0]
+        leg_ax.axis("off")
+        leg_ax.legend(
+            handles=legend_handles,
+            loc="center",
+            fontsize=8,
+            frameon=False,
+        )
+        # turn off remaining empty axes
+        for ax in empty_axes[1:]:
+            ax.axis("off")
+    else:
+        # no empty panels — place legend above the figure
+        fig.legend(
+            handles=legend_handles,
+            loc="upper center",
+            bbox_to_anchor=(0.5, 1.02),
+            ncol=len(glaciers_to_plot),
+            fontsize=8,
+            frameon=False,
+        )
+
+    plt.tight_layout(h_pad=3.0)
+    plt.savefig(f"figures/paperTF/{save_prefix}_kde.pdf", bbox_inches="tight")
+    plt.savefig(f"figures/paperTF/{save_prefix}_kde.png", dpi=300, bbox_inches="tight")
+    plt.show()

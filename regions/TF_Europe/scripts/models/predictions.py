@@ -545,11 +545,12 @@ def evaluate_one_model(
     )
 
     ax.text(
-        0.02,
         0.98,
+        0.02,
         legend_NN,
         transform=ax.transAxes,
-        va="top",
+        va="bottom",
+        ha="right",
         fontsize=legend_fontsize,
         bbox=dict(boxstyle="round", facecolor="white", alpha=0.5),
     )
