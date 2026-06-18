@@ -291,8 +291,8 @@ def predVSTruthGlacierWide(
     geoErr,
     ax=None,
     title="Glacier wide MB",
-    ax_xlim=(-1.5, 1.0),
-    ax_ylim=(-1.5, 1.0),
+    ax_xlim=(-2.5, 1.0),
+    ax_ylim=(-2.5, 1.0),
     color="orange",
     legend=False,
 ):
