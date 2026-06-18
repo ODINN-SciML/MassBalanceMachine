@@ -528,10 +528,12 @@ class Normalizer:
         self.lower_bnds_torch = torch.tensor(self.lower_bnds)
         self.upper_bnds_torch = torch.tensor(self.upper_bnds)
 
-    def _norm(self, data, lower_bnd, upper_bnd):
+    @staticmethod
+    def _norm(data, lower_bnd, upper_bnd):
         return (data - lower_bnd) / (upper_bnd - lower_bnd)
 
-    def _unorm(self, data, lower_bnd, upper_bnd):
+    @staticmethod
+    def _unorm(data, lower_bnd, upper_bnd):
         return data * (upper_bnd - lower_bnd) + lower_bnd
 
     def _map(
