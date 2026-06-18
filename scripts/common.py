@@ -28,14 +28,19 @@ def parseParams(params):
     weight_decay = float(params["training"].get("weight_decay", 0.0))
     downscale = params["model"].get("downscale", None)
     scalingStakes = params["training"].get("scalingStakes", "glacier")
+    modelParams = {
+        "type": params["model"]["type"],
+        "inputs": inputs,
+    }
+    if modelParams["type"] == "sequential":
+        modelParams["layers"] = params["model"]["layers"]
+        modelParams["dropout"] = params["model"].get("dropout", 0.0)
+        modelParams["downscale"] = downscale
+    elif modelParams["type"] == "TIlike":
+        modelParams["cor_T"] = {"layers": params["model"]["cor_T"]["layers"]}
+        modelParams["cor_fac"] = {"layers": params["model"]["cor_fac"]["layers"]}
     return {
-        "model": {
-            "type": params["model"]["type"],
-            "layers": params["model"]["layers"],
-            "dropout": params["model"].get("dropout", 0.0),
-            "inputs": inputs,
-            "downscale": downscale,
-        },
+        "model": modelParams,
         "training": {
             "source_data": source_data,
             "lr": lr,
@@ -62,8 +67,8 @@ def parseParams(params):
             "log_suffix": params["training"].get("log_suffix", ""),
             "log_prefix": params["training"].get("log_prefix", ""),
             "log_dir": params["training"].get("log_dir"),
-            "wWinter": params["training"].get("wWinter"),
-            "wSummer": params["training"].get("wSummer"),
+            "wWinter": params["training"].get("wWinter", 1.0),
+            "wSummer": params["training"].get("wSummer", 1.0),
         },
     }
 

@@ -1,8 +1,119 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
 import pandas as pd
 import yaml
+
+from data_processing.Dataset import Normalizer
+
+
+class TILikeModel(nn.Module):
+    def __init__(self, modelParams, normalizing_bounds, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.input_labels = modelParams["inputs"]
+        self.normalizing_bounds = normalizing_bounds
+        self.ind_precip = self.input_labels.index("tp")
+        self.ind_temp = self.input_labels.index("t2m")
+        # self.inputs = [
+        #     "ELEVATION_DIFFERENCE",
+        #     "aspect",
+        #     "fal", # forcast albedo
+        #     "slhf", # surface latent heat flux
+        #     "slope",
+        #     "sshf", # surface sensible heat flux
+        #     "ssrd", # surface solar radiation downwards
+        #     "str", # surface net thermal radiation
+        #     "t2m", # 2m temperature
+        #     "tp", # total precipitation
+        #     "svf", # sky view factor
+        # ]
+        self.inp_cor_T = ["ELEVATION_DIFFERENCE", "t2m", "svf"]
+        self.inp_cor_fac = [
+            "aspect",
+            "fal",
+            "slhf",
+            "slope",
+            "sshf",
+            "ssrd",
+            "str",
+            "t2m",
+            "svf",
+        ]
+        self.ind_inp_cor_T = sorted(
+            [self.input_labels.index(inp) for inp in self.inp_cor_T]
+        )
+        self.ind_inp_cor_fac = sorted(
+            [self.input_labels.index(inp) for inp in self.inp_cor_fac]
+        )
+        self.beta1 = 1.4
+        self.beta2 = 0.0049
+        self.tau_P_s = 1.5
+        self.tau_P_c = 1.0
+
+        cor_T_params = modelParams["cor_T"]
+        cor_T = [nn.Linear(len(self.inp_cor_T), cor_T_params["layers"][0])]
+        for i in range(len(cor_T_params["layers"]) - 1):
+            cor_T.append(nn.ReLU())
+            cor_T.append(
+                nn.Linear(cor_T_params["layers"][i], cor_T_params["layers"][i + 1])
+            )
+        cor_T.append(nn.ReLU())
+        cor_T.append(nn.Linear(cor_T_params["layers"][-1], 2))
+        self.cor_T = nn.Sequential(*cor_T)
+
+        cor_fac_params = modelParams["cor_fac"]
+        cor_fac = [nn.Linear(len(self.inp_cor_fac), cor_fac_params["layers"][0])]
+        for i in range(len(cor_fac_params["layers"]) - 1):
+            cor_fac.append(nn.ReLU())
+            cor_fac.append(
+                nn.Linear(cor_fac_params["layers"][i], cor_fac_params["layers"][i + 1])
+            )
+        cor_fac.append(nn.ReLU())
+        cor_fac.append(nn.Linear(cor_fac_params["layers"][-1], 2))
+        self.cor_fac = nn.Sequential(*cor_fac)
+
+    def forward(self, inputs):
+        P = Normalizer._unorm(
+            inputs[:, self.ind_precip],
+            self.normalizing_bounds["tp"][0],
+            self.normalizing_bounds["tp"][1],
+        )
+        T = (
+            Normalizer._unorm(
+                inputs[:, self.ind_temp],
+                self.normalizing_bounds["t2m"][0],
+                self.normalizing_bounds["t2m"][1],
+            )
+            + 273.15
+        )
+        inp_cor_T = inputs[:, self.ind_inp_cor_T]
+        inp_cor_fac = inputs[:, self.ind_inp_cor_fac]
+
+        # Temperature correction for precipitation and PDD
+        # Acts as a shift of the temperature
+        # Accounts for: downscaling, local effects (?)
+        cor_T = self.cor_T(inp_cor_T)
+        cor_T_P = cor_T[:, 0]
+        cor_T_PDD = cor_T[:, 1]
+
+        P_solid = P * F.sigmoid(self.tau_P_s * (self.tau_P_c + cor_T_P - T))
+        PDD = F.softplus(T + cor_T_PDD)
+
+        cor_fac = self.cor_fac(inp_cor_fac)
+
+        # Accumulation factor correction
+        # Accounts for:
+        #   - local effects: topography, exposure, radiative effects, refreeze
+        cor_acc = cor_fac[:, 0]
+
+        # Ablation factor correction
+        # Accounts for:
+        #   - local effects: topography, exposure, radiative effects, refreeze
+        cor_abl = cor_fac[:, 1]
+
+        MB = self.beta1 * cor_acc * P_solid - self.beta2 * cor_abl * PDD
+        return MB.view(-1, 1)
 
 
 def createModel(cfg, modelParams):
@@ -22,6 +133,8 @@ def createModel(cfg, modelParams):
         l.append(nn.Linear(modelParams["layers"][-1], 1))
         network = nn.Sequential(*l)
         return network
+    elif modelParams["type"] == "TIlike":
+        return TILikeModel(modelParams, cfg.bnds)
     else:
         raise ValueError(f"Model {modelParams['type']} is not supported.")
 
