@@ -62,6 +62,8 @@ def parseParams(params):
             "log_suffix": params["training"].get("log_suffix", ""),
             "log_prefix": params["training"].get("log_prefix", ""),
             "log_dir": params["training"].get("log_dir"),
+            "wWinter": params["training"].get("wWinter"),
+            "wSummer": params["training"].get("wSummer"),
         },
     }
 

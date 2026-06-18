@@ -65,7 +65,9 @@ _criterionVal = ["lossVal", "lossStake", "lossValGeo", "mse", "rmse", "mae", "pe
 _maxCriterion = ["pearson"]  # Criterion for which higher is better
 
 
-def compute_stake_loss(model, stakes, metadata, point_balance, returnPred=False):
+def compute_stake_loss(
+    model, stakes, metadata, point_balance, returnPred=False, weightStakes=None
+):
     """
     Computes the stake loss term.
 
@@ -78,6 +80,8 @@ def compute_stake_loss(model, stakes, metadata, point_balance, returnPred=False)
             It is returned by the geodetic dataloader.
         returnPred (bool): Whether to return the prediction and the target in a
             dictionary. Default is False.
+        weightStakes (None or torch.Tensor): Optional weights to use in the loss
+            function.
 
     Returns a scalar torch value that corresponds to the stake loss term and
     optionally statistics in a dictionary.
@@ -96,7 +100,11 @@ def compute_stake_loss(model, stakes, metadata, point_balance, returnPred=False)
     aggrPredict(point_balance, int_id, reduce="mean", out=trueMean)
     predSum = aggrPredict(pred, int_id)
 
-    mse = nn.functional.mse_loss(predSum, trueMean, reduction="mean")
+    if weightStakes is None:
+        mse = nn.functional.mse_loss(predSum, trueMean, reduction="mean")
+    else:
+        err = (predSum - trueMean) ** 2
+        mse = (weightStakes * err).sum() / predSum.shape[0]
     ret = {}
     if returnPred:
         ret["target"] = trueMean.detach().cpu()
@@ -392,7 +400,12 @@ def scores(pred: torch.Tensor, target: torch.Tensor):
     return mse, rmse, mae, pearson_corr, r2, bias
 
 
-def assessOnTest(log_dir, model, geodataloader_test, light=False):
+def assessOnTest(log_dir, model, geodataloader_test, params, light=False):
+    wWinter = params["training"].get("wWinter", 1.0)
+    wSummer = params["training"].get("wSummer", 1.0)
+    if wWinter == 1.0 and wSummer == 1.0:
+        weightStakes = None
+
     targetAll = torch.zeros(0)
     predAll = torch.zeros(0)
     periodAll = np.zeros(
@@ -404,8 +417,33 @@ def assessOnTest(log_dir, model, geodataloader_test, light=False):
         point_balance = torch.tensor(point_balance.astype(np.float32)).to(
             geodataloader_test.device
         )
+
+        if wWinter != 1.0 or wSummer != 1.0:
+            if stakes.shape[0] == 0:
+                weightStakes = None
+            else:
+                idAggr = metadata["ID"].values
+                int_id, unique_id = pd.factorize(idAggr)
+                weightStakes = torch.ones(
+                    (len(np.unique(idAggr)),),
+                    device=geodataloader_test.device,
+                    dtype=point_balance.dtype,
+                )
+                period = metadata["PERIOD"].values
+                winter_mask = period == "winter"
+                summer_mask = period == "summer"
+                if winter_mask.any():
+                    weightStakes[np.unique(int_id[winter_mask])] = wWinter
+                if summer_mask.any():
+                    weightStakes[np.unique(int_id[summer_mask])] = wSummer
+
         l, ret, int_id = compute_stake_loss(
-            model, stakes, metadata, point_balance, returnPred=True
+            model,
+            stakes,
+            metadata,
+            point_balance,
+            returnPred=True,
+            weightStakes=weightStakes,
         )
         targetAll = torch.concatenate((targetAll, ret["target"]))
         predAll = torch.concatenate((predAll, ret["pred"]))
@@ -484,6 +522,10 @@ def assessOnTest(log_dir, model, geodataloader_test, light=False):
 def assessOnVal(model, geodataloader, params, async_transfer=None):
     wGeo = params["training"]["wGeo"]
     scalingStakes = params["training"]["scalingStakes"]
+    wWinter = params["training"].get("wWinter", 1.0)
+    wSummer = params["training"].get("wSummer", 1.0)
+    if wWinter == 1.0 and wSummer == 1.0:
+        weightStakes = None
     statsVal = {}
 
     if async_transfer is None:
@@ -531,8 +573,33 @@ def assessOnVal(model, geodataloader, params, async_transfer=None):
             point_balance = torch.tensor(point_balance.astype(np.float32)).to(
                 geodataloader.device
             )
+
+            if wWinter != 1.0 or wSummer != 1.0:
+                if stakes.shape[0] == 0:
+                    weightStakes = None
+                else:
+                    idAggr = metadata["ID"].values
+                    int_id, unique_id = pd.factorize(idAggr)
+                    weightStakes = torch.ones(
+                        (len(np.unique(idAggr)),),
+                        device=geodataloader.device,
+                        dtype=point_balance.dtype,
+                    )
+                    period = metadata["PERIOD"].values
+                    winter_mask = period == "winter"
+                    summer_mask = period == "summer"
+                    if winter_mask.any():
+                        weightStakes[np.unique(int_id[winter_mask])] = wWinter
+                    if summer_mask.any():
+                        weightStakes[np.unique(int_id[summer_mask])] = wSummer
+
             l, ret, int_id = compute_stake_loss(
-                model, stakes, metadata, point_balance, returnPred=True
+                model,
+                stakes,
+                metadata,
+                point_balance,
+                returnPred=True,
+                weightStakes=weightStakes,
             )
             target = ret["target"]
             pred = ret["pred"]
@@ -731,6 +798,10 @@ def train_geo(
     assert scalingStakes in ["meas", "glacier"]
     iterPerEpoch = len(geodataloader)
     nColsProgressBar = 500 if _inJupyterNotebook else 85
+    wWinter = params["training"].get("wWinter", 1.0)
+    wSummer = params["training"].get("wSummer", 1.0)
+    if wWinter == 1.0 and wSummer == 1.0:
+        weightStakes = None
 
     # Setup logging
     run_name = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -857,13 +928,41 @@ def train_geo(
                         point_balance = torch.tensor(
                             point_balance.astype(np.float32)
                         ).to(geodataloader.device)
+
+                        if wWinter != 1.0 or wSummer != 1.0:
+                            if stakes.shape[0] == 0:
+                                weightStakes = None
+                            else:
+                                idAggr = metadata["ID"].values
+                                int_id, unique_id = pd.factorize(idAggr)
+                                weightStakes = torch.ones(
+                                    (len(np.unique(idAggr)),),
+                                    device=geodataloader.device,
+                                    dtype=point_balance.dtype,
+                                )
+                                period = metadata["PERIOD"].values
+                                winter_mask = period == "winter"
+                                summer_mask = period == "summer"
+                                if winter_mask.any():
+                                    weightStakes[np.unique(int_id[winter_mask])] = (
+                                        wWinter
+                                    )
+                                if summer_mask.any():
+                                    weightStakes[np.unique(int_id[summer_mask])] = (
+                                        wSummer
+                                    )
+
                         if timeExec:
                             torch.cuda.synchronize()
                             stakesDataloaderTime = time.time() - st
                             st = time.time()
                         with record_function("stake_forward"):
                             lossStake, _, _ = compute_stake_loss(
-                                model, stakes, metadata, point_balance
+                                model,
+                                stakes,
+                                metadata,
+                                point_balance,
+                                weightStakes=weightStakes,
                             )
                         if timeExec:
                             torch.cuda.synchronize()
@@ -1077,7 +1176,9 @@ def train_geo(
                     torch.save(model.state_dict(), model_path)
 
                     if geodataloader_test is not None and len(geodataloader_test) > 0:
-                        assessOnTest(log_dir, model, geodataloader_test, light=True)
+                        assessOnTest(
+                            log_dir, model, geodataloader_test, params, light=True
+                        )
 
             rmse = statsVal["rmse"][-1] if len(statsVal["rmse"]) > 0 else np.nan
             r2 = statsVal["r2"][-1] if len(statsVal["r2"]) > 0 else np.nan

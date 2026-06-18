@@ -330,7 +330,7 @@ if len(df_X_test_subset) > 0 and not noTest:
 
     # Geodetic performance
     with torch.no_grad():
-        resTest = mbm.training.assessOnTest(pathFolder, model, test_gdl)
+        resTest = mbm.training.assessOnTest(pathFolder, model, test_gdl, params)
 
     geoPred, geoTarget, geoErr, dict_df_gridded = mbm.training.eval_geodetic(
         model, test_gdl, return_grid_pred=["annual", "monthly"]
