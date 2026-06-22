@@ -349,9 +349,21 @@ if len(df_X_test_subset) > 0 and not noTest:
                 "pred": [geoPred[k] for k in kk],
             }
         )
-        df_geo.to_csv(f"{pathFolder}/gridded_geodetic_test.csv")
-        df_gridded_annual.to_csv(f"{pathFolder}/gridded_annual_test.csv")
-        df_gridded_monthly.to_csv(f"{pathFolder}/gridded_monthly_test.csv")
+        df_geo.to_parquet(
+            f"{pathFolder}/gridded_geodetic_test.parquet",
+            engine="pyarrow",
+            compression="snappy",
+        )
+        df_gridded_annual.to_parquet(
+            f"{pathFolder}/gridded_annual_test.parquet",
+            engine="pyarrow",
+            compression="snappy",
+        )
+        df_gridded_monthly.to_parquet(
+            f"{pathFolder}/gridded_monthly_test.parquet",
+            engine="pyarrow",
+            compression="snappy",
+        )
 
     # Plot cumulated mass change
     fig, _ = mbm.plots.cumulatedMassChange(
@@ -570,9 +582,21 @@ if savePred:
             "pred": [geoPred[k] for k in kk],
         }
     )
-    df_geo.to_csv(f"{pathFolder}/gridded_geodetic_train.csv")
-    df_gridded_annual.to_csv(f"{pathFolder}/gridded_annual_train.csv")
-    df_gridded_monthly.to_csv(f"{pathFolder}/gridded_monthly_train.csv")
+    df_geo.to_parquet(
+        f"{pathFolder}/gridded_geodetic_train.parquet",
+        engine="pyarrow",
+        compression="snappy",
+    )
+    df_gridded_annual.to_parquet(
+        f"{pathFolder}/gridded_annual_train.parquet",
+        engine="pyarrow",
+        compression="snappy",
+    )
+    df_gridded_monthly.to_parquet(
+        f"{pathFolder}/gridded_monthly_train.parquet",
+        engine="pyarrow",
+        compression="snappy",
+    )
 
 
 # Geodetic performance

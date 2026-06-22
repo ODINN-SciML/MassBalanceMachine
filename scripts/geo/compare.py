@@ -100,10 +100,19 @@ with open(f"{pathFolder1}/glacierNames.json", "r") as f:
     glacierNames = json.load(f)
 
 
+def load_gridded(file_without_ext):
+    if os.path.isfile(file_without_ext + ".parquet"):
+        return pd.read_parquet(file_without_ext + ".parquet")
+    elif os.path.isfile(file_without_ext + ".csv"):
+        return pd.read_csv(file_without_ext + ".csv")
+    else:
+        raise Exception(f"No file with matching extension found for {file_without_ext}")
+
+
 if not noTrain:
     # Cumulated mass change on train data
-    df_gridded_monthly1 = pd.read_csv(f"{pathFolder1}/gridded_monthly_train.csv")
-    df_geo1 = pd.read_csv(f"{pathFolder1}/gridded_geodetic_train.csv")
+    df_gridded_monthly1 = load_gridded(f"{pathFolder1}/gridded_monthly_train")
+    df_geo1 = load_gridded(f"{pathFolder1}/gridded_geodetic_train")
     geoTarget = df_geo1.set_index("RGIId").target.to_dict()
     geoErr = df_geo1.set_index("RGIId").err.to_dict()
 
@@ -116,7 +125,7 @@ if not noTrain:
         },
     )
     del df_gridded_monthly1
-    df_gridded_monthly2 = pd.read_csv(f"{pathFolder2}/gridded_monthly_train.csv")
+    df_gridded_monthly2 = load_gridded(f"{pathFolder2}/gridded_monthly_train")
     _, l2 = mbm.plots.cumulatedMassChange(
         df_gridded_monthly2,
         geo=None,
@@ -137,8 +146,8 @@ if not noTrain:
     plt.close(fig)
 
     if len(mapsTrain) > 0:
-        df_gridded_annual1 = pd.read_csv(f"{pathFolder1}/gridded_annual_train.csv")
-        df_gridded_annual2 = pd.read_csv(f"{pathFolder2}/gridded_annual_train.csv")
+        df_gridded_annual1 = load_gridded(f"{pathFolder1}/gridded_annual_train")
+        df_gridded_annual2 = load_gridded(f"{pathFolder2}/gridded_annual_train")
 
         mapsFolder = f"{pathFolder}/maps"
         os.makedirs(mapsFolder, exist_ok=True)
@@ -182,8 +191,8 @@ if not noTrain:
 
 
 # Cumulated mass change on test data
-df_gridded_monthly1 = pd.read_csv(f"{pathFolder1}/gridded_monthly_test.csv")
-df_geo1 = pd.read_csv(f"{pathFolder1}/gridded_geodetic_test.csv")
+df_gridded_monthly1 = load_gridded(f"{pathFolder1}/gridded_monthly_test")
+df_geo1 = load_gridded(f"{pathFolder1}/gridded_geodetic_test")
 geoTarget = df_geo1.set_index("RGIId").target.to_dict()
 geoErr = df_geo1.set_index("RGIId").err.to_dict()
 
@@ -196,7 +205,7 @@ fig, l1 = mbm.plots.cumulatedMassChange(
     },
 )
 del df_gridded_monthly1
-df_gridded_monthly2 = pd.read_csv(f"{pathFolder2}/gridded_monthly_test.csv")
+df_gridded_monthly2 = load_gridded(f"{pathFolder2}/gridded_monthly_test")
 _, l2 = mbm.plots.cumulatedMassChange(
     df_gridded_monthly2,
     geo=None,
@@ -226,8 +235,8 @@ plt.close(fig)
 
 
 # Load annual data
-df_gridded_annual1 = pd.read_csv(f"{pathFolder1}/gridded_annual_test.csv")
-df_gridded_annual2 = pd.read_csv(f"{pathFolder2}/gridded_annual_test.csv")
+df_gridded_annual1 = load_gridded(f"{pathFolder1}/gridded_annual_test")
+df_gridded_annual2 = load_gridded(f"{pathFolder2}/gridded_annual_test")
 
 
 # Plot MB profile
