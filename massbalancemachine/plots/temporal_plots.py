@@ -46,7 +46,10 @@ def cumulatedMassChange(
         else:
             ax = axs.flatten()[i]
 
-        month_to_id = {month_abbr[i].lower(): i for i in range(1, 13)}
+        month_to_id = {
+            month_abbr[i].lower() + ("_" if i > 9 else ""): i for i in range(1, 13)
+        }  # Since we are working with calendar years, the format is jan,..,sep,oct_,..dec_
+
         # df_gl["MONTH_ID"] = df_gl.apply(
         #     lambda x: get_hash(f"{x.RGIId}_{x.YEAR}_{x.MONTHS}"),
         #     axis=1,
@@ -54,6 +57,9 @@ def cumulatedMassChange(
         df_gl["MONTH_ID"] = df_gl.YEAR * 12 + df_gl["MONTHS"].map(
             month_to_id
         )  # Computing a unique ID per month this way is much faster than using apply and get_hash
+        assert not df_gl[
+            "MONTH_ID"
+        ].hasnans, "The resulting MONTH_ID column contains NaNs. Check the month convention, especially that the gridded products are generated with calendar years."
         monthly_df = df_gl.groupby("MONTH_ID").agg(
             {
                 "RGIId": "first",
