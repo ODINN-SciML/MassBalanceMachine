@@ -19,6 +19,7 @@ def cumulatedMassChange(
     ax_ylim=None,
     color_pred="blue",
     color_obs="black",
+    linear_fit_breaks=None,
 ):
 
     order_key = "GLACIER" if "GLACIER" in df_gridded.keys() else "RGIId"
@@ -70,6 +71,34 @@ def cumulatedMassChange(
         t = np.concatenate([[first_year], t])
         y = np.concatenate([[0.0], y])
         (line,) = ax.plot(t, np.cumsum(y), color=color_pred)
+
+        if linear_fit_breaks is not None:
+            bounds = [t[0]] + linear_fit_breaks + [t[-1]]
+            std = np.std(y)
+            c = np.cumsum(y)
+            for i in range(len(bounds) - 1):
+                ind_start = np.argwhere(t >= bounds[i])[0, 0]
+                ind_end = np.argwhere(t <= bounds[i + 1])[-1, 0]
+                ti = t[ind_start : ind_end + 1]
+                ci = c[ind_start : ind_end + 1]
+                coef = np.polyfit(ti, ci, 1)
+                poly1d_fn = np.poly1d(coef)
+                x = [ti[0], ti[-1]]
+                (line,) = ax.plot(x, poly1d_fn(x), linestyle="--", color=color_pred)
+
+                # Add slope label above the midpoint of the segment
+                x_mid = (ti[0] + ti[-1]) / 2
+                y_mid = poly1d_fn(x_mid)
+                slope = coef[0]
+                ax.text(
+                    x_mid,
+                    y_mid + 5 * std,
+                    f"{slope:.2f}",
+                    color=line.get_color(),
+                    ha="center",
+                    va="bottom",
+                    fontsize=9,
+                )
 
         nyear = monthly_df.YEAR.nunique()
         if geo is not None and test_gl in geo:

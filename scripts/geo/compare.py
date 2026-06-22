@@ -112,6 +112,8 @@ def load_gridded(file_without_ext):
         raise Exception(f"No file with matching extension found for {file_without_ext}")
 
 
+linear_fit_breaks = [2015 + 9 / 12]
+
 if not noTrain:
     # Cumulated mass change on train data
     df_gridded_monthly1 = load_gridded(f"{pathFolder1}/gridded_monthly_train")
@@ -126,6 +128,7 @@ if not noTrain:
             rgi_id: {"mean": geoTarget[rgi_id], "err": geoErr[rgi_id]}
             for rgi_id in geoTarget
         },
+        linear_fit_breaks=linear_fit_breaks,
     )
     del df_gridded_monthly1
     df_gridded_monthly2 = load_gridded(f"{pathFolder2}/gridded_monthly_train")
@@ -138,6 +141,7 @@ if not noTrain:
             k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
             for k in glacierNames
         },
+        linear_fit_breaks=linear_fit_breaks,
     )
     del df_gridded_monthly2
     fig.legend([l1, l2], [name1, name2], loc="lower center", ncol=2)
@@ -206,6 +210,7 @@ fig, l1 = mbm.plots.cumulatedMassChange(
         rgi_id: {"mean": geoTarget[rgi_id], "err": geoErr[rgi_id]}
         for rgi_id in geoTarget
     },
+    linear_fit_breaks=linear_fit_breaks,
 )
 del df_gridded_monthly1
 df_gridded_monthly2 = load_gridded(f"{pathFolder2}/gridded_monthly_test")
@@ -218,6 +223,7 @@ _, l2 = mbm.plots.cumulatedMassChange(
         k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
         for k in glacierNames
     },
+    linear_fit_breaks=linear_fit_breaks,
 )
 del df_gridded_monthly2
 fig.legend(
