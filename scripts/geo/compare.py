@@ -96,8 +96,11 @@ with open(f"{pathFolder1}/params.json", "r") as f:
 with open(f"{pathFolder2}/params.json", "r") as f:
     params2 = json.load(f)
 
-with open(f"{pathFolder1}/glacierNames.json", "r") as f:
-    glacierNames = json.load(f)
+if os.path.isfile(f"{pathFolder1}/glacierNames.json"):
+    with open(f"{pathFolder1}/glacierNames.json", "r") as f:
+        glacierNames = json.load(f)
+else:
+    glacierNames = {}
 
 
 def load_gridded(file_without_ext):

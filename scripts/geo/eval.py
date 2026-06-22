@@ -192,11 +192,14 @@ data_test = test_set["df_X"]
 data_test["y"] = test_set["y"]
 
 setFeatures(cfg, data_train, featuresInpModel)
+split_key = params["training"].get("splitVal", "group-meas-id")
+val_glaciers = params["training"].get("val_glaciers", None)
 df_X_train, y_train, df_X_val, y_val = trainValData(
     cfg,
     train_set,
     featuresInpModel,
-    split_key=params["training"].get("splitVal", "group-meas-id"),
+    split_key=split_key,
+    val_glaciers=val_glaciers,
 )
 df_X_test_subset = testData(cfg, test_set, featuresInpModel)
 
@@ -415,18 +418,19 @@ train_glacierNames = mbm.data_processing.oggm_utils._glacier_name(
     list(data_train.RGIId.unique()), cfg
 )
 glacierNames = train_glacierNames | test_glacierNames
-for k in glacierNames:
-    if glacierNames[k] == "":
-        glacierNames[k] = default_glacier_name(k)
-with open(os.path.join(pathFolder, "glacierNames.json"), "w") as f:
-    json.dump(glacierNames, f, indent=4, sort_keys=True)
+if len(train_glacierNames) > 0 and len(test_glacierNames) > 0:
+    for k in glacierNames:
+        if glacierNames[k] == "":
+            glacierNames[k] = default_glacier_name(k)
+    with open(os.path.join(pathFolder, "glacierNames.json"), "w") as f:
+        json.dump(glacierNames, f, indent=4, sort_keys=True)
 
 # Create dataloader
 train_gdl = mbm.dataloader.GeoDataLoader(
     cfg,
     train_glaciers,
     device=device,
-    trainStakesDf=data_train,
+    trainStakesDf=df_X_train,
     glacierListVal=valid_glaciers,
     months_head_pad=months_head_pad,
     months_tail_pad=months_tail_pad,
@@ -607,8 +611,8 @@ fig = mbm.plots.predVSTruthGlacierWide(
     geoPred,
     geoErr,
     title="Glacier wide MB on train",
-    ax_xlim=(-2.5, 2.0),
-    ax_ylim=(-2.5, 2.0),
+    ax_xlim=(-2.5, 1.0),
+    ax_ylim=(-2.5, 1.0),
     legend=False,
 )
 plt.savefig(os.path.join(pathFolder, "geodetic_train.png"))
