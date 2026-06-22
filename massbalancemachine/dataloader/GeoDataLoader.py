@@ -57,6 +57,7 @@ class GeoDataLoader:
         geoGlaciers: str = "stakes",
         ignoreGlaciers: list[str] = [],
         device=torch.device("cpu"),
+        allStakesPerIter=False,
     ) -> None:
         self.cfg = cfg
         self.glacierList = glacierList.copy()  # Copy for shuffling
@@ -79,6 +80,7 @@ class GeoDataLoader:
         self.geoGlaciers = geoGlaciers
         self.ignoreGlaciers = ignoreGlaciers
         self.device = device
+        self.allStakesPerIter = allStakesPerIter
 
         if valStakesDf is not None:
             assert (
@@ -262,7 +264,8 @@ class GeoDataLoader:
             groundTruth (np.ndarray): The ground truth mass balance values.
         """
         X = overwriteDf if overwriteDf is not None else self.trainStakesDf
-        X = X[X[self.keyGlacierSel] == glacierName]  # .dropna()
+        if not self.allStakesPerIter:
+            X = X[X[self.keyGlacierSel] == glacierName]  # .dropna()
 
         feature_columns = self.cfg.featureColumns
         non_feature_columns = X.columns.difference(feature_columns)

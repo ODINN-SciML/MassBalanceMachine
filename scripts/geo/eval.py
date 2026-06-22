@@ -248,6 +248,7 @@ if len(df_X_test_subset) > 0 and not noTest:
         months_head_pad=months_head_pad,
         months_tail_pad=months_tail_pad,
         keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
+        allStakesPerIter=(params["training"]["scalingStakes"] == "full"),
     )
 
     grouped_ids = model.evaluate_group_pred(test_gdl)
@@ -431,6 +432,7 @@ train_gdl = mbm.dataloader.GeoDataLoader(
     months_tail_pad=months_tail_pad,
     valStakesDf=df_X_val,
     keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
+    allStakesPerIter=(params["training"]["scalingStakes"] == "full"),
 )
 
 with torch.no_grad():
@@ -677,6 +679,7 @@ if onRegion:
         keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
         geoGlaciers=f"region-{regionId}-{thresArea}",
         ignoreGlaciers=["RGI60-08.00333", "RGI60-08.02308", "RGI60-08.02550"],
+        allStakesPerIter=(params["training"]["scalingStakes"] == "full"),
     )
 
     geoPred, geoTarget, geoErr, _ = mbm.training.eval_geodetic(model, region_gdl)

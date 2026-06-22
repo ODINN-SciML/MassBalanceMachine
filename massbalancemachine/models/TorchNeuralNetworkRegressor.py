@@ -342,6 +342,9 @@ class CustomTorchNeuralNetRegressor(nn.Module):
                     [grouped_ids, grouped_ids_glacier], ignore_index=True
                 )
 
+                if geodataloader.allStakesPerIter:
+                    break
+
         if grouped_ids.shape[0] > 0:
             # ID_int does not make sense since it is used only to perform the aggregation with PyTorch, the variable to use is ID instead
             grouped_ids.drop(columns=["ID_int"], inplace=True)
