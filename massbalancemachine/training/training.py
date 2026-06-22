@@ -809,7 +809,7 @@ def train_geo(
     bestModelCriterion = params["training"]["bestModelCriterion"]
     assert bestModelCriterion in _criterionVal
     scalingStakes = params["training"]["scalingStakes"]
-    assert scalingStakes in ["meas", "glacier"]
+    assert scalingStakes in ["meas", "glacier", "full"]
     iterPerEpoch = len(geodataloader)
     nColsProgressBar = 500 if _inJupyterNotebook else 85
     wWinter = params["training"].get("wWinter", 1.0)
