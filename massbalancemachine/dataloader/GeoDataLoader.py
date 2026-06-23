@@ -58,6 +58,7 @@ class GeoDataLoader:
         ignoreGlaciers: list[str] = [],
         device=torch.device("cpu"),
         allStakesPerIter=False,
+        additionalYears=[],  # years for which to ensure the gridded products are generated in addition to what is required to process the dataset (which is based on the geodeticOggm argument); this is used only when geoGlaciers="stakes"
     ) -> None:
         self.cfg = cfg
         self.glacierList = glacierList.copy()  # Copy for shuffling
@@ -81,6 +82,7 @@ class GeoDataLoader:
         self.ignoreGlaciers = ignoreGlaciers
         self.device = device
         self.allStakesPerIter = allStakesPerIter
+        self.additionalYears = additionalYears
 
         if valStakesDf is not None:
             assert (
@@ -153,7 +155,8 @@ class GeoDataLoader:
                 for g in self.ignoreGlaciers:
                     if g in rgi_ids:
                         rgi_ids.remove(g)
-                create_gridded_features_RGI(self.cfg, rgi_ids)
+                years = list(range(2000, 2020)) + self.additionalYears
+                create_gridded_features_RGI(self.cfg, rgi_ids, years=years)
                 geo_target_data = geodetic_target(rgi_ids, self.cfg)
             elif "region-" in self.geoGlaciers:
                 s = self.geoGlaciers.split("-")
@@ -166,7 +169,8 @@ class GeoDataLoader:
                 for g in self.ignoreGlaciers:
                     if g in rgi_ids:
                         rgi_ids.remove(g)
-                create_gridded_features_RGI(self.cfg, rgi_ids)
+                years = list(range(2000, 2020))
+                create_gridded_features_RGI(self.cfg, rgi_ids, years=years)
             self.periods_per_glacier = {}
             self.y_target_geo = {}
             self.err_target_geo = {}

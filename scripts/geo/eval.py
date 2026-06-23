@@ -75,7 +75,7 @@ parser.add_argument(
     dest="years",
     default=[],
     nargs="+",
-    help="Years for which to generate the annual MB maps.",
+    help="Years for which to compute the distributed MB. This is also used to generate the annual MB maps.",
 )
 args = parser.parse_args()
 
@@ -86,7 +86,7 @@ noTest = args.noTest
 onRegion = args.onRegion
 savePred = args.savePred
 maps = args.maps
-yearsMaps = args.years
+yearsMaps = [int(y) for y in args.years]
 pathFolder = os.path.join("logs", modelFolder)
 
 if len(maps) > 0:
@@ -158,6 +158,7 @@ else:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 
 
+# Dataset manager
 keyGlacier = "GLACIER" if sourceData == "switzerland" else "RGIId"
 if sourceData == "switzerland":
     datasetManager = mbm.dataloader.SourceManagerSwitzerland(
@@ -201,12 +202,17 @@ df_X_train, y_train, df_X_val, y_val = trainValData(
 df_X_test_subset = testData(cfg, test_set, featuresInpModel)
 
 
+geodeticYears = list(range(2000, 2020))
+additionalYears = list(set(yearsMaps).difference(geodeticYears))
+
+
 # dataset = dataset_val = None  # Initialized hereafter
 
 
 # param_init = {"device": "cpu"}  # Use CPU for evaluation
 
 
+# Create model
 network = mbm.models.buildModel(cfg, params=params)
 model = mbm.models.CustomTorchNeuralNetRegressor(network)
 device = torch.device("cuda:0" if torch.cuda.is_available() and not cpu else "cpu")
@@ -249,6 +255,7 @@ if len(df_X_test_subset) > 0 and not noTest:
         months_tail_pad=months_tail_pad,
         keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
         allStakesPerIter=(params["training"]["scalingStakes"] == "full"),
+        additionalYears=additionalYears,
     )
 
     grouped_ids = model.evaluate_group_pred(test_gdl)
@@ -436,6 +443,7 @@ train_gdl = mbm.dataloader.GeoDataLoader(
     valStakesDf=df_X_val,
     keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
     allStakesPerIter=(params["training"]["scalingStakes"] == "full"),
+    additionalYears=additionalYears,
 )
 
 with torch.no_grad():
