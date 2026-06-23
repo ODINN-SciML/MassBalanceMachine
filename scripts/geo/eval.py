@@ -66,23 +66,16 @@ parser.add_argument(
 parser.add_argument(
     "--maps",
     dest="maps",
-    default=False,
-    action="store_true",
-    help="Generate annual MB maps for test glaciers.",
-)
-parser.add_argument(
-    "--mapsTest",
-    dest="mapsTest",
     default=[],
     nargs="+",
-    help="Generate annual MB maps for specific test glaciers.",
+    help="Generate annual MB maps for specific glaciers.",
 )
 parser.add_argument(
-    "--mapsTrain",
-    dest="mapsTrain",
+    "--years",
+    dest="years",
     default=[],
     nargs="+",
-    help="Generate annual MB maps for specific train glaciers.",
+    help="Years for which to generate the annual MB maps.",
 )
 args = parser.parse_args()
 
@@ -93,9 +86,13 @@ noTest = args.noTest
 onRegion = args.onRegion
 savePred = args.savePred
 maps = args.maps
-mapsTest = args.mapsTest
-mapsTrain = args.mapsTrain
+yearsMaps = args.years
 pathFolder = os.path.join("logs", modelFolder)
+
+if len(maps) > 0:
+    assert (
+        len(yearsMaps) > 0
+    ), "If distributed maps are generated, the option years must be provided."
 
 if not plot:
     # To avoid GC issues because of the threads, we run the script without a GUI
@@ -382,18 +379,20 @@ if len(df_X_test_subset) > 0 and not noTest:
         plt.show()
     plt.close(fig)
 
-    if (maps or len(mapsTest) > 0) and len(test_glaciers) > 0:
+    if any([m in test_glaciers for m in maps]):
         mapsFolder = f"{pathFolder}/maps"
         os.makedirs(mapsFolder, exist_ok=True)
         # Initialize OGGM once for all to avoid repeated and useless computations
         mbm.data_processing.oggm_utils._initialize_oggm_config("")
-        rgi_ids = test_glaciers if maps else mapsTest
+        rgi_ids = list(set(test_glaciers).intersection(set(maps)))
         gdirs = mbm.data_processing.oggm_utils._initialize_glacier_directories(
             rgi_ids, cfg
         )
         for rgi_id, gdir in zip(rgi_ids, gdirs):
             years = df_gridded_annual[df_gridded_annual.RGIId == rgi_id].YEAR.unique()
-            for year in years:
+            for year in yearsMaps:
+                # TODO: allow to generate maps outside of that range
+                assert year in years
                 fig = mbm.plots.mapGlacier(
                     df_gridded_annual, rgi_id, year, cfg, gdir=gdir
                 )
@@ -650,17 +649,18 @@ if plot:
     plt.show()
 plt.close(fig)
 
-if len(mapsTrain) > 0:
+if any([m in train_glaciers for m in maps]):
     mapsFolder = f"{pathFolder}/maps"
     os.makedirs(mapsFolder, exist_ok=True)
     # Initialize OGGM once for all to avoid repeated and useless computations
     mbm.data_processing.oggm_utils._initialize_oggm_config("")
-    gdirs = mbm.data_processing.oggm_utils._initialize_glacier_directories(
-        mapsTrain, cfg
-    )
-    for rgi_id, gdir in zip(mapsTrain, gdirs):
+    rgi_ids = list(set(train_glaciers).intersection(set(maps)))
+    gdirs = mbm.data_processing.oggm_utils._initialize_glacier_directories(rgi_ids, cfg)
+    for rgi_id, gdir in zip(rgi_ids, gdirs):
         years = df_gridded_annual[df_gridded_annual.RGIId == rgi_id].YEAR.unique()
-        for year in years:
+        for year in yearsMaps:
+            # TODO: allow to generate maps outside of that range
+            assert year in years
             fig = mbm.plots.mapGlacier(df_gridded_annual, rgi_id, year, cfg, gdir=gdir)
             fig.savefig(f"{mapsFolder}/{rgi_id}_{year}.pdf")
             plt.close(fig)

@@ -54,23 +54,16 @@ parser.add_argument(
 parser.add_argument(
     "--maps",
     dest="maps",
-    default=False,
-    action="store_true",
-    help="Generate annual MB maps for test glaciers.",
-)
-parser.add_argument(
-    "--mapsTest",
-    dest="mapsTest",
     default=[],
     nargs="+",
-    help="Generate annual MB maps for specific test glaciers.",
+    help="Generate annual MB maps for specific glaciers.",
 )
 parser.add_argument(
-    "--mapsTrain",
-    dest="mapsTrain",
+    "--years",
+    dest="years",
     default=[],
     nargs="+",
-    help="Generate annual MB maps for specific train glaciers.",
+    help="Years for which to generate the annual MB maps.",
 )
 args = parser.parse_args()
 
@@ -81,12 +74,16 @@ name2 = args.name2
 plot = args.plot
 noTrain = args.noTrain
 maps = args.maps
-mapsTest = args.mapsTest
-mapsTrain = args.mapsTrain
+yearsMaps = [int(y) for y in args.years]
 pathFolder1 = os.path.join("logs", modelFolder1)
 pathFolder2 = os.path.join("logs", modelFolder2)
 name1 = name1 if name1 is not None else modelFolder1
 name2 = name2 if name2 is not None else modelFolder2
+
+if len(maps) > 0:
+    assert (
+        len(yearsMaps) > 0
+    ), "If distributed maps are generated, the option years must be provided."
 
 pathFolder = os.path.join("results/comp/", f"{modelFolder1}_{modelFolder2}")
 os.makedirs(pathFolder, exist_ok=True)
@@ -152,13 +149,15 @@ if not noTrain:
         plt.show()
     plt.close(fig)
 
-    if len(mapsTrain) > 0:
+    if len(maps) > 0:
         df_gridded_annual1 = load_gridded(f"{pathFolder1}/gridded_annual_train")
         df_gridded_annual2 = load_gridded(f"{pathFolder2}/gridded_annual_train")
+        train_glaciers = df_gridded_annual1.RGIId.unique()
 
         mapsFolder = f"{pathFolder}/maps"
         os.makedirs(mapsFolder, exist_ok=True)
         cfg = mbm.Config("11")  # Fake cfg which is needed just for OGGM
+        mapsTrain = list(set(train_glaciers).intersection(set(maps)))
         assert set(mapsTrain).issubset(df_gridded_annual1.RGIId.unique())
         assert set(mapsTrain).issubset(df_gridded_annual2.RGIId.unique())
         for rgi_id in mapsTrain:
@@ -170,7 +169,9 @@ if not noTrain:
                 df_gridded_annual2[df_gridded_annual2.RGIId == rgi_id].pred.abs().max()
             )
             max_abs = max(max1, max2)
-            for year in years:
+            for year in yearsMaps:
+                # TODO: allow to generate maps outside of that range
+                assert year in years
                 fig, axs = plt.subplots(1, 2, figsize=(12, 6))
                 mbm.plots.mapGlacier(
                     df_gridded_annual1,
@@ -272,21 +273,21 @@ if plot:
 plt.close(fig)
 
 
-if maps or len(mapsTest) > 0:
+if len(maps) > 0:
     mapsFolder = f"{pathFolder}/maps"
     os.makedirs(mapsFolder, exist_ok=True)
-    rgi_ids = df_gridded_annual1.RGIId.unique() if maps else mapsTest
+    test_glaciers = df_gridded_annual1.RGIId.unique()
     cfg = mbm.Config("11")  # Fake cfg which is needed just for OGGM
-    if maps:
-        assert set(rgi_ids) == set(df_gridded_annual2.RGIId.unique())
-    else:
-        assert set(rgi_ids).issubset(set(df_gridded_annual2.RGIId.unique()))
-    for rgi_id in rgi_ids:
+    mapsTest = list(set(test_glaciers).intersection(set(maps)))
+    assert set(mapsTest).issubset(set(df_gridded_annual2.RGIId.unique()))
+    for rgi_id in mapsTest:
         years = df_gridded_annual1[df_gridded_annual1.RGIId == rgi_id].YEAR.unique()
         max1 = df_gridded_annual1[df_gridded_annual1.RGIId == rgi_id].pred.abs().max()
         max2 = df_gridded_annual2[df_gridded_annual2.RGIId == rgi_id].pred.abs().max()
         max_abs = max(max1, max2)
-        for year in years:
+        for year in yearsMaps:
+            # TODO: allow to generate maps outside of that range
+            assert year in years
             fig, axs = plt.subplots(1, 2, figsize=(12, 6))
             mbm.plots.mapGlacier(
                 df_gridded_annual1,
