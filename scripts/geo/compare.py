@@ -110,6 +110,8 @@ def load_gridded(file_without_ext):
 
 
 linear_fit_breaks = [2015 + 9 / 12]
+start_geod_period = 2000
+end_geod_period = 2020
 
 if not noTrain:
     # Cumulated mass change on train data
@@ -122,7 +124,12 @@ if not noTrain:
     fig, l1 = mbm.plots.cumulatedMassChange(
         df_gridded_monthly1,
         geo={
-            rgi_id: {"mean": geoTarget[rgi_id], "err": geoErr[rgi_id]}
+            rgi_id: {
+                "mean": geoTarget[rgi_id],
+                "err": geoErr[rgi_id],
+                "start": start_geod_period,
+                "end": end_geod_period,
+            }
             for rgi_id in geoTarget
         },
         linear_fit_breaks=linear_fit_breaks,
@@ -131,9 +138,15 @@ if not noTrain:
     df_gridded_monthly2 = load_gridded(f"{pathFolder2}/gridded_monthly_train")
     _, l2 = mbm.plots.cumulatedMassChange(
         df_gridded_monthly2,
-        geo=None,
+        geo={
+            rgi_id: {
+                "start": start_geod_period,
+                "end": end_geod_period,
+            }  # Provide the bounds to plot only the cumulated MB of the geodetic time window
+            for rgi_id in geoTarget
+        },
         axs=fig.axes,
-        color_pred="orange",
+        color_pred="red",
         titles={
             k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
             for k in glacierNames
@@ -208,7 +221,12 @@ geoErr = df_geo1.set_index("RGIId").err.to_dict()
 fig, l1 = mbm.plots.cumulatedMassChange(
     df_gridded_monthly1,
     geo={
-        rgi_id: {"mean": geoTarget[rgi_id], "err": geoErr[rgi_id]}
+        rgi_id: {
+            "mean": geoTarget[rgi_id],
+            "err": geoErr[rgi_id],
+            "start": start_geod_period,
+            "end": end_geod_period,
+        }
         for rgi_id in geoTarget
     },
     linear_fit_breaks=linear_fit_breaks,
@@ -217,7 +235,13 @@ del df_gridded_monthly1
 df_gridded_monthly2 = load_gridded(f"{pathFolder2}/gridded_monthly_test")
 _, l2 = mbm.plots.cumulatedMassChange(
     df_gridded_monthly2,
-    geo=None,
+    geo={
+        rgi_id: {
+            "start": start_geod_period,
+            "end": end_geod_period,
+        }  # Provide the bounds to plot only the cumulated MB of the geodetic time window
+        for rgi_id in geoTarget
+    },
     axs=fig.axes,
     color_pred="red",
     titles={
@@ -248,18 +272,28 @@ plt.close(fig)
 df_gridded_annual1 = load_gridded(f"{pathFolder1}/gridded_annual_test")
 df_gridded_annual2 = load_gridded(f"{pathFolder2}/gridded_annual_test")
 
+# Load stakes data
+df_groupeds_test1 = load_gridded(f"{pathFolder1}/stakes_test")
+
 
 # Plot MB profile
 fig = mbm.plots.profilePerGlacier(
-    df_gridded_annual1,
+    df_gridded_annual1[
+        (df_gridded_annual1.YEAR >= start_geod_period)
+        & (df_gridded_annual1.YEAR < end_geod_period)
+    ],
     color="blue",
     titles={
         k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
         for k in glacierNames
     },
+    df_stakes=df_groupeds_test1,
 )
 _ = mbm.plots.profilePerGlacier(
-    df_gridded_annual2,
+    df_gridded_annual2[
+        (df_gridded_annual2.YEAR >= start_geod_period)
+        & (df_gridded_annual2.YEAR < end_geod_period)
+    ],
     color="red",
     axs=fig.axes,
     titles={

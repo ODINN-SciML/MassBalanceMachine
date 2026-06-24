@@ -70,11 +70,20 @@ def cumulatedMassChange(
         )
         month_id = monthly_df["MONTHS"].map(month_to_id)
         monthly_df["time"] = month_id / 12 + monthly_df["YEAR"]
+
+        if geo is not None and test_gl in geo:
+            # Filter monthly_df to keep only predictions inside the geodetic time window
+            start_year = geo[test_gl]["start"]
+            end_year = geo[test_gl]["end"]
+            monthly_df = monthly_df[
+                (monthly_df.time >= start_year) & (monthly_df.time <= end_year)
+            ]
+
         monthly_df = monthly_df.sort_values(by="time")
         t = monthly_df.time.values
         y = monthly_df.pred.values
-        first_year = np.sort(monthly_df.YEAR.unique())[0]
-        t = np.concatenate([[first_year], t])
+        start_year = np.sort(monthly_df.YEAR.unique())[0]
+        t = np.concatenate([[start_year], t])
         y = np.concatenate([[0.0], y])
         (line,) = ax.plot(t, np.cumsum(y), color=color_pred)
 
@@ -107,10 +116,10 @@ def cumulatedMassChange(
                 )
 
         nyear = monthly_df.YEAR.nunique()
-        if geo is not None and test_gl in geo:
+        if geo is not None and test_gl in geo and "mean" in geo[test_gl]:
             tgt = geo[test_gl]["mean"]
             err = geo[test_gl]["err"]
-            years = [first_year, first_year + nyear]
+            years = [start_year, start_year + nyear]
             ax.plot(years, [0, tgt * nyear], color=color_obs)
             ax.fill_between(
                 years,
@@ -119,12 +128,6 @@ def cumulatedMassChange(
                 color=color_obs,
                 alpha=0.3,
             )
-            # ax.errorbar(
-            #     first_year+nyear,
-            #     tgt*nyear,
-            #     yerr=err*nyear,
-            #     fmt="o",
-            # )
 
         ax.grid()
 
@@ -136,7 +139,7 @@ def cumulatedMassChange(
         step_years_xticks = nyear // 10
         ax.set_xticks(
             np.arange(
-                first_year, first_year + nyear + step_years_xticks, step_years_xticks
+                start_year, start_year + nyear + step_years_xticks, step_years_xticks
             )
         )
         ax.xaxis.set_major_formatter(FormatStrFormatter("%.0f"))

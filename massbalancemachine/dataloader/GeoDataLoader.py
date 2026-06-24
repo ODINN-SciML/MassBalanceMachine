@@ -118,7 +118,7 @@ class GeoDataLoader:
                 print("Preloading geodetic grids")
                 self.df_X_geod = {}
                 for rgi_id in self.glaciersWithGeo:
-                    self.df_X_geod[rgi_id] = geodetic_input(rgi_id)
+                    self.df_X_geod[rgi_id] = geodetic_input(rgi_id, years=self.years)
             else:
                 self.df_X_geod = None
 
@@ -155,8 +155,8 @@ class GeoDataLoader:
                 for g in self.ignoreGlaciers:
                     if g in rgi_ids:
                         rgi_ids.remove(g)
-                years = list(range(2000, 2020)) + self.additionalYears
-                create_gridded_features_RGI(self.cfg, rgi_ids, years=years)
+                self.years = list(range(2000, 2020)) + self.additionalYears
+                create_gridded_features_RGI(self.cfg, rgi_ids, years=self.years)
                 geo_target_data = geodetic_target(rgi_ids, self.cfg)
             elif "region-" in self.geoGlaciers:
                 s = self.geoGlaciers.split("-")
@@ -169,8 +169,8 @@ class GeoDataLoader:
                 for g in self.ignoreGlaciers:
                     if g in rgi_ids:
                         rgi_ids.remove(g)
-                years = list(range(2000, 2020))
-                create_gridded_features_RGI(self.cfg, rgi_ids, years=years)
+                self.years = list(range(2000, 2020))
+                create_gridded_features_RGI(self.cfg, rgi_ids, years=self.years)
             self.periods_per_glacier = {}
             self.y_target_geo = {}
             self.err_target_geo = {}
@@ -367,7 +367,7 @@ class GeoDataLoader:
         ), f"Glacier {glacierName} is not in the list of glaciers with available geodetic data for this dataloader."
         if self.df_X_geod is None:
             if self.geodeticOggm:
-                df_X_geod = geodetic_input(glacierName)
+                df_X_geod = geodetic_input(glacierName, years=self.years)
             else:
                 df_X_geod = create_geodetic_input(
                     self.cfg, glacierName, self.periods_per_glacier, to_seasonal=False

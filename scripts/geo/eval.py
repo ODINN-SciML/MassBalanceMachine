@@ -202,6 +202,8 @@ df_X_train, y_train, df_X_val, y_val = trainValData(
 df_X_test_subset = testData(cfg, test_set, featuresInpModel)
 
 
+start_geod_period = 2000
+end_geod_period = 2020
 geodeticYears = list(range(2000, 2020))
 additionalYears = list(set(yearsMaps).difference(geodeticYears))
 
@@ -326,6 +328,13 @@ if len(df_X_test_subset) > 0 and not noTest:
     grouped_ids["gl_elv"] = grouped_ids[keyGlacier].map(
         datasetManager.mean_stakes_elevation
     )
+    if savePred:
+        print("Saving stakes prediction...")
+        grouped_ids.to_parquet(
+            f"{pathFolder}/stakes_test.parquet",
+            engine="pyarrow",
+            compression="snappy",
+        )
 
     fig = mbm.plots.predVSTruthPerGlacier(
         grouped_ids,
@@ -377,7 +386,12 @@ if len(df_X_test_subset) > 0 and not noTest:
     fig, _ = mbm.plots.cumulatedMassChange(
         df_gridded_monthly,
         geo={
-            rgi_id: {"mean": geoTarget[rgi_id], "err": geoErr[rgi_id]}
+            rgi_id: {
+                "mean": geoTarget[rgi_id],
+                "err": geoErr[rgi_id],
+                "start": start_geod_period,
+                "end": end_geod_period,
+            }
             for rgi_id in geoTarget
         },
     )
@@ -528,6 +542,13 @@ for train_gl in datasetManager.train_glaciers:
 grouped_ids_train_valid = pd.concat(
     [grouped_ids_train, grouped_ids_valid], ignore_index=True
 )
+if savePred:
+    print("Saving stakes prediction...")
+    grouped_ids_train_valid.to_parquet(
+        f"{pathFolder}/stakes_train.parquet",
+        engine="pyarrow",
+        compression="snappy",
+    )
 fig = mbm.plots.predVSTruthPerGlacier(
     grouped_ids_train_valid,
     scores=scores,
@@ -629,6 +650,7 @@ plt.close(fig)
 
 
 # Plot MB profile
+# TODO: ignore years outside of the geodetic time window
 fig = mbm.plots.profilePerGlacier(
     df_gridded_annual,
     custom_order=train_gl_per_el,
@@ -648,7 +670,12 @@ plt.close(fig)
 fig, _ = mbm.plots.cumulatedMassChange(
     df_gridded_monthly,
     geo={
-        rgi_id: {"mean": geoTarget[rgi_id], "err": geoErr[rgi_id]}
+        rgi_id: {
+            "mean": geoTarget[rgi_id],
+            "err": geoErr[rgi_id],
+            "start": start_geod_period,
+            "end": end_geod_period,
+        }
         for rgi_id in geoTarget
     },
 )
