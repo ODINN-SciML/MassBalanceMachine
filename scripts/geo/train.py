@@ -9,11 +9,14 @@ import json
 import argparse
 import massbalancemachine as mbm
 
-from scripts.common import (
-    loadParams,
-    already_completed_trial,
-)
+from scripts.common import loadParams
 from scripts.nongeo.utils import getMetaData, setFeatures, trainValData, testData
+from scripts.gridsearch import (
+    canonicalize_raw,
+    get_next_untested_params,
+    recursive_update_from_flat,
+    flatten_dict,
+)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("modelType", type=str, help="Type of model to train")
@@ -85,6 +88,7 @@ if do_gridsearch:
     gridsearch_config = gridsearch[0]
     import yaml
     import optuna
+    import fcntl
 
     with open("scripts/netcfg/" + gridsearch_config + ".yml") as stream:
         try:
@@ -92,74 +96,56 @@ if do_gridsearch:
         except yaml.YAMLError as exc:
             print(exc)
 
-    def flatten_dict(d, parent_key="", sep="."):
-        result = {}
-        for key, value in d.items():
-            new_key = f"{parent_key}{sep}{key}" if parent_key else key
-            if isinstance(value, dict):
-                result.update(flatten_dict(value, new_key, sep))
-            else:
-                if isinstance(value, list):
-                    if isinstance(value[0], (tuple, list)):
-                        result[new_key] = tuple(tuple(v) for v in value)
-                    else:
-                        result[new_key] = tuple(value)
-                else:
-                    result[new_key] = value
-        return result
-
     search_space = flatten_dict(gridsearch_params)
     for k, v in search_space.items():
         if isinstance(v, (list, tuple)) and isinstance(v[0], (list, tuple)):
             search_space[k] = tuple([",".join([str(e) for e in t]) for t in v])
     print(f"{search_space=}")
-    study = optuna.create_study(
-        study_name=gridsearch_name,
-        storage=optuna.storages.JournalStorage(
-            optuna.storages.journal.JournalFileBackend(
-                file_path="./journal_gridsearch.log"
-            )
-        ),
-        sampler=optuna.samplers.GridSampler(search_space),
-        direction="minimize",
-        load_if_exists=True,
-    )
-    trial = study.ask()
-    print(f"{trial.number=}")
-    params["training"]["log_prefix"] = gridsearch_name + f"_{trial.number}"
-    params["gridsearch"] = {
-        "study_name": trial.study.study_name,
-        "trial_number": trial.number,
-        "search_space": search_space,
-    }
 
-    def recursive_update_from_flat(target, source, sep="."):
-        for flat_key, value in source.items():
-            parts = flat_key.split(sep)
-            _set_recursive(target, parts, value)
+    # Avoid concurrent access since we write to the optuna study by queuing next parameters and then we ask optuna to suggest based on that queue
+    lock_file = "./gridsearch.lock"
+    with open(lock_file, "w") as lf:
+        fcntl.flock(lf, fcntl.LOCK_EX)  # Blocks until lock is acquired
 
-    def _set_recursive(current, parts, value):
-        key = parts[0]
-        if len(parts) == 1:
-            current[key] = value
-            return
-        if key not in current or not isinstance(current[key], dict):
-            current[key] = {}
-        _set_recursive(current[key], parts[1:], value)
+        study = optuna.create_study(
+            study_name=gridsearch_name,
+            storage=optuna.storages.JournalStorage(
+                optuna.storages.journal.JournalFileBackend(
+                    file_path="./journal_gridsearch.log"
+                )
+            ),
+            sampler=optuna.samplers.GridSampler(search_space),
+            direction="minimize",
+            load_if_exists=True,
+        )
 
-    candidate_params = {
-        k: trial.suggest_categorical(k, v) for k, v in search_space.items()
-    }
-    for k, v in candidate_params.items():
-        if isinstance(v, str):
-            candidate_params[k] = [int(e) for e in v.split(",")]
-    print(f"{candidate_params=}")
-    exists, old_trial = already_completed_trial(study, candidate_params)
-    if exists:
-        print("This combination has already been tested.")
-        print("metric:", old_trial.value)
-        sys.exit(0)
-    recursive_update_from_flat(params, candidate_params)
+        next_params = get_next_untested_params(study, search_space)
+
+        if next_params is None:
+            print("Grid search complete — all combinations tested.")
+            sys.exit(0)
+
+        # Force candidate_params to be next_params by telling optuna to suggest this exact combination
+        study.enqueue_trial(next_params)
+
+        trial = study.ask()
+        print(f"{trial.number=}")
+        params["training"]["log_prefix"] = gridsearch_name + f"_{trial.number}"
+        params["gridsearch"] = {
+            "study_name": trial.study.study_name,
+            "trial_number": trial.number,
+            "search_space": search_space,
+        }
+
+        candidate_params = {
+            k: trial.suggest_categorical(k, v) for k, v in search_space.items()
+        }
+        for k, v in candidate_params.items():
+            if isinstance(v, str):
+                candidate_params[k] = [int(e) for e in v.split(",")]
+        print(f"{candidate_params=}")
+        recursive_update_from_flat(params, candidate_params)
+    # Lock is released here
 else:
     trial = None
 

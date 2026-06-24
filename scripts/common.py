@@ -166,33 +166,3 @@ def default_glacier_name(rgi_id):
         "RGI60-11.02282": "Vadrec dal Castel Nord",
         "RGI60-11.02624": "Feegletscher",
     }.get(rgi_id)
-
-
-def canonicalize(x):
-    """Convert params into a stable, comparable representation."""
-    if isinstance(x, Mapping):
-        return tuple(sorted((str(k), canonicalize(v)) for k, v in x.items()))
-    if isinstance(x, tuple):
-        return tuple(canonicalize(v) for v in x)
-    if isinstance(x, list):
-        return tuple(canonicalize(v) for v in x)
-    if isinstance(x, float):
-        if math.isnan(x):
-            return "__nan__"
-        return x
-    return x
-
-
-def already_completed_trial(study, candidate_params: dict):
-    from optuna.trial import TrialState
-
-    candidate_key = canonicalize(candidate_params)
-
-    for t in study.get_trials(
-        deepcopy=False,
-        states=(TrialState.COMPLETE,),
-    ):
-        if canonicalize(t.params) == candidate_key:
-            return True, t
-
-    return False, None
