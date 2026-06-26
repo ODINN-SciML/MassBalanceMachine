@@ -1,5 +1,6 @@
 import os
 import sys
+import joblib
 
 # Disable CUDA for all worker processes at import time
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
@@ -9,9 +10,10 @@ import pandas as pd
 import xarray as xr
 import massbalancemachine as mbm
 
+from regions.TF_Europe.scripts.dataset import build_combined_LSTM_dataset
+
+
 # ── helpers ──────────────────────────────────────────────────────────────────
-
-
 def create_glacier_grid_RGI(year, rgi_id, ds, start_month="10"):
     """
     Generate a WGMS-style point grid dataframe from an RGI masked topography dataset.
@@ -86,29 +88,70 @@ def process_monthly_grids_rgi(
     era5_geopot_path: str,
     start_month: str,
     cfg,
+    build_ds: bool = False,
+    ds_cache_root: str = None,
+    monthly_cols: list = None,
+    static_cols: list = None,
+    months_head_pad: list = None,
+    months_tail_pad: list = None,
 ) -> str:
-    """
-    Process one (rgi_id, year) pair:
-      - loads zarr
-      - builds glacier grid
-      - adds climate features
-      - converts to monthly
-      - writes parquet
-
-    Returns a status string: "OK ...", "SKIP ...", or "ERROR ..."
-    """
     try:
         out_folder = os.path.join(out_folder_root, rgi_id)
         os.makedirs(out_folder, exist_ok=True)
         out_path = os.path.join(out_folder, f"{rgi_id}_grid_{year}.parquet")
 
-        if os.path.exists(out_path):
+        ds_path = None
+        if build_ds:
+            if ds_cache_root is None or monthly_cols is None or static_cols is None:
+                return (
+                    f"ERROR {rgi_id} {year}: build_ds=True requires "
+                    f"ds_cache_root, monthly_cols, static_cols"
+                )
+            ds_out_folder = os.path.join(ds_cache_root, rgi_id, str(year))
+            os.makedirs(ds_out_folder, exist_ok=True)
+            ds_path = os.path.join(ds_out_folder, "ds.joblib")
+
+        parquet_exists = os.path.exists(out_path)
+        ds_exists = (ds_path is not None) and os.path.exists(ds_path)
+
+        if parquet_exists and (not build_ds or ds_exists):
             return f"SKIP {rgi_id} {year}: already exists"
 
+        # --- FAST PATH: parquet already exists, only the dataset is missing ---
+        # Read it back instead of rebuilding from zarr + ERA5 + monthly conversion.
+        if parquet_exists and build_ds and not ds_exists:
+            df_grid_monthly = pd.read_parquet(out_path)
+
+            if len(df_grid_monthly) == 0:
+                return f"SKIP {rgi_id} {year}: parquet empty (ds not built)"
+
+            mbm.utils.seed_all(cfg.seed)
+            seq_ds = build_combined_LSTM_dataset(
+                df_loss=df_grid_monthly,
+                df_full=df_grid_monthly,
+                monthly_cols=monthly_cols,
+                static_cols=static_cols,
+                months_head_pad=months_head_pad,
+                months_tail_pad=months_tail_pad,
+                normalize_target=True,
+                expect_target=True,
+                show_progress=False,
+            )
+
+            if (
+                (seq_ds.month_mean is not None)
+                or (seq_ds.static_mean is not None)
+                or (seq_ds.y_mean is not None)
+            ):
+                return f"ERROR {rgi_id} {year}: dataset unexpectedly has scalers set before caching"
+
+            joblib.dump(seq_ds, ds_path, compress=3)
+            return f"OK {rgi_id} {year} -> (from existing parquet) {ds_path}"
+
+        # --- FULL PATH: build everything from zarr (parquet missing, or both missing) ---
         if not os.path.exists(zarr_path):
             return f"SKIP {rgi_id} {year}: zarr not found"
 
-        # Open zarr inside the worker — never pass xr.Dataset across the boundary
         ds = xr.open_zarr(zarr_path)
 
         df_grid = create_glacier_grid_RGI(
@@ -152,10 +195,40 @@ def process_monthly_grids_rgi(
             vois_climate=vois_climate,
             vois_topographical=vois_topo,
         )
-        # remove points that fall outside of glacier mask
-        df_grid = dataset_grid_topo.data.dropna(subset=vois_topo)
-        df_grid.to_parquet(out_path, engine="pyarrow", compression="snappy")
-        return f"OK {rgi_id} {year} -> {out_path}"
+        df_grid_monthly = dataset_grid_topo.data.dropna(subset=vois_topo)
+
+        if not parquet_exists:
+            df_grid_monthly.to_parquet(out_path, engine="pyarrow", compression="snappy")
+
+        if build_ds and not ds_exists:
+            if len(df_grid_monthly) == 0:
+                return f"SKIP {rgi_id} {year}: no grid rows after topo filtering (ds not built)"
+
+            mbm.utils.seed_all(cfg.seed)
+            seq_ds = build_combined_LSTM_dataset(
+                df_loss=df_grid_monthly,
+                df_full=df_grid_monthly,
+                monthly_cols=monthly_cols,
+                static_cols=static_cols,
+                months_head_pad=months_head_pad,
+                months_tail_pad=months_tail_pad,
+                normalize_target=True,
+                expect_target=True,
+                show_progress=False,
+            )
+
+            if (
+                (seq_ds.month_mean is not None)
+                or (seq_ds.static_mean is not None)
+                or (seq_ds.y_mean is not None)
+            ):
+                return f"ERROR {rgi_id} {year}: dataset unexpectedly has scalers set before caching"
+
+            joblib.dump(seq_ds, ds_path, compress=3)
+
+        return f"OK {rgi_id} {year} -> {out_path}" + (
+            f" + {ds_path}" if build_ds else ""
+        )
 
     except Exception as e:
         return f"ERROR {rgi_id} {year}: {type(e).__name__}: {e}"
