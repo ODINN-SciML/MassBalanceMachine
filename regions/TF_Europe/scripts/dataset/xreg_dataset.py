@@ -3,6 +3,8 @@ import os
 import pandas as pd
 import re
 from collections.abc import Iterable
+import pickle
+import math
 
 from regions.TF_Europe.scripts.config_TF_Europe import *
 from regions.TF_Europe.scripts.dataset.data_loader import (
@@ -10,6 +12,8 @@ from regions.TF_Europe.scripts.dataset.data_loader import (
     process_or_load_data,
     get_CV_splits,
 )
+
+from regions.TF_Europe.scripts.dataset.topoclimatic_distance import *
 
 import massbalancemachine as mbm
 
@@ -543,3 +547,356 @@ def prepare_monthly_df_xreg_pairwise(
         "train_glaciers": final_train_glaciers,
         "test_glaciers": test_glaciers,
     }
+
+
+def prepare_within_region_pairs_from_cache(
+    cfg,
+    monthly_cache,
+    within_codes,
+    gl_level_split=None,
+    holdout_frac=0.20,
+    n_restarts=100,
+    min_train_glaciers=3,
+    checkpoint_path=None,
+):
+    gl_level_split = gl_level_split or []
+
+    res_for_scalers = {
+        code: {"df_train": monthly_cache[code]["data_monthly"]} for code in within_codes
+    }
+    scaler_m, scaler_s, _, _ = build_global_scalers_multi_source_simple(
+        res_for_scalers,
+        monthly_cols=MONTHLY_COLS,
+        static_cols=STATIC_COLS,
+    )
+    _, _, blur_joint, _ = estimate_global_bandwidths_simple(
+        res_for_scalers,
+        monthly_cols=MONTHLY_COLS,
+        static_cols=STATIC_COLS,
+        scaler_m=scaler_m,
+        scaler_s=scaler_s,
+        seed=cfg.seed,
+    )
+    print(f"Estimated blur_joint={blur_joint:.4f}")
+
+    # ── load checkpoint if it exists ─────────────────────────────────────────
+    res_by_code = {}
+    split_info_by_code = {}
+    failed_codes = []
+
+    if checkpoint_path is not None and Path(checkpoint_path).exists():
+        with open(checkpoint_path, "rb") as f:
+            ckpt = pickle.load(f)
+        res_by_code = ckpt.get("res_by_code", {})
+        split_info_by_code = ckpt.get("split_info_by_code", {})
+        failed_codes = ckpt.get("failed_codes", [])
+        already_done = set(res_by_code.keys()) | set(failed_codes)
+        print(
+            f"  Resuming from checkpoint: {len(res_by_code)} done, "
+            f"{len(failed_codes)} failed, "
+            f"{len(already_done)} skipped"
+        )
+    else:
+        already_done = set()
+
+    for code in within_codes:
+        if code in already_done:
+            print(f"  Skipping {code} (already in checkpoint)")
+            continue
+
+        print(f"\n{'='*50}\nWithin-region: {code}")
+
+        try:
+            if code not in monthly_cache:
+                raise KeyError(f"Code not in monthly_cache: {code}")
+
+            data_monthly = monthly_cache[code]["data_monthly"].copy()
+            data_monthly_aug = monthly_cache[code]["data_monthly_aug"].copy()
+            head_pad = monthly_cache[code]["months_head_pad"]
+            tail_pad = monthly_cache[code]["months_tail_pad"]
+
+            use_gl_split = code in gl_level_split
+
+            # guard: fall back to ID-split if too few glaciers
+            if use_gl_split:
+                n_glaciers = data_monthly["GLACIER"].nunique()
+                min_total = math.ceil(min_train_glaciers / (1 - holdout_frac))
+                if n_glaciers < min_total:
+                    print(
+                        f"  ⚠ Only {n_glaciers} glacier(s) for {code} "
+                        f"(need ≥{min_total}) — falling back to ID-split"
+                    )
+                    use_gl_split = False
+
+            split_unit = "GLACIER" if use_gl_split else "ID"
+
+            if use_gl_split:
+                best_split = split_train_test_sinkhorn(
+                    df_region=data_monthly,
+                    monthly_cols=MONTHLY_COLS,
+                    static_cols=STATIC_COLS,
+                    scaler_m=scaler_m,
+                    scaler_s=scaler_s,
+                    blur_joint=blur_joint,
+                    train_frac=1 - holdout_frac,
+                    n_restarts=n_restarts,
+                    frac_tol=0.05,
+                    seed=cfg.seed,
+                )
+                best_score = best_split["best_score"]
+            else:
+                print(f"  Using ID-level split")
+                best_split = split_pool_holdout_by_id(
+                    df_region=data_monthly,
+                    id_col="ID",
+                    train_frac=1 - holdout_frac,
+                    seed=cfg.seed,
+                )
+                best_score = float("nan")
+
+            test_units = sorted(best_split["test_glaciers"])
+            train_units = sorted(best_split["train_glaciers"])
+
+            print(f"  Split on      : {split_unit}")
+            print(f"  Train units   : {len(train_units)}")
+            print(f"  Test  units   : {len(test_units)}")
+            print(f"  Train frac    : {best_split['actual_train_frac']:.1%}")
+
+            def _make_split(data, test_units, split_on):
+                data = data.reset_index(drop=True)
+                dataloader = mbm.dataloader.DataLoader(
+                    cfg,
+                    data=data,
+                    random_seed=cfg.seed,
+                    meta_data_columns=cfg.metaData,
+                )
+                _, test_set, train_set = get_CV_splits(
+                    dataloader,
+                    test_split_on=split_on,  # was: split_on=  ← wrong kwarg name
+                    test_splits=test_units,  # was: test_glaciers=  ← wrong kwarg name
+                    random_state=cfg.seed,
+                )
+                # Reconstruct full DataFrames (get_CV_splits returns dicts, not raw DFs)
+                train_df = train_set["df_X"].copy()
+                train_df["POINT_BALANCE"] = train_set["y"]
+                test_df = test_set["df_X"].copy()
+                test_df["POINT_BALANCE"] = test_set["y"]
+                return train_df, test_df
+
+            train_set, test_set = _make_split(data_monthly, test_units, split_unit)
+            train_set_aug, test_set_aug = _make_split(
+                data_monthly_aug, test_units, split_unit
+            )
+
+            res_by_code[code] = {
+                "df_train": train_set,
+                "df_test": test_set,
+                "df_train_aug": train_set_aug,
+                "df_test_aug": test_set_aug,
+                "months_head_pad": head_pad,  # renamed from "head_pad"
+                "months_tail_pad": tail_pad,  # renamed from "tail_pad"
+                "scaler_m": scaler_m,
+                "scaler_s": scaler_s,
+                "blur_joint": blur_joint,
+            }
+            split_info_by_code[code] = {
+                "train_glaciers": train_units,
+                "test_glaciers": test_units,
+                "actual_train_frac": best_split["actual_train_frac"],
+                "best_score": best_score,
+                "split_unit": split_unit,
+            }
+
+        except Exception as e:
+            print(f"  ✗ Failed for {code}: {e}")
+            failed_codes.append(code)
+
+        finally:
+            if checkpoint_path is not None:
+                with open(checkpoint_path, "wb") as f:
+                    pickle.dump(
+                        {
+                            "res_by_code": res_by_code,
+                            "split_info_by_code": split_info_by_code,
+                            "failed_codes": failed_codes,
+                        },
+                        f,
+                    )
+
+    if failed_codes:
+        print(f"\n⚠ Failed regions: {failed_codes}")
+
+    return res_by_code, split_info_by_code
+
+
+def prepare_within_region_random_splits(
+    cfg,
+    monthly_cache,
+    within_codes,
+    gl_level_split=None,
+    holdout_frac=0.20,
+    min_train_glaciers=3,
+    n_random_splits=5,
+    checkpoint_path=None,
+):
+    """
+    Same as prepare_within_region_pairs_from_cache, but uses plain random
+    train/test splits (no Sinkhorn optimization) as a baseline comparison.
+
+    Returns
+    -------
+    res_by_code : dict
+        {code: [res_dict_split0, res_dict_split1, ...]} — one entry per random seed.
+    split_info_by_code : dict
+        {code: [split_info_dict_split0, ...]}
+    """
+    gl_level_split = gl_level_split or []
+
+    res_by_code = {}
+    split_info_by_code = {}
+    failed_codes = []
+
+    if checkpoint_path is not None and Path(checkpoint_path).exists():
+        with open(checkpoint_path, "rb") as f:
+            ckpt = pickle.load(f)
+        res_by_code = ckpt.get("res_by_code", {})
+        split_info_by_code = ckpt.get("split_info_by_code", {})
+        failed_codes = ckpt.get("failed_codes", [])
+        already_done = set(res_by_code.keys()) | set(failed_codes)
+        print(
+            f"  Resuming from checkpoint: {len(res_by_code)} done, "
+            f"{len(failed_codes)} failed, "
+            f"{len(already_done)} skipped"
+        )
+    else:
+        already_done = set()
+
+    for code in within_codes:
+        if code in already_done:
+            print(f"  Skipping {code} (already in checkpoint)")
+            continue
+
+        print(f"\n{'='*50}\nWithin-region (random): {code}")
+
+        try:
+            if code not in monthly_cache:
+                raise KeyError(f"Code not in monthly_cache: {code}")
+
+            data_monthly = monthly_cache[code]["data_monthly"].copy()
+            data_monthly_aug = monthly_cache[code]["data_monthly_aug"].copy()
+            head_pad = monthly_cache[code]["months_head_pad"]
+            tail_pad = monthly_cache[code]["months_tail_pad"]
+
+            use_gl_split = code in gl_level_split
+
+            # same fallback guard as the smart-split version, for consistency
+            if use_gl_split:
+                n_glaciers = data_monthly["GLACIER"].nunique()
+                min_total = math.ceil(min_train_glaciers / (1 - holdout_frac))
+                if n_glaciers < min_total:
+                    print(
+                        f"  ⚠ Only {n_glaciers} glacier(s) for {code} "
+                        f"(need ≥{min_total}) — falling back to ID-split"
+                    )
+                    use_gl_split = False
+
+            split_unit = "GLACIER" if use_gl_split else "ID"
+            unit_col = "GLACIER" if use_gl_split else "ID"
+            all_units = data_monthly[unit_col].unique()
+
+            def _make_split(data, test_units, split_on):
+                data = data.reset_index(drop=True)
+                dataloader = mbm.dataloader.DataLoader(
+                    cfg,
+                    data=data,
+                    random_seed=cfg.seed,
+                    meta_data_columns=cfg.metaData,
+                )
+                _, test_set, train_set = get_CV_splits(
+                    dataloader,
+                    test_split_on=split_on,
+                    test_splits=test_units,
+                    random_state=cfg.seed,
+                )
+                train_df = train_set["df_X"].copy()
+                train_df["POINT_BALANCE"] = train_set["y"]
+                test_df = test_set["df_X"].copy()
+                test_df["POINT_BALANCE"] = test_set["y"]
+                return train_df, test_df
+
+            res_list = []
+            split_info_list = []
+
+            for split_idx in range(n_random_splits):
+                rng_seed = cfg.seed + split_idx
+                rng = np.random.RandomState(rng_seed)
+
+                shuffled = rng.permutation(all_units)
+                n_test = max(1, round(len(shuffled) * holdout_frac))
+                # ensure at least min_train_glaciers remain in train for GL splits
+                n_test = (
+                    min(n_test, len(shuffled) - min_train_glaciers)
+                    if use_gl_split
+                    else n_test
+                )
+                n_test = max(n_test, 1)
+
+                test_units = sorted(shuffled[:n_test])
+                train_units = sorted(shuffled[n_test:])
+
+                actual_train_frac = len(train_units) / len(shuffled)
+
+                print(
+                    f"  [random split {split_idx}] seed={rng_seed} | "
+                    f"train={len(train_units)} test={len(test_units)} "
+                    f"({actual_train_frac:.1%} train)"
+                )
+
+                train_set, test_set = _make_split(data_monthly, test_units, split_unit)
+                train_set_aug, test_set_aug = _make_split(
+                    data_monthly_aug, test_units, split_unit
+                )
+
+                res_list.append(
+                    {
+                        "df_train": train_set,
+                        "df_test": test_set,
+                        "df_train_aug": train_set_aug,
+                        "df_test_aug": test_set_aug,
+                        "months_head_pad": head_pad,
+                        "months_tail_pad": tail_pad,
+                    }
+                )
+                split_info_list.append(
+                    {
+                        "train_glaciers": train_units,
+                        "test_glaciers": test_units,
+                        "actual_train_frac": actual_train_frac,
+                        "split_unit": split_unit,
+                        "seed": rng_seed,
+                    }
+                )
+
+            res_by_code[code] = res_list
+            split_info_by_code[code] = split_info_list
+
+        except Exception as e:
+            print(f"  ✗ Failed for {code}: {e}")
+            failed_codes.append(code)
+
+        finally:
+            if checkpoint_path is not None:
+                with open(checkpoint_path, "wb") as f:
+                    pickle.dump(
+                        {
+                            "res_by_code": res_by_code,
+                            "split_info_by_code": split_info_by_code,
+                            "failed_codes": failed_codes,
+                        },
+                        f,
+                    )
+
+    if failed_codes:
+        print(f"\n⚠ Failed regions: {failed_codes}")
+
+    return res_by_code, split_info_by_code

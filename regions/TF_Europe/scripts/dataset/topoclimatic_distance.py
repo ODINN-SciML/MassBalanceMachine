@@ -184,18 +184,22 @@ def compute_domain_shift(
     df_tgt: pd.DataFrame,
     monthly_cols: list[str],
     static_cols: list[str],
+    geo_cols: list[str] | None = None,
     elev_diff_col: str = "ELEVATION_DIFFERENCE",
     id_col: str = "ID",
     glacier_col: str = "GLACIER",
     seed: int = 0,
     scaler_m: StandardScaler | None = None,
     scaler_s: StandardScaler | None = None,
-    scaler_joint: StandardScaler | None = None,  # NEW: joint scaler for grid data
+    scaler_geo: StandardScaler | None = None,
+    scaler_joint: StandardScaler | None = None,  # joint scaler for grid data
     blur_m: float | None = None,
     blur_s: float | None = None,
+    blur_geo: float | None = None,
     blur_joint: float | None = None,
     bandwidths_m: list[float] | None = None,
     bandwidths_s: list[float] | None = None,
+    bandwidths_geo: list[float] | None = None,
     device: str = "cpu",
 ) -> dict:
 
@@ -209,6 +213,10 @@ def compute_domain_shift(
         if elev_diff_col in static_cols:
             parts.append(df.groupby(id_col)[[elev_diff_col]].mean())
         return pd.concat(parts, axis=1)[static_cols].to_numpy(dtype=np.float64)
+
+    def _stake_geo(df: pd.DataFrame) -> np.ndarray:
+        # geo coords are per-stake, like topo — one row per ID
+        return df.groupby(id_col)[geo_cols].first().to_numpy(dtype=np.float64)
 
     # --- raw features ---
     Xm_src = df_src[monthly_cols].to_numpy(dtype=np.float64)
@@ -255,7 +263,36 @@ def compute_domain_shift(
         Xs_src_z, Xs_tgt_z, blur=blur_s_, device=device, seed=seed + 7
     )
 
-    # --- true joint Sinkhorn ---
+    # --- geo distances (purely spatial, e.g. unit-sphere Cartesian coords) ---
+    if geo_cols is not None:
+        Xg_src = _stake_geo(df_src)
+        Xg_tgt = _stake_geo(df_tgt)
+
+        if scaler_geo is None:
+            scaler_geo = StandardScaler().fit(np.vstack([Xg_src, Xg_tgt]))
+
+        Xg_src_z = scaler_geo.transform(Xg_src)
+        Xg_tgt_z = scaler_geo.transform(Xg_tgt)
+
+        blur_geo_ = (
+            blur_geo
+            if blur_geo is not None
+            else _estimate_blur(Xg_src_z, Xg_tgt_z, seed=seed + 9)
+        )
+
+        D_mmd2_geo = _clip_mmd2(
+            mmd_squared_unbiased(
+                Xg_src_z, Xg_tgt_z, bandwidths=bandwidths_geo, seed=seed + 10
+            )
+        )
+        D_energy_geo = energy_distance(Xg_src_z, Xg_tgt_z, seed=seed + 11)
+        D_sinkhorn_geo = _sinkhorn_distance(
+            Xg_src_z, Xg_tgt_z, blur=blur_geo_, device=device, seed=seed + 12
+        )
+    else:
+        D_mmd2_geo = D_energy_geo = D_sinkhorn_geo = float("nan")
+
+    # --- true joint Sinkhorn (climate + topo only — geo kept separate) ---
     blur_joint_ = blur_joint if blur_joint is not None else 0.5 * (blur_m_ + blur_s_)
 
     if scaler_joint is not None:
@@ -301,6 +338,9 @@ def compute_domain_shift(
         "D_mmd2_topo": D_mmd2_topo,
         "D_energy_topo": D_energy_topo,
         "D_sinkhorn_topo": D_sinkhorn_topo,
+        "D_mmd2_geo": D_mmd2_geo,
+        "D_energy_geo": D_energy_geo,
+        "D_sinkhorn_geo": D_sinkhorn_geo,
     }
 
 
@@ -803,7 +843,8 @@ def build_global_scalers_multi_source_simple(
     res_xreg_by_source: dict,
     monthly_cols: list[str],
     static_cols: list[str],
-) -> tuple[StandardScaler, StandardScaler, StandardScaler]:
+    geo_cols: list[str] | None = None,
+) -> tuple[StandardScaler, StandardScaler, StandardScaler, StandardScaler | None]:
 
     all_dfs = []
     for res_xreg in res_xreg_by_source.values():
@@ -819,8 +860,13 @@ def build_global_scalers_multi_source_simple(
     scaler_joint = StandardScaler().fit(
         df_all[monthly_cols + static_cols].to_numpy(dtype=np.float64)
     )
+    scaler_geo = (
+        StandardScaler().fit(df_all[geo_cols].to_numpy(dtype=np.float64))
+        if geo_cols is not None
+        else None
+    )
 
-    return scaler_m, scaler_s, scaler_joint
+    return scaler_m, scaler_s, scaler_joint, scaler_geo
 
 
 def estimate_global_bandwidths_simple(
@@ -829,9 +875,11 @@ def estimate_global_bandwidths_simple(
     static_cols: list[str],
     scaler_m: StandardScaler,
     scaler_s: StandardScaler,
+    geo_cols: list[str] | None = None,
+    scaler_geo: StandardScaler | None = None,
     blur_quantile_multiplier: float = 0.1,
     seed: int = 0,
-) -> tuple[float, float, float]:
+) -> tuple[float, float, float, float | None]:
     """
     Simple version of estimate_global_bandwidths.
     Pools df_train across all sources and estimates blurs directly
@@ -856,7 +904,15 @@ def estimate_global_bandwidths_simple(
         Xjoint, Xjoint, blur_quantile_multiplier=blur_quantile_multiplier, seed=seed + 2
     )
 
-    return blur_m, blur_s, blur_joint
+    if geo_cols is not None and scaler_geo is not None:
+        Xg = scaler_geo.transform(df_all[geo_cols].to_numpy(dtype=np.float64))
+        blur_geo = _estimate_blur(
+            Xg, Xg, blur_quantile_multiplier=blur_quantile_multiplier, seed=seed + 3
+        )
+    else:
+        blur_geo = None
+
+    return blur_m, blur_s, blur_joint, blur_geo
 
 
 def build_global_scalers_from_dfs(

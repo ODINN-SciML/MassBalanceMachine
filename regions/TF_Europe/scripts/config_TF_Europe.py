@@ -76,7 +76,7 @@ COLORS = {
     "NOR": NATURE_PALETTE["sky_blue"],
     "ISL": NATURE_PALETTE["reddish_purple"],
     "FR": NATURE_PALETTE["orange"],
-    "ALA_6": NATURE_PALETTE["bluish_green"],
+    "ALA": NATURE_PALETTE["bluish_green"],
     "IT": NATURE_PALETTE["vermillion"],
     "pooled_zs": "#aaaaaa",
     "pooled_ft": "black",
