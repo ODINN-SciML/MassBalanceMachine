@@ -403,6 +403,7 @@ def plot_mass_balance_comparison(
     path_distributed_mb,  # base for GLAMOS grids
     path_pred_lstm,  # base for LSTM/XGB zarrs
     period="annual",
+    fontsize=14,
 ):
     """
     Plot mass balance comparison (GLAMOS vs MBM/LSTM) for a glacier and year,
@@ -522,7 +523,7 @@ def plot_mass_balance_comparison(
         norm=norm,
         cbar_kwargs={"label": "Mass Balance [m w.e.]"},
     )
-    axes[0].set_title(f"GLAMOS ({period.capitalize()})")
+    axes[0].set_title(f"GLAMOS ({period.capitalize()})", fontsize=fontsize)
     mappable.colorbar.ax.set_ylim(vmin, vmax)
 
     if not stakes_data.empty:
@@ -571,7 +572,7 @@ def plot_mass_balance_comparison(
         cbar_kwargs={"label": "Mass Balance [m w.e.]"},
     )
     mappable.colorbar.ax.set_ylim(vmin, vmax)
-    axes[1].set_title(f"MBM LSTM ({period.capitalize()})")
+    axes[1].set_title(f"MBM LSTM ({period.capitalize()})", fontsize=fontsize)
 
     if not stakes_data.empty:
         sns.scatterplot(
@@ -624,6 +625,7 @@ def plot_mass_balance_comparison_cropped(
     period="annual",
     crop_pad_px=2,
     crop_source="mbm",  # "mbm" (default) or "glamos"
+    fontsize=14,
 ):
     """
     Same as plot_mass_balance_comparison, but crops the plotted map extent to the
@@ -802,7 +804,7 @@ def plot_mass_balance_comparison_cropped(
         norm=norm,
         cbar_kwargs={"label": "Mass Balance [m w.e.]"},
     )
-    axes[0].set_title(f"GLAMOS ({period.capitalize()})")
+    axes[0].set_title(f"GLAMOS ({period.capitalize()})", fontsize=fontsize)
     mappable.colorbar.ax.set_ylim(vmin, vmax)
 
     if not stakes_data.empty:
@@ -855,7 +857,7 @@ def plot_mass_balance_comparison_cropped(
         cbar_kwargs={"label": "Mass Balance [m w.e.]"},
     )
     mappable.colorbar.ax.set_ylim(vmin, vmax)
-    axes[1].set_title(f"MBM LSTM ({period.capitalize()})")
+    axes[1].set_title(f"MBM LSTM ({period.capitalize()})", fontsize=fontsize)
 
     if not stakes_data.empty:
         sns.scatterplot(

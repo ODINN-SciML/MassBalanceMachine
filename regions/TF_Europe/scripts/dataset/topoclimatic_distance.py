@@ -810,35 +810,6 @@ def compute_glacier_shift_vs_source(
     return pd.DataFrame(records).set_index(glacier_col)
 
 
-# def build_global_scalers_multi_source_simple(
-#     res_xreg_by_source: dict,
-#     monthly_cols: list[str],
-#     static_cols: list[str],
-# ) -> tuple[StandardScaler, StandardScaler, StandardScaler]:
-#     """
-#     Simple version of build_global_scalers_multi_source.
-#     Pools df_train across all sources and fits scalers directly
-#     without ID deduplication or topo aggregation.
-
-#     Fits:
-#       - scaler_m: on monthly climate columns
-#       - scaler_s: on static/topographic columns
-#       - scaler_joint: on all columns combined
-#     """
-#     df_all = pd.concat(
-#         [res_xreg["df_train"] for res_xreg in res_xreg_by_source.values()],
-#         ignore_index=True,
-#     )
-
-#     scaler_m = StandardScaler().fit(df_all[monthly_cols].to_numpy(dtype=np.float64))
-#     scaler_s = StandardScaler().fit(df_all[static_cols].to_numpy(dtype=np.float64))
-#     scaler_joint = StandardScaler().fit(
-#         df_all[monthly_cols + static_cols].to_numpy(dtype=np.float64)
-#     )
-
-#     return scaler_m, scaler_s, scaler_joint
-
-
 def build_global_scalers_multi_source_simple(
     res_xreg_by_source: dict,
     monthly_cols: list[str],
