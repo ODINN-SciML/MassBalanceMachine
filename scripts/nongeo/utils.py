@@ -173,7 +173,9 @@ class NetworkBinding(nn.Module):
         return self.model(x)
 
 
-def trainValData(cfg, train_set, feature_columns, split_key="group-meas-id"):
+def trainValData(
+    cfg, train_set, feature_columns, split_key="group-meas-id", val_glaciers=None
+):
     """
     Split training dataset into train and validation sets.
 
@@ -181,18 +183,30 @@ def trainValData(cfg, train_set, feature_columns, split_key="group-meas-id"):
         - cfg: A configuration instance.
         - train_set: Dictionary with at least the following keys: `df_X` (pd.DataFrame) and `y` (pd.Series) which represent respectively the features and the targets.
         - feature_columns: List of string representing the columns to be used as features in the dataframe.
+        - split_key (str): Type of split between the train and validation sets.
+        - val_glaciers (list or None): Optional list of glaciers to be kept aside for validation. If this option is used the split is done per glacier and split_key is ignored.
     """
     # Validation and train split:
     data_train = train_set["df_X"]
     data_train["y"] = train_set["y"]
     dataloader = mbm.dataloader.DataLoader(cfg, data=data_train)
 
-    train_itr, val_itr = dataloader.set_train_test_split(
-        test_size=0.2, type_fold=split_key
-    )
+    if split_key == "group-rgi" and val_glaciers is not None:
 
-    # Get all indices of the training and valing dataset at once from the iterators. Once called, the iterators are empty.
-    train_indices, val_indices = list(train_itr), list(val_itr)
+        # Check if the generated split respects the elevation constraint
+        full_df = data_train.reset_index()
+        val_indices = full_df.loc[full_df.RGIId.isin(val_glaciers)].index.values
+        train_glaciers = list(set(full_df.RGIId.unique()).difference(val_glaciers))
+        train_indices = full_df.loc[full_df.RGIId.isin(train_glaciers)].index.values
+
+    else:
+
+        train_itr, val_itr = dataloader.set_train_test_split(
+            test_size=0.2, type_fold=split_key
+        )
+
+        # Get all indices of the training and valing dataset at once from the iterators. Once called, the iterators are empty.
+        train_indices, val_indices = list(train_itr), list(val_itr)
 
     df_X_train = data_train.iloc[train_indices]
     y_train = df_X_train["POINT_BALANCE"].values

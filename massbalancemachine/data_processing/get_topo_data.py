@@ -132,6 +132,24 @@ def glacier_cell_area(rgi_id: str, custom_working_dir: str, cfg: config.Config):
     return cell_area
 
 
+def get_custom_glacier_mask(gdir):
+    rgi_id = gdir.rgi_id
+
+    with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
+        ds = ds.load()
+    glacier_mask = np.where(
+        ds["glacier_mask"].values == 0, np.nan, ds["glacier_mask"].values
+    )
+
+    # Create glacier mask
+    ds = ds.assign(masked_slope=glacier_mask * ds["slope"])
+    ds = ds.assign(masked_elev=glacier_mask * ds["topo"])
+    ds = ds.assign(masked_aspect=glacier_mask * ds["aspect"])
+
+    glacier_indices = np.where(ds["glacier_mask"].values == 1)
+    return ds, glacier_indices
+
+
 def get_glacier_mask(rgi_id: str, custom_working_dir: str, cfg: config.Config):
     """Given a `rgi_id` gets glacier xarray from OGGM and masks it over the glacier outline."""
 
@@ -197,7 +215,7 @@ def _load_gridded_svf(
 ) -> list:
     """Load sky view factor data for each glacier directory."""
     grouped_rgi_ids = set(grouped_stakes.groups.keys())
-    grid_path = os.path.join(data_path, "grids")
+    grid_path = os.path.join(data_path, "grids", "Hugonnet21")
     loaded_svf = []
     for gdir in glacier_directories:
         if gdir.rgi_id in grouped_rgi_ids:

@@ -1,0 +1,23 @@
+model:
+    cor_T:
+        layers:
+            - [64, 32, 8]
+            - [32, 32, 8]
+            - [32, 16, 8]
+            - [16, 8, 8]
+    cor_fac:
+        layers:
+            - [64, 32, 8]
+            - [32, 32, 8]
+            - [32, 16, 8]
+            - [16, 16, 8]
+training:
+    Nepochs:
+        - 2000
+    scheduler_step_size:
+        - 500
+    weight_decay:
+        - 0.0
+    lr:
+        - 0.001
+        - 0.0005

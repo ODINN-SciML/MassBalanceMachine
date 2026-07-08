@@ -52,25 +52,25 @@ parser.add_argument(
     help="Do not compare on train data.",
 )
 parser.add_argument(
-    "--maps",
-    dest="maps",
+    "--pgo",
+    dest="pgo",
     default=False,
     action="store_true",
-    help="Generate annual MB maps for test glaciers.",
+    help="Evaluate on PGO grid.",
 )
 parser.add_argument(
-    "--mapsTest",
-    dest="mapsTest",
+    "--maps",
+    dest="maps",
     default=[],
     nargs="+",
-    help="Generate annual MB maps for specific test glaciers.",
+    help="Generate annual MB maps for specific glaciers.",
 )
 parser.add_argument(
-    "--mapsTrain",
-    dest="mapsTrain",
+    "--years",
+    dest="years",
     default=[],
     nargs="+",
-    help="Generate annual MB maps for specific train glaciers.",
+    help="Years for which to generate the annual MB maps.",
 )
 args = parser.parse_args()
 
@@ -80,13 +80,18 @@ name1 = args.name1
 name2 = args.name2
 plot = args.plot
 noTrain = args.noTrain
+pgo = args.pgo
 maps = args.maps
-mapsTest = args.mapsTest
-mapsTrain = args.mapsTrain
+yearsMaps = [int(y) for y in args.years]
 pathFolder1 = os.path.join("logs", modelFolder1)
 pathFolder2 = os.path.join("logs", modelFolder2)
 name1 = name1 if name1 is not None else modelFolder1
 name2 = name2 if name2 is not None else modelFolder2
+
+if len(maps) > 0:
+    assert (
+        len(yearsMaps) > 0
+    ), "If distributed maps are generated, the option years must be provided."
 
 pathFolder = os.path.join("results/comp/", f"{modelFolder1}_{modelFolder2}")
 os.makedirs(pathFolder, exist_ok=True)
@@ -96,14 +101,91 @@ with open(f"{pathFolder1}/params.json", "r") as f:
 with open(f"{pathFolder2}/params.json", "r") as f:
     params2 = json.load(f)
 
-with open(f"{pathFolder1}/glacierNames.json", "r") as f:
-    glacierNames = json.load(f)
+if os.path.isfile(f"{pathFolder1}/glacierNames.json"):
+    with open(f"{pathFolder1}/glacierNames.json", "r") as f:
+        glacierNames = json.load(f)
+else:
+    glacierNames = {}
+
+
+def load_gridded(file_without_ext):
+    if os.path.isfile(file_without_ext + ".parquet"):
+        return pd.read_parquet(file_without_ext + ".parquet")
+    elif os.path.isfile(file_without_ext + ".csv"):
+        return pd.read_csv(file_without_ext + ".csv")
+    else:
+        raise Exception(f"No file with matching extension found for {file_without_ext}")
+
+
+linear_fit_breaks = [2015 + 9 / 12]
+start_geod_period = 2000
+end_geod_period = 2020
+
+
+if pgo:
+    pathFolderPGO = os.path.join(pathFolder, "PGO")
+    os.makedirs(pathFolderPGO, exist_ok=True)
+    # Cumulated mass change on train data
+    df_gridded_monthly1 = load_gridded(f"{pathFolder1}/PGO/gridded_monthly_pgo")
+    df_geo1 = load_gridded(f"{pathFolder1}/PGO/gridded_geodetic_pgo")
+    geoTarget = df_geo1.set_index("RGIId").target.to_dict()
+    geoErr = df_geo1.set_index("RGIId").err.to_dict()
+
+    with open(f"{pathFolder1}/PGO/periodsPerGlacier.json", "r") as f:
+        periods_per_glacier = json.load(f)
+        for rgi_id in periods_per_glacier.keys():
+            periods_per_glacier[rgi_id] = [
+                (
+                    np.datetime64(periods_per_glacier[rgi_id][0][0]),
+                    np.datetime64(periods_per_glacier[rgi_id][0][1]),
+                )
+            ]
+
+    # Plot cumulated mass change
+    fig, l1 = mbm.plots.cumulatedMassChange(
+        df_gridded_monthly1,
+        geo={
+            rgi_id: {
+                "mean": geoTarget[rgi_id],
+                "err": geoErr[rgi_id],
+                "start": periods_per_glacier[rgi_id][0][0],
+                "end": periods_per_glacier[rgi_id][0][1],
+            }
+            for rgi_id in geoTarget
+        },
+    )
+    del df_gridded_monthly1
+    df_gridded_monthly2 = load_gridded(f"{pathFolder2}/PGO/gridded_monthly_pgo")
+    _, l2 = mbm.plots.cumulatedMassChange(
+        df_gridded_monthly2,
+        geo={
+            rgi_id: {
+                "start": periods_per_glacier[rgi_id][0][0],
+                "end": periods_per_glacier[rgi_id][0][1],
+            }  # Provide the bounds to plot only the cumulated MB of the geodetic time window
+            for rgi_id in geoTarget
+        },
+        axs=fig.axes,
+        color_pred="red",
+        titles={
+            k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
+            for k in glacierNames
+        },
+    )
+    del df_gridded_monthly2
+    fig.legend([l1, l2], [name1, name2], loc="lower center", ncol=2)
+
+    fig.savefig(f"{pathFolderPGO}/cumulated_mass_change_glaciers_pgo.pdf")
+    fig.savefig(f"{pathFolderPGO}/cumulated_mass_change_glaciers_pgo.png", dpi=300)
+    if plot:
+        plt.show()
+    plt.close(fig)
 
 
 if not noTrain:
     # Cumulated mass change on train data
-    df_gridded_monthly1 = pd.read_csv(f"{pathFolder1}/gridded_monthly_train.csv")
-    df_geo1 = pd.read_csv(f"{pathFolder1}/gridded_geodetic_train.csv")
+    df_gridded_monthly1 = load_gridded(f"{pathFolder1}/gridded_monthly_train")
+    df_geo1 = load_gridded(f"{pathFolder1}/gridded_geodetic_train")
     geoTarget = df_geo1.set_index("RGIId").target.to_dict()
     geoErr = df_geo1.set_index("RGIId").err.to_dict()
 
@@ -111,21 +193,34 @@ if not noTrain:
     fig, l1 = mbm.plots.cumulatedMassChange(
         df_gridded_monthly1,
         geo={
-            rgi_id: {"mean": geoTarget[rgi_id], "err": geoErr[rgi_id]}
+            rgi_id: {
+                "mean": geoTarget[rgi_id],
+                "err": geoErr[rgi_id],
+                "start": start_geod_period,
+                "end": end_geod_period,
+            }
             for rgi_id in geoTarget
         },
+        linear_fit_breaks=linear_fit_breaks,
     )
     del df_gridded_monthly1
-    df_gridded_monthly2 = pd.read_csv(f"{pathFolder2}/gridded_monthly_train.csv")
+    df_gridded_monthly2 = load_gridded(f"{pathFolder2}/gridded_monthly_train")
     _, l2 = mbm.plots.cumulatedMassChange(
         df_gridded_monthly2,
-        geo=None,
+        geo={
+            rgi_id: {
+                "start": start_geod_period,
+                "end": end_geod_period,
+            }  # Provide the bounds to plot only the cumulated MB of the geodetic time window
+            for rgi_id in geoTarget
+        },
         axs=fig.axes,
-        color_pred="orange",
+        color_pred="red",
         titles={
             k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
             for k in glacierNames
         },
+        linear_fit_breaks=linear_fit_breaks,
     )
     del df_gridded_monthly2
     fig.legend([l1, l2], [name1, name2], loc="lower center", ncol=2)
@@ -136,13 +231,15 @@ if not noTrain:
         plt.show()
     plt.close(fig)
 
-    if len(mapsTrain) > 0:
-        df_gridded_annual1 = pd.read_csv(f"{pathFolder1}/gridded_annual_train.csv")
-        df_gridded_annual2 = pd.read_csv(f"{pathFolder2}/gridded_annual_train.csv")
+    if len(maps) > 0:
+        df_gridded_annual1 = load_gridded(f"{pathFolder1}/gridded_annual_train")
+        df_gridded_annual2 = load_gridded(f"{pathFolder2}/gridded_annual_train")
+        train_glaciers = df_gridded_annual1.RGIId.unique()
 
         mapsFolder = f"{pathFolder}/maps"
         os.makedirs(mapsFolder, exist_ok=True)
         cfg = mbm.Config("11")  # Fake cfg which is needed just for OGGM
+        mapsTrain = list(set(train_glaciers).intersection(set(maps)))
         assert set(mapsTrain).issubset(df_gridded_annual1.RGIId.unique())
         assert set(mapsTrain).issubset(df_gridded_annual2.RGIId.unique())
         for rgi_id in mapsTrain:
@@ -154,7 +251,9 @@ if not noTrain:
                 df_gridded_annual2[df_gridded_annual2.RGIId == rgi_id].pred.abs().max()
             )
             max_abs = max(max1, max2)
-            for year in years:
+            for year in yearsMaps:
+                # TODO: allow to generate maps outside of that range
+                assert year in years
                 fig, axs = plt.subplots(1, 2, figsize=(12, 6))
                 mbm.plots.mapGlacier(
                     df_gridded_annual1,
@@ -182,8 +281,8 @@ if not noTrain:
 
 
 # Cumulated mass change on test data
-df_gridded_monthly1 = pd.read_csv(f"{pathFolder1}/gridded_monthly_test.csv")
-df_geo1 = pd.read_csv(f"{pathFolder1}/gridded_geodetic_test.csv")
+df_gridded_monthly1 = load_gridded(f"{pathFolder1}/gridded_monthly_test")
+df_geo1 = load_gridded(f"{pathFolder1}/gridded_geodetic_test")
 geoTarget = df_geo1.set_index("RGIId").target.to_dict()
 geoErr = df_geo1.set_index("RGIId").err.to_dict()
 
@@ -191,21 +290,34 @@ geoErr = df_geo1.set_index("RGIId").err.to_dict()
 fig, l1 = mbm.plots.cumulatedMassChange(
     df_gridded_monthly1,
     geo={
-        rgi_id: {"mean": geoTarget[rgi_id], "err": geoErr[rgi_id]}
+        rgi_id: {
+            "mean": geoTarget[rgi_id],
+            "err": geoErr[rgi_id],
+            "start": start_geod_period,
+            "end": end_geod_period,
+        }
         for rgi_id in geoTarget
     },
+    linear_fit_breaks=linear_fit_breaks,
 )
 del df_gridded_monthly1
-df_gridded_monthly2 = pd.read_csv(f"{pathFolder2}/gridded_monthly_test.csv")
+df_gridded_monthly2 = load_gridded(f"{pathFolder2}/gridded_monthly_test")
 _, l2 = mbm.plots.cumulatedMassChange(
     df_gridded_monthly2,
-    geo=None,
+    geo={
+        rgi_id: {
+            "start": start_geod_period,
+            "end": end_geod_period,
+        }  # Provide the bounds to plot only the cumulated MB of the geodetic time window
+        for rgi_id in geoTarget
+    },
     axs=fig.axes,
     color_pred="red",
     titles={
         k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
         for k in glacierNames
     },
+    linear_fit_breaks=linear_fit_breaks,
 )
 del df_gridded_monthly2
 fig.legend(
@@ -218,31 +330,68 @@ fig.legend(
 )
 plt.tight_layout(rect=[0, 0.1, 1, 1])
 
-
 fig.savefig(f"{pathFolder}/cumulated_mass_change_glaciers_test.pdf")
 fig.savefig(f"{pathFolder}/cumulated_mass_change_glaciers_test.png", dpi=300)
 if plot:
     plt.show()
 plt.close(fig)
 
-if maps or len(mapsTest) > 0:
-    df_gridded_annual1 = pd.read_csv(f"{pathFolder1}/gridded_annual_test.csv")
-    df_gridded_annual2 = pd.read_csv(f"{pathFolder2}/gridded_annual_test.csv")
 
+# Load annual data
+df_gridded_annual1 = load_gridded(f"{pathFolder1}/gridded_annual_test")
+df_gridded_annual2 = load_gridded(f"{pathFolder2}/gridded_annual_test")
+
+# Load stakes data
+df_groupeds_test1 = load_gridded(f"{pathFolder1}/stakes_test")
+
+
+# Plot MB profile
+fig = mbm.plots.profilePerGlacier(
+    df_gridded_annual1[
+        (df_gridded_annual1.YEAR >= start_geod_period)
+        & (df_gridded_annual1.YEAR < end_geod_period)
+    ],
+    color="blue",
+    titles={
+        k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
+        for k in glacierNames
+    },
+    df_stakes=df_groupeds_test1,
+    average_stakes=False,
+)
+_ = mbm.plots.profilePerGlacier(
+    df_gridded_annual2[
+        (df_gridded_annual2.YEAR >= start_geod_period)
+        & (df_gridded_annual2.YEAR < end_geod_period)
+    ],
+    color="red",
+    axs=fig.axes,
+    titles={
+        k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
+        for k in glacierNames
+    },
+)
+fig.savefig(f"{pathFolder}/MB_profile_individual_glaciers_test.pdf")
+if plot:
+    plt.show()
+plt.close(fig)
+
+
+if len(maps) > 0:
     mapsFolder = f"{pathFolder}/maps"
     os.makedirs(mapsFolder, exist_ok=True)
-    rgi_ids = df_gridded_annual1.RGIId.unique() if maps else mapsTest
+    test_glaciers = df_gridded_annual1.RGIId.unique()
     cfg = mbm.Config("11")  # Fake cfg which is needed just for OGGM
-    if maps:
-        assert set(rgi_ids) == set(df_gridded_annual2.RGIId.unique())
-    else:
-        assert set(rgi_ids).issubset(set(df_gridded_annual2.RGIId.unique()))
-    for rgi_id in rgi_ids:
+    mapsTest = list(set(test_glaciers).intersection(set(maps)))
+    assert set(mapsTest).issubset(set(df_gridded_annual2.RGIId.unique()))
+    for rgi_id in mapsTest:
         years = df_gridded_annual1[df_gridded_annual1.RGIId == rgi_id].YEAR.unique()
         max1 = df_gridded_annual1[df_gridded_annual1.RGIId == rgi_id].pred.abs().max()
         max2 = df_gridded_annual2[df_gridded_annual2.RGIId == rgi_id].pred.abs().max()
         max_abs = max(max1, max2)
-        for year in years:
+        for year in yearsMaps:
+            # TODO: allow to generate maps outside of that range
+            assert year in years
             fig, axs = plt.subplots(1, 2, figsize=(12, 6))
             mbm.plots.mapGlacier(
                 df_gridded_annual1,
@@ -266,4 +415,4 @@ if maps or len(mapsTest) > 0:
             plt.tight_layout()
             fig.savefig(f"{mapsFolder}/{rgi_id}_{year}.pdf")
             plt.close(fig)
-    del df_gridded_annual1, df_gridded_annual2
+del df_gridded_annual1, df_gridded_annual2

@@ -23,21 +23,43 @@ def parseParams(params):
     scheduler_step_size = int(params["training"].get("scheduler_step_size", 200))
     Nepochs = int(params["training"].get("Nepochs", 1000))
     source_data = params["training"].get("source_data", "iceland")
+    geodetic_source = params["training"].get("geodetic_source", "Hugonnet21")
     inputs = params["model"].get("inputs") or mbm.dataloader._default_input(source_data)
     batch_size = int(params["training"].get("batch_size", 128))
     weight_decay = float(params["training"].get("weight_decay", 0.0))
     downscale = params["model"].get("downscale", None)
     scalingStakes = params["training"].get("scalingStakes", "glacier")
+    modelParams = {
+        "type": params["model"]["type"],
+        "inputs": inputs,
+    }
+    if modelParams["type"] == "sequential":
+        modelParams["layers"] = params["model"]["layers"]
+        modelParams["dropout"] = params["model"].get("dropout", 0.0)
+        modelParams["downscale"] = downscale
+    elif modelParams["type"] == "TIlike":
+        modelParams["cor_T"] = {"layers": params["model"]["cor_T"]["layers"]}
+        modelParams["cor_fac"] = {"layers": params["model"]["cor_fac"]["layers"]}
+    elif modelParams["type"] == "multi":
+        modelParams["glacio"] = {
+            "type": params["model"]["glacio"]["type"],
+            # "inputs": params["model"]["glacio"]["inputs"],
+            "layers": params["model"]["glacio"]["layers"],
+            "dropout": params["model"]["glacio"].get("dropout", 0.0),
+        }
+        modelParams["geo"] = {
+            "type": params["model"]["geo"]["type"],
+            "inputs": params["model"]["geo"]["inputs"],
+            "layers": params["model"]["geo"]["layers"],
+            "dropout": params["model"]["geo"].get("dropout", 0.0),
+        }
+    # if "layers_cor_geodetic" in modelParams:
+    #     modelParams["layers_cor_geodetic"] = params["model"]["layers_cor_geodetic"]
     return {
-        "model": {
-            "type": params["model"]["type"],
-            "layers": params["model"]["layers"],
-            "dropout": params["model"].get("dropout", 0.0),
-            "inputs": inputs,
-            "downscale": downscale,
-        },
+        "model": modelParams,
         "training": {
             "source_data": source_data,
+            "geodetic_source": geodetic_source,
             "lr": lr,
             "momentum": momentum,
             "beta1": beta1,
@@ -52,6 +74,7 @@ def parseParams(params):
             "scalingStakes": scalingStakes,
             "test_glaciers": params["training"].get("test_glaciers"),
             "train_glaciers": params["training"].get("train_glaciers"),
+            "val_glaciers": params["training"].get("val_glaciers"),
             "wGeo": params["training"].get("wGeo", 0.0),
             "bestModelCriterion": params["training"].get(
                 "bestModelCriterion", "lossVal"
@@ -61,6 +84,8 @@ def parseParams(params):
             "log_suffix": params["training"].get("log_suffix", ""),
             "log_prefix": params["training"].get("log_prefix", ""),
             "log_dir": params["training"].get("log_dir"),
+            "wWinter": params["training"].get("wWinter", 1.0),
+            "wSummer": params["training"].get("wSummer", 1.0),
         },
     }
 
@@ -158,33 +183,3 @@ def default_glacier_name(rgi_id):
         "RGI60-11.02282": "Vadrec dal Castel Nord",
         "RGI60-11.02624": "Feegletscher",
     }.get(rgi_id)
-
-
-def canonicalize(x):
-    """Convert params into a stable, comparable representation."""
-    if isinstance(x, Mapping):
-        return tuple(sorted((str(k), canonicalize(v)) for k, v in x.items()))
-    if isinstance(x, tuple):
-        return tuple(canonicalize(v) for v in x)
-    if isinstance(x, list):
-        return tuple(canonicalize(v) for v in x)
-    if isinstance(x, float):
-        if math.isnan(x):
-            return "__nan__"
-        return x
-    return x
-
-
-def already_completed_trial(study, candidate_params: dict):
-    from optuna.trial import TrialState
-
-    candidate_key = canonicalize(candidate_params)
-
-    for t in study.get_trials(
-        deepcopy=False,
-        states=(TrialState.COMPLETE,),
-    ):
-        if canonicalize(t.params) == candidate_key:
-            return True, t
-
-    return False, None

@@ -1,12 +1,200 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
 import pandas as pd
 import yaml
+import copy
+
+from data_processing.Dataset import Normalizer
 
 
-def createModel(cfg, modelParams):
-    nInp = len(cfg.featureColumns)
+class TILikeModel(nn.Module):
+    def __init__(self, modelParams, normalizing_bounds, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.input_labels = modelParams["inputs"]
+        self.normalizing_bounds = normalizing_bounds
+        self.ind_precip = self.input_labels.index("tp")
+        self.ind_temp = self.input_labels.index("t2m")
+        # self.inputs = [
+        #     "ELEVATION_DIFFERENCE",
+        #     "aspect",
+        #     "fal", # forcast albedo
+        #     "slhf", # surface latent heat flux
+        #     "slope",
+        #     "sshf", # surface sensible heat flux
+        #     "ssrd", # surface solar radiation downwards
+        #     "str", # surface net thermal radiation
+        #     "t2m", # 2m temperature
+        #     "tp", # total precipitation
+        #     "svf", # sky view factor
+        # ]
+        self.inp_cor_T = ["ELEVATION_DIFFERENCE", "t2m", "svf"]
+        self.inp_cor_fac = [
+            "aspect",
+            "fal",
+            "slhf",
+            "slope",
+            "sshf",
+            "ssrd",
+            "str",
+            "t2m",
+            "svf",
+        ]
+        self.ind_inp_cor_T = sorted(
+            [self.input_labels.index(inp) for inp in self.inp_cor_T]
+        )
+        self.ind_inp_cor_fac = sorted(
+            [self.input_labels.index(inp) for inp in self.inp_cor_fac]
+        )
+        self.beta1 = 1.4
+        self.beta2 = 0.0049
+        self.tau_P_s = 1.5
+        self.tau_P_c = 1.0
+
+        cor_T_params = modelParams["cor_T"]
+        cor_T = [nn.Linear(len(self.inp_cor_T), cor_T_params["layers"][0])]
+        for i in range(len(cor_T_params["layers"]) - 1):
+            cor_T.append(nn.ReLU())
+            cor_T.append(
+                nn.Linear(cor_T_params["layers"][i], cor_T_params["layers"][i + 1])
+            )
+        cor_T.append(nn.ReLU())
+        cor_T.append(nn.Linear(cor_T_params["layers"][-1], 2))
+        self.cor_T = nn.Sequential(*cor_T)
+
+        cor_fac_params = modelParams["cor_fac"]
+        cor_fac = [nn.Linear(len(self.inp_cor_fac), cor_fac_params["layers"][0])]
+        for i in range(len(cor_fac_params["layers"]) - 1):
+            cor_fac.append(nn.ReLU())
+            cor_fac.append(
+                nn.Linear(cor_fac_params["layers"][i], cor_fac_params["layers"][i + 1])
+            )
+        cor_fac.append(nn.ReLU())
+        cor_fac.append(nn.Linear(cor_fac_params["layers"][-1], 2))
+        self.cor_fac = nn.Sequential(*cor_fac)
+
+    def forward(self, inputs):
+        P = Normalizer._unorm(
+            inputs[:, self.ind_precip],
+            self.normalizing_bounds["tp"][0],
+            self.normalizing_bounds["tp"][1],
+        )
+        T = (
+            Normalizer._unorm(
+                inputs[:, self.ind_temp],
+                self.normalizing_bounds["t2m"][0],
+                self.normalizing_bounds["t2m"][1],
+            )
+            + 273.15
+        )
+        inp_cor_T = inputs[:, self.ind_inp_cor_T]
+        inp_cor_fac = inputs[:, self.ind_inp_cor_fac]
+
+        # Temperature correction for precipitation and PDD
+        # Acts as a shift of the temperature
+        # Accounts for: downscaling, local effects (?)
+        cor_T = self.cor_T(inp_cor_T)
+        cor_T_P = cor_T[:, 0]
+        cor_T_PDD = cor_T[:, 1]
+
+        P_solid = P * F.sigmoid(self.tau_P_s * (self.tau_P_c + cor_T_P - T))
+        PDD = F.softplus(T + cor_T_PDD)
+
+        cor_fac = self.cor_fac(inp_cor_fac)
+
+        # Accumulation factor correction
+        # Accounts for:
+        #   - local effects: topography, exposure, radiative effects, refreeze
+        cor_acc = cor_fac[:, 0]
+
+        # Ablation factor correction
+        # Accounts for:
+        #   - local effects: topography, exposure, radiative effects, refreeze
+        cor_abl = cor_fac[:, 1]
+
+        MB = self.beta1 * cor_acc * P_solid - self.beta2 * cor_abl * PDD
+        return MB.view(-1, 1)
+
+
+class GeodeticCorrectionModel(nn.Module):
+    def __init__(
+        self,
+        modelParams,
+        *args,
+        glacioModule=None,
+        geoModule=None,
+        activateGlacio=False,
+        train="geo",
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self.glacioModule = glacioModule
+        self.geoModule = geoModule
+        assert train in ["geo", "glacio", "joint"]
+        self.moduleToTrain = train
+        self.activateGlacio = activateGlacio
+        self.input_labels = modelParams["inputs"]
+        # self.normalizing_bounds = normalizing_bounds
+        # self.inp_geo = ["ELEVATION_DIFFERENCE", "t2m", "svf"]
+        self.inp_geo = modelParams["geo"]["inputs"]
+
+        self.ind_inp_geo = sorted(
+            [self.input_labels.index(inp) for inp in self.inp_geo]
+        )
+
+        # if self.geoModule is None:
+        #     cor = [nn.Linear(len(self.inp_geo), modelParams["layers_geodetic"][0])]
+        #     for i in range(len(modelParams["layers_geodetic"]) - 1):
+        #         cor.append(nn.ReLU())
+        #         cor.append(
+        #             nn.Linear(modelParams["layers_geodetic"][i], modelParams["layers_geodetic"][i + 1])
+        #         )
+        #     cor.append(nn.ReLU())
+        #     cor.append(nn.Linear(modelParams["layers_geodetic"][-1], 2))
+        #     self.geoModule = nn.Sequential(*cor)
+
+        # self.freeze_glacio = True
+
+        # if self.freeze_glacio:
+        if self.moduleToTrain == "geo":
+            self.glacioModule.eval()
+            for p in self.glacioModule.parameters():
+                p.requires_grad = False
+        elif self.moduleToTrain == "glacio":
+            self.geoModule.eval()
+            for p in self.geoModule.parameters():
+                p.requires_grad = False
+
+    def forward(self, inputs):
+        inp_geo = inputs[:, self.ind_inp_geo]
+        geoContrib = self.geoModule(inp_geo)
+        if self.activateGlacio:
+            return self.glacioModule(inputs) + geoContrib
+        else:
+            return geoContrib
+
+    def glacioModuleOnly(self, inputs):
+        return self.glacioModule(inputs)
+
+    def train(self, mode: bool = True):
+        if self.moduleToTrain == "geo":
+            self.geoModule.train(mode)
+            self.glacioModule.eval()
+        elif self.moduleToTrain == "glacio":
+            self.geoModule.eval()
+            self.glacioModule.train(mode)
+        elif self.moduleToTrain == "joint":
+            self.geoModule.train(mode)
+            self.glacioModule.train(mode)
+
+    def eval(self):
+        self.glacioModule.eval()
+        self.geoModule.eval()
+
+
+def createModel(cfg, modelParams, nInp=None, multi=None):
+    nInp = nInp or len(cfg.featureColumns)
     dropout = modelParams.get("dropout", 0.0)
     if modelParams["type"] == "sequential":
         assert len(modelParams["layers"]) > 0
@@ -22,6 +210,20 @@ def createModel(cfg, modelParams):
         l.append(nn.Linear(modelParams["layers"][-1], 1))
         network = nn.Sequential(*l)
         return network
+    elif modelParams["type"] == "TIlike":
+        return TILikeModel(modelParams, cfg.bnds)
+    elif modelParams["type"] == "multi":
+        tmp_params_glacio = copy.deepcopy(modelParams["glacio"])
+        tmp_params_glacio["inputs"] = modelParams[
+            "inputs"
+        ]  # Copy inputs which are not defined for glacio
+        glacioModule = createModel(cfg, tmp_params_glacio)
+        geoModule = createModel(
+            cfg, modelParams["geo"], nInp=len(modelParams["geo"]["inputs"])
+        )
+        return GeodeticCorrectionModel(
+            modelParams, glacioModule=glacioModule, geoModule=geoModule, train=multi
+        )
     else:
         raise ValueError(f"Model {modelParams['type']} is not supported.")
 
@@ -37,7 +239,7 @@ def selectModel(cfg, version):
     return createModel(cfg, params["model"])
 
 
-def buildModel(cfg, version=None, params=None):
+def buildModel(cfg, version=None, params=None, multi=None):
     assert (version is None) ^ (
         params is None
     ), "Either version or params must be provided."
@@ -46,13 +248,13 @@ def buildModel(cfg, version=None, params=None):
     else:
         if "model" in params:
             params = params["model"]
-        model = createModel(cfg, params)
+        model = createModel(cfg, params, multi=multi)
     return model
 
 
-def aggrMetadataId(metadata, groupByCol):
+def aggrMetadata(metadata, groupByCol):
     """
-    Aggregates metadata temporally by taking the first value encountered in each
+    Aggregates metadata by taking the first value encountered in each
     aggregated group. These values are supposed to be unique per group.
 
     Args:
@@ -65,6 +267,8 @@ def aggrMetadataId(metadata, groupByCol):
     aggMap = {"YEAR": "first", "ID": "first", "RGIId": "first"}
     if "GLWD_ID" in metadataKeys:
         aggMap["GLWD_ID"] = "first"
+    if "GLWD_M_ID" in metadataKeys:
+        aggMap["GLWD_M_ID"] = "first"
     if "POINT_LAT" in metadataKeys:
         aggMap["POINT_LAT"] = "first"
     if "POINT_LON" in metadataKeys:
@@ -73,8 +277,10 @@ def aggrMetadataId(metadata, groupByCol):
         aggMap["PERIOD"] = "first"
     if "POINT_ELEVATION" in metadataKeys:
         aggMap["POINT_ELEVATION"] = "first"
-    metadataAggrId = metadata.groupby(groupByCol).agg(aggMap)
-    return metadataAggrId
+    if "ELEVATION_DIFFERENCE" in metadataKeys:
+        aggMap["ELEVATION_DIFFERENCE"] = "first"
+    metadataAggr = metadata.groupby(groupByCol).agg(aggMap)
+    return metadataAggr
 
 
 def aggrPredict(pred, idAggr, reduce="sum", out=None):
@@ -104,24 +310,6 @@ def aggrPredict(pred, idAggr, reduce="sum", out=None):
     # predSumAnnual = out.scatter_reduce(0, idAggrTorch, pred, reduce=reduce)
     predSumAnnual = out.scatter_reduce_(0, idAggrTorch, pred, reduce=reduce)
     return predSumAnnual  # This shares memory with out
-
-
-def aggrMetadataGlwdId(metadata, groupByCol):
-    """
-    Performs the glacier wide aggregation of the metadata by taking the first
-    value encountered in each aggregated group. These values are supposed to be
-    unique per group.
-
-    Args:
-        metadata (pd.DataFrame): Input metadata to aggregate.
-        groupByCol (str): The column to use for aggregation.
-
-    Returns an aggregated pd.DataFrame.
-    """
-    metadataAggrYear = metadata.groupby(groupByCol).agg(
-        YEAR=("YEAR", "first")  # Assumes YEAR is unique per GEOD_ID
-    )  # .set_index('YEAR')
-    return metadataAggrYear
 
 
 def aggrPredictGlwd(pred, idAggr, out=None):
@@ -207,7 +395,7 @@ class CustomTorchNeuralNetRegressor(nn.Module):
                 trueMean = aggrPredict(groundTruthTorch, int_id, reduce="mean")
                 predSum = aggrPredict(pred, int_id)
                 metadata = metadata.assign(ID_int=int_id)
-                grouped_ids_glacier = aggrMetadataId(metadata, "ID_int")
+                grouped_ids_glacier = aggrMetadata(metadata, "ID_int")
 
                 # Create grouped prediction DataFrame
                 assert grouped_ids_glacier.index.name == "ID_int"
@@ -228,6 +416,9 @@ class CustomTorchNeuralNetRegressor(nn.Module):
                 grouped_ids = pd.concat(
                     [grouped_ids, grouped_ids_glacier], ignore_index=True
                 )
+
+                if geodataloader.allStakesPerIter:
+                    break
 
         if grouped_ids.shape[0] > 0:
             # ID_int does not make sense since it is used only to perform the aggregation with PyTorch, the variable to use is ID instead

@@ -9,11 +9,14 @@ import json
 import argparse
 import massbalancemachine as mbm
 
-from scripts.common import (
-    loadParams,
-    already_completed_trial,
-)
+from scripts.common import loadParams
 from scripts.nongeo.utils import getMetaData, setFeatures, trainValData, testData
+from scripts.gridsearch import (
+    canonicalize_raw,
+    get_next_untested_params,
+    recursive_update_from_flat,
+    flatten_dict,
+)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("modelType", type=str, help="Type of model to train")
@@ -33,11 +36,11 @@ parser.add_argument(
     help="Suffix to add to the folder that contains the model once trained.",
 )
 parser.add_argument(
-    "--noTest",
-    dest="noTest",
+    "--doTest",
+    dest="doTest",
     default=False,
     action="store_true",
-    help="Do not evaluate on the test set during training.",
+    help="Evaluate on the test set during training.",
 )
 parser.add_argument(
     "--time",
@@ -60,6 +63,13 @@ parser.add_argument(
     help="Weight of the geodetic term.",
 )
 parser.add_argument(
+    "-m",
+    "--multi",
+    type=str,
+    default=None,
+    help="Component of the multistage network to train.",
+)
+parser.add_argument(
     "--gridsearch",
     dest="gridsearch",
     default=[],
@@ -72,10 +82,11 @@ params = loadParams(args.modelType)
 modelToLoad = args.load
 cpu = args.cpu
 suffix = args.suffix
-noTest = args.noTest
+doTest = args.doTest
 timeExec = args.time
 prof = args.prof
 wGeo = args.wGeo
+multi = args.multi
 
 gridsearch = args.gridsearch
 do_gridsearch = len(gridsearch) > 0
@@ -85,6 +96,7 @@ if do_gridsearch:
     gridsearch_config = gridsearch[0]
     import yaml
     import optuna
+    import fcntl
 
     with open("scripts/netcfg/" + gridsearch_config + ".yml") as stream:
         try:
@@ -92,84 +104,77 @@ if do_gridsearch:
         except yaml.YAMLError as exc:
             print(exc)
 
-    def flatten_dict(d, parent_key="", sep="."):
-        result = {}
-        for key, value in d.items():
-            new_key = f"{parent_key}{sep}{key}" if parent_key else key
-            if isinstance(value, dict):
-                result.update(flatten_dict(value, new_key, sep))
-            else:
-                if isinstance(value, list):
-                    if isinstance(value[0], (tuple, list)):
-                        result[new_key] = tuple(tuple(v) for v in value)
-                    else:
-                        result[new_key] = tuple(value)
-                else:
-                    result[new_key] = value
-        return result
-
     search_space = flatten_dict(gridsearch_params)
     for k, v in search_space.items():
         if isinstance(v, (list, tuple)) and isinstance(v[0], (list, tuple)):
             search_space[k] = tuple([",".join([str(e) for e in t]) for t in v])
     print(f"{search_space=}")
-    study = optuna.create_study(
-        study_name=gridsearch_name,
-        storage=optuna.storages.JournalStorage(
-            optuna.storages.journal.JournalFileBackend(
-                file_path="./journal_gridsearch.log"
-            )
-        ),
-        sampler=optuna.samplers.GridSampler(search_space),
-        direction="minimize",
-        load_if_exists=True,
-    )
-    trial = study.ask()
-    print(f"{trial.number=}")
-    params["training"]["log_prefix"] = gridsearch_name + f"_{trial.number}"
-    params["gridsearch"] = {
-        "study_name": trial.study.study_name,
-        "trial_number": trial.number,
-        "search_space": search_space,
-    }
 
-    def recursive_update_from_flat(target, source, sep="."):
-        for flat_key, value in source.items():
-            parts = flat_key.split(sep)
-            _set_recursive(target, parts, value)
+    # Avoid concurrent access since we write to the optuna study by queuing next parameters and then we ask optuna to suggest based on that queue
+    lock_file = "./gridsearch.lock"
+    with open(lock_file, "w") as lf:
+        fcntl.flock(lf, fcntl.LOCK_EX)  # Blocks until lock is acquired
 
-    def _set_recursive(current, parts, value):
-        key = parts[0]
-        if len(parts) == 1:
-            current[key] = value
-            return
-        if key not in current or not isinstance(current[key], dict):
-            current[key] = {}
-        _set_recursive(current[key], parts[1:], value)
+        study = optuna.create_study(
+            study_name=gridsearch_name,
+            storage=optuna.storages.JournalStorage(
+                optuna.storages.journal.JournalFileBackend(
+                    file_path="./journal_gridsearch.log"
+                )
+            ),
+            sampler=optuna.samplers.GridSampler(search_space),
+            direction="minimize",
+            load_if_exists=True,
+        )
 
-    candidate_params = {
-        k: trial.suggest_categorical(k, v) for k, v in search_space.items()
-    }
-    for k, v in candidate_params.items():
-        if isinstance(v, str):
-            candidate_params[k] = [int(e) for e in v.split(",")]
-    print(f"{candidate_params=}")
-    exists, old_trial = already_completed_trial(study, candidate_params)
-    if exists:
-        print("This combination has already been tested.")
-        print("metric:", old_trial.value)
-        sys.exit(0)
-    recursive_update_from_flat(params, candidate_params)
+        next_params = get_next_untested_params(study, search_space)
+
+        if next_params is None:
+            print("Grid search complete — all combinations tested.")
+            sys.exit(0)
+
+        # Force candidate_params to be next_params by telling optuna to suggest this exact combination
+        study.enqueue_trial(next_params)
+
+        trial = study.ask()
+        print(f"{trial.number=}")
+        params["training"]["log_prefix"] = gridsearch_name + f"_{trial.number}"
+        params["gridsearch"] = {
+            "study_name": trial.study.study_name,
+            "trial_number": trial.number,
+            "search_space": search_space,
+        }
+
+        candidate_params = {
+            k: trial.suggest_categorical(k, v) for k, v in search_space.items()
+        }
+        for k, v in candidate_params.items():
+            if isinstance(v, str):
+                candidate_params[k] = [int(e) for e in v.split(",")]
+        print(f"{candidate_params=}")
+        recursive_update_from_flat(params, candidate_params)
+    # Lock is released here
 else:
     trial = None
 
 if wGeo is not None:  # Overwrite geodetic weight
     params["training"]["wGeo"] = wGeo
+if multi is not None:
+    if multi == "geo":
+        params["training"]["scalingStakes"] = "none"
+    elif multi == "glacio":
+        # params["training"]["wGeo"] = 0.0
+        params["training"]["scalingStakes"] = "full"
+        # TODO: remove hard-coded scalingStakes above
+    elif multi == "joint":
+        params["training"]["scalingStakes"] = "full"
+        # TODO: remove hard-coded scalingStakes above
 wGeo = params["training"]["wGeo"]
 if params["training"]["log_suffix"] == "":
     params["training"]["log_suffix"] = f"wgeo={wGeo}" if wGeo > 0 else ""
 if suffix is not None:
     params["training"]["log_suffix"] += f"_{suffix}"
+
 featuresInpModel = params["model"]["inputs"]
 sourceData = params["training"]["source_data"]
 
@@ -244,11 +249,14 @@ data_train = train_set["df_X"]
 data_train["y"] = train_set["y"]
 
 setFeatures(cfg, data_train, featuresInpModel)
+split_key = params["training"].get("splitVal", "group-meas-id")
+val_glaciers = params["training"].get("val_glaciers", None)
 df_X_train, y_train, df_X_val, y_val = trainValData(
     cfg,
     train_set,
     featuresInpModel,
-    split_key=params["training"].get("splitVal", "group-meas-id"),
+    split_key=split_key,
+    val_glaciers=val_glaciers,
 )
 
 
@@ -279,10 +287,23 @@ gdl = mbm.dataloader.GeoDataLoader(
     valStakesDf=df_X_val,
     keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
     preloadGeodetic=wGeo > 0,
+    allStakesPerIter=(params["training"]["scalingStakes"] == "full"),
+    geodeticSource=params["training"]["geodetic_source"],
 )
 
 
-network = mbm.models.buildModel(cfg, params=params)
+network = mbm.models.buildModel(cfg, params=params, multi=multi)
+
+if multi is not None:
+    network.moduleToTrain = multi
+    if multi == "geo":
+        network.activateGlacio = False
+    elif multi == "glacio":
+        network.activateGlacio = True
+    elif multi == "joint":
+        network.activateGlacio = True
+    else:
+        raise ValueError("Option multi should be set either to 'glacio' or 'geo'.")
 
 model = mbm.models.CustomTorchNeuralNetRegressor(network)
 model = model.to(device)
@@ -292,6 +313,13 @@ if modelToLoad != "":
         os.path.join("logs", modelToLoad), model
     )
     print(f"Loaded model {bestModelPath}")
+
+# if "layers_cor_geodetic" in params["model"]:
+#     model = model.to("cpu")
+#     geodetic_cor_model = mbm.models.GeodeticCorrectionModel(params["model"], model)
+#     geodetic_cor_model = geodetic_cor_model.to(device)
+#     model = geodetic_cor_model
+#     # TODO: check freezing
 
 optimType = params["training"]["optim"]
 schedulerType = params["training"]["scheduler"]
@@ -329,7 +357,7 @@ elif sourceData in ["iceland", "norway"]:
     test_glaciers = list(data_test.RGIId.unique())
 elif "wgms" in sourceData:
     test_glaciers = list(data_test.RGIId.unique())
-if not noTest:
+if doTest:
     gdl_test = mbm.dataloader.GeoDataLoader(
         cfg,
         test_glaciers,
@@ -339,6 +367,8 @@ if not noTest:
         months_tail_pad=months_tail_pad,
         keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
         preloadGeodetic=wGeo > 0,
+        allStakesPerIter=(params["training"]["scalingStakes"] == "full"),
+        geodeticSource=params["training"]["geodetic_source"],
     )
 else:
     gdl_test = None
@@ -352,6 +382,7 @@ ret = mbm.training.train_geo(
     geodataloader_test=gdl_test,
     timeExec=timeExec,
     useProfiler=prof,
+    multi=multi,
 )
 
 print()
@@ -394,22 +425,23 @@ X = gdl.trainStakesDf[
 X.to_csv(os.path.join(ret["misc"]["log_dir"], "sample_inputs_before_norm.csv"))
 
 
-if noTest:
-    gdl_test = mbm.dataloader.GeoDataLoader(
-        cfg,
-        test_glaciers,
-        device=device,
-        trainStakesDf=data_test,
-        months_head_pad=months_head_pad,
-        months_tail_pad=months_tail_pad,
-        keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
-        preloadGeodetic=wGeo > 0,
-    )
+gdl_test = mbm.dataloader.GeoDataLoader(
+    cfg,
+    test_glaciers,
+    device=device,
+    trainStakesDf=data_test,
+    months_head_pad=months_head_pad,
+    months_tail_pad=months_tail_pad,
+    keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
+    preloadGeodetic=wGeo > 0,
+    allStakesPerIter=(params["training"]["scalingStakes"] == "full"),
+    geodeticSource=params["training"]["geodetic_source"],
+)
 
 model.eval()
 with torch.no_grad():
     print("Computing performance on test set")
-    resTest = mbm.training.assessOnTest(ret["misc"]["log_dir"], model, gdl_test)
+    resTest = mbm.training.assessOnTest(ret["misc"]["log_dir"], model, gdl_test, params)
     resVal = mbm.training.assessOnVal(model, gdl, params)
     with open(os.path.join(ret["misc"]["log_dir"], "perf.json"), "w") as f:
         json.dump({"test": resTest, "val": resVal}, f, indent=4)

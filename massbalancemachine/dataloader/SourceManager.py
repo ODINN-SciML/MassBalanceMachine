@@ -346,10 +346,12 @@ class SourceManagerSwitzerland(SourceManager):
             output_file=csvFileName,
         )
 
+        data_monthly["GLWD_M_ID"] = data_monthly.apply(
+            lambda x: get_hash(f"{x.GLACIER}_{x.YEAR}_{x.MONTHS}"), axis=1
+        ).astype(str)
         data_monthly["GLWD_ID"] = data_monthly.apply(
-            lambda x: get_hash(f"{x.GLACIER}_{x.YEAR}"), axis=1
-        )
-        data_monthly["GLWD_ID"] = data_monthly["GLWD_ID"].astype(str)
+            lambda x: get_hash(f"{x.GLACIER}"), axis=1
+        ).astype(str)
 
         return data_monthly
 
