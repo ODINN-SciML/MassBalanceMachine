@@ -17,6 +17,9 @@ from data_processing.Product import Product
 from data_processing.product_utils import rgi_id_to_folders
 from data_processing.gridded_utils import (
     create_gridded_features_RGI,
-    geodetic_input,
-    geodetic_target,
+    create_gridded_features_PGO,
+    geodetic_input_Hugonnet21,
+    geodetic_input_PGO,
+    geodetic_target_Hugonnet21,
 )
+from data_processing.pgo import geodetic_target_PGO

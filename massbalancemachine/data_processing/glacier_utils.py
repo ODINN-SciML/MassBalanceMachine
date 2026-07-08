@@ -69,10 +69,13 @@ def create_glacier_grid_RGI(
         "aspect": ds.masked_aspect.values[gl_mask_bool],
         "slope": ds.masked_slope.values[gl_mask_bool],
         "topo": ds.masked_elev.values[gl_mask_bool],
-        "dis_from_border": ds.masked_dis.values[gl_mask_bool],
-        "hugonnet_dhdt": ds.masked_hug.values[gl_mask_bool],
-        "consensus_ice_thickness": ds.masked_cit.values[gl_mask_bool],
     }
+    if "dis_from_border" in ds:
+        data_grid["dis_from_border"] = ds.masked_dis.values[gl_mask_bool]
+    if "hugonnet_dhdt" in ds:
+        data_grid["hugonnet_dhdt"] = ds.masked_hug.values[gl_mask_bool]
+    if "consensus_ice_thickness" in ds:
+        data_grid["consensus_ice_thickness"] = ds.masked_cit.values[gl_mask_bool]
     if "millan_ice_thickness" in ds:
         data_grid["millan_ice_thickness"] = ds.masked_mit.values[gl_mask_bool]
     if "masked_miv" in ds:
@@ -157,6 +160,20 @@ def get_glacier_dem(rgi_id: str, custom_working_dir: str, cfg: config.Config):
     with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
         ds = ds.load()
     return ds
+
+
+def create_custom_dem_file(gdir, path_rgi_id):
+    out_path = os.path.abspath(os.path.join(path_rgi_id, f"dem.nc"))
+    p = Product(out_path)
+    if not p.is_up_to_date():
+        with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
+            ds = ds.load()
+        lkeys = list(ds.keys())
+        lkeys.remove("topo")
+        ds_topo = ds.drop_vars(lkeys)
+        ds_topo.to_netcdf(out_path)
+
+        p.gen_chk()
 
 
 def create_dem_file_RGI(cfg, rgi_id, path_rgi_id):

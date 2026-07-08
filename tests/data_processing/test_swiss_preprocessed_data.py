@@ -126,10 +126,15 @@ def test_geodataloader():
         mbm.data_processing.utils.build_head_tail_pads_from_monthly_df(data_monthly)
     )
 
+    data_monthly["GLWD_M_ID"] = data_monthly.apply(
+        lambda x: mbm.data_processing.utils.get_hash(
+            f"{x.GLACIER}_{x.YEAR}_{x.MONTHS}"
+        ),
+        axis=1,
+    ).astype(str)
     data_monthly["GLWD_ID"] = data_monthly.apply(
-        lambda x: mbm.data_processing.utils.get_hash(f"{x.GLACIER}_{x.YEAR}"), axis=1
-    )
-    data_monthly["GLWD_ID"] = data_monthly["GLWD_ID"].astype(str)
+        lambda x: mbm.data_processing.utils.get_hash(f"{x.GLACIER}"), axis=1
+    ).astype(str)
 
     dataloader_gl = mbm.dataloader.DataLoader(
         cfg, data=data_monthly, random_seed=cfg.seed, meta_data_columns=cfg.metaData
@@ -151,7 +156,7 @@ def test_geodataloader():
         train_set["df_X"],
         months_head_pad=months_head_pad,
         months_tail_pad=months_tail_pad,
-        geodeticOggm=False,
+        geodeticSource="GLAMOS",
     )
     for g in gdl.glaciers():
         print(f"Glacier {g}")

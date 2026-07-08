@@ -18,11 +18,14 @@ from data_processing.Dataset import Normalizer
 from data_processing.utils import _rebuild_month_index
 from data_processing.gridded_utils import (
     create_gridded_features_RGI,
-    geodetic_input,
-    geodetic_target,
-    geodetic_target_region,
+    create_gridded_features_PGO,
+    geodetic_input_Hugonnet21,
+    geodetic_input_PGO,
+    geodetic_target_Hugonnet21,
+    geodetic_target_region_Hugonnet21,
 )
-from models.TorchNeuralNetworkRegressor import aggrMetadataId, aggrMetadataGlwdId
+from data_processing.pgo import pgo_target_file, geodetic_target_PGO, table_RGI62_to_PGO
+from models.TorchNeuralNetworkRegressor import aggrMetadata
 
 
 class GeoDataLoader:
@@ -51,21 +54,24 @@ class GeoDataLoader:
         valStakesDf: pd.DataFrame = None,
         glacierListVal: List[str] = [],
         ignoreStakesWithoutGeo: bool = False,
-        geodeticOggm: bool = True,
+        geodeticSource: str = "Hugonnet21",
         preloadGeodetic: bool = False,
         keyGlacierSel: str = "GLACIER",
         geoGlaciers: str = "stakes",
         ignoreGlaciers: list[str] = [],
         device=torch.device("cpu"),
         allStakesPerIter=False,
-        additionalYears=[],  # years for which to ensure the gridded products are generated in addition to what is required to process the dataset (which is based on the geodeticOggm argument); this is used only when geoGlaciers="stakes"
+        additionalYears=[],  # years for which to ensure the gridded products are generated in addition to what is required to process the dataset (which is based on the geodeticSource argument); this is used only when geoGlaciers="stakes"
     ) -> None:
         self.cfg = cfg
-        self.glacierList = glacierList.copy()  # Copy for shuffling
+        self.glacierList = (
+            glacierList.copy() if glacierList is not None else None
+        )  # Copy for shuffling
         self.glacierListVal = (
             glacierListVal.copy()
         )  # Copy just in case but we don't shuffle this
-        random.shuffle(self.glacierList)
+        if self.glacierList is not None:
+            random.shuffle(self.glacierList)
         self.indGlacier = 0
         self.indGlacierVal = 0
         self.indGlacierGeo = 0
@@ -75,7 +81,7 @@ class GeoDataLoader:
 
         self.trainStakesDf = trainStakesDf
         self.valStakesDf = valStakesDf
-        self.geodeticOggm = geodeticOggm
+        self.geodeticSource = geodeticSource
         self.preloadGeodetic = preloadGeodetic
         self.keyGlacierSel = keyGlacierSel
         self.geoGlaciers = geoGlaciers
@@ -104,7 +110,7 @@ class GeoDataLoader:
             self.glacierListGeo = self.glaciersWithGeo  # TODO: change this
 
         if len(self.glaciersWithGeo) == 1:
-            if self.geodeticOggm:
+            if self.geodeticSource in ["Hugonnet21", "PGO"]:
                 raise NotImplementedError()
             # Preload geodetic data into memory if there is only one glacier
             self.df_X_geod = create_geodetic_input(
@@ -114,11 +120,20 @@ class GeoDataLoader:
                 to_seasonal=False,
             )
         else:
-            if self.geodeticOggm and self.preloadGeodetic:
+            if self.geodeticSource == "Hugonnet21" and self.preloadGeodetic:
                 print("Preloading geodetic grids")
                 self.df_X_geod = {}
                 for rgi_id in self.glaciersWithGeo:
-                    self.df_X_geod[rgi_id] = geodetic_input(rgi_id, years=self.years)
+                    self.df_X_geod[rgi_id] = geodetic_input_Hugonnet21(
+                        rgi_id, years=self.years
+                    )
+            elif self.geodeticSource == "PGO" and self.preloadGeodetic:
+                print("Preloading geodetic grids")
+                self.df_X_geod = {}
+                for rgi_id in self.glaciersWithGeo:
+                    self.df_X_geod[rgi_id] = geodetic_input_PGO(
+                        rgi_id, time_range=self.periods_per_glacier[rgi_id]
+                    )
             else:
                 self.df_X_geod = None
 
@@ -141,7 +156,7 @@ class GeoDataLoader:
         self._geo_executor = ThreadPoolExecutor(max_workers=1)
 
     def prepareGeoData(self) -> None:
-        if self.geodeticOggm:
+        if self.geodeticSource == "Hugonnet21":
             stakesDf = (
                 self.trainStakesDf
                 if self.valStakesDf is None
@@ -157,12 +172,12 @@ class GeoDataLoader:
                         rgi_ids.remove(g)
                 self.years = list(range(2000, 2020)) + self.additionalYears
                 create_gridded_features_RGI(self.cfg, rgi_ids, years=self.years)
-                geo_target_data = geodetic_target(rgi_ids, self.cfg)
+                geo_target_data = geodetic_target_Hugonnet21(rgi_ids, self.cfg)
             elif "region-" in self.geoGlaciers:
                 s = self.geoGlaciers.split("-")
                 region_id = int(s[1])
                 thres_area = float(s[2])
-                geo_target_data = geodetic_target_region(
+                geo_target_data = geodetic_target_region_Hugonnet21(
                     region_id, self.cfg, thres_area
                 )
                 rgi_ids = list(geo_target_data.keys())
@@ -179,7 +194,58 @@ class GeoDataLoader:
                 if rgi_id in geo_target_data:
                     mean_pmb = geo_target_data[rgi_id]["mean"]
                     err_pmb = geo_target_data[rgi_id]["err"]
-                    self.periods_per_glacier[rgi_id] = [(2000, 2021)]
+                    self.periods_per_glacier[rgi_id] = [(2000, 2020)]
+                    self.y_target_geo[rgi_id] = np.array([mean_pmb])
+                    self.err_target_geo[rgi_id] = np.array([err_pmb])
+                    self.glaciersWithGeo.append(rgi_id)
+        elif self.geodeticSource == "PGO":
+            assert (
+                len(self.additionalYears) == 0
+            ), "Option additionalYears is not available yet with PGO geodetic data."
+            dfGeo = geodetic_target_PGO(pgo_target_file())
+            if self.glacierList is None:
+                # We are working with geodetic data only, no need to map RGI62 IDs to PGO IDs
+                rgi_ids = dfGeo.RGIId.unique()
+                self.rgi_id_to_pgo = {rgi_id: rgi_id for rgi_id in rgi_ids}
+            else:
+                # A list of glaciers was provided, we need to check the version
+                if self.glacierList[0].startswith("RGI2000-v7.0-G-"):
+                    self.rgi_id_to_pgo = {rgi_id: rgi_id for rgi_id in self.glacierList}
+                else:
+                    rgi_ids_rgi6 = self.glacierList
+                    region_id = int(
+                        rgi_ids_rgi6[0].split(".")[0].split("-")[1]
+                    )  # Use first glacier to retrieve region
+                    table_df = table_RGI62_to_PGO(region_id)
+                    import pdb
+
+                    pdb.set_trace()
+                    self.rgi_id_to_pgo = {}
+                    for rgi_id_rgi6 in rgi_ids_rgi6:
+                        tmp = table_df[table_df.RGIId == rgi_id_rgi6]
+                        if tmp.shape[0] == 1:
+                            self.rgi_id_to_pgo[rgi_id_rgi6] = tmp.custom_id.values[0]
+                rgi_ids = list(self.rgi_id_to_pgo.values())
+            for g in self.ignoreGlaciers:
+                if g in rgi_ids:
+                    rgi_ids.remove(g)
+            self.years = None
+            time_ranges = {}
+            for rgi_id in rgi_ids:
+                start_date = dfGeo[dfGeo.RGIId == rgi_id].FROM_DATE.values[0]
+                end_date = dfGeo[dfGeo.RGIId == rgi_id].TO_DATE.values[0]
+                time_ranges[rgi_id] = (start_date, end_date)
+            create_gridded_features_PGO(self.cfg, time_ranges)
+            self.periods_per_glacier = {}
+            self.y_target_geo = {}
+            self.err_target_geo = {}
+            self.glaciersWithGeo = []
+            for rgi_id in rgi_ids:
+                if rgi_id in dfGeo.RGIId.values:
+                    tmp = dfGeo[dfGeo.RGIId == rgi_id]
+                    mean_pmb = tmp.mwe_per_year.values[0]
+                    err_pmb = tmp.sigma_mwe_per_year.values[0]
+                    self.periods_per_glacier[rgi_id] = [time_ranges[rgi_id]]
                     self.y_target_geo[rgi_id] = np.array([mean_pmb])
                     self.err_target_geo[rgi_id] = np.array([err_pmb])
                     self.glaciersWithGeo.append(rgi_id)
@@ -204,6 +270,11 @@ class GeoDataLoader:
             print(
                 f"Geodetic data contain {len(self.glaciersWithGeo)} glaciers out of {len(self.glacierList)}."
             )
+
+    def geodetic_periods(self, g):
+        if self.geodeticSource == "PGO" and not g.startswith("RGI2000-v7.0-G-"):
+            g = self.rgi_id_to_pgo[g]
+        return self.periods_per_glacier[g]
 
     def onEpochEnd(self) -> None:
         random.shuffle(self.glacierList)
@@ -273,6 +344,11 @@ class GeoDataLoader:
 
         feature_columns = self.cfg.featureColumns
         non_feature_columns = X.columns.difference(feature_columns)
+        if "ELEVATION_DIFFERENCE" in feature_columns:
+            # We also want this in the metadata as this is useful to have it not unnormalized
+            non_feature_columns = list(
+                set(non_feature_columns).union(set(["ELEVATION_DIFFERENCE"]))
+            )
 
         # Extract metadata and features
         metadata = X[non_feature_columns]  # .values
@@ -311,7 +387,13 @@ class GeoDataLoader:
         return list(feature_columns), list(meta_data_columns)
 
     def hasGeo(self, glacierName: str):
-        return glacierName in self.glaciersWithGeo
+        if self.geodeticSource == "PGO":
+            if glacierName in self.rgi_id_to_pgo:
+                return self.rgi_id_to_pgo[glacierName] in self.glaciersWithGeo
+            else:
+                return False
+        else:
+            return glacierName in self.glaciersWithGeo
 
     def geo(self, glacierName: str):
         return self._geo_sync(glacierName)
@@ -325,24 +407,27 @@ class GeoDataLoader:
         # Retrieve feature columns directly from the config
         feature_columns = self.cfg.featureColumns
         non_feature_columns = df.columns.difference(feature_columns)
+        if "ELEVATION_DIFFERENCE" in feature_columns:
+            # We also want this in the metadata as this is useful to have it not unnormalized
+            non_feature_columns = list(
+                set(non_feature_columns).union(set(["ELEVATION_DIFFERENCE"]))
+            )
         metadata = df[non_feature_columns]
 
         # If one day we add stochasticity we will have to make sure that the precomputed indices correspond to the ones obtained in the aggregation of the lost function
 
         int_id, unique_id = pd.factorize(metadata["ID"].values)
-        metadata = metadata.assign(ID_int=int_id)
-        grouped_ids = aggrMetadataId(metadata, "ID_int")
+        int_glwd_m_id, _ = pd.factorize(metadata["GLWD_M_ID"].values)
+        metadata = metadata.assign(ID_int=int_id, GLWD_M_ID_int=int_glwd_m_id)
+        grouped_ids = aggrMetadata(metadata, "ID_int")
 
-        int_glwd_id, unique_id = pd.factorize(grouped_ids["GLWD_ID"].values)
-        grouped_ids = grouped_ids.assign(GLWD_ID_int=int_glwd_id)
-        metadataAggrYear = aggrMetadataGlwdId(grouped_ids, "GLWD_ID_int")
+        metadataAggrGlWdM = aggrMetadata(metadata, "GLWD_M_ID_int")
 
         return {
             "metadata": metadata,
             "grouped_ids": grouped_ids,
-            "nunique_ids": metadata["ID_int"].nunique(),
-            "grouped_glwd_ids": metadataAggrYear,
-            "nunique_glwd_ids": grouped_ids["GLWD_ID_int"].nunique(),
+            "grouped_glwd_m_ids": metadataAggrGlWdM,
+            "nunique_glwd_m_ids": metadata["GLWD_M_ID_int"].nunique(),
         }
 
     def _geo_sync(self, glacierName: str, async_transfer: bool = False):
@@ -362,12 +447,19 @@ class GeoDataLoader:
                 dataframe is named "ID_int" where "_int" stands for integer.
             groundTruth (np.ndarray): The ground truth geodetic mass balance values.
         """
+        if self.geodeticSource == "PGO":
+            if not glacierName.startswith("RGI2000-v7.0-G-"):
+                glacierName = self.rgi_id_to_pgo[glacierName]
         assert (
             glacierName in self.glaciersWithGeo
         ), f"Glacier {glacierName} is not in the list of glaciers with available geodetic data for this dataloader."
         if self.df_X_geod is None:
-            if self.geodeticOggm:
-                df_X_geod = geodetic_input(glacierName, years=self.years)
+            if self.geodeticSource == "Hugonnet21":
+                df_X_geod = geodetic_input_Hugonnet21(glacierName, years=self.years)
+            elif self.geodeticSource == "PGO":
+                df_X_geod = geodetic_input_PGO(
+                    glacierName, time_range=self.periods_per_glacier[glacierName]
+                )
             else:
                 df_X_geod = create_geodetic_input(
                     self.cfg, glacierName, self.periods_per_glacier, to_seasonal=False
@@ -398,9 +490,6 @@ class GeoDataLoader:
 
         metadata = precomputed_meta["metadata"]
 
-        # int_glwd_id, unique_id = pd.factorize(grouped_ids["GLWD_ID"].values)
-        # grouped_ids = grouped_ids.assign(GLWD_ID_int=int_glwd_id)
-
         # Extract metadata and features
         # metadata = df_X_geod[meta_data_columns]  # .values
         features = df_X_geod[feature_columns].values
@@ -414,19 +503,17 @@ class GeoDataLoader:
         #     self.err_target_geo.get(glacierName),
         # )
 
-        err = self.err_target_geo.get(glacierName)
+        err = self.err_target_geo[glacierName]
         if async_transfer:
             features = torch.from_numpy(features.astype(np.float32)).pin_memory()
             y = torch.from_numpy(
                 self.y_target_geo[glacierName].astype(np.float32)
             ).pin_memory()
-            if err is not None:
-                err = torch.from_numpy(err.astype(np.float32)).pin_memory()
+            err = torch.from_numpy(err.astype(np.float32)).pin_memory()
         else:
             features = torch.from_numpy(features.astype(np.float32))
             y = torch.from_numpy(self.y_target_geo[glacierName].astype(np.float32))
-            if err is not None:
-                err = torch.from_numpy(err.astype(np.float32))
+            err = torch.from_numpy(err.astype(np.float32))
         return features, metadata, y, err, precomputed_meta
 
     def close(self):

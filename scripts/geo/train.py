@@ -36,11 +36,11 @@ parser.add_argument(
     help="Suffix to add to the folder that contains the model once trained.",
 )
 parser.add_argument(
-    "--noTest",
-    dest="noTest",
+    "--doTest",
+    dest="doTest",
     default=False,
     action="store_true",
-    help="Do not evaluate on the test set during training.",
+    help="Evaluate on the test set during training.",
 )
 parser.add_argument(
     "--time",
@@ -63,6 +63,13 @@ parser.add_argument(
     help="Weight of the geodetic term.",
 )
 parser.add_argument(
+    "-m",
+    "--multi",
+    type=str,
+    default=None,
+    help="Component of the multistage network to train.",
+)
+parser.add_argument(
     "--gridsearch",
     dest="gridsearch",
     default=[],
@@ -75,10 +82,11 @@ params = loadParams(args.modelType)
 modelToLoad = args.load
 cpu = args.cpu
 suffix = args.suffix
-noTest = args.noTest
+doTest = args.doTest
 timeExec = args.time
 prof = args.prof
 wGeo = args.wGeo
+multi = args.multi
 
 gridsearch = args.gridsearch
 do_gridsearch = len(gridsearch) > 0
@@ -151,11 +159,22 @@ else:
 
 if wGeo is not None:  # Overwrite geodetic weight
     params["training"]["wGeo"] = wGeo
+if multi is not None:
+    if multi == "geo":
+        params["training"]["scalingStakes"] = "none"
+    elif multi == "glacio":
+        # params["training"]["wGeo"] = 0.0
+        params["training"]["scalingStakes"] = "full"
+        # TODO: remove hard-coded scalingStakes above
+    elif multi == "joint":
+        params["training"]["scalingStakes"] = "full"
+        # TODO: remove hard-coded scalingStakes above
 wGeo = params["training"]["wGeo"]
 if params["training"]["log_suffix"] == "":
     params["training"]["log_suffix"] = f"wgeo={wGeo}" if wGeo > 0 else ""
 if suffix is not None:
     params["training"]["log_suffix"] += f"_{suffix}"
+
 featuresInpModel = params["model"]["inputs"]
 sourceData = params["training"]["source_data"]
 
@@ -269,10 +288,22 @@ gdl = mbm.dataloader.GeoDataLoader(
     keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
     preloadGeodetic=wGeo > 0,
     allStakesPerIter=(params["training"]["scalingStakes"] == "full"),
+    geodeticSource=params["training"]["geodetic_source"],
 )
 
 
-network = mbm.models.buildModel(cfg, params=params)
+network = mbm.models.buildModel(cfg, params=params, multi=multi)
+
+if multi is not None:
+    network.moduleToTrain = multi
+    if multi == "geo":
+        network.activateGlacio = False
+    elif multi == "glacio":
+        network.activateGlacio = True
+    elif multi == "joint":
+        network.activateGlacio = True
+    else:
+        raise ValueError("Option multi should be set either to 'glacio' or 'geo'.")
 
 model = mbm.models.CustomTorchNeuralNetRegressor(network)
 model = model.to(device)
@@ -282,6 +313,13 @@ if modelToLoad != "":
         os.path.join("logs", modelToLoad), model
     )
     print(f"Loaded model {bestModelPath}")
+
+# if "layers_cor_geodetic" in params["model"]:
+#     model = model.to("cpu")
+#     geodetic_cor_model = mbm.models.GeodeticCorrectionModel(params["model"], model)
+#     geodetic_cor_model = geodetic_cor_model.to(device)
+#     model = geodetic_cor_model
+#     # TODO: check freezing
 
 optimType = params["training"]["optim"]
 schedulerType = params["training"]["scheduler"]
@@ -319,7 +357,7 @@ elif sourceData in ["iceland", "norway"]:
     test_glaciers = list(data_test.RGIId.unique())
 elif "wgms" in sourceData:
     test_glaciers = list(data_test.RGIId.unique())
-if not noTest:
+if doTest:
     gdl_test = mbm.dataloader.GeoDataLoader(
         cfg,
         test_glaciers,
@@ -330,6 +368,7 @@ if not noTest:
         keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
         preloadGeodetic=wGeo > 0,
         allStakesPerIter=(params["training"]["scalingStakes"] == "full"),
+        geodeticSource=params["training"]["geodetic_source"],
     )
 else:
     gdl_test = None
@@ -343,6 +382,7 @@ ret = mbm.training.train_geo(
     geodataloader_test=gdl_test,
     timeExec=timeExec,
     useProfiler=prof,
+    multi=multi,
 )
 
 print()
@@ -385,18 +425,18 @@ X = gdl.trainStakesDf[
 X.to_csv(os.path.join(ret["misc"]["log_dir"], "sample_inputs_before_norm.csv"))
 
 
-if noTest:
-    gdl_test = mbm.dataloader.GeoDataLoader(
-        cfg,
-        test_glaciers,
-        device=device,
-        trainStakesDf=data_test,
-        months_head_pad=months_head_pad,
-        months_tail_pad=months_tail_pad,
-        keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
-        preloadGeodetic=wGeo > 0,
-        allStakesPerIter=(params["training"]["scalingStakes"] == "full"),
-    )
+gdl_test = mbm.dataloader.GeoDataLoader(
+    cfg,
+    test_glaciers,
+    device=device,
+    trainStakesDf=data_test,
+    months_head_pad=months_head_pad,
+    months_tail_pad=months_tail_pad,
+    keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
+    preloadGeodetic=wGeo > 0,
+    allStakesPerIter=(params["training"]["scalingStakes"] == "full"),
+    geodeticSource=params["training"]["geodetic_source"],
+)
 
 model.eval()
 with torch.no_grad():

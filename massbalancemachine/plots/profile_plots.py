@@ -55,6 +55,8 @@ def profilePerGlacier(
     # TODO: ignore years outside of geodetic range
     for i, test_gl in enumerate(custom_order):
         df_gl = df_gridded[df_gridded[order_key] == test_gl].copy()
+        if df_gl.shape[0] == 0:
+            continue
         min_year = df_gl.YEAR.min()
         max_year = df_gl.YEAR.max()
         if df_stakes is not None:

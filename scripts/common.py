@@ -23,6 +23,7 @@ def parseParams(params):
     scheduler_step_size = int(params["training"].get("scheduler_step_size", 200))
     Nepochs = int(params["training"].get("Nepochs", 1000))
     source_data = params["training"].get("source_data", "iceland")
+    geodetic_source = params["training"].get("geodetic_source", "Hugonnet21")
     inputs = params["model"].get("inputs") or mbm.dataloader._default_input(source_data)
     batch_size = int(params["training"].get("batch_size", 128))
     weight_decay = float(params["training"].get("weight_decay", 0.0))
@@ -39,10 +40,26 @@ def parseParams(params):
     elif modelParams["type"] == "TIlike":
         modelParams["cor_T"] = {"layers": params["model"]["cor_T"]["layers"]}
         modelParams["cor_fac"] = {"layers": params["model"]["cor_fac"]["layers"]}
+    elif modelParams["type"] == "multi":
+        modelParams["glacio"] = {
+            "type": params["model"]["glacio"]["type"],
+            # "inputs": params["model"]["glacio"]["inputs"],
+            "layers": params["model"]["glacio"]["layers"],
+            "dropout": params["model"]["glacio"].get("dropout", 0.0),
+        }
+        modelParams["geo"] = {
+            "type": params["model"]["geo"]["type"],
+            "inputs": params["model"]["geo"]["inputs"],
+            "layers": params["model"]["geo"]["layers"],
+            "dropout": params["model"]["geo"].get("dropout", 0.0),
+        }
+    # if "layers_cor_geodetic" in modelParams:
+    #     modelParams["layers_cor_geodetic"] = params["model"]["layers_cor_geodetic"]
     return {
         "model": modelParams,
         "training": {
             "source_data": source_data,
+            "geodetic_source": geodetic_source,
             "lr": lr,
             "momentum": momentum,
             "beta1": beta1,

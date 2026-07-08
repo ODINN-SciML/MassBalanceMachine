@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FormatStrFormatter
 from calendar import month_abbr
@@ -75,6 +76,14 @@ def cumulatedMassChange(
             # Filter monthly_df to keep only predictions inside the geodetic time window
             start_year = geo[test_gl]["start"]
             end_year = geo[test_gl]["end"]
+            if isinstance(start_year, np.datetime64):
+                start_year = (pd.Timestamp(start_year).month - 1) / 12 + pd.Timestamp(
+                    start_year
+                ).year
+            if isinstance(end_year, np.datetime64):
+                end_year = (pd.Timestamp(end_year).month - 1) / 12 + pd.Timestamp(
+                    end_year
+                ).year
             monthly_df = monthly_df[
                 (monthly_df.time >= start_year) & (monthly_df.time <= end_year)
             ]
@@ -82,8 +91,10 @@ def cumulatedMassChange(
         monthly_df = monthly_df.sort_values(by="time")
         t = monthly_df.time.values
         y = monthly_df.pred.values
-        start_year = np.sort(monthly_df.YEAR.unique())[0]
-        t = np.concatenate([[start_year], t])
+        begin_t = monthly_df.time.min() - 1 / 12
+        end_t = monthly_df.time.max()
+        window_width = end_t - begin_t
+        t = np.concatenate([[begin_t], t])
         y = np.concatenate([[0.0], y])
         (line,) = ax.plot(t, np.cumsum(y), color=color_pred)
 
@@ -119,12 +130,12 @@ def cumulatedMassChange(
         if geo is not None and test_gl in geo and "mean" in geo[test_gl]:
             tgt = geo[test_gl]["mean"]
             err = geo[test_gl]["err"]
-            years = [start_year, start_year + nyear]
-            ax.plot(years, [0, tgt * nyear], color=color_obs)
+            years = [begin_t, end_t]
+            ax.plot(years, [0, tgt * window_width], color=color_obs)
             ax.fill_between(
                 years,
-                [0, (tgt - 2 * err) * nyear],
-                [0, (tgt + 2 * err) * nyear],
+                [0, (tgt - 2 * err) * window_width],
+                [0, (tgt + 2 * err) * window_width],
                 color=color_obs,
                 alpha=0.3,
             )
@@ -136,10 +147,12 @@ def cumulatedMassChange(
 
         ax.tick_params(axis="x", labelsize=12)
         ax.tick_params(axis="y", labelsize=12)
-        step_years_xticks = nyear // 10
+        step_years_xticks = nyear // 10 if nyear >= 10 else 1
         ax.set_xticks(
             np.arange(
-                start_year, start_year + nyear + step_years_xticks, step_years_xticks
+                int(start_year),
+                int(start_year) + nyear + step_years_xticks,
+                step_years_xticks,
             )
         )
         ax.xaxis.set_major_formatter(FormatStrFormatter("%.0f"))

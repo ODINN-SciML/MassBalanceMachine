@@ -90,10 +90,15 @@ def test_swiss_train_geo():
         mbm.data_processing.utils.build_head_tail_pads_from_monthly_df(data_monthly)
     )
 
+    data_monthly["GLWD_M_ID"] = data_monthly.apply(
+        lambda x: mbm.data_processing.utils.get_hash(
+            f"{x.GLACIER}_{x.YEAR}_{x.MONTHS}"
+        ),
+        axis=1,
+    ).astype(str)
     data_monthly["GLWD_ID"] = data_monthly.apply(
-        lambda x: mbm.data_processing.utils.get_hash(f"{x.GLACIER}_{x.YEAR}"), axis=1
-    )
-    data_monthly["GLWD_ID"] = data_monthly["GLWD_ID"].astype(str)
+        lambda x: mbm.data_processing.utils.get_hash(f"{x.GLACIER}"), axis=1
+    ).astype(str)
 
     # data_seas = transform_df_to_seasonal(data_monthly)
     # print('Number of seasonal rows', len(data_seas))
@@ -129,7 +134,7 @@ def test_swiss_train_geo():
         train_set["df_X"],
         months_head_pad=months_head_pad,
         months_tail_pad=months_tail_pad,
-        geodeticOggm=False,
+        geodeticSource="GLAMOS",
     )
 
     nInp = len(feature_columns)

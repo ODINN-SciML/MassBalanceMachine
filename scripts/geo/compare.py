@@ -52,6 +52,13 @@ parser.add_argument(
     help="Do not compare on train data.",
 )
 parser.add_argument(
+    "--pgo",
+    dest="pgo",
+    default=False,
+    action="store_true",
+    help="Evaluate on PGO grid.",
+)
+parser.add_argument(
     "--maps",
     dest="maps",
     default=[],
@@ -73,6 +80,7 @@ name1 = args.name1
 name2 = args.name2
 plot = args.plot
 noTrain = args.noTrain
+pgo = args.pgo
 maps = args.maps
 yearsMaps = [int(y) for y in args.years]
 pathFolder1 = os.path.join("logs", modelFolder1)
@@ -112,6 +120,67 @@ def load_gridded(file_without_ext):
 linear_fit_breaks = [2015 + 9 / 12]
 start_geod_period = 2000
 end_geod_period = 2020
+
+
+if pgo:
+    pathFolderPGO = os.path.join(pathFolder, "PGO")
+    os.makedirs(pathFolderPGO, exist_ok=True)
+    # Cumulated mass change on train data
+    df_gridded_monthly1 = load_gridded(f"{pathFolder1}/PGO/gridded_monthly_pgo")
+    df_geo1 = load_gridded(f"{pathFolder1}/PGO/gridded_geodetic_pgo")
+    geoTarget = df_geo1.set_index("RGIId").target.to_dict()
+    geoErr = df_geo1.set_index("RGIId").err.to_dict()
+
+    with open(f"{pathFolder1}/PGO/periodsPerGlacier.json", "r") as f:
+        periods_per_glacier = json.load(f)
+        for rgi_id in periods_per_glacier.keys():
+            periods_per_glacier[rgi_id] = [
+                (
+                    np.datetime64(periods_per_glacier[rgi_id][0][0]),
+                    np.datetime64(periods_per_glacier[rgi_id][0][1]),
+                )
+            ]
+
+    # Plot cumulated mass change
+    fig, l1 = mbm.plots.cumulatedMassChange(
+        df_gridded_monthly1,
+        geo={
+            rgi_id: {
+                "mean": geoTarget[rgi_id],
+                "err": geoErr[rgi_id],
+                "start": periods_per_glacier[rgi_id][0][0],
+                "end": periods_per_glacier[rgi_id][0][1],
+            }
+            for rgi_id in geoTarget
+        },
+    )
+    del df_gridded_monthly1
+    df_gridded_monthly2 = load_gridded(f"{pathFolder2}/PGO/gridded_monthly_pgo")
+    _, l2 = mbm.plots.cumulatedMassChange(
+        df_gridded_monthly2,
+        geo={
+            rgi_id: {
+                "start": periods_per_glacier[rgi_id][0][0],
+                "end": periods_per_glacier[rgi_id][0][1],
+            }  # Provide the bounds to plot only the cumulated MB of the geodetic time window
+            for rgi_id in geoTarget
+        },
+        axs=fig.axes,
+        color_pred="red",
+        titles={
+            k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
+            for k in glacierNames
+        },
+    )
+    del df_gridded_monthly2
+    fig.legend([l1, l2], [name1, name2], loc="lower center", ncol=2)
+
+    fig.savefig(f"{pathFolderPGO}/cumulated_mass_change_glaciers_pgo.pdf")
+    fig.savefig(f"{pathFolderPGO}/cumulated_mass_change_glaciers_pgo.png", dpi=300)
+    if plot:
+        plt.show()
+    plt.close(fig)
+
 
 if not noTrain:
     # Cumulated mass change on train data
@@ -288,6 +357,7 @@ fig = mbm.plots.profilePerGlacier(
         for k in glacierNames
     },
     df_stakes=df_groupeds_test1,
+    average_stakes=False,
 )
 _ = mbm.plots.profilePerGlacier(
     df_gridded_annual2[

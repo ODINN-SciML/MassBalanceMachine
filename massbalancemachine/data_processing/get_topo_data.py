@@ -132,6 +132,24 @@ def glacier_cell_area(rgi_id: str, custom_working_dir: str, cfg: config.Config):
     return cell_area
 
 
+def get_custom_glacier_mask(gdir):
+    rgi_id = gdir.rgi_id
+
+    with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
+        ds = ds.load()
+    glacier_mask = np.where(
+        ds["glacier_mask"].values == 0, np.nan, ds["glacier_mask"].values
+    )
+
+    # Create glacier mask
+    ds = ds.assign(masked_slope=glacier_mask * ds["slope"])
+    ds = ds.assign(masked_elev=glacier_mask * ds["topo"])
+    ds = ds.assign(masked_aspect=glacier_mask * ds["aspect"])
+
+    glacier_indices = np.where(ds["glacier_mask"].values == 1)
+    return ds, glacier_indices
+
+
 def get_glacier_mask(rgi_id: str, custom_working_dir: str, cfg: config.Config):
     """Given a `rgi_id` gets glacier xarray from OGGM and masks it over the glacier outline."""
 
