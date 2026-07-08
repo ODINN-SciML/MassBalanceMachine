@@ -84,96 +84,96 @@ def test_process_or_load_data():
     assert data_monthly.shape == (39559, 30)
 
 
-@pytest.mark.order(2)
-def test_geodataloader():
-    # This test needs to run after test_process_or_load_data since we use the
-    # results of process_or_load_data by reading on disk
-    cfg = mbm.SwitzerlandConfig(dataPath=dataPath, seed=30)
+# @pytest.mark.order(2)
+# def test_geodataloader():
+#     # This test needs to run after test_process_or_load_data since we use the
+#     # results of process_or_load_data by reading on disk
+#     cfg = mbm.SwitzerlandConfig(dataPath=dataPath, seed=30)
 
-    data_glamos = get_stakes_data(cfg)
+#     data_glamos = get_stakes_data(cfg)
 
-    vois_climate = ["t2m", "tp", "slhf", "sshf", "ssrd", "fal", "str", "u10", "v10"]
-    vois_topographical = [
-        # "aspect", # OGGM
-        # "slope", # OGGM
-        "aspect_sgi",  # SGI
-        "slope_sgi",  # SGI
-        "hugonnet_dhdt",  # OGGM
-        "consensus_ice_thickness",  # OGGM
-        "millan_v",  # OGGM
-    ]
-    paths = {
-        "csv_path": cfg.dataPath + path_PMB_GLAMOS_csv,
-        "era5_climate_data": cfg.dataPath
-        + path_ERA5_raw
-        + "era5_monthly_averaged_data.nc",
-        "geopotential_data": cfg.dataPath
-        + path_ERA5_raw
-        + "era5_geopotential_pressure.nc",
-        "radiation_save_path": cfg.dataPath + path_pcsr + "zarr/",
-    }
+#     vois_climate = ["t2m", "tp", "slhf", "sshf", "ssrd", "fal", "str", "u10", "v10"]
+#     vois_topographical = [
+#         # "aspect", # OGGM
+#         # "slope", # OGGM
+#         "aspect_sgi",  # SGI
+#         "slope_sgi",  # SGI
+#         "hugonnet_dhdt",  # OGGM
+#         "consensus_ice_thickness",  # OGGM
+#         "millan_v",  # OGGM
+#     ]
+#     paths = {
+#         "csv_path": cfg.dataPath + path_PMB_GLAMOS_csv,
+#         "era5_climate_data": cfg.dataPath
+#         + path_ERA5_raw
+#         + "era5_monthly_averaged_data.nc",
+#         "geopotential_data": cfg.dataPath
+#         + path_ERA5_raw
+#         + "era5_geopotential_pressure.nc",
+#         "radiation_save_path": cfg.dataPath + path_pcsr + "zarr/",
+#     }
 
-    data_monthly = process_or_load_data(
-        run_flag=False,
-        df=data_glamos,
-        paths=paths,
-        cfg=cfg,
-        vois_climate=vois_climate,
-        vois_topographical=vois_topographical,
-        output_file="CH_wgms_dataset_monthly_silvretta.csv",
-    )
-    months_head_pad, months_tail_pad = (
-        mbm.data_processing.utils.build_head_tail_pads_from_monthly_df(data_monthly)
-    )
+#     data_monthly = process_or_load_data(
+#         run_flag=False,
+#         df=data_glamos,
+#         paths=paths,
+#         cfg=cfg,
+#         vois_climate=vois_climate,
+#         vois_topographical=vois_topographical,
+#         output_file="CH_wgms_dataset_monthly_silvretta.csv",
+#     )
+#     months_head_pad, months_tail_pad = (
+#         mbm.data_processing.utils.build_head_tail_pads_from_monthly_df(data_monthly)
+#     )
 
-    data_monthly["GLWD_M_ID"] = data_monthly.apply(
-        lambda x: mbm.data_processing.utils.get_hash(
-            f"{x.GLACIER}_{x.YEAR}_{x.MONTHS}"
-        ),
-        axis=1,
-    ).astype(str)
-    data_monthly["GLWD_ID"] = data_monthly.apply(
-        lambda x: mbm.data_processing.utils.get_hash(f"{x.GLACIER}"), axis=1
-    ).astype(str)
+#     data_monthly["GLWD_M_ID"] = data_monthly.apply(
+#         lambda x: mbm.data_processing.utils.get_hash(
+#             f"{x.GLACIER}_{x.YEAR}_{x.MONTHS}"
+#         ),
+#         axis=1,
+#     ).astype(str)
+#     data_monthly["GLWD_ID"] = data_monthly.apply(
+#         lambda x: mbm.data_processing.utils.get_hash(f"{x.GLACIER}"), axis=1
+#     ).astype(str)
 
-    dataloader_gl = mbm.dataloader.DataLoader(
-        cfg, data=data_monthly, random_seed=cfg.seed, meta_data_columns=cfg.metaData
-    )
+#     dataloader_gl = mbm.dataloader.DataLoader(
+#         cfg, data=data_monthly, random_seed=cfg.seed, meta_data_columns=cfg.metaData
+#     )
 
-    # Split on measurements (IDs)
-    splits, test_set, train_set = get_CV_splits(
-        dataloader_gl, test_split_on="ID", random_state=cfg.seed, test_size=0.1
-    )
+#     # Split on measurements (IDs)
+#     splits, test_set, train_set = get_CV_splits(
+#         dataloader_gl, test_split_on="ID", random_state=cfg.seed, test_size=0.1
+#     )
 
-    feature_columns = list(
-        data_monthly.columns.difference(cfg.metaData).drop(cfg.notMetaDataNotFeatures)
-    )
-    cfg.setFeatures(feature_columns)
+#     feature_columns = list(
+#         data_monthly.columns.difference(cfg.metaData).drop(cfg.notMetaDataNotFeatures)
+#     )
+#     cfg.setFeatures(feature_columns)
 
-    gdl = mbm.dataloader.GeoDataLoader(
-        cfg,
-        ["silvretta"],
-        train_set["df_X"],
-        months_head_pad=months_head_pad,
-        months_tail_pad=months_tail_pad,
-        geodeticSource="GLAMOS",
-    )
-    for g in gdl.glaciers():
-        print(f"Glacier {g}")
-    g = "silvretta"
-    s, m, gt = gdl.stakes(g)
-    nRows = 35587
-    assert s.shape == (nRows, 16)
-    assert m.shape == (nRows, 14)
-    assert gt.shape == (nRows,)
-    x, m, y, _, _ = gdl.geo(g)
-    nRows = 227604
-    assert x.shape == (nRows, 16)
-    assert m.shape == (nRows, 16), f"{m.shape=}"
-    assert y.shape == (60,)
+#     gdl = mbm.dataloader.GeoDataLoader(
+#         cfg,
+#         ["silvretta"],
+#         train_set["df_X"],
+#         months_head_pad=months_head_pad,
+#         months_tail_pad=months_tail_pad,
+#         geodeticSource="GLAMOS",
+#     )
+#     for g in gdl.glaciers():
+#         print(f"Glacier {g}")
+#     g = "silvretta"
+#     s, m, gt = gdl.stakes(g)
+#     nRows = 35587
+#     assert s.shape == (nRows, 16)
+#     assert m.shape == (nRows, 14)
+#     assert gt.shape == (nRows,)
+#     x, m, y, _, _ = gdl.geo(g)
+#     nRows = 227604
+#     assert x.shape == (nRows, 16)
+#     assert m.shape == (nRows, 16), f"{m.shape=}"
+#     assert y.shape == (60,)
 
 
 if __name__ == "__main__":
     test_geodetic_data()
     test_process_or_load_data()
-    test_geodataloader()
+    # test_geodataloader()

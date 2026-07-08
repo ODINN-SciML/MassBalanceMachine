@@ -6,13 +6,13 @@ import time
 import torch
 from concurrent.futures import ThreadPoolExecutor
 
-from regions.RGI_11_Switzerland.scripts.geodetic.geodetic_processing import (
-    prepare_geo_targets,
-    build_periods_per_glacier,
-    get_geodetic_MB,
-    create_geodetic_input,
-    has_geodetic_input,
-)
+# from regions.RGI_11_Switzerland.scripts.geodetic.geodetic_processing import (
+#     prepare_geo_targets,
+#     build_periods_per_glacier,
+#     get_geodetic_MB,
+#     create_geodetic_input,
+#     has_geodetic_input,
+# )
 
 from data_processing.Dataset import Normalizer
 from data_processing.utils import _rebuild_month_index
@@ -112,13 +112,13 @@ class GeoDataLoader:
         if len(self.glaciersWithGeo) == 1:
             if self.geodeticSource in ["Hugonnet21", "PGO"]:
                 raise NotImplementedError()
-            # Preload geodetic data into memory if there is only one glacier
-            self.df_X_geod = create_geodetic_input(
-                self.cfg,
-                self.glaciersWithGeo[0],
-                self.periods_per_glacier,
-                to_seasonal=False,
-            )
+            # # Preload geodetic data into memory if there is only one glacier
+            # self.df_X_geod = create_geodetic_input(
+            #     self.cfg,
+            #     self.glaciersWithGeo[0],
+            #     self.periods_per_glacier,
+            #     to_seasonal=False,
+            # )
         else:
             if self.geodeticSource == "Hugonnet21" and self.preloadGeodetic:
                 print("Preloading geodetic grids")
@@ -249,27 +249,27 @@ class GeoDataLoader:
                     self.y_target_geo[rgi_id] = np.array([mean_pmb])
                     self.err_target_geo[rgi_id] = np.array([err_pmb])
                     self.glaciersWithGeo.append(rgi_id)
-        else:
-            # This works only with Swiss data
-            geodetic_mb = get_geodetic_MB(self.cfg)
-            self.periods_per_glacier, _ = build_periods_per_glacier(geodetic_mb)
-            self.y_target_geo = prepare_geo_targets(
-                geodetic_mb, self.periods_per_glacier
-            )
-            self.err_target_geo = {}
+        # else:
+        #     # This works only with Swiss data
+        #     geodetic_mb = get_geodetic_MB(self.cfg)
+        #     self.periods_per_glacier, _ = build_periods_per_glacier(geodetic_mb)
+        #     self.y_target_geo = prepare_geo_targets(
+        #         geodetic_mb, self.periods_per_glacier
+        #     )
+        #     self.err_target_geo = {}
 
-            self.glaciersWithGeo = []
-            for g in self.glacierList:
-                if g in self.periods_per_glacier and has_geodetic_input(
-                    self.cfg, g, self.periods_per_glacier
-                ):
-                    self.glaciersWithGeo.append(g)
-                    self.err_target_geo[g] = (
-                        self.y_target_geo[g] * 0
-                    )  # Needed in the geodetic loss, so we just fill with zeros
-            print(
-                f"Geodetic data contain {len(self.glaciersWithGeo)} glaciers out of {len(self.glacierList)}."
-            )
+        #     self.glaciersWithGeo = []
+        #     for g in self.glacierList:
+        #         if g in self.periods_per_glacier and has_geodetic_input(
+        #             self.cfg, g, self.periods_per_glacier
+        #         ):
+        #             self.glaciersWithGeo.append(g)
+        #             self.err_target_geo[g] = (
+        #                 self.y_target_geo[g] * 0
+        #             )  # Needed in the geodetic loss, so we just fill with zeros
+        #     print(
+        #         f"Geodetic data contain {len(self.glaciersWithGeo)} glaciers out of {len(self.glacierList)}."
+        #     )
 
     def geodetic_periods(self, g):
         if self.geodeticSource == "PGO" and not g.startswith("RGI2000-v7.0-G-"):
@@ -460,10 +460,10 @@ class GeoDataLoader:
                 df_X_geod = geodetic_input_PGO(
                     glacierName, time_range=self.periods_per_glacier[glacierName]
                 )
-            else:
-                df_X_geod = create_geodetic_input(
-                    self.cfg, glacierName, self.periods_per_glacier, to_seasonal=False
-                )
+            # else:
+            #     df_X_geod = create_geodetic_input(
+            #         self.cfg, glacierName, self.periods_per_glacier, to_seasonal=False
+            #     )
             precomputed_meta = self._metadata_groups(df_X_geod)
         else:
             if self.preloadGeodetic:
