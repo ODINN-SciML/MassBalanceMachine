@@ -91,7 +91,7 @@ def build_monthly_data(data, cfg, rgi_region=None):
     dataset.get_climate_features()
 
     # Specify the short names of the climate variables available in the dataset
-    vois_climate = ["t2m", "tp", "slhf", "sshf", "ssrd", "fal", "str"]
+    vois_climate = ["t2m", "tp", "slhf", "sshf", "ssrd", "fal", "str", "u10", "v10"]
 
     # For each record, convert to a monthly time resolution
     dataset.convert_to_monthly(

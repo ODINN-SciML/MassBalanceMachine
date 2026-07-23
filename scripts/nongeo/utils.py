@@ -93,7 +93,7 @@ def setFeatures(cfg, data_train, featuresInpModel):
     # )
     assert set(featuresInpModel).issubset(
         set(data_train.columns)
-    ), f"Asked features are {featuresInpModel} but the dataframe columns are {data_train.columns}. The following features are missing: {set(featuresInpModel).difference(feature_columns)}."
+    ), f"Asked features are {featuresInpModel} but the dataframe columns are {data_train.columns}. The following features are missing: {set(featuresInpModel).difference(data_train.columns)}."
     cfg.setFeatures(featuresInpModel)
     # return feature_columns
 

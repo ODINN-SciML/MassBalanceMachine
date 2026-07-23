@@ -221,7 +221,13 @@ def predict_annual_gridded(model, geoGrid, metadata):
     return grouped_ids, predSumAnnual
 
 
-def eval_geodetic(model, geo_dataloader, return_grid_pred=[]):
+def eval_geodetic(
+    model,
+    geo_dataloader,
+    return_grid_pred=[],
+    callback_annual=None,
+    callback_monthly=None,
+):
     geoPred = {}
     geoTarget = {}
     geoErr = {}
@@ -281,16 +287,33 @@ def eval_geodetic(model, geo_dataloader, return_grid_pred=[]):
                 geoTarget[current_g] = ygeo.item()
                 geoErr[current_g] = errgeo.item()
 
-                if return_annual:
+                if callback_annual is not None or return_annual:
                     grouped_ids, predSumAnnual = predict_annual_gridded(
                         model, geoGrid, metadata
                     )
                     grouped_ids["pred"] = predSumAnnual.cpu()
-                    df_gridded_annual = pd.concat([df_gridded_annual, grouped_ids])
-                if return_monthly:
+                    if callback_annual is not None:
+                        callback_annual(current_g, grouped_ids)
+                    if return_annual:
+                        grouped_ids = grouped_ids.drop(columns=["PERIOD"])
+                        df_gridded_annual = pd.concat([df_gridded_annual, grouped_ids])
+                if callback_monthly is not None or return_monthly:
                     predMonthly = predict_monthly_gridded(model, geoGrid, metadata)
                     metadata["pred"] = predMonthly.cpu()
-                    df_gridded_monthly = pd.concat([df_gridded_monthly, metadata])
+                    if callback_monthly is not None:
+                        callback_monthly(current_g, metadata)
+                    if return_monthly:
+                        agg_monthly = metadata.groupby("GLWD_M_ID").agg(
+                            {
+                                "RGIId": "first",
+                                "YEAR": "first",
+                                "MONTHS": "first",
+                                "pred": "mean",
+                            }
+                        )
+                        df_gridded_monthly = pd.concat(
+                            [df_gridded_monthly, agg_monthly]
+                        )
 
                 # Shift pipeline
                 current_g = next_g

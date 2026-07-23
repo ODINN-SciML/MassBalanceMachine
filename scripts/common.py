@@ -33,13 +33,20 @@ def parseParams(params):
         "type": params["model"]["type"],
         "inputs": inputs,
     }
-    if modelParams["type"] == "sequential":
+    if (
+        modelParams["type"] == "sequential"
+        or modelParams["type"] == "sequential_downscaled"
+    ):
         modelParams["layers"] = params["model"]["layers"]
         modelParams["dropout"] = params["model"].get("dropout", 0.0)
         modelParams["downscale"] = downscale
     elif modelParams["type"] == "TIlike":
-        modelParams["cor_T"] = {"layers": params["model"]["cor_T"]["layers"]}
-        modelParams["cor_fac"] = {"layers": params["model"]["cor_fac"]["layers"]}
+        modelParams["cor_T"] = params["model"]["cor_T"]
+        if "cor_fac" in params["model"]:
+            modelParams["cor_fac"] = {"layers": params["model"]["cor_fac"]["layers"]}
+        else:
+            modelParams["cor_acc"] = params["model"]["cor_acc"]
+            modelParams["cor_abl"] = params["model"]["cor_abl"]
     elif modelParams["type"] == "multi":
         modelParams["glacio"] = {
             "type": params["model"]["glacio"]["type"],

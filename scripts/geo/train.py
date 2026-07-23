@@ -433,7 +433,7 @@ gdl_test = mbm.dataloader.GeoDataLoader(
     months_head_pad=months_head_pad,
     months_tail_pad=months_tail_pad,
     keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
-    preloadGeodetic=wGeo > 0,
+    preloadGeodetic=False,  # wGeo > 0,
     allStakesPerIter=(params["training"]["scalingStakes"] == "full"),
     geodeticSource=params["training"]["geodetic_source"],
 )

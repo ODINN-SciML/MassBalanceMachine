@@ -60,7 +60,7 @@ def cumulatedMassChange(
         )  # Computing a unique ID per month this way is much faster than using apply and get_hash
         assert not df_gl[
             "MONTH_ID"
-        ].hasnans, "The resulting MONTH_ID column contains NaNs. Check the month convention, especially that the gridded products are generated with calendar years."
+        ].hasnans, "The resulting MONTH_ID column contains NaNs. Check the month convention, especially since the gridded products are generated with calendar years."
         monthly_df = df_gl.groupby("MONTH_ID").agg(
             {
                 "RGIId": "first",

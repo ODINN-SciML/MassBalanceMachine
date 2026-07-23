@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import time
 import torch
+import tqdm
 from concurrent.futures import ThreadPoolExecutor
 
 # from regions.RGI_11_Switzerland.scripts.geodetic.geodetic_processing import (
@@ -123,14 +124,14 @@ class GeoDataLoader:
             if self.geodeticSource == "Hugonnet21" and self.preloadGeodetic:
                 print("Preloading geodetic grids")
                 self.df_X_geod = {}
-                for rgi_id in self.glaciersWithGeo:
+                for rgi_id in tqdm.tqdm(self.glaciersWithGeo):
                     self.df_X_geod[rgi_id] = geodetic_input_Hugonnet21(
                         rgi_id, years=self.years
                     )
             elif self.geodeticSource == "PGO" and self.preloadGeodetic:
                 print("Preloading geodetic grids")
                 self.df_X_geod = {}
-                for rgi_id in self.glaciersWithGeo:
+                for rgi_id in tqdm.tqdm(self.glaciersWithGeo):
                     self.df_X_geod[rgi_id] = geodetic_input_PGO(
                         rgi_id, time_range=self.periods_per_glacier[rgi_id]
                     )
@@ -275,6 +276,33 @@ class GeoDataLoader:
         if self.geodeticSource == "PGO" and not g.startswith("RGI2000-v7.0-G-"):
             g = self.rgi_id_to_pgo[g]
         return self.periods_per_glacier[g]
+
+    def elevation_diff_range(self, g: str):
+        assert self.hasGeo(g)
+        if self.geodeticSource == "PGO":
+            if not g.startswith("RGI2000-v7.0-G-"):
+                g = self.rgi_id_to_pgo[g]
+        if self.df_X_geod is None:
+            if self.geodeticSource == "Hugonnet21":
+                df_X_geod = geodetic_input_Hugonnet21(g, years=self.years)
+            elif self.geodeticSource == "PGO":
+                df_X_geod = geodetic_input_PGO(
+                    g, time_range=self.periods_per_glacier[g]
+                )
+            precomputed_meta = self._metadata_groups(df_X_geod)
+        else:
+            if self.preloadGeodetic:
+                df_X_geod = self.df_X_geod[g]
+            else:
+                df_X_geod = self.df_X_geod
+            if self.precomputed_meta is not None:
+                precomputed_meta = self.precomputed_meta[g]
+            else:
+                precomputed_meta = self._metadata_groups(df_X_geod)
+        return (
+            precomputed_meta["metadata"].ELEVATION_DIFFERENCE.min(),
+            precomputed_meta["metadata"].ELEVATION_DIFFERENCE.max(),
+        )
 
     def onEpochEnd(self) -> None:
         random.shuffle(self.glacierList)

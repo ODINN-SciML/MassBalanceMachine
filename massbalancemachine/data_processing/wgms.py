@@ -344,14 +344,16 @@ def load_glacier_wide_annual_mb(rgi_ids, cfg, multi=True):
             # Remap ID so that one ID covers only one year
             df_grid["ID"] = df_grid["ID"] + maxId + 1
 
-            df_grid["GLWD_M_ID"] = df_grid.apply(
-                lambda x: get_hash(f"{rgi_id}_{year}_{x.MONTHS}"),
-                axis=1,
-            ).astype(str)
-            df_grid["GLWD_ID"] = df_grid.apply(
-                lambda x: get_hash(f"{rgi_id}"),
-                axis=1,
-            ).astype(str)
+            # df_grid["GLWD_M_ID"] = df_grid.apply(
+            #     lambda x: get_hash(f"{rgi_id}_{year}_{x.MONTHS}"),
+            #     axis=1,
+            # ).astype(str)
+            df_grid["GLWD_M_ID"] = f"{rgi_id}_{year}_" + df_grid.MONTHS
+            # df_grid["GLWD_ID"] = df_grid.apply(
+            #     lambda x: get_hash(f"{rgi_id}"),
+            #     axis=1,
+            # ).astype(str)
+            df_X_geod["GLWD_ID"] = f"{rgi_id}"
 
             # Append to the final dataframe
             df_annual = pd.concat([df_annual, df_grid], ignore_index=True)

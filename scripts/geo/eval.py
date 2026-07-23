@@ -297,14 +297,36 @@ if pgo:
         # additionalYears=additionalYears,
         # geodeticSource=params["training"]["geodetic_source"],
     )
+    pathFolderPred = f"{pathFolderPGO}/pred"
+    if savePred:
+        os.makedirs(pathFolderPred, exist_ok=True)
+
+    def callback_save_geodetic_annual(g, df):
+        df.to_parquet(
+            f"{pathFolderPred}/annual_{g}.parquet",
+            engine="pyarrow",
+            compression="snappy",
+        )
+
+    def callback_save_geodetic_monthly(g, df):
+        df.to_parquet(
+            f"{pathFolderPred}/monthly_{g}.parquet",
+            engine="pyarrow",
+            compression="snappy",
+        )
+
     geoPred, geoTarget, geoErr, dict_df_gridded = mbm.training.eval_geodetic(
-        model, pgo_gdl, return_grid_pred=["annual", "monthly"]
+        model,
+        pgo_gdl,
+        return_grid_pred=["annual", "monthly"],
+        callback_annual=(callback_save_geodetic_annual if savePred else None),
+        callback_monthly=(callback_save_geodetic_monthly if savePred else None),
     )
     df_gridded_annual = dict_df_gridded["annual"]
     df_gridded_monthly = dict_df_gridded["monthly"]
     del dict_df_gridded
     if savePred:
-        print("Saving gridded prediction for further analysis...")
+        print("Saving gridded prediction...")
         kk = geoTarget.keys()
         df_geo = pd.DataFrame(
             {
@@ -528,14 +550,36 @@ if len(df_X_test_subset) > 0 and not noTest:
             pathFolder, model, test_gdl, params, color=color
         )
 
+    pathFolderPred = f"{pathFolder}/pred"
+    if savePred:
+        os.makedirs(pathFolderPred, exist_ok=True)
+
+    def callback_save_geodetic_annual(g, df):
+        df.to_parquet(
+            f"{pathFolderPred}/annual_{g}.parquet",
+            engine="pyarrow",
+            compression="snappy",
+        )
+
+    def callback_save_geodetic_monthly(g, df):
+        df.to_parquet(
+            f"{pathFolderPred}/monthly_{g}.parquet",
+            engine="pyarrow",
+            compression="snappy",
+        )
+
     geoPred, geoTarget, geoErr, dict_df_gridded = mbm.training.eval_geodetic(
-        model, test_gdl, return_grid_pred=["annual", "monthly"]
+        model,
+        test_gdl,
+        return_grid_pred=["annual", "monthly"],
+        callback_annual=(callback_save_geodetic_annual if savePred else None),
+        callback_monthly=(callback_save_geodetic_monthly if savePred else None),
     )
     df_gridded_annual = dict_df_gridded["annual"]
     df_gridded_monthly = dict_df_gridded["monthly"]
     del dict_df_gridded
     if savePred:
-        print("Saving gridded prediction for further analysis...")
+        print("Saving gridded prediction...")
         kk = geoTarget.keys()
         df_geo = pd.DataFrame(
             {
@@ -560,6 +604,39 @@ if len(df_X_test_subset) > 0 and not noTest:
             engine="pyarrow",
             compression="snappy",
         )
+
+    # Plot MB profile
+    # TODO: ignore years outside of the geodetic time window
+    fig = mbm.plots.profilePerGlacier(
+        df_gridded_annual,
+        custom_order=test_gl_per_el,
+        # titles={
+        #     k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
+        #     for k in glacierNames
+        # },
+        df_stakes=grouped_ids,
+        average_stakes=False,
+    )
+    fig.savefig(f"{pathFolder}/PMB_profile_individual_glaciers_test.pdf")
+    if plot:
+        plt.show()
+    plt.close(fig)
+
+    # # Plot MB profile per month
+    # # TODO: ignore years outside of the geodetic time window
+    # fig = mbm.plots.profilePerGlacierPerMonth(
+    #     TO_LOAD,
+    #     custom_order=test_gl_per_el,
+    #     # titles={
+    #     #     k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
+    #     #     for k in glacierNames
+    #     # },
+    # )
+    # fig.savefig(f"{pathFolder}/PMB_profile_monthly_individual_glaciers_test.pdf")
+    # if plot:
+    #     plt.show()
+    # plt.close(fig)
+    # assert False
 
     # Plot cumulated mass change
     fig, _ = mbm.plots.cumulatedMassChange(
@@ -781,14 +858,39 @@ if plot:
 plt.close(fig)
 
 
+pathFolderPred = f"{pathFolder}/pred"
+if savePred:
+    os.makedirs(pathFolderPred, exist_ok=True)
+
+
+def callback_save_geodetic_annual(g, df):
+    df.to_parquet(
+        f"{pathFolderPred}/annual_{g}.parquet",
+        engine="pyarrow",
+        compression="snappy",
+    )
+
+
+def callback_save_geodetic_monthly(g, df):
+    df.to_parquet(
+        f"{pathFolderPred}/monthly_{g}.parquet",
+        engine="pyarrow",
+        compression="snappy",
+    )
+
+
 geoPred, geoTarget, geoErr, dict_df_gridded = mbm.training.eval_geodetic(
-    model, train_gdl, return_grid_pred=["annual", "monthly"]
+    model,
+    train_gdl,
+    return_grid_pred=["annual", "monthly"],
+    callback_annual=(callback_save_geodetic_annual if savePred else None),
+    callback_monthly=(callback_save_geodetic_monthly if savePred else None),
 )
 df_gridded_annual = dict_df_gridded["annual"]
 df_gridded_monthly = dict_df_gridded["monthly"]
 del dict_df_gridded
 if savePred:
-    print("Saving gridded prediction for further analysis...")
+    print("Saving gridded prediction...")
     kk = geoTarget.keys()
     df_geo = pd.DataFrame(
         {
@@ -842,6 +944,7 @@ fig = mbm.plots.profilePerGlacier(
         for k in glacierNames
     },
     df_stakes=grouped_ids_train,
+    average_stakes=False,
 )
 fig.savefig(f"{pathFolder}/PMB_profile_individual_glaciers_train.pdf")
 if plot:

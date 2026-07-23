@@ -363,10 +363,11 @@ def geodetic_input_PGO(rgi_id, time_range):
         # Remap ID so that one ID covers only one year
         df_grid["ID"] = df_grid["ID"] + maxId + 1
 
-        df_grid["GLWD_M_ID"] = df_grid.apply(
-            lambda x: get_hash(f"{rgi_id}_{year}_{x.MONTHS}"),
-            axis=1,
-        ).astype(str)
+        # df_grid["GLWD_M_ID"] = df_grid.apply(
+        #     lambda x: get_hash(f"{rgi_id}_{year}_{x.MONTHS}"),
+        #     axis=1,
+        # ).astype(str)
+        df_grid["GLWD_M_ID"] = f"{rgi_id}_{year}_" + df_grid.MONTHS
 
         # Append to the final dataframe
         df_X_geod = pd.concat([df_X_geod, df_grid], ignore_index=True)
@@ -374,10 +375,11 @@ def geodetic_input_PGO(rgi_id, time_range):
         # Update the ID counter
         maxId = df_X_geod.ID.max()
 
-    df_X_geod["GLWD_ID"] = df_X_geod.apply(
-        lambda x: get_hash(f"{rgi_id}"),
-        axis=1,
-    ).astype(str)
+    # df_X_geod["GLWD_ID"] = df_X_geod.apply(
+    #     lambda x: get_hash(f"{rgi_id}"),
+    #     axis=1,
+    # ).astype(str)
+    df_X_geod["GLWD_ID"] = f"{rgi_id}"
 
     return df_X_geod
 
@@ -399,10 +401,11 @@ def geodetic_input_Hugonnet21(
         # Remap ID so that one ID covers only one year
         df_grid["ID"] = df_grid["ID"] + maxId + 1
 
-        df_grid["GLWD_M_ID"] = df_grid.apply(
-            lambda x: get_hash(f"{rgi_id}_{year}_{x.MONTHS}"),
-            axis=1,
-        ).astype(str)
+        # df_grid["GLWD_M_ID"] = df_grid.apply(
+        #     lambda x: get_hash(f"{rgi_id}_{year}_{x.MONTHS}"),
+        #     axis=1,
+        # ).astype(str)
+        df_grid["GLWD_M_ID"] = f"{rgi_id}_{year}_" + df_grid.MONTHS
 
         # Append to the final dataframe
         df_X_geod = pd.concat([df_X_geod, df_grid], ignore_index=True)
@@ -410,10 +413,11 @@ def geodetic_input_Hugonnet21(
         # Update the ID counter
         maxId = df_X_geod.ID.max()
 
-    df_X_geod["GLWD_ID"] = df_X_geod.apply(
-        lambda x: get_hash(f"{rgi_id}"),
-        axis=1,
-    ).astype(str)
+    # df_X_geod["GLWD_ID"] = df_X_geod.apply(
+    #     lambda x: get_hash(f"{rgi_id}"),
+    #     axis=1,
+    # ).astype(str)
+    df_X_geod["GLWD_ID"] = f"{rgi_id}"
 
     return df_X_geod
 
