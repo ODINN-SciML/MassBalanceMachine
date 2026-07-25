@@ -558,6 +558,7 @@ def prepare_within_region_pairs_from_cache(
     n_restarts=100,
     min_train_glaciers=3,
     checkpoint_path=None,
+    seed=cfg.seed,
 ):
     gl_level_split = gl_level_split or []
 
@@ -641,7 +642,7 @@ def prepare_within_region_pairs_from_cache(
                     train_frac=1 - holdout_frac,
                     n_restarts=n_restarts,
                     frac_tol=0.05,
-                    seed=cfg.seed,
+                    seed=seed,
                 )
                 best_score = best_split["best_score"]
             else:
@@ -650,7 +651,7 @@ def prepare_within_region_pairs_from_cache(
                     df_region=data_monthly,
                     id_col="ID",
                     train_frac=1 - holdout_frac,
-                    seed=cfg.seed,
+                    seed=seed,
                 )
                 best_score = float("nan")
 
@@ -667,14 +668,14 @@ def prepare_within_region_pairs_from_cache(
                 dataloader = mbm.dataloader.DataLoader(
                     cfg,
                     data=data,
-                    random_seed=cfg.seed,
+                    random_seed=seed,
                     meta_data_columns=cfg.metaData,
                 )
                 _, test_set, train_set = get_CV_splits(
                     dataloader,
                     test_split_on=split_on,  # was: split_on=  ← wrong kwarg name
                     test_splits=test_units,  # was: test_glaciers=  ← wrong kwarg name
-                    random_state=cfg.seed,
+                    random_state=seed,
                 )
                 # Reconstruct full DataFrames (get_CV_splits returns dicts, not raw DFs)
                 train_df = train_set["df_X"].copy()

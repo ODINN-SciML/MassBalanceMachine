@@ -1,0 +1,1160 @@
+import os
+
+os.environ["PYKEOPS_VERBOSE"] = "0"
+os.environ["KEOPS_VERBOSE"] = "0"
+
+import torch
+
+# Force CUDA re-initialisation
+if torch.cuda.is_available():
+    torch.cuda.init()
+
+import sys
+import os
+import pickle
+import logging
+import warnings
+import re
+from typing import Dict, List
+from pathlib import Path
+import json
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+from matplotlib.gridspec import GridSpec
+import matplotlib.gridspec as gridspec
+import geopandas as gpd
+
+import torch
+import massbalancemachine as mbm
+
+import math
+import string
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.metrics import root_mean_squared_error
+
+from regions.RGI_11_Switzerland.scripts.plotting.palettes import get_color_maps
+from regions.RGI_11_Switzerland.scripts.geo_data import apply_gaussian_filter
+
+# reuse _load_lstm_ds from the existing plotting module — reads {rgi_id}/{rgi_id}_{year}_{period}.zarr
+from regions.RGI_11_Switzerland.scripts.plotting.spatial_maps import _load_lstm_ds
+
+sys.path.append(os.path.join(os.getcwd(), "../../"))
+from regions.TF_Europe.scripts.config_TF_Europe import *
+from regions.TF_Europe.scripts.config_models import *
+from regions.TF_Europe.scripts.dataset import *
+from regions.TF_Europe.scripts.plotting import *
+from regions.TF_Europe.scripts.models import *
+
+
+def train_or_load_ft_models_for_region(
+    region_code,
+    monthly_cache,
+    model_pooled,
+    models_dir_ft,
+    strategy,
+    n_repeats,
+    model_date,
+    cfg,
+    device,
+    best_params,
+    ds_pooled_scaler,
+    ft_frac=0.10,
+    force_retrain=False,
+    CACHE_DIR="",
+):
+    """
+    Train (or load from disk if already trained) N_REPEATS fine-tuned models
+    for a single region using ID-level splitting, same pattern as CEU.
+    """
+    if region_code not in monthly_cache:
+        raise KeyError(f"{region_code} not in monthly_cache")
+
+    df_monthly = monthly_cache[region_code]["data_monthly"]
+    df_monthly_aug = monthly_cache[region_code]["data_monthly_aug"]
+    head_pad = monthly_cache[region_code]["months_head_pad"]
+    tail_pad = monthly_cache[region_code]["months_tail_pad"]
+
+    winter_ids_full = (
+        df_monthly[df_monthly["PERIOD"] == "winter"]["ID"].unique().tolist()
+    )
+    annual_ids_full = (
+        df_monthly[df_monthly["PERIOD"] == "annual"]["ID"].unique().tolist()
+    )
+
+    print(
+        f"  {region_code}: {df_monthly['GLACIER'].nunique()} glaciers | "
+        f"winter IDs: {len(winter_ids_full)} | annual IDs: {len(annual_ids_full)}"
+    )
+
+    ft_models = []
+    for rep in range(n_repeats):
+        model_path = str(
+            models_dir_ft
+            / f"transformer_ft_{strategy}_{region_code}_IDsplit_rep{rep}_{model_date}.pt"
+        )
+
+        winter_ids = list(winter_ids_full)
+        annual_ids = list(annual_ids_full)
+        rep_seed = cfg.seed + rep
+        rng = np.random.default_rng(rep_seed)
+        rng.shuffle(winter_ids)
+        rng.shuffle(annual_ids)
+
+        n_ft_w = max(1, int(len(winter_ids) * ft_frac)) if winter_ids else 0
+        n_ft_a = max(1, int(len(annual_ids) * ft_frac))
+        ft_ids = winter_ids[:n_ft_w] + annual_ids[:n_ft_a]
+
+        ds_ft = build_or_load_lstm_dataset_only(
+            cfg=cfg,
+            key=f"FD_to_{region_code}_IDsplit_rep{rep}_FT",
+            df_loss=df_monthly[df_monthly["ID"].isin(ft_ids)],
+            df_full=df_monthly_aug[df_monthly_aug["ID"].isin(ft_ids)],
+            months_head_pad=head_pad,
+            months_tail_pad=tail_pad,
+            MONTHLY_COLS=MONTHLY_COLS,
+            STATIC_COLS=STATIC_COLS,
+            cache_dir=str(CACHE_DIR),
+            force_recompute=False,
+            kind="ft",
+            show_progress=False,
+        )
+
+        print(f"  [rep {rep}] ds_ft: {len(ds_ft)} seqs | model: {model_path}")
+
+        ft_model = finetune_transformer_on_target(
+            cfg=cfg,
+            model_pooled=model_pooled,
+            ds_ft=ds_ft,
+            ds_pooled_scaler=ds_pooled_scaler,
+            device=device,
+            best_params=best_params,
+            model_filename=model_path,
+            strategy=strategy,
+            epochs=PARAMS_FT["epochs"],
+            lr_factor=PARAMS_FT["lr_factor"],
+            force_retrain=force_retrain,  # False = load if exists, train if not
+        )
+        ft_models.append((rep, ft_model))
+        print(f"  [rep {rep}] done")
+
+    return ft_models
+
+
+# def predict_grid_from_cached_datasets(
+#     cfg,
+#     ds_cache_dir,
+#     model,
+#     ds_pooled_scaler,
+#     device,
+#     region_folder,
+#     path_save_glw,
+#     months_head_pad,
+#     months_tail_pad,
+#     batch_size=512,
+#     skip_existing=True,
+#     glacier_filter=None,
+#     period="annual",
+# ):
+#     basepath = os.path.join(cfg.dataPath, "RGI_v6", region_folder)
+#     zarr_dir = os.path.join(basepath, "xr_masked_grids")
+#     monthly_parquet_dir = os.path.join(basepath, "monthly_parquets")
+#     os.makedirs(path_save_glw, exist_ok=True)
+
+#     ds_paths = sorted(
+#         glob.glob(os.path.join(ds_cache_dir, "*", "*", "ds.joblib")))
+#     if not ds_paths:
+#         raise FileNotFoundError(
+#             f"No cached datasets found under {ds_cache_dir}")
+
+#     if glacier_filter is not None:
+#         glacier_filter = set(glacier_filter)
+#         ds_paths = [
+#             p for p in ds_paths if os.path.basename(
+#                 os.path.dirname(os.path.dirname(p))) in glacier_filter
+#         ]
+
+#     #print(f"{len(ds_paths)} cached (glacier, year) datasets to predict")
+
+#     n_rows_total = 0
+#     written_paths = []
+#     skipped_empty = 0
+
+#     for ds_path in ds_paths:
+#         rgi_id = os.path.basename(os.path.dirname(os.path.dirname(ds_path)))
+#         year = int(os.path.basename(os.path.dirname(ds_path)))
+
+#         out_zarr = os.path.join(path_save_glw, rgi_id,
+#                                 f"{rgi_id}_{year}_{period}.zarr")
+#         if skip_existing and os.path.exists(out_zarr):
+#             written_paths.append(out_zarr)
+#             continue
+
+#         # load the masked WGS84 zarr — already has lat/lon dimensions
+#         xr_zarr_path = os.path.join(zarr_dir, f"{rgi_id}.zarr")
+#         if not os.path.exists(xr_zarr_path):
+#             print(
+#                 f"  SKIP {rgi_id} {year}: masked zarr not found at {xr_zarr_path}"
+#             )
+#             continue
+#         ds_latlon = xr.open_zarr(xr_zarr_path)
+
+#         # load monthly parquet for spatial coordinates
+#         monthly_path = os.path.join(monthly_parquet_dir, rgi_id,
+#                                     f"{rgi_id}_grid_{year}.parquet")
+#         if not os.path.exists(monthly_path):
+#             print(f"  SKIP {rgi_id} {year}: monthly parquet not found")
+#             continue
+
+#         ds = joblib.load(ds_path)
+#         if len(ds) == 0:
+#             skipped_empty += 1
+#             continue
+
+#         ds_copy = mbm.data_processing.MBSequenceDataset._clone_untransformed_dataset(
+#             ds)
+#         dl = mbm.data_processing.MBSequenceDataset.make_test_loader(
+#             ds_copy, ds_pooled_scaler, batch_size=batch_size, seed=cfg.seed)
+
+#         df_preds = model.predict_with_keys(device, dl, ds_copy, denorm=True)
+#         df_preds = df_preds[df_preds["PERIOD"] == period]
+
+#         if len(df_preds) == 0:
+#             skipped_empty += 1
+#             continue
+
+#         # merge with spatial coordinates from monthly parquet
+#         df_monthly = pd.read_parquet(monthly_path,
+#                                      columns=["ID", "POINT_LAT", "POINT_LON"
+#                                               ]).drop_duplicates(subset=["ID"])
+
+#         df_merged = df_preds[["ID", "pred"]].merge(df_monthly,
+#                                                    on="ID",
+#                                                    how="left")
+#         df_merged = df_merged.dropna(subset=["POINT_LAT", "POINT_LON", "pred"])
+
+#         if len(df_merged) == 0:
+#             skipped_empty += 1
+#             continue
+
+#         # save via GeoData._save_prediction — ds_latlon already has lat/lon dims
+#         geoData = mbm.geodata.GeoData(
+#             df_merged,
+#             months_head_pad=months_head_pad,
+#             months_tail_pad=months_tail_pad,
+#         )
+#         geoData._save_prediction(ds_latlon, df_merged, rgi_id, year,
+#                                  path_save_glw, period)
+
+#         n_rows_total += len(df_merged)
+#         written_paths.append(out_zarr)
+
+#         del ds, ds_copy, dl, df_preds, df_merged, ds_latlon
+#         gc.collect()
+
+#     # print(
+#     #     f"Done. Wrote {n_rows_total} rows across {len(written_paths)} zarr files -> {path_save_glw}"
+#     # )
+#     if skipped_empty:
+#         print(f"  ({skipped_empty} skipped: empty or missing data)")
+#     return written_paths
+
+
+def predict_grid_from_cached_datasets(
+    cfg,
+    ds_cache_dir,
+    model,
+    ds_pooled_scaler,
+    device,
+    region_folder,
+    path_save_glw,
+    months_head_pad,
+    months_tail_pad,
+    batch_size=512,
+    skip_existing=True,
+    glacier_filter=None,
+    period="annual",
+    empty_cache_every=1,  # bump to 5-10 if empty_cache()'s sync overhead slows things down
+):
+    basepath = os.path.join(cfg.dataPath, "RGI_v6", region_folder)
+    zarr_dir = os.path.join(basepath, "xr_masked_grids")
+    monthly_parquet_dir = os.path.join(basepath, "monthly_parquets")
+    os.makedirs(path_save_glw, exist_ok=True)
+
+    ds_paths = sorted(glob.glob(os.path.join(ds_cache_dir, "*", "*", "ds.joblib")))
+    if not ds_paths:
+        raise FileNotFoundError(f"No cached datasets found under {ds_cache_dir}")
+
+    if glacier_filter is not None:
+        glacier_filter = set(glacier_filter)
+        ds_paths = [
+            p
+            for p in ds_paths
+            if os.path.basename(os.path.dirname(os.path.dirname(p))) in glacier_filter
+        ]
+
+    # print(ds_paths)
+    n_rows_total = 0
+    written_paths = []
+    skipped_empty = 0
+
+    for i, ds_path in enumerate(ds_paths):
+        rgi_id = os.path.basename(os.path.dirname(os.path.dirname(ds_path)))
+        year = int(os.path.basename(os.path.dirname(ds_path)))
+        # print(year)
+        # if year == 2008:
+        #     continue
+        out_zarr = os.path.join(path_save_glw, rgi_id, f"{rgi_id}_{year}_{period}.zarr")
+        if skip_existing and os.path.exists(out_zarr):
+            written_paths.append(out_zarr)
+            continue
+
+        xr_zarr_path = os.path.join(zarr_dir, f"{rgi_id}.zarr")
+        if not os.path.exists(xr_zarr_path):
+            print(f"  SKIP {rgi_id} {year}: masked zarr not found at {xr_zarr_path}")
+            continue
+        ds_latlon = xr.open_zarr(xr_zarr_path)
+
+        monthly_path = os.path.join(
+            monthly_parquet_dir, rgi_id, f"{rgi_id}_grid_{year}.parquet"
+        )
+        if not os.path.exists(monthly_path):
+            print(f"  SKIP {rgi_id} {year}: monthly parquet not found")
+            ds_latlon.close()
+            continue
+
+        ds = joblib.load(ds_path)
+        if len(ds) == 0:
+            skipped_empty += 1
+            ds_latlon.close()
+            continue
+
+        ds_copy = mbm.data_processing.MBSequenceDataset._clone_untransformed_dataset(ds)
+        dl = mbm.data_processing.MBSequenceDataset.make_test_loader(
+            ds_copy, ds_pooled_scaler, batch_size=batch_size, seed=cfg.seed
+        )
+
+        # force inference mode explicitly — if predict_with_keys doesn't
+        # already wrap this in no_grad()/eval(), every forward pass keeps
+        # building an autograd graph that never gets freed until backward(),
+        # which is a classic silent GPU-memory leak over a long loop
+        with torch.no_grad():
+            df_preds = model.predict_with_keys(device, dl, ds_copy, denorm=True)
+        df_preds = df_preds[df_preds["PERIOD"] == period]
+
+        if len(df_preds) == 0:
+            skipped_empty += 1
+            ds_latlon.close()
+            continue
+
+        df_monthly = pd.read_parquet(
+            monthly_path, columns=["ID", "POINT_LAT", "POINT_LON"]
+        ).drop_duplicates(subset=["ID"])
+
+        df_merged = df_preds[["ID", "pred"]].merge(df_monthly, on="ID", how="left")
+        df_merged = df_merged.dropna(subset=["POINT_LAT", "POINT_LON", "pred"])
+
+        if len(df_merged) == 0:
+            skipped_empty += 1
+            ds_latlon.close()
+            continue
+
+        geoData = mbm.geodata.GeoData(
+            df_merged,
+            months_head_pad=months_head_pad,
+            months_tail_pad=months_tail_pad,
+        )
+        geoData._save_prediction(
+            ds_latlon, df_merged, rgi_id, year, path_save_glw, period
+        )
+
+        n_rows_total += len(df_merged)
+        written_paths.append(out_zarr)
+
+        # explicitly close the zarr store instead of relying on del+gc —
+        # xr.open_zarr keeps a lazy/dask-backed handle open until .close()
+        ds_latlon.close()
+        del ds, ds_copy, dl, df_preds, df_merged, ds_latlon
+        gc.collect()
+
+        # return PyTorch's cached-but-unused GPU memory to the driver;
+        # gc.collect() alone frees Python refs but not the CUDA allocator pool
+        if torch.cuda.is_available() and (i % empty_cache_every == 0):
+            torch.cuda.empty_cache()
+
+    if skipped_empty:
+        print(f"  ({skipped_empty} skipped: empty or missing data)")
+    return written_paths
+
+
+def plot_pred_vs_obs_stakes(
+    glaciers,  # {glacier_name: (rgi_id, df_stakes)}
+    models,  # {model_label: {glacier_name: str | list[str] | None}}
+    years,
+    period="annual",
+    apply_smoothing=True,
+    text_size=10,
+    cm=1 / 2.54,
+):
+    """
+    Pred vs obs scatter at stake locations, all years pooled.
+    One row per glacier, one column per model.
+    If a list of paths is given for a model, predictions are averaged across
+    reps and error bars show ±1 std across reps.
+    """
+    from sklearn.metrics import root_mean_squared_error
+    from scipy.stats import pearsonr
+
+    n_glaciers = len(glaciers)
+    n_models = len(models)
+
+    fig, axes = plt.subplots(
+        n_glaciers,
+        n_models,
+        figsize=(n_models * 10 * cm, n_glaciers * 10 * cm),
+        constrained_layout=True,
+        dpi=200,
+        squeeze=False,
+    )
+
+    # pre-compute per-glacier shared axis limits across all models
+    row_lims = {}
+    for glacier_name, (rgi_id, df_stakes) in glaciers.items():
+        all_vals = []
+        for model_label, paths_by_glacier in models.items():
+            paths = paths_by_glacier.get(glacier_name)
+            if paths is None:
+                continue
+            if isinstance(paths, str):
+                paths = [paths]
+            for year in years:
+                sub = df_stakes[
+                    (df_stakes["GLACIER"] == glacier_name)
+                    & (df_stakes["YEAR"] == year)
+                    & (df_stakes["PERIOD"] == period)
+                ]
+                if sub.empty:
+                    continue
+                all_vals.extend(sub["POINT_BALANCE"].tolist())
+                for path in paths:
+                    ds = _load_lstm_ds(
+                        glacier=rgi_id,
+                        year=year,
+                        path_pred_lstm=path,
+                        period=period,
+                        apply_smoothing_fn=(
+                            apply_gaussian_filter if apply_smoothing else None
+                        ),
+                    )
+                    if ds is None or "pred_masked" not in ds:
+                        continue
+
+                    def _sample(row):
+                        try:
+                            return ds.sel(
+                                lat=row["POINT_LAT"],
+                                lon=row["POINT_LON"],
+                                method="nearest",
+                            )["pred_masked"].item()
+                        except Exception:
+                            return np.nan
+
+                    preds = sub.apply(_sample, axis=1).dropna().tolist()
+                    all_vals.extend(preds)
+
+        if all_vals:
+            margin = 0.2
+            row_lims[glacier_name] = [min(all_vals) - margin, max(all_vals) + margin]
+        else:
+            row_lims[glacier_name] = [-12, 5]
+
+    for row_idx, (glacier_name, (rgi_id, df_stakes)) in enumerate(glaciers.items()):
+        for col_idx, (model_label, paths_by_glacier) in enumerate(models.items()):
+            ax = axes[row_idx, col_idx]
+
+            paths = paths_by_glacier.get(glacier_name)
+            if paths is None:
+                ax.set_title(f"{glacier_name} / {model_label} — N/A")
+                ax.set_axis_off()
+                continue
+
+            # normalise to list
+            if isinstance(paths, str):
+                paths = [paths]
+
+            all_obs, all_pred_mean, all_pred_std, all_years = [], [], [], []
+
+            for year in years:
+                sub = df_stakes[
+                    (df_stakes["GLACIER"] == glacier_name)
+                    & (df_stakes["YEAR"] == year)
+                    & (df_stakes["PERIOD"] == period)
+                ].copy()
+                if sub.empty:
+                    continue
+
+                # sample each rep
+                rep_preds = []
+                for path in paths:
+                    ds = _load_lstm_ds(
+                        glacier=rgi_id,
+                        year=year,
+                        path_pred_lstm=path,
+                        period=period,
+                        apply_smoothing_fn=(
+                            apply_gaussian_filter if apply_smoothing else None
+                        ),
+                    )
+                    if ds is None or "pred_masked" not in ds:
+                        continue
+
+                    def _sample(row):
+                        try:
+                            return ds.sel(
+                                lat=row["POINT_LAT"],
+                                lon=row["POINT_LON"],
+                                method="nearest",
+                            )["pred_masked"].item()
+                        except Exception:
+                            return np.nan
+
+                    rep_preds.append(sub.apply(_sample, axis=1).values)
+
+                if not rep_preds:
+                    continue
+
+                rep_array = np.stack(rep_preds, axis=0)  # (n_reps, n_stakes)
+                pred_mean = np.nanmean(rep_array, axis=0)
+                pred_std = np.nanstd(rep_array, axis=0)  # 0 if single rep
+
+                sub["pred_mean"] = pred_mean
+                sub["pred_std"] = pred_std
+                sub = sub.dropna(subset=["pred_mean", "POINT_BALANCE"])
+
+                all_obs.extend(sub["POINT_BALANCE"].tolist())
+                all_pred_mean.extend(sub["pred_mean"].tolist())
+                all_pred_std.extend(sub["pred_std"].tolist())
+                all_years.extend([year] * len(sub))
+
+            if not all_obs:
+                ax.set_title(f"{glacier_name.capitalize()} / {model_label} — no data")
+                ax.set_axis_off()
+                continue
+
+            obs = np.array(all_obs)
+            pred_mean = np.array(all_pred_mean)
+            pred_std = np.array(all_pred_std)
+            years_arr = np.array(all_years)
+
+            rmse = root_mean_squared_error(obs, pred_mean)
+            r, _ = pearsonr(obs, pred_mean)
+            bias = float(np.mean(pred_mean - obs))
+
+            color = (
+                mbm.plots.COLOR_ANNUAL if period == "annual" else mbm.plots.COLOR_WINTER
+            )
+            ax.scatter(obs, pred_mean, color=color, s=15, alpha=0.8, zorder=3)
+
+            if len(paths) > 1:
+                ax.errorbar(
+                    obs,
+                    pred_mean,
+                    yerr=pred_std,
+                    fmt="none",
+                    ecolor="grey",
+                    alpha=0.4,
+                    elinewidth=0.8,
+                    capsize=2,
+                    zorder=2,
+                )
+
+            lim = row_lims[glacier_name]
+            ax.plot(lim, lim, "k--", lw=0.8)
+            ax.set_xlim(lim)
+            ax.set_ylim(lim)
+
+            ax.set_xlabel("Observed MB [m w.e.]", fontsize=text_size)
+            ax.set_ylabel("Predicted MB [m w.e.]", fontsize=text_size)
+            ax.set_title(
+                f"{glacier_name.capitalize()}\n{model_label} ({len(obs)} stakes)",
+                fontsize=text_size + 1,
+            )
+            n_reps_str = f", {len(paths)} reps" if len(paths) > 1 else ""
+            ax.text(
+                0.05,
+                0.95,
+                f"RMSE: {rmse:.2f}\nr: {r:.2f}\nbias: {bias:.2f}{n_reps_str}",
+                transform=ax.transAxes,
+                fontsize=text_size - 1,
+                va="top",
+                ha="left",
+                bbox=dict(facecolor="white", alpha=0.7, edgecolor="none"),
+            )
+            ax.grid(alpha=0.2)
+
+    return fig
+
+
+def plot_pred_vs_obs_stakes_grid(
+    glaciers,  # {glacier_name: (rgi_id, df_stakes)}
+    models,  # {model_label: {glacier_name: str | list[str] | None}}
+    years,
+    period="annual",
+    apply_smoothing=True,
+    text_size=8,
+    cm=1 / 2.54,
+    ncols=4,  # number of columns in the glacier grid
+):
+    """
+    Like plot_pred_vs_obs_stakes but:
+    - Points coloured by annual/winter colour (no colorbar, no year colouring)
+    - Grid layout (ncols glaciers per row) instead of one glacier per row
+    - Designed for single-model comparisons across many glaciers (e.g. Alaska ZS)
+    """
+    from sklearn.metrics import root_mean_squared_error
+    from scipy.stats import pearsonr
+
+    n_glaciers = len(glaciers)
+    nrows = math.ceil(n_glaciers / ncols)
+
+    # one subplot grid per model
+    figs = {}
+    for model_label in models:
+        fig, axes = plt.subplots(
+            nrows,
+            ncols,
+            figsize=(ncols * 8 * cm, nrows * 8 * cm),
+            constrained_layout=True,
+            dpi=200,
+            squeeze=False,
+        )
+
+        # shared axis limits across all glaciers for this model
+        all_vals_global = []
+        for glacier_name, (rgi_id, df_stakes) in glaciers.items():
+            paths = models[model_label].get(glacier_name)
+            if paths is None:
+                continue
+            if isinstance(paths, str):
+                paths = [paths]
+            for year in years:
+                sub = df_stakes[
+                    (df_stakes["GLACIER"] == glacier_name)
+                    & (df_stakes["YEAR"] == year)
+                    & (df_stakes["PERIOD"] == period)
+                ]
+                if sub.empty:
+                    continue
+                all_vals_global.extend(sub["POINT_BALANCE"].tolist())
+                for path in paths:
+                    ds = _load_lstm_ds(
+                        glacier=rgi_id,
+                        year=year,
+                        path_pred_lstm=path,
+                        period=period,
+                        apply_smoothing_fn=(
+                            apply_gaussian_filter if apply_smoothing else None
+                        ),
+                    )
+                    if ds is None or "pred_masked" not in ds:
+                        continue
+
+                    def _sample(row):
+                        try:
+                            return ds.sel(
+                                lat=row["POINT_LAT"],
+                                lon=row["POINT_LON"],
+                                method="nearest",
+                            )["pred_masked"].item()
+                        except Exception:
+                            return np.nan
+
+                    all_vals_global.extend(sub.apply(_sample, axis=1).dropna().tolist())
+
+        margin = 0.2
+        global_lim = (
+            [min(all_vals_global) - margin, max(all_vals_global) + margin]
+            if all_vals_global
+            else [-12, 5]
+        )
+
+        for idx, (glacier_name, (rgi_id, df_stakes)) in enumerate(glaciers.items()):
+            r, c = idx // ncols, idx % ncols
+            ax = axes[r, c]
+
+            paths = models[model_label].get(glacier_name)
+            if paths is None:
+                ax.set_axis_off()
+                continue
+            if isinstance(paths, str):
+                paths = [paths]
+
+            all_obs, all_pred_mean, all_pred_std = [], [], []
+
+            for year in years:
+                sub = df_stakes[
+                    (df_stakes["GLACIER"] == glacier_name)
+                    & (df_stakes["YEAR"] == year)
+                    & (df_stakes["PERIOD"] == period)
+                ].copy()
+                if sub.empty:
+                    continue
+
+                rep_preds = []
+                for path in paths:
+                    ds = _load_lstm_ds(
+                        glacier=rgi_id,
+                        year=year,
+                        path_pred_lstm=path,
+                        period=period,
+                        apply_smoothing_fn=(
+                            apply_gaussian_filter if apply_smoothing else None
+                        ),
+                    )
+                    if ds is None or "pred_masked" not in ds:
+                        continue
+
+                    def _sample(row):
+                        try:
+                            return ds.sel(
+                                lat=row["POINT_LAT"],
+                                lon=row["POINT_LON"],
+                                method="nearest",
+                            )["pred_masked"].item()
+                        except Exception:
+                            return np.nan
+
+                    rep_preds.append(sub.apply(_sample, axis=1).values)
+
+                if not rep_preds:
+                    continue
+
+                rep_array = np.stack(rep_preds, axis=0)
+                pred_mean = np.nanmean(rep_array, axis=0)
+                pred_std = np.nanstd(rep_array, axis=0)
+
+                sub["pred_mean"] = pred_mean
+                sub["pred_std"] = pred_std
+                sub = sub.dropna(subset=["pred_mean", "POINT_BALANCE"])
+
+                all_obs.extend(sub["POINT_BALANCE"].tolist())
+                all_pred_mean.extend(sub["pred_mean"].tolist())
+                all_pred_std.extend(sub["pred_std"].tolist())
+
+            if not all_obs:
+                ax.set_title(
+                    f"{glacier_name.capitalize()} — no data", fontsize=text_size
+                )
+                ax.set_axis_off()
+                continue
+
+            obs = np.array(all_obs)
+            pred_mean = np.array(all_pred_mean)
+            pred_std = np.array(all_pred_std)
+
+            rmse = root_mean_squared_error(obs, pred_mean)
+            r2, _ = pearsonr(obs, pred_mean)
+            bias = float(np.mean(pred_mean - obs))
+
+            # colour by annual/winter colour — no colorbar
+            color = (
+                mbm.plots.COLOR_ANNUAL if period == "annual" else mbm.plots.COLOR_WINTER
+            )
+            ax.scatter(obs, pred_mean, color=color, s=12, alpha=0.7, zorder=3)
+
+            if len(paths) > 1:
+                ax.errorbar(
+                    obs,
+                    pred_mean,
+                    yerr=pred_std,
+                    fmt="none",
+                    ecolor="grey",
+                    alpha=0.4,
+                    elinewidth=0.8,
+                    capsize=2,
+                    zorder=2,
+                )
+
+            ax.plot(global_lim, global_lim, "k--", lw=0.8)
+            ax.set_xlim(global_lim)
+            ax.set_ylim(global_lim)
+            ax.set_xlabel("Obs. MB [m w.e.]", fontsize=text_size)
+            ax.set_ylabel("Pred. MB [m w.e.]" if c == 0 else "", fontsize=text_size)
+            ax.set_title(glacier_name.capitalize(), fontsize=text_size + 1)
+            ax.text(
+                0.05,
+                0.95,
+                f"RMSE: {rmse:.2f}\nr: {r2:.2f}\nbias: {bias:.2f}",
+                transform=ax.transAxes,
+                fontsize=text_size - 1,
+                va="top",
+                ha="left",
+                bbox=dict(facecolor="white", alpha=0.7, edgecolor="none"),
+            )
+            ax.grid(alpha=0.2)
+            ax.tick_params(labelsize=text_size - 1)
+
+        # turn off unused axes
+        for j in range(idx + 1, nrows * ncols):
+            axes[j // ncols, j % ncols].set_axis_off()
+
+        fig.suptitle(f"{model_label} — {period}", fontsize=text_size + 2)
+        figs[model_label] = fig
+
+    return figs
+
+
+def aggregate_gridded_transformer_by_glacier(rgi_id, path_pred, period="annual"):
+    lstm_tag = "annual" if period in ("annual", "ann", "yearly") else "winter"
+    base = os.path.join(path_pred, rgi_id)
+
+    years = []
+    if os.path.isdir(base):
+        for f in glob.glob(os.path.join(base, f"*_{lstm_tag}.zarr")):
+            m = re.match(r".*[\\/].+?_(\d{4})_" + re.escape(lstm_tag) + r"\.zarr$", f)
+            if m:
+                years.append(int(m.group(1)))
+    years = sorted(set(years))
+
+    if not years:
+        print(f"  No predictions found for {rgi_id} in {base}")
+        return pd.DataFrame()
+
+    dfs = []
+    for year in years:
+        zarr_path = os.path.join(base, f"{rgi_id}_{year}_{lstm_tag}.zarr")
+        if not os.path.exists(zarr_path):
+            continue
+        try:
+            ds = apply_gaussian_filter(xr.open_dataset(zarr_path, engine="zarr"))
+            lon_name = "lon" if "lon" in ds.coords else "longitude"
+            lat_name = "lat" if "lat" in ds.coords else "latitude"
+
+            df = (
+                ds["pred_masked"]
+                .to_dataframe()
+                .reset_index()
+                .drop(["x", "y"], axis=1, errors="ignore")
+                .merge(
+                    ds["masked_elev"]
+                    .to_dataframe()
+                    .reset_index()
+                    .drop(["x", "y"], axis=1, errors="ignore"),
+                    on=[lat_name, lon_name],
+                    how="left",
+                )
+                .dropna()
+                .rename(
+                    columns={
+                        "pred_masked": "pred",
+                        "masked_elev": "POINT_ELEVATION",
+                        lat_name: "lat",
+                        lon_name: "lon",
+                    }
+                )
+            )
+            df["YEAR"] = year
+            df["PERIOD"] = lstm_tag
+
+            min_alt = np.floor(df["POINT_ELEVATION"].min() / 100) * 100
+            max_alt = np.ceil(df["POINT_ELEVATION"].max() / 100) * 100
+            bins = np.arange(min_alt, max_alt + 100, 100)
+            df["altitude_interval"] = pd.cut(
+                df["POINT_ELEVATION"], bins=bins, right=False
+            )
+            centers = {
+                iv: round((iv.left + iv.right) / 2)
+                for iv in df["altitude_interval"].cat.categories
+            }
+            df["altitude_interval"] = df["altitude_interval"].map(centers)
+            dfs.append(df)
+        except Exception as e:
+            print(f"  [error] {rgi_id} {year}: {e}")
+
+    return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
+
+
+def plot_transformer_gradients(
+    GLACIER_CONFIG,
+    PRED_BASE,
+    models,
+    period="annual",
+    ncols=None,
+    figsize_y=9,
+    cm=1 / 2.54,
+    text_size=8,
+    colors=None,
+):
+    glaciers = list(GLACIER_CONFIG.items())
+    n = len(glaciers)
+    ncols = ncols or n
+    nrows = math.ceil(n / ncols)
+
+    if colors is None:
+        prop_cycle = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+        colors = {
+            label: prop_cycle[i % len(prop_cycle)] for i, label in enumerate(models)
+        }
+
+    fig, axes = plt.subplots(
+        nrows,
+        ncols,
+        figsize=(ncols * figsize_y * cm, nrows * 12 * cm),
+        constrained_layout=True,
+        dpi=200,
+    )
+    axes = np.array(axes).reshape(nrows, ncols)
+
+    for idx, (glacier_name, gcfg) in enumerate(glaciers):
+        r, c = idx // ncols, idx % ncols
+        ax = axes[r, c]
+        rgi_id = gcfg["rgi_ids"][0]
+        df_stakes = gcfg["df_stakes"]  # ← per-glacier stakes from GLACIER_CONFIG
+
+        for label, path_template in models.items():
+            path = os.path.join(PRED_BASE, path_template.format(**gcfg))
+            df = aggregate_gridded_transformer_by_glacier(rgi_id, path, period=period)
+            if df.empty:
+                continue
+
+            grouped = df.groupby("altitude_interval")["pred"]
+            mean = grouped.mean()
+            std = grouped.std().fillna(0)
+
+            ax.plot(mean.values, mean.index, color=colors[label], lw=1.2, label=label)
+            ax.fill_betweenx(
+                mean.index,
+                mean.values - std.values,
+                mean.values + std.values,
+                alpha=0.15,
+                color=colors[label],
+            )
+
+        # stake overlay — use glacier's own df_stakes
+        if df_stakes is not None:
+            sub = df_stakes[
+                (df_stakes["GLACIER"] == glacier_name) & (df_stakes["PERIOD"] == period)
+            ].copy()
+            if not sub.empty and "POINT_ELEVATION" in sub.columns:
+                bin_size = 40
+                bins = np.arange(
+                    np.floor(sub["POINT_ELEVATION"].min() / bin_size) * bin_size,
+                    np.ceil(sub["POINT_ELEVATION"].max() / bin_size) * bin_size
+                    + bin_size,
+                    bin_size,
+                )
+                sub["alt_bin"] = pd.cut(sub["POINT_ELEVATION"], bins=bins, right=False)
+                centers = {
+                    iv: round((iv.left + iv.right) / 2)
+                    for iv in sub["alt_bin"].cat.categories
+                }
+                sub["alt_bin"] = sub["alt_bin"].map(centers)
+                stake_mean = sub.groupby("alt_bin")["POINT_BALANCE"].mean()
+                ax.scatter(
+                    stake_mean.values,
+                    stake_mean.index,
+                    marker="o",
+                    s=18,
+                    facecolors="none",
+                    edgecolors="black",
+                    lw=0.8,
+                    label="Stakes",
+                    zorder=5,
+                )
+
+        ax.axvline(0, color="k", lw=0.6, ls="--", alpha=0.5)
+        ax.set_title(glacier_name.capitalize(), fontsize=text_size + 1)
+        ax.set_xlabel("MB [m w.e.]", fontsize=text_size)
+        ax.set_ylabel("Elevation (m a.s.l.)" if c == 0 else "", fontsize=text_size)
+        ax.grid(alpha=0.2)
+        ax.tick_params(labelsize=text_size - 1)
+        if idx == 0:
+            ax.legend(fontsize=text_size - 1)
+
+    for j in range(idx + 1, nrows * ncols):
+        axes[j // ncols, j % ncols].set_axis_off()
+
+    return fig
+
+
+def _stake_overlay_transformer(
+    ax, glacier, year, cmap, norm, ds_pred, df_stakes, period
+):
+    """Overlay stakes on transformer prediction map, return RMSE if possible."""
+    if df_stakes is None or ds_pred is None:
+        return None
+
+    sub = df_stakes[
+        (df_stakes["GLACIER"] == glacier)
+        & (df_stakes["YEAR"] == year)
+        & (df_stakes["PERIOD"] == period)
+    ].copy()
+
+    if sub.empty:
+        return None
+
+    def _sample(row):
+        try:
+            return ds_pred.sel(
+                lat=row["POINT_LAT"], lon=row["POINT_LON"], method="nearest"
+            )["pred_masked"].item()
+        except Exception:
+            return np.nan
+
+    sub["pred_at_stake"] = sub.apply(_sample, axis=1)
+    sub = sub.dropna(subset=["pred_at_stake"])
+
+    if not sub.empty:
+        sns.scatterplot(
+            data=sub,
+            x="POINT_LON",
+            y="POINT_LAT",
+            hue="POINT_BALANCE",
+            palette=cmap,
+            hue_norm=norm,
+            ax=ax,
+            s=25,
+            legend=False,
+        )
+
+    if "POINT_BALANCE" in sub.columns and len(sub) > 0:
+        return root_mean_squared_error(sub["POINT_BALANCE"], sub["pred_at_stake"])
+    return None
+
+
+def plot_transformer_grids(
+    glacier_name,
+    rgi_id,
+    years,
+    path_pred_transformer,  # path_save_glw used in predict_grid_from_cached_datasets
+    df_stakes=None,
+    period="annual",
+    apply_smoothing=True,
+    ncols=4,
+    text_size=8,
+    figsize_y=9,
+    cm=1 / 2.54,
+):
+    datasets, year_list = [], []
+
+    for year in years:
+        ds = _load_lstm_ds(
+            glacier=rgi_id,
+            year=year,
+            path_pred_lstm=path_pred_transformer,
+            period=period,
+            apply_smoothing_fn=apply_gaussian_filter if apply_smoothing else None,
+        )
+        if ds is None or "pred_masked" not in ds:
+            continue
+        datasets.append(ds)
+        year_list.append(year)
+
+    if not datasets:
+        raise RuntimeError(
+            f"No predictions found for {rgi_id} in {path_pred_transformer}"
+        )
+
+    global_vmin = min(float(ds["pred_masked"].min()) for ds in datasets)
+    global_vmax = max(float(ds["pred_masked"].max()) for ds in datasets)
+    cmap, norm = get_color_maps(global_vmin, global_vmax)
+    vmin_display = max(global_vmin, -12)
+    vmax_display = min(global_vmax, 5)
+
+    n = len(datasets)
+    nrows = math.ceil(n / ncols)
+    fig, axes = plt.subplots(
+        nrows,
+        ncols,
+        figsize=(ncols * figsize_y * cm, nrows * 8 * cm),
+        constrained_layout=True,
+        dpi=200,
+    )
+    if nrows == 1:
+        axes = axes.reshape(1, -1)
+
+    mappable_for_cb = None
+    label_iter = iter(string.ascii_lowercase)
+
+    for idx, (ds, year) in enumerate(zip(datasets, year_list)):
+        r, c = idx // ncols, idx % ncols
+        ax = axes[r, c]
+
+        mappable_for_cb = ds["pred_masked"].plot.imshow(
+            ax=ax, cmap=cmap, norm=norm, add_colorbar=False
+        )
+        ax.set_aspect("auto")
+        ax.set_title(
+            f"{glacier_name.capitalize()} – Transformer ({year})",
+            fontsize=text_size + 1,
+        )
+
+        rmse = _stake_overlay_transformer(
+            ax=ax,
+            glacier=glacier_name,
+            year=year,
+            cmap=cmap,
+            norm=norm,
+            ds_pred=ds,
+            df_stakes=df_stakes,
+            period=period,
+        )
+
+        mean_m = float(ds["pred_masked"].mean())
+        annotation = (f"RMSE: {rmse:.2f}\n" if rmse else "") + f"mean MB: {mean_m:.2f}"
+        ax.text(
+            0.04,
+            0.03,
+            annotation,
+            transform=ax.transAxes,
+            fontsize=text_size,
+            ha="left",
+            va="bottom",
+        )
+        ax.text(
+            0.03,
+            0.97,
+            f"({next(label_iter)})",
+            transform=ax.transAxes,
+            ha="left",
+            va="top",
+            fontsize=text_size,
+        )
+        ax.grid(alpha=0.2)
+        ax.tick_params(axis="both", labelsize=9)
+        ax.set_xlabel("")
+        ax.set_ylabel("")
+
+    for j in range(idx + 1, nrows * ncols):
+        axes[j // ncols, j % ncols].set_axis_off()
+
+    fig_cb = plt.figure(figsize=(1.5 * cm, 12 * cm), dpi=200)
+    ax_cb = fig_cb.add_axes([0.25, 0.05, 0.35, 0.90])
+    cb = fig_cb.colorbar(mappable_for_cb, cax=ax_cb)
+    cb.ax.set_ylim(vmin_display, vmax_display)
+    if global_vmin < vmin_display:
+        ax_cb.plot(
+            [0.5],
+            [-0.02],
+            marker="v",
+            color="black",
+            markersize=4,
+            transform=ax_cb.transAxes,
+            clip_on=False,
+        )
+    if global_vmax > vmax_display:
+        ax_cb.plot(
+            [0.5],
+            [1.02],
+            marker="^",
+            color="black",
+            markersize=4,
+            transform=ax_cb.transAxes,
+            clip_on=False,
+        )
+    cb.set_label("Mass Balance [m w.e.]")
+
+    return fig, fig_cb

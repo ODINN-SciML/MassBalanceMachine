@@ -12,3 +12,4 @@ from .pmb_maps import *
 from .monitoring import *
 from .domain_shift import *
 from .folium import *
+from .pooled_pred import *
