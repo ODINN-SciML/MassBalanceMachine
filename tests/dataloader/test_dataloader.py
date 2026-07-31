@@ -1,5 +1,42 @@
+from collections import deque
+
 import pandas as pd
 import massbalancemachine as mbm
+
+from massbalancemachine.training.training import _prefetch_geo_batches
+
+
+class DummyGeoLoader:
+    def __init__(self):
+        self.submitted = []
+
+    def hasGeo(self, glacier_name):
+        return True
+
+    def submit_geo(self, glacier_name):
+        self.submitted.append(glacier_name)
+        return glacier_name
+
+
+def test_prefetch_geo_batches_queue_multiple_items():
+    loader = DummyGeoLoader()
+    glacier_iter = iter(["g1", "g2", "g3"])
+
+    queue = _prefetch_geo_batches(glacier_iter, loader, wGeo=1, prefetch_batches=2)
+
+    assert isinstance(queue, deque)
+    assert list(queue) == [("g1", "g1"), ("g2", "g2")]
+    assert loader.submitted == ["g1", "g2"]
+
+
+def test_prefetch_geo_batches_skips_when_wgeo_zero():
+    loader = DummyGeoLoader()
+    glacier_iter = iter(["g1", "g2"])
+
+    queue = _prefetch_geo_batches(glacier_iter, loader, wGeo=0, prefetch_batches=2)
+
+    assert queue == deque()
+    assert loader.submitted == []
 
 
 def test_dataloader():

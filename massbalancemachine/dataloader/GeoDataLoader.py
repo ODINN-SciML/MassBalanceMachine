@@ -86,6 +86,7 @@ class GeoDataLoader:
         device=torch.device("cpu"),
         allStakesPerIter=False,
         additionalYears=[],  # years for which to ensure the gridded products are generated in addition to what is required to process the dataset (which is based on the geodeticSource argument); this is used only when geoGlaciers="stakes"
+        prefetch_batches: int = 2,
     ) -> None:
         self.cfg = cfg
         self.glacierList = (
@@ -114,6 +115,7 @@ class GeoDataLoader:
         self.device = device
         self.allStakesPerIter = allStakesPerIter
         self.additionalYears = additionalYears
+        self.prefetch_batches = max(1, int(prefetch_batches))
 
         if valStakesDf is not None:
             assert (
@@ -180,7 +182,7 @@ class GeoDataLoader:
 
         self.normalizer = Normalizer({k: cfg.bnds[k] for k in cfg.featureColumns})
 
-        self._geo_executor = ThreadPoolExecutor(max_workers=1)
+        self._geo_executor = ThreadPoolExecutor(max_workers=self.prefetch_batches)
 
     def prepareGeoData(self) -> None:
         if self.geodeticSource == "Hugonnet21":
