@@ -1,5 +1,6 @@
 import os
 import pandas as pd
+import numpy as np
 import tqdm
 import multiprocessing
 import xarray as xr
@@ -381,6 +382,9 @@ def geodetic_input_PGO(rgi_id, time_range):
     # ).astype(str)
     df_X_geod["GLWD_ID"] = f"{rgi_id}"
 
+    df_X_geod["aspect"] = 180 * df_X_geod["aspect"] / np.pi
+    df_X_geod["slope"] = 180 * df_X_geod["slope"] / np.pi
+
     return df_X_geod
 
 
@@ -418,6 +422,9 @@ def geodetic_input_Hugonnet21(
     #     axis=1,
     # ).astype(str)
     df_X_geod["GLWD_ID"] = f"{rgi_id}"
+
+    df_X_geod["aspect"] = 180 * df_X_geod["aspect"] / np.pi
+    df_X_geod["slope"] = 180 * df_X_geod["slope"] / np.pi
 
     return df_X_geod
 
