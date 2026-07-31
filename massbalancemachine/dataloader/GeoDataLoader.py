@@ -29,6 +29,27 @@ from data_processing.pgo import pgo_target_file, geodetic_target_PGO, table_RGI6
 from models.TorchNeuralNetworkRegressor import aggrMetadata
 
 
+def buildPGOMapping(glacierList):
+    # A list of glaciers was provided, we need to check the version
+    if glacierList[0].startswith("RGI2000-v7.0-G-"):
+        # Glacier list follows RGI v7
+        rgi_id_to_pgo = {rgi_id: rgi_id for rgi_id in glacierList}
+    else:
+        # We have to find the mapping between glacier list which is in RGI v6 and the PGO list which follows RGI v7
+        rgi_ids_rgi6 = glacierList
+        region_id = int(
+            rgi_ids_rgi6[0].split(".")[0].split("-")[1]
+        )  # Use first glacier to retrieve region
+        table_df = table_RGI62_to_PGO(region_id)
+
+        rgi_id_to_pgo = {}
+        for rgi_id_rgi6 in rgi_ids_rgi6:
+            tmp = table_df[table_df.RGIId == rgi_id_rgi6]
+            if tmp.shape[0] == 1:
+                rgi_id_to_pgo[rgi_id_rgi6] = tmp.custom_id.values[0]
+    return rgi_id_to_pgo
+
+
 class GeoDataLoader:
     """
     The class that handles both stakes and geodetic data loading. It prepares the
@@ -54,6 +75,8 @@ class GeoDataLoader:
         months_tail_pad: list[str],
         valStakesDf: pd.DataFrame = None,
         glacierListVal: List[str] = [],
+        glacierListGeo=None,
+        glacierListValGeo=None,
         ignoreStakesWithoutGeo: bool = False,
         geodeticSource: str = "Hugonnet21",
         preloadGeodetic: bool = False,
@@ -76,6 +99,7 @@ class GeoDataLoader:
         self.indGlacier = 0
         self.indGlacierVal = 0
         self.indGlacierGeo = 0
+        self.indGlacierValGeo = 0
         self.periodToInt = {"annual": 0, "winter": 1, "summer": 2}
 
         _, self.month_pos = _rebuild_month_index(months_head_pad, months_tail_pad)
@@ -103,12 +127,14 @@ class GeoDataLoader:
         # Prepare geodetic data
         self.prepareGeoData()
         self.glacierListGeo = self.glaciersWithGeo
+        self.glacierListValGeo = self.glaciersValWithGeo
         if ignoreStakesWithoutGeo:
             raise NotImplementedError(
                 "We need to implement an intersection between glaciersWithGeo and train/validation glaciers"
             )
             self.glacierList = self.glaciersWithGeo
             self.glacierListGeo = self.glaciersWithGeo  # TODO: change this
+            self.glacierListValGeo = self.glaciersValWithGeo  # TODO: change this
 
         if len(self.glaciersWithGeo) == 1:
             if self.geodeticSource in ["Hugonnet21", "PGO"]:
@@ -122,16 +148,16 @@ class GeoDataLoader:
             # )
         else:
             if self.geodeticSource == "Hugonnet21" and self.preloadGeodetic:
-                print("Preloading geodetic grids")
+                print("Preloading Hugonnet21 geodetic grids")
                 self.df_X_geod = {}
-                for rgi_id in tqdm.tqdm(self.glaciersWithGeo):
+                for rgi_id in tqdm.tqdm(self.glaciersWithGeo + self.glaciersValWithGeo):
                     self.df_X_geod[rgi_id] = geodetic_input_Hugonnet21(
                         rgi_id, years=self.years
                     )
             elif self.geodeticSource == "PGO" and self.preloadGeodetic:
-                print("Preloading geodetic grids")
+                print("Preloading PGO geodetic grids")
                 self.df_X_geod = {}
-                for rgi_id in tqdm.tqdm(self.glaciersWithGeo):
+                for rgi_id in tqdm.tqdm(self.glaciersWithGeo + self.glaciersValWithGeo):
                     self.df_X_geod[rgi_id] = geodetic_input_PGO(
                         rgi_id, time_range=self.periods_per_glacier[rgi_id]
                     )
@@ -145,7 +171,7 @@ class GeoDataLoader:
                 }
             else:
                 self.precomputed_meta = {}
-                for rgi_id in self.glaciersWithGeo:
+                for rgi_id in self.glaciersWithGeo + self.glaciersValWithGeo:
                     self.precomputed_meta[rgi_id] = self._metadata_groups(
                         self.df_X_geod[rgi_id]
                     )
@@ -167,7 +193,8 @@ class GeoDataLoader:
             )
             # TODO: implement this in a more clever way
             if self.geoGlaciers == "stakes":
-                rgi_ids = list(stakesDf.RGIId.unique())
+                # rgi_ids = list(stakesDf.RGIId.unique())
+                rgi_ids = list(set(self.glacierList).union(self.glacierListVal))
                 for g in self.ignoreGlaciers:
                     if g in rgi_ids:
                         rgi_ids.remove(g)
@@ -199,6 +226,21 @@ class GeoDataLoader:
                     self.y_target_geo[rgi_id] = np.array([mean_pmb])
                     self.err_target_geo[rgi_id] = np.array([err_pmb])
                     self.glaciersWithGeo.append(rgi_id)
+            if self.valStakesDf is None:
+                self.glaciersValWithGeo = []
+            else:
+                # Split glaciersWithGeo into validation and training glaciers
+                # self.glaciersValWithGeo = list(set(self.valStakesDf.RGIId.unique()).intersection(self.glaciersWithGeo))
+                # self.glaciersWithGeo = list(set(self.trainStakesDf.RGIId.unique()).intersection(self.glaciersWithGeo))
+                trainNoValGlaciers = set(self.glacierList).difference(
+                    self.glacierListVal
+                )
+                self.glaciersValWithGeo = list(
+                    set(self.glacierListVal).intersection(self.glaciersWithGeo)
+                )
+                self.glaciersWithGeo = list(
+                    set(trainNoValGlaciers).intersection(self.glaciersWithGeo)
+                )
         elif self.geodeticSource == "PGO":
             assert (
                 len(self.additionalYears) == 0
@@ -209,27 +251,18 @@ class GeoDataLoader:
                 rgi_ids = dfGeo.RGIId.unique()
                 self.rgi_id_to_pgo = {rgi_id: rgi_id for rgi_id in rgi_ids}
             else:
-                # A list of glaciers was provided, we need to check the version
-                if self.glacierList[0].startswith("RGI2000-v7.0-G-"):
-                    self.rgi_id_to_pgo = {rgi_id: rgi_id for rgi_id in self.glacierList}
+                self.rgi_id_to_pgo = buildPGOMapping(self.glacierList)
+                if len(self.glacierListVal) > 0:
+                    rgi_id_to_pgo_val = buildPGOMapping(self.glacierListVal)
+                    rgi_ids_val = list(rgi_id_to_pgo_val.values())
                 else:
-                    rgi_ids_rgi6 = self.glacierList
-                    region_id = int(
-                        rgi_ids_rgi6[0].split(".")[0].split("-")[1]
-                    )  # Use first glacier to retrieve region
-                    table_df = table_RGI62_to_PGO(region_id)
-                    import pdb
-
-                    pdb.set_trace()
-                    self.rgi_id_to_pgo = {}
-                    for rgi_id_rgi6 in rgi_ids_rgi6:
-                        tmp = table_df[table_df.RGIId == rgi_id_rgi6]
-                        if tmp.shape[0] == 1:
-                            self.rgi_id_to_pgo[rgi_id_rgi6] = tmp.custom_id.values[0]
+                    rgi_ids_val = []
                 rgi_ids = list(self.rgi_id_to_pgo.values())
             for g in self.ignoreGlaciers:
                 if g in rgi_ids:
                     rgi_ids.remove(g)
+                if g in rgi_ids_val:
+                    rgi_ids_val.remove(g)
             self.years = None
             time_ranges = {}
             for rgi_id in rgi_ids:
@@ -250,6 +283,13 @@ class GeoDataLoader:
                     self.y_target_geo[rgi_id] = np.array([mean_pmb])
                     self.err_target_geo[rgi_id] = np.array([err_pmb])
                     self.glaciersWithGeo.append(rgi_id)
+            # Split glaciersWithGeo into validation and training glaciers
+            self.glaciersValWithGeo = list(
+                set(self.glaciersWithGeo).intersection(rgi_ids_val)
+            )
+            self.glaciersWithGeo = list(
+                set(self.glaciersWithGeo).difference(self.glaciersValWithGeo)
+            )
         # else:
         #     # This works only with Swiss data
         #     geodetic_mb = get_geodetic_MB(self.cfg)
@@ -310,6 +350,7 @@ class GeoDataLoader:
         self.indGlacier = 0
         self.indGlacierVal = 0
         self.indGlacierGeo = 0
+        self.indGlacierValGeo = 0
 
     def __len__(self):
         return len(self.glacierList)
@@ -342,10 +383,20 @@ class GeoDataLoader:
         """
         Iterator that returns a glacier in the list of geodetic available glaciers as a string each time it is called.
         """
+        # TODO: make sure that we don't use val glaciers during training
         while self.indGlacierGeo < len(self.glacierListGeo):
             yield self.glacierListGeo[self.indGlacierGeo]
             self.indGlacierGeo += 1
         self.indGlacierGeo = 0
+
+    def glaciersValGeo(self):
+        """
+        Iterator that returns a glacier in the list of geodetic available glaciers as a string each time it is called.
+        """
+        while self.indGlacierValGeo < len(self.glacierListValGeo):
+            yield self.glacierListValGeo[self.indGlacierValGeo]
+            self.indGlacierValGeo += 1
+        self.indGlacierValGeo = 0
 
     def stakes(self, glacierName: str, overwriteDf: pd.DataFrame = None):
         """
@@ -417,11 +468,16 @@ class GeoDataLoader:
     def hasGeo(self, glacierName: str):
         if self.geodeticSource == "PGO":
             if glacierName in self.rgi_id_to_pgo:
-                return self.rgi_id_to_pgo[glacierName] in self.glaciersWithGeo
+                return (self.rgi_id_to_pgo[glacierName] in self.glaciersWithGeo) or (
+                    self.rgi_id_to_pgo[glacierName] in self.glaciersValWithGeo
+                )
             else:
                 return False
         else:
-            return glacierName in self.glaciersWithGeo
+            return (
+                glacierName in self.glaciersWithGeo
+                or glacierName in self.glaciersValWithGeo
+            )
 
     def geo(self, glacierName: str):
         return self._geo_sync(glacierName)
@@ -478,8 +534,8 @@ class GeoDataLoader:
         if self.geodeticSource == "PGO":
             if not glacierName.startswith("RGI2000-v7.0-G-"):
                 glacierName = self.rgi_id_to_pgo[glacierName]
-        assert (
-            glacierName in self.glaciersWithGeo
+        assert (glacierName in self.glaciersWithGeo) or (
+            glacierName in self.glaciersValWithGeo
         ), f"Glacier {glacierName} is not in the list of glaciers with available geodetic data for this dataloader."
         if self.df_X_geod is None:
             if self.geodeticSource == "Hugonnet21":

@@ -432,16 +432,22 @@ if pgo:
 test_glacierNames = {}
 if len(df_X_test_subset) > 0 and not noTest:
     if sourceData == "switzerland":
-        test_glaciers = list(data_test.GLACIER.unique())
+        test_glaciers = params["training"].get("test_glaciers_geo") or list(
+            data_test.GLACIER.unique()
+        )
     elif sourceData in ["iceland", "norway"]:
-        test_glaciers = list(data_test.RGIId.unique())
+        test_glaciers = params["training"].get("test_glaciers_geo") or list(
+            data_test.RGIId.unique()
+        )
     elif "wgms" in sourceData:
-        test_glaciers = list(data_test.RGIId.unique())
+        test_glaciers = params["training"].get("test_glaciers_geo") or list(
+            data_test.RGIId.unique()
+        )
     test_glacierNames = mbm.data_processing.oggm_utils._glacier_name(
         list(data_test.RGIId.unique()), cfg
     )
 
-    assert set(df_X_test_subset.RGIId.unique()) == set(test_glaciers)
+    # assert set(df_X_test_subset.RGIId.unique()) == set(test_glaciers)
 
     # Create dataloader
     test_gdl = mbm.dataloader.GeoDataLoader(
@@ -682,14 +688,26 @@ else:
 
 
 if sourceData == "switzerland":
-    train_glaciers = list(df_X_train.GLACIER.unique())
-    valid_glaciers = list(df_X_val.GLACIER.unique())
+    train_glaciers = params["training"].get("train_glaciers_geo") or list(
+        df_X_train.GLACIER.unique()
+    )
+    valid_glaciers = params["training"].get("val_glaciers_geo") or list(
+        df_X_val.GLACIER.unique()
+    )
 elif sourceData in ["iceland", "norway"]:
-    train_glaciers = list(df_X_train.RGIId.unique())
-    valid_glaciers = list(df_X_val.RGIId.unique())
+    train_glaciers = params["training"].get("train_glaciers_geo") or list(
+        df_X_train.RGIId.unique()
+    )
+    valid_glaciers = params["training"].get("val_glaciers_geo") or list(
+        df_X_val.RGIId.unique()
+    )
 elif "wgms" in sourceData:
-    train_glaciers = list(df_X_train.RGIId.unique())
-    valid_glaciers = list(df_X_val.RGIId.unique())
+    train_glaciers = params["training"].get("train_glaciers_geo") or list(
+        df_X_train.RGIId.unique()
+    )
+    valid_glaciers = params["training"].get("val_glaciers_geo") or list(
+        df_X_val.RGIId.unique()
+    )
 train_glacierNames = mbm.data_processing.oggm_utils._glacier_name(
     list(data_train.RGIId.unique()), cfg
 )
@@ -766,7 +784,8 @@ if plot:
 plt.close(fig)
 
 train_gl_per_el = {
-    k: datasetManager.mean_stakes_elevation[k] for k in datasetManager.train_glaciers
+    k: datasetManager.mean_stakes_elevation.get(k, 0.0)
+    for k in datasetManager.train_glaciers
 }
 train_gl_per_el = list(
     dict(sorted(train_gl_per_el.items(), key=lambda item: item[1])).keys()

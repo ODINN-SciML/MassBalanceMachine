@@ -158,7 +158,7 @@ def timeWindowGeodeticLoss(
     geodetic_MB_pred = torch.sum(
         predSumGeodPeriod * 12 / n_entries_unique_GLWD_M_ID
     ).view(1)
-    return ((geodetic_MB_pred - geoTarget[0]) / errGeoTarget[0]) ** 2
+    return ((geodetic_MB_pred - geoTarget[0]) / errGeoTarget[0]) ** 2, geodetic_MB_pred
 
     # yearsPred = metadataAggrYear.YEAR.values
     # raise NotImplementedError("The average should be performed over months and not years")
@@ -267,8 +267,6 @@ def eval_geodetic(
                 if next_g is not None:
                     next_geo_future = geo_dataloader.submit_geo(next_g)
 
-                # pbar = tqdm.tqdm(geo_dataloader.glaciersGeo(), total=geo_dataloader.lenGeo())
-                # for g in pbar:
                 pbar.set_description("Geodetic pred for %s" % (current_g), refresh=True)
                 pbar.update(1)
                 # consume prefetched current batch
@@ -480,7 +478,7 @@ def compute_geo_loss(
 
         # Compute the geodetic MB for the different time windows
         with record_function("timeWindowGeodeticLoss"):
-            lossGeo = timeWindowGeodeticLoss(
+            lossGeo, ypred = timeWindowGeodeticLoss(
                 predSumAnnualGlwd,
                 ygeo * 0,
                 errgeo,
@@ -527,7 +525,7 @@ def compute_geo_loss(
 
         # Compute the geodetic MB for the different time windows
         with record_function("timeWindowGeodeticLoss"):
-            lossGeo = timeWindowGeodeticLoss(
+            lossGeo, ypred = timeWindowGeodeticLoss(
                 predSumAnnualGlwd,
                 ygeo,
                 errgeo,
@@ -577,7 +575,7 @@ def compute_geo_loss(
 
     # Compute the geodetic MB for the different time windows
     with record_function("timeWindowGeodeticLoss"):
-        lossGeo = timeWindowGeodeticLoss(
+        lossGeo, ypred = timeWindowGeodeticLoss(
             predSumGeodPeriod,
             ygeo,
             errgeo,
@@ -585,7 +583,7 @@ def compute_geo_loss(
             geod_periods,
         )
 
-    return lossGeo.mean()  # Compute mean of the different time window scores
+    return lossGeo.mean(), ypred  # Compute mean of the different time window scores
 
 
 def scores(pred: torch.Tensor, target: torch.Tensor):
@@ -686,15 +684,6 @@ def assessOnTest(log_dir, model, geodataloader_test, params, light=False, color=
     # Make plots
     plot_pred_vs_obs(log_dir, targetAll, predAll, {"rmse": rmse, "mae": mae, "r2": r2})
 
-    if not light:
-        # Geodetic prediction
-        geoPred, geoTarget, geoErr, _ = eval_geodetic(model, geodataloader_test)
-        fig = predVSTruthGlacierWide(
-            geoTarget, geoPred, geoErr, title="Glacier wide MB on test", color=color
-        )
-        plt.savefig(os.path.join(log_dir, "geodetic_test.png"))
-        plt.close(fig)
-
     stats = {
         "mse": mse.item(),
         "rmse": rmse.item(),
@@ -722,6 +711,24 @@ def assessOnTest(log_dir, model, geodataloader_test, params, light=False, color=
         stats["pearson_summer"] = pearson_corr_summer.item()
         stats["r2_summer"] = r2_summer.item()
         stats["bias_summer"] = bias_summer.item()
+
+    if not light:
+        # Geodetic prediction
+        geoPred, geoTarget, geoErr, _ = eval_geodetic(model, geodataloader_test)
+        fig = predVSTruthGlacierWide(
+            geoTarget, geoPred, geoErr, title="Glacier wide MB on test", color=color
+        )
+        plt.savefig(os.path.join(log_dir, "geodetic_test.png"))
+        plt.close(fig)
+
+        kGl = list(geoPred.keys())
+        sigmaAllGeo = np.array([geoErr[k] for k in kGl])
+        predAllGeo = np.array([geoPred[k] for k in kGl])
+        targetAllGeo = np.array([geoTarget[k] for k in kGl])
+        w = 1 / sigmaAllGeo**2
+        rmse_geo = np.sqrt((w * (targetAllGeo - predAllGeo) ** 2).sum() / (w.sum()))
+        stats["rmseGeo"] = rmse_geo.item()
+
     return stats
 
 
@@ -749,8 +756,13 @@ def assessOnVal(model, geodataloader, params, async_transfer=None, zeroTgtGeo=Fa
         periodAll = np.zeros(
             0, dtype=np.array(list(geodataloader.periodToInt.keys())).dtype
         )  # Initialize with correct dtype
+        targetAllGeo = torch.zeros(0)
+        sigmaAllGeo = torch.zeros(0)
+        predAllGeo = torch.zeros(0)
 
-        glacier_iter = iter(geodataloader.glaciersVal())
+        glacier_iter = iter(
+            geodataloader.glaciersValGeo() if wGeo > 0 else geodataloader.glaciersVal()
+        )
         try:
             current_g = next(glacier_iter)
         except StopIteration:
@@ -763,7 +775,6 @@ def assessOnVal(model, geodataloader, params, async_transfer=None, zeroTgtGeo=Fa
 
         batch_idx = 0
         while current_g is not None:
-            # for g in geodataloader.glaciersVal():
 
             # Look ahead and start loading geo for the next iteration
             try:
@@ -856,7 +867,7 @@ def assessOnVal(model, geodataloader, params, async_transfer=None, zeroTgtGeo=Fa
                 ygeo = ygeo.to(geodataloader.device, non_blocking=async_transfer)
                 errgeo = errgeo.to(geodataloader.device, non_blocking=async_transfer)
                 geod_periods = geodataloader.geodetic_periods(current_g)
-                lossGeo += compute_geo_loss(
+                lossGeo_i, ypredgeo = compute_geo_loss(
                     model,
                     geoGrid,
                     metadata,
@@ -866,6 +877,10 @@ def assessOnVal(model, geodataloader, params, async_transfer=None, zeroTgtGeo=Fa
                     precomputed_meta,
                     zeroTgtGeo=zeroTgtGeo,
                 )
+                targetAllGeo = torch.concatenate((targetAllGeo, ygeo.cpu().detach()))
+                predAllGeo = torch.concatenate((predAllGeo, ypredgeo.cpu().detach()))
+                sigmaAllGeo = torch.concatenate((sigmaAllGeo, errgeo.cpu().detach()))
+                lossGeo += lossGeo_i
                 cntGeo += 1
 
             # Shift pipeline
@@ -919,6 +934,8 @@ def assessOnVal(model, geodataloader, params, async_transfer=None, zeroTgtGeo=Fa
             mse_winter = rmse_winter = mae_winter = pearson_corr_winter = r2_winter = (
                 bias_winter
             ) = torch.tensor(torch.nan)
+        w = 1 / sigmaAllGeo**2
+        rmse_geo = ((w * (targetAllGeo - predAllGeo) ** 2).sum() / (w.sum())).sqrt()
 
         statsVal["lossValStake"] = lossStake.item()
         statsVal["lossValGeo"] = lossGeo.item()
@@ -941,6 +958,8 @@ def assessOnVal(model, geodataloader, params, async_transfer=None, zeroTgtGeo=Fa
         statsVal["pearson_winter"] = pearson_corr_winter.item()
         statsVal["r2_winter"] = r2_winter.item()
         statsVal["bias_winter"] = bias_winter.item()
+
+        statsVal["rmseGeo"] = rmse_geo.item()
 
     return statsVal
 
@@ -1026,7 +1045,11 @@ def train_geo(
     assert bestModelCriterion in _criterionVal
     scalingStakes = params["training"]["scalingStakes"]
     assert scalingStakes in ["meas", "glacier", "full", "none"]
-    iterPerEpoch = len(geodataloader)
+    if wGeo > 0:
+        assert (
+            scalingStakes == "full"
+        ), "With geodetic training, only scalingStakes='full' is possible."
+    iterPerEpoch = geodataloader.lenGeo() if wGeo > 0 else len(geodataloader)
     nColsProgressBar = 500 if _inJupyterNotebook else 85
     wWinter = params["training"].get("wWinter", 1.0)
     wSummer = params["training"].get("wSummer", 1.0)
@@ -1073,6 +1096,7 @@ def train_geo(
         "lossVal": [],
         "lossValStake": [],
         "lossValGeo": [],
+        "rmseGeo": [],
     }
     for suffix in ["", "_annual", "_winter", "_summer"]:
         for metric in valMetrics:
@@ -1102,7 +1126,10 @@ def train_geo(
                 ncols=nColsProgressBar,
             ) as batch_bar:
 
-                glacier_iter = iter(geodataloader.glaciers())
+                if wGeo > 0:
+                    glacier_iter = iter(geodataloader.glaciersGeo())
+                else:
+                    glacier_iter = iter(geodataloader.glaciers())
                 try:
                     current_g = next(glacier_iter)
                 except StopIteration:
@@ -1119,7 +1146,6 @@ def train_geo(
 
                 batch_idx = 0
                 while current_g is not None:
-                    # for batch_idx, g in enumerate(geodataloader.glaciers()):
 
                     prof_ctx = (
                         profile(
@@ -1253,7 +1279,7 @@ def train_geo(
                             if timeExec:
                                 torch.cuda.synchronize()
                                 st = time.time()
-                            lossGeo = compute_geo_loss(
+                            lossGeo, ypredgeo = compute_geo_loss(
                                 model,
                                 geoGrid,
                                 metadata,
@@ -1374,6 +1400,7 @@ def train_geo(
                     "bias": "bias/val",
                     "bias_annual": "bias_annual/val",
                     "bias_winter": "bias_winter/val",
+                    "rmseGeo": "RMSEGeo/val",
                 }
                 for k, v in statsValEpoch.items():
                     statsVal[k].append(v)

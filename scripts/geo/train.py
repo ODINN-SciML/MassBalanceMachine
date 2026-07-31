@@ -258,6 +258,21 @@ df_X_train, y_train, df_X_val, y_val = trainValData(
     split_key=split_key,
     val_glaciers=val_glaciers,
 )
+tot = df_X_train.ID.nunique() + df_X_val.ID.nunique() + test_set["df_X"].ID.nunique()
+print(
+    "# train =", df_X_train.ID.nunique(), "(", 100 * df_X_train.ID.nunique() / tot, "%)"
+)  # 14880
+print(
+    "# val =", df_X_val.ID.nunique(), "(", 100 * df_X_val.ID.nunique() / tot, "%)"
+)  # 3743
+print(
+    "# test =",
+    test_set["df_X"].ID.nunique(),
+    "(",
+    100 * test_set["df_X"].ID.nunique() / tot,
+    "%)",
+)  # 4758
+print("# tot =", tot)  # 23381
 
 
 print(
@@ -268,14 +283,31 @@ print(
 device = torch.device("cuda:0" if torch.cuda.is_available() and not cpu else "cpu")
 
 if sourceData == "switzerland":
-    glaciers = list(data_train.GLACIER.unique())
-    glaciersVal = list(df_X_val.GLACIER.unique())
+    glaciers = params["training"].get("train_glaciers_geo") or list(
+        data_train.GLACIER.unique()
+    )
+    glaciersVal = params["training"].get("val_glaciers_geo") or list(
+        df_X_val.GLACIER.unique()
+    )
 elif sourceData in ["iceland", "norway"]:
-    glaciers = list(data_train.RGIId.unique())
-    glaciersVal = list(df_X_val.RGIId.unique())
+    glaciers = params["training"].get("train_glaciers_geo") or list(
+        data_train.RGIId.unique()
+    )
+    glaciersVal = params["training"].get("val_glaciers_geo") or list(
+        df_X_val.RGIId.unique()
+    )
 elif "wgms" in sourceData:
-    glaciers = list(data_train.RGIId.unique())
-    glaciersVal = list(df_X_val.RGIId.unique())
+    glaciers = params["training"].get("train_glaciers_geo") or list(
+        data_train.RGIId.unique()
+    )
+    glaciersVal = params["training"].get("val_glaciers_geo") or list(
+        df_X_val.RGIId.unique()
+    )
+if wGeo:
+    assert (
+        params["training"]["splitVal"] == "group-rgi"
+    ), "With the geodetic training, only glacier split is available for the moment."
+# import pdb; pdb.set_trace()
 gdl = mbm.dataloader.GeoDataLoader(
     cfg,
     glaciers,
@@ -286,7 +318,7 @@ gdl = mbm.dataloader.GeoDataLoader(
     months_tail_pad=months_tail_pad,
     valStakesDf=df_X_val,
     keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
-    preloadGeodetic=wGeo > 0,
+    preloadGeodetic=(wGeo > 0 and len(glaciers) < 60),
     allStakesPerIter=(params["training"]["scalingStakes"] == "full"),
     geodeticSource=params["training"]["geodetic_source"],
 )
@@ -352,11 +384,17 @@ else:
 data_test = testData(cfg, test_set, featuresInpModel)
 
 if sourceData == "switzerland":
-    test_glaciers = list(data_test.GLACIER.unique())
+    test_glaciers = params["training"].get("test_glaciers_geo") or list(
+        data_test.GLACIER.unique()
+    )
 elif sourceData in ["iceland", "norway"]:
-    test_glaciers = list(data_test.RGIId.unique())
+    test_glaciers = params["training"].get("test_glaciers_geo") or list(
+        data_test.RGIId.unique()
+    )
 elif "wgms" in sourceData:
-    test_glaciers = list(data_test.RGIId.unique())
+    test_glaciers = params["training"].get("test_glaciers_geo") or list(
+        data_test.RGIId.unique()
+    )
 if doTest:
     gdl_test = mbm.dataloader.GeoDataLoader(
         cfg,
@@ -366,7 +404,7 @@ if doTest:
         months_head_pad=months_head_pad,
         months_tail_pad=months_tail_pad,
         keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
-        preloadGeodetic=wGeo > 0,
+        preloadGeodetic=(wGeo > 0 and len(test_glaciers) < 60),
         allStakesPerIter=(params["training"]["scalingStakes"] == "full"),
         geodeticSource=params["training"]["geodetic_source"],
     )

@@ -62,38 +62,47 @@ def parseParams(params):
         }
     # if "layers_cor_geodetic" in modelParams:
     #     modelParams["layers_cor_geodetic"] = params["model"]["layers_cor_geodetic"]
+    trainingParams = {
+        "source_data": source_data,
+        "geodetic_source": geodetic_source,
+        "lr": lr,
+        "momentum": momentum,
+        "beta1": beta1,
+        "beta2": beta2,
+        "optim": optim,
+        "scheduler": scheduler,
+        "scheduler_gamma": scheduler_gamma,
+        "scheduler_step_size": scheduler_step_size,
+        "Nepochs": Nepochs,
+        "batch_size": batch_size,
+        "weight_decay": weight_decay,
+        "scalingStakes": scalingStakes,
+        "test_glaciers": params["training"].get("test_glaciers"),
+        "train_glaciers": params["training"].get("train_glaciers"),
+        "val_glaciers": params["training"].get("val_glaciers"),
+        "wGeo": params["training"].get("wGeo", 0.0),
+        "bestModelCriterion": params["training"].get("bestModelCriterion", "lossVal"),
+        "splitVal": params["training"].get("splitVal", "group-meas-id"),
+        "freqVal": params["training"].get("freqVal", 1),
+        "log_suffix": params["training"].get("log_suffix", ""),
+        "log_prefix": params["training"].get("log_prefix", ""),
+        "log_dir": params["training"].get("log_dir"),
+        "wWinter": params["training"].get("wWinter", 1.0),
+        "wSummer": params["training"].get("wSummer", 1.0),
+    }
+    if "test_glaciers_geo" in params["training"]:
+        trainingParams["test_glaciers_geo"] = params["training"].get(
+            "test_glaciers_geo"
+        )
+    if "train_glaciers_geo" in params["training"]:
+        trainingParams["train_glaciers_geo"] = params["training"].get(
+            "train_glaciers_geo"
+        )
+    if "val_glaciers_geo" in params["training"]:
+        trainingParams["val_glaciers_geo"] = params["training"].get("val_glaciers_geo")
     return {
         "model": modelParams,
-        "training": {
-            "source_data": source_data,
-            "geodetic_source": geodetic_source,
-            "lr": lr,
-            "momentum": momentum,
-            "beta1": beta1,
-            "beta2": beta2,
-            "optim": optim,
-            "scheduler": scheduler,
-            "scheduler_gamma": scheduler_gamma,
-            "scheduler_step_size": scheduler_step_size,
-            "Nepochs": Nepochs,
-            "batch_size": batch_size,
-            "weight_decay": weight_decay,
-            "scalingStakes": scalingStakes,
-            "test_glaciers": params["training"].get("test_glaciers"),
-            "train_glaciers": params["training"].get("train_glaciers"),
-            "val_glaciers": params["training"].get("val_glaciers"),
-            "wGeo": params["training"].get("wGeo", 0.0),
-            "bestModelCriterion": params["training"].get(
-                "bestModelCriterion", "lossVal"
-            ),
-            "splitVal": params["training"].get("splitVal", "group-meas-id"),
-            "freqVal": params["training"].get("freqVal", 1),
-            "log_suffix": params["training"].get("log_suffix", ""),
-            "log_prefix": params["training"].get("log_prefix", ""),
-            "log_dir": params["training"].get("log_dir"),
-            "wWinter": params["training"].get("wWinter", 1.0),
-            "wSummer": params["training"].get("wSummer", 1.0),
-        },
+        "training": trainingParams,
     }
 
 
