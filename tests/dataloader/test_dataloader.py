@@ -3,6 +3,7 @@ from collections import deque
 import pandas as pd
 import massbalancemachine as mbm
 
+from massbalancemachine.dataloader.GeoDataLoader import GeoDataLoader
 from massbalancemachine.training.training import _prefetch_geo_batches
 
 
@@ -37,6 +38,27 @@ def test_prefetch_geo_batches_skips_when_wgeo_zero():
 
     assert queue == deque()
     assert loader.submitted == []
+
+
+def test_geo_loader_caches_repeated_loads():
+    loader = object.__new__(GeoDataLoader)
+    loader._geo_cache = {}
+    loader._geo_cache_lock = None
+
+    calls = []
+
+    def fake_geo_sync(self, glacier_name, async_transfer=False):
+        calls.append((glacier_name, async_transfer))
+        return (glacier_name, "features", "target", "err", "meta")
+
+    GeoDataLoader._geo_sync = fake_geo_sync
+
+    first = loader._get_cached_geo_data("g1")
+    second = loader._get_cached_geo_data("g1")
+
+    assert first == ("g1", "features", "target", "err", "meta")
+    assert second == first
+    assert calls == [("g1", False)]
 
 
 def test_dataloader():

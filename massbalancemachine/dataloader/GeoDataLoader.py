@@ -86,7 +86,7 @@ class GeoDataLoader:
         device=torch.device("cpu"),
         allStakesPerIter=False,
         additionalYears=[],  # years for which to ensure the gridded products are generated in addition to what is required to process the dataset (which is based on the geodeticSource argument); this is used only when geoGlaciers="stakes"
-        prefetch_batches: int = 2,
+        prefetch_batches: int = 10,
     ) -> None:
         self.cfg = cfg
         self.glacierList = (
@@ -182,6 +182,8 @@ class GeoDataLoader:
 
         self.normalizer = Normalizer({k: cfg.bnds[k] for k in cfg.featureColumns})
 
+        self._geo_cache = {}
+        self._geo_cache_lock = None
         self._geo_executor = ThreadPoolExecutor(max_workers=self.prefetch_batches)
 
     def prepareGeoData(self) -> None:
@@ -481,13 +483,29 @@ class GeoDataLoader:
                 or glacierName in self.glaciersValWithGeo
             )
 
+    def _get_cached_geo_data(self, glacierName: str, async_transfer: bool = False):
+        if glacierName in self._geo_cache:
+            return self._geo_cache[glacierName]
+
+        if self._geo_cache_lock is not None:
+            with self._geo_cache_lock:
+                if glacierName in self._geo_cache:
+                    return self._geo_cache[glacierName]
+                geo_data = self._geo_sync(glacierName, async_transfer)
+                self._geo_cache[glacierName] = geo_data
+                return geo_data
+
+        geo_data = self._geo_sync(glacierName, async_transfer)
+        self._geo_cache[glacierName] = geo_data
+        return geo_data
+
     def geo(self, glacierName: str):
-        return self._geo_sync(glacierName)
+        return self._get_cached_geo_data(glacierName)
 
     def submit_geo(self, glacierName: str):
         if not self.hasGeo(glacierName):
             return None
-        return self._geo_executor.submit(self._geo_sync, glacierName)
+        return self._geo_executor.submit(self._get_cached_geo_data, glacierName)
 
     def _metadata_groups(self, df):
         # Retrieve feature columns directly from the config

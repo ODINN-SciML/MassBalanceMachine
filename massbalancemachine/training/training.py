@@ -1033,7 +1033,9 @@ def loadBestModel(log_dir, model):
         val = float(val)
     if best is None:
         raise Exception("No model found.")
-    model.load_state_dict(torch.load(files[best], weights_only=True))
+    model.load_state_dict(
+        torch.load(files[best], weights_only=True, map_location=torch.device("cpu"))
+    )
     return files[best], bestVal
 
 
@@ -1188,7 +1190,14 @@ def train_geo(
                         optim.zero_grad()
 
                         if prefetch_enabled:
-                            current_g, current_geo_future = prefetched_batches.popleft()
+                            if not prefetched_batches:
+                                break
+                            try:
+                                current_g, current_geo_future = (
+                                    prefetched_batches.popleft()
+                                )
+                            except IndexError:
+                                break
                             if current_g is None:
                                 break
                             _prefetch_geo_batches(
