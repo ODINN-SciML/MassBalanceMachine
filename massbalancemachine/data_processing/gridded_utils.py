@@ -505,3 +505,69 @@ def geodetic_target_region_Hugonnet21(region_id, cfg, thres_area=None):
     rgi_ids = reg_mbdf.index.values
 
     return geodetic_target_Hugonnet21(rgi_ids, cfg)
+
+
+def generate_grid_multi_years(rgi_id, years, product_source):
+    assert product_source in ["Hugonnet21", "PGO"]
+    path_prepared = os.path.join(
+        data_path,
+        "grids_multiyears",
+        product_source,
+        "_".join([str(y) for y in years]),
+        *(rgi_id_to_folders(rgi_id)[:-1]),
+    )
+    path_prepared_df = os.path.join(path_prepared, f"{rgi_id}.parquet")
+    p = Product(path_prepared_df)
+    if not p.is_up_to_date():
+        os.makedirs(path_prepared, exist_ok=True)
+        if product_source == "Hugonnet21":
+            df_X_geod_rgi_id = geodetic_input_Hugonnet21(rgi_id, years=years)
+        elif product_source == "PGO":
+            df_X_geod_rgi_id = geodetic_input_PGO(rgi_id, years=years)
+        df_X_geod_rgi_id.to_parquet(
+            path_prepared_df, engine="pyarrow", compression="snappy"
+        )
+        p.gen_chk()
+
+
+def load_grid_multi_years(rgi_id, years, product_source):
+    assert product_source in ["Hugonnet21", "PGO"]
+    path_prepared = os.path.join(
+        data_path,
+        "grids_multiyears",
+        product_source,
+        "_".join([str(y) for y in years]),
+        *(rgi_id_to_folders(rgi_id)[:-1]),
+    )
+    path_prepared_df = os.path.join(path_prepared, f"{rgi_id}.parquet")
+    # TODO: determine these based on features and metadata
+    columns = [
+        "ALTITUDE_CLIMATE",
+        "POINT_LAT",
+        "POINT_BALANCE",
+        "N_MONTHS",
+        "PERIOD",
+        "POINT_ELEVATION",
+        "ID",
+        "YEAR",
+        "svf",
+        "MONTHS",
+        "slope",
+        "RGIId",
+        "ELEVATION_DIFFERENCE",
+        "aspect",
+        "POINT_LON",
+        "t2m",
+        "tp",
+        "slhf",
+        "sshf",
+        "ssrd",
+        "fal",
+        "str",
+        "u10",
+        "v10",
+        "GLWD_M_ID",
+        "GLWD_ID",
+    ]
+    df = pd.read_parquet(path_prepared_df, columns=columns)
+    return df

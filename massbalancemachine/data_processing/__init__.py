@@ -22,5 +22,7 @@ from data_processing.gridded_utils import (
     geodetic_input_PGO,
     geodetic_target_Hugonnet21,
     geodetic_target_region_Hugonnet21,
+    generate_grid_multi_years,
+    load_grid_multi_years,
 )
 from data_processing.pgo import geodetic_target_PGO

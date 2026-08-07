@@ -24,6 +24,8 @@ from data_processing.gridded_utils import (
     geodetic_input_PGO,
     geodetic_target_Hugonnet21,
     geodetic_target_region_Hugonnet21,
+    generate_grid_multi_years,
+    load_grid_multi_years,
 )
 from data_processing.pgo import pgo_target_file, geodetic_target_PGO, table_RGI62_to_PGO
 from models.TorchNeuralNetworkRegressor import aggrMetadata
@@ -147,22 +149,45 @@ class GeoDataLoader:
             #     to_seasonal=False,
             # )
         else:
-            if self.geodeticSource == "Hugonnet21" and self.preloadGeodetic:
-                print("Preloading Hugonnet21 geodetic grids")
-                self.df_X_geod = {}
-                for rgi_id in tqdm.tqdm(self.glaciersWithGeo + self.glaciersValWithGeo):
-                    self.df_X_geod[rgi_id] = geodetic_input_Hugonnet21(
-                        rgi_id, years=self.years
-                    )
-            elif self.geodeticSource == "PGO" and self.preloadGeodetic:
-                print("Preloading PGO geodetic grids")
-                self.df_X_geod = {}
-                for rgi_id in tqdm.tqdm(self.glaciersWithGeo + self.glaciersValWithGeo):
-                    self.df_X_geod[rgi_id] = geodetic_input_PGO(
-                        rgi_id, time_range=self.periods_per_glacier[rgi_id]
-                    )
-            else:
+            if self.preloadGeodetic:
+                if self.geodeticSource == "Hugonnet21":
+                    print("Preloading Hugonnet21 geodetic grids")
+                    self.df_X_geod = {}
+                    for rgi_id in tqdm.tqdm(
+                        self.glaciersWithGeo + self.glaciersValWithGeo
+                    ):
+                        self.df_X_geod[rgi_id] = geodetic_input_Hugonnet21(
+                            rgi_id, years=self.years
+                        )
+                elif self.geodeticSource == "PGO":
+                    print("Preloading PGO geodetic grids")
+                    self.df_X_geod = {}
+                    for rgi_id in tqdm.tqdm(
+                        self.glaciersWithGeo + self.glaciersValWithGeo
+                    ):
+                        self.df_X_geod[rgi_id] = geodetic_input_PGO(
+                            rgi_id, time_range=self.periods_per_glacier[rgi_id]
+                        )
+                else:
+                    raise ValueError(f"Unknown geodetic source {self.geodeticSource}.")
+            elif self.geodeticSource is not None:
                 self.df_X_geod = None
+                if self.geodeticSource == "Hugonnet21":
+                    print("Preparing Hugonnet21 geodetic grids")
+                    for rgi_id in tqdm.tqdm(
+                        self.glaciersWithGeo + self.glaciersValWithGeo
+                    ):
+                        generate_grid_multi_years(rgi_id, self.years, "Hugonnet21")
+                elif self.geodeticSource == "PGO":
+                    print("Preparing PGO geodetic grids")
+                    for rgi_id in tqdm.tqdm(
+                        self.glaciersWithGeo + self.glaciersValWithGeo
+                    ):
+                        generate_grid_multi_years(
+                            rgi_id, self.periods_per_glacier[rgi_id], "PGO"
+                        )
+                else:
+                    raise ValueError(f"Unknown geodetic source {self.geodeticSource}.")
 
         if self.df_X_geod is not None:
             if len(self.glaciersWithGeo) == 1:
@@ -324,11 +349,9 @@ class GeoDataLoader:
                 g = self.rgi_id_to_pgo[g]
         if self.df_X_geod is None:
             if self.geodeticSource == "Hugonnet21":
-                df_X_geod = geodetic_input_Hugonnet21(g, years=self.years)
+                df_X_geod = load_grid_multi_years(g, self.years, "Hugonnet21")
             elif self.geodeticSource == "PGO":
-                df_X_geod = geodetic_input_PGO(
-                    g, time_range=self.periods_per_glacier[g]
-                )
+                df_X_geod = load_grid_multi_years(g, self.periods_per_glacier[g], "PGO")
             precomputed_meta = self._metadata_groups(df_X_geod)
         else:
             if self.preloadGeodetic:
@@ -539,10 +562,10 @@ class GeoDataLoader:
         ), f"Glacier {glacierName} is not in the list of glaciers with available geodetic data for this dataloader."
         if self.df_X_geod is None:
             if self.geodeticSource == "Hugonnet21":
-                df_X_geod = geodetic_input_Hugonnet21(glacierName, years=self.years)
+                df_X_geod = load_grid_multi_years(glacierName, self.years, "Hugonnet21")
             elif self.geodeticSource == "PGO":
-                df_X_geod = geodetic_input_PGO(
-                    glacierName, time_range=self.periods_per_glacier[glacierName]
+                df_X_geod = load_grid_multi_years(
+                    glacierName, self.periods_per_glacier[glacierName], "PGO"
                 )
             # else:
             #     df_X_geod = create_geodetic_input(
