@@ -21,6 +21,7 @@ from scripts.nongeo.utils import (
     testData,
     setFeatures,
 )
+from scripts.gridsearch import recursive_update
 from scripts.common import default_glacier_name
 
 warnings.filterwarnings("ignore")
@@ -98,6 +99,13 @@ parser.add_argument(
     nargs="+",
     help="Years for which to compute the distributed MB. This is also used to generate the annual MB maps.",
 )
+parser.add_argument(
+    "-o",
+    "--overwrite",
+    type=str,
+    default=None,
+    help="File to overwrite the hyper-parameters that define the model and the training.",
+)
 args = parser.parse_args()
 
 modelFolder = args.modelFolder
@@ -111,6 +119,7 @@ pgo = args.pgo
 color = args.color
 maps = args.maps
 yearsMaps = [int(y) for y in args.years]
+overwrite = args.overwrite
 pathFolder = os.path.join("logs", modelFolder)
 
 if len(maps) > 0:
@@ -125,6 +134,17 @@ import matplotlib.pyplot as plt
 
 with open(f"{pathFolder}/params.json", "r") as f:
     params = json.load(f)
+
+if overwrite is not None:
+    import yaml
+
+    overwriting_params = None
+    with open("scripts/netcfg/" + overwrite + ".yml") as stream:
+        try:
+            overwriting_params = yaml.safe_load(stream)
+        except yaml.YAMLError as exc:
+            print(exc)
+    recursive_update(params, overwriting_params)
 
 featuresInpModel = params["model"]["inputs"]
 sourceData = params["training"]["source_data"]

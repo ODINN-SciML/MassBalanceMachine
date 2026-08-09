@@ -18,6 +18,15 @@ def flatten_dict(d, parent_key="", sep="."):
     return result
 
 
+def recursive_update(target, source):
+    for key in source:
+        assert key in target.keys()
+        if isinstance(target[key], dict):
+            recursive_update(target[key], source[key])
+        else:
+            target[key] = source[key]
+
+
 def recursive_update_from_flat(target, source, sep="."):
     for flat_key, value in source.items():
         parts = flat_key.split(sep)
