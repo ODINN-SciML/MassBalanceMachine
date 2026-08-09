@@ -36,13 +36,6 @@ parser.add_argument(
     help="Suffix to add to the folder that contains the model once trained.",
 )
 parser.add_argument(
-    "--doTest",
-    dest="doTest",
-    default=False,
-    action="store_true",
-    help="Evaluate on the test set during training.",
-)
-parser.add_argument(
     "--time",
     dest="time",
     default=False,
@@ -82,7 +75,6 @@ params = loadParams(args.modelType)
 modelToLoad = args.load
 cpu = args.cpu
 suffix = args.suffix
-doTest = args.doTest
 timeExec = args.time
 prof = args.prof
 wGeo = args.wGeo
@@ -395,21 +387,6 @@ elif "wgms" in sourceData:
     test_glaciers = params["training"].get("test_glaciers_geo") or list(
         data_test.RGIId.unique()
     )
-if doTest:
-    gdl_test = mbm.dataloader.GeoDataLoader(
-        cfg,
-        test_glaciers,
-        device=device,
-        trainStakesDf=data_test,
-        months_head_pad=months_head_pad,
-        months_tail_pad=months_tail_pad,
-        keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
-        preloadGeodetic=(wGeo > 0 and len(test_glaciers) < 60),
-        allStakesPerIter=(params["training"]["scalingStakes"] == "full"),
-        geodeticSource=params["training"]["geodetic_source"],
-    )
-else:
-    gdl_test = None
 
 ret = mbm.training.train_geo(
     model,
@@ -417,7 +394,6 @@ ret = mbm.training.train_geo(
     optim,
     params,
     scheduler=scheduler,
-    geodataloader_test=gdl_test,
     timeExec=timeExec,
     useProfiler=prof,
     multi=multi,

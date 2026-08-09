@@ -1040,7 +1040,6 @@ def train_geo(
     optim,
     params,
     scheduler=None,
-    geodataloader_test=None,
     timeExec=False,
     useProfiler=False,
     multi=None,
@@ -1055,8 +1054,6 @@ def train_geo(
         optim (PyTorch optimizer): Optimizer instance to use.
         params (dict): Model and training hyper-parameters.
         scheduler (PyTorch LR scheduler): The learning rate scheduler (optional).
-        geodataloader_test (GeoDataLoader): Optional dataloader that provides both
-            stake measurements and geodetic data on the test set.
         timeExec (bool): Whether to evaluate loading and inference time.
         useProfiler (bool): Whether to profile the code.
     """
@@ -1471,11 +1468,6 @@ def train_geo(
                         ),
                     )
                     torch.save(model.state_dict(), model_path)
-
-                    if geodataloader_test is not None and len(geodataloader_test) > 0:
-                        assessOnTest(
-                            log_dir, model, geodataloader_test, params, light=True
-                        )
 
             rmse = statsVal["rmse"][-1] if len(statsVal["rmse"]) > 0 else np.nan
             r2 = statsVal["r2"][-1] if len(statsVal["r2"]) > 0 else np.nan
