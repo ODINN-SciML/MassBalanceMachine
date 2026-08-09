@@ -735,6 +735,8 @@ def assessOnTest(log_dir, model, geodataloader_test, params, light=False, color=
 def assessOnVal(model, geodataloader, params, async_transfer=None, zeroTgtGeo=False):
     wGeo = params["training"]["wGeo"]
     scalingStakes = params["training"]["scalingStakes"]
+    iterPerEpoch = geodataloader.lenValGeo() if wGeo > 0 else len(geodataloader)
+    nColsProgressBar = 500 if _inJupyterNotebook else 85
     wWinter = params["training"].get("wWinter", 1.0)
     wSummer = params["training"].get("wSummer", 1.0)
     if wWinter == 1.0 and wSummer == 1.0:
@@ -760,133 +762,153 @@ def assessOnVal(model, geodataloader, params, async_transfer=None, zeroTgtGeo=Fa
         sigmaAllGeo = torch.zeros(0)
         predAllGeo = torch.zeros(0)
 
-        glacier_iter = iter(
-            geodataloader.glaciersValGeo() if wGeo > 0 else geodataloader.glaciersVal()
-        )
-        try:
-            current_g = next(glacier_iter)
-        except StopIteration:
-            current_g = None
+        with tqdm.tqdm(
+            total=iterPerEpoch,
+            desc=f"Batch (val)",
+            position=1,
+            leave=False,
+            ncols=nColsProgressBar,
+        ) as batch_bar:
 
-        # geo future loaded at the first iteration
-        current_geo_future = None
-        if current_g is not None and wGeo > 0 and geodataloader.hasGeo(current_g):
-            current_geo_future = geodataloader.submit_geo(current_g)
-
-        batch_idx = 0
-        while current_g is not None:
-
-            # Look ahead and start loading geo for the next iteration
+            glacier_iter = iter(
+                geodataloader.glaciersValGeo()
+                if wGeo > 0
+                else geodataloader.glaciersVal()
+            )
             try:
-                next_g = next(glacier_iter)
+                current_g = next(glacier_iter)
             except StopIteration:
-                next_g = None
+                current_g = None
 
-            next_geo_future = None
-            if next_g is not None and wGeo > 0 and geodataloader.hasGeo(next_g):
-                next_geo_future = geodataloader.submit_geo(next_g)
+            # geo future loaded at the first iteration
+            current_geo_future = None
+            if current_g is not None and wGeo > 0 and geodataloader.hasGeo(current_g):
+                current_geo_future = geodataloader.submit_geo(current_g)
 
-            if (scalingStakes != "full" or batch_idx == 0) and useStakes:
-                # When scalingStakes="full" all stakes are processed at once and this is independent from the provided glacier
-                stakes, metadata, point_balance = geodataloader.stakesVal(current_g)
-                stakes = torch.tensor(stakes.astype(np.float32)).to(
-                    geodataloader.device
-                )
-                point_balance = torch.tensor(point_balance.astype(np.float32)).to(
-                    geodataloader.device
-                )
+            batch_idx = 0
+            while current_g is not None:
 
-                if wWinter != 1.0 or wSummer != 1.0:
-                    if stakes.shape[0] == 0:
-                        weightStakes = None
-                    else:
-                        idAggr = metadata["ID"].values
-                        int_id, unique_id = pd.factorize(idAggr)
-                        weightStakes = torch.ones(
-                            (len(np.unique(idAggr)),),
-                            device=geodataloader.device,
-                            dtype=point_balance.dtype,
+                # Look ahead and start loading geo for the next iteration
+                try:
+                    next_g = next(glacier_iter)
+                except StopIteration:
+                    next_g = None
+
+                next_geo_future = None
+                if next_g is not None and wGeo > 0 and geodataloader.hasGeo(next_g):
+                    next_geo_future = geodataloader.submit_geo(next_g)
+
+                if (scalingStakes != "full" or batch_idx == 0) and useStakes:
+                    # When scalingStakes="full" all stakes are processed at once and this is independent from the provided glacier
+                    stakes, metadata, point_balance = geodataloader.stakesVal(current_g)
+                    stakes = torch.tensor(stakes.astype(np.float32)).to(
+                        geodataloader.device
+                    )
+                    point_balance = torch.tensor(point_balance.astype(np.float32)).to(
+                        geodataloader.device
+                    )
+
+                    if wWinter != 1.0 or wSummer != 1.0:
+                        if stakes.shape[0] == 0:
+                            weightStakes = None
+                        else:
+                            idAggr = metadata["ID"].values
+                            int_id, unique_id = pd.factorize(idAggr)
+                            weightStakes = torch.ones(
+                                (len(np.unique(idAggr)),),
+                                device=geodataloader.device,
+                                dtype=point_balance.dtype,
+                            )
+                            period = metadata["PERIOD"].values
+                            winter_mask = period == "winter"
+                            summer_mask = period == "summer"
+                            if winter_mask.any():
+                                weightStakes[np.unique(int_id[winter_mask])] = wWinter
+                            if summer_mask.any():
+                                weightStakes[np.unique(int_id[summer_mask])] = wSummer
+
+                    l, ret, int_id = compute_stake_loss(
+                        model,
+                        stakes,
+                        metadata,
+                        point_balance,
+                        returnPred=True,
+                        weightStakes=weightStakes,
+                    )
+                    target = ret["target"]
+                    pred = ret["pred"]
+                    targetAll = torch.concatenate((targetAll, target))
+                    predAll = torch.concatenate((predAll, pred))
+                    metadata = metadata.assign(ID_int=int_id)
+                    grouped_ids = metadata.groupby("ID_int").agg({"PERIOD": "first"})
+                    periodAll = np.concatenate(
+                        (periodAll, np.array(grouped_ids["PERIOD"].values))
+                    )
+
+                    valScalingStakes = (
+                        len(np.unique(int_id)) if scalingStakes == "meas" else 1.0
+                    )
+                    l = l * valScalingStakes
+
+                    lossStake += l
+                    cntStake += valScalingStakes
+
+                if wGeo > 0 and geodataloader.hasGeo(current_g):
+
+                    # consume prefetched current batch
+                    if current_geo_future is not None:
+                        geoGrid, metadata, ygeo, errgeo, precomputed_meta = (
+                            current_geo_future.result()
                         )
-                        period = metadata["PERIOD"].values
-                        winter_mask = period == "winter"
-                        summer_mask = period == "summer"
-                        if winter_mask.any():
-                            weightStakes[np.unique(int_id[winter_mask])] = wWinter
-                        if summer_mask.any():
-                            weightStakes[np.unique(int_id[summer_mask])] = wSummer
+                    else:
+                        geoGrid, metadata, ygeo, errgeo, precomputed_meta = (
+                            geodataloader.geo(current_g)
+                        )
 
-                l, ret, int_id = compute_stake_loss(
-                    model,
-                    stakes,
-                    metadata,
-                    point_balance,
-                    returnPred=True,
-                    weightStakes=weightStakes,
-                )
-                target = ret["target"]
-                pred = ret["pred"]
-                targetAll = torch.concatenate((targetAll, target))
-                predAll = torch.concatenate((predAll, pred))
-                metadata = metadata.assign(ID_int=int_id)
-                grouped_ids = metadata.groupby("ID_int").agg({"PERIOD": "first"})
-                periodAll = np.concatenate(
-                    (periodAll, np.array(grouped_ids["PERIOD"].values))
-                )
-
-                valScalingStakes = (
-                    len(np.unique(int_id)) if scalingStakes == "meas" else 1.0
-                )
-                l = l * valScalingStakes
-
-                lossStake += l
-                cntStake += valScalingStakes
-
-            if wGeo > 0 and geodataloader.hasGeo(current_g):
-
-                # consume prefetched current batch
-                if current_geo_future is not None:
-                    geoGrid, metadata, ygeo, errgeo, precomputed_meta = (
-                        current_geo_future.result()
+                    # geoGrid, metadata, ygeo, errgeo = geodataloader.geo(g)
+                    # geoGrid = torch.tensor(geoGrid.astype(np.float32)).to(
+                    #     geodataloader.device
+                    # )
+                    # ygeo = torch.tensor(ygeo.astype(np.float32)).to(
+                    #     geodataloader.device
+                    # )
+                    # errgeo = torch.tensor(errgeo.astype(np.float32)).to(
+                    #     geodataloader.device
+                    # )
+                    geoGrid = geoGrid.to(
+                        geodataloader.device, non_blocking=async_transfer
                     )
-                else:
-                    geoGrid, metadata, ygeo, errgeo, precomputed_meta = (
-                        geodataloader.geo(current_g)
+                    ygeo = ygeo.to(geodataloader.device, non_blocking=async_transfer)
+                    errgeo = errgeo.to(
+                        geodataloader.device, non_blocking=async_transfer
                     )
+                    geod_periods = geodataloader.geodetic_periods(current_g)
+                    lossGeo_i, ypredgeo = compute_geo_loss(
+                        model,
+                        geoGrid,
+                        metadata,
+                        ygeo,
+                        errgeo,
+                        geod_periods,
+                        precomputed_meta,
+                        zeroTgtGeo=zeroTgtGeo,
+                    )
+                    targetAllGeo = torch.concatenate(
+                        (targetAllGeo, ygeo.cpu().detach())
+                    )
+                    predAllGeo = torch.concatenate(
+                        (predAllGeo, ypredgeo.cpu().detach())
+                    )
+                    sigmaAllGeo = torch.concatenate(
+                        (sigmaAllGeo, errgeo.cpu().detach())
+                    )
+                    lossGeo += lossGeo_i
+                    cntGeo += 1
 
-                # geoGrid, metadata, ygeo, errgeo = geodataloader.geo(g)
-                # geoGrid = torch.tensor(geoGrid.astype(np.float32)).to(
-                #     geodataloader.device
-                # )
-                # ygeo = torch.tensor(ygeo.astype(np.float32)).to(
-                #     geodataloader.device
-                # )
-                # errgeo = torch.tensor(errgeo.astype(np.float32)).to(
-                #     geodataloader.device
-                # )
-                geoGrid = geoGrid.to(geodataloader.device, non_blocking=async_transfer)
-                ygeo = ygeo.to(geodataloader.device, non_blocking=async_transfer)
-                errgeo = errgeo.to(geodataloader.device, non_blocking=async_transfer)
-                geod_periods = geodataloader.geodetic_periods(current_g)
-                lossGeo_i, ypredgeo = compute_geo_loss(
-                    model,
-                    geoGrid,
-                    metadata,
-                    ygeo,
-                    errgeo,
-                    geod_periods,
-                    precomputed_meta,
-                    zeroTgtGeo=zeroTgtGeo,
-                )
-                targetAllGeo = torch.concatenate((targetAllGeo, ygeo.cpu().detach()))
-                predAllGeo = torch.concatenate((predAllGeo, ypredgeo.cpu().detach()))
-                sigmaAllGeo = torch.concatenate((sigmaAllGeo, errgeo.cpu().detach()))
-                lossGeo += lossGeo_i
-                cntGeo += 1
-
-            # Shift pipeline
-            current_g = next_g
-            current_geo_future = next_geo_future
-            batch_idx += 1
+                # Shift pipeline
+                current_g = next_g
+                current_geo_future = next_geo_future
+                batch_idx += 1
 
         if cntStake != 0:
             lossStake /= cntStake
@@ -1120,7 +1142,7 @@ def train_geo(
             model.train()
             with tqdm.tqdm(
                 total=iterPerEpoch,
-                desc=f"Batch",
+                desc=f"Batch (train)",
                 position=1,
                 leave=False,
                 ncols=nColsProgressBar,

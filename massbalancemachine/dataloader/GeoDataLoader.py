@@ -384,6 +384,9 @@ class GeoDataLoader:
     def lenGeo(self):
         return len(self.glacierListGeo)
 
+    def lenValGeo(self):
+        return len(self.glacierListValGeo)
+
     def glaciers(self):
         """
         Iterator that returns a glacier as a string each time it is called.
