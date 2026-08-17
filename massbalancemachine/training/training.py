@@ -910,6 +910,8 @@ def assessOnVal(model, geodataloader, params, async_transfer=None, zeroTgtGeo=Fa
                 current_geo_future = next_geo_future
                 batch_idx += 1
 
+                batch_bar.update(1)
+
         if cntStake != 0:
             lossStake /= cntStake
         else:
@@ -1030,7 +1032,9 @@ def loadBestModel(log_dir, model):
         val = float(val)
     if best is None:
         raise Exception("No model found.")
-    model.load_state_dict(torch.load(files[best], weights_only=True))
+    model.load_state_dict(
+        torch.load(files[best], weights_only=True, map_location="cpu")
+    )
     return files[best], bestVal
 
 

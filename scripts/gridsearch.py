@@ -20,7 +20,12 @@ def flatten_dict(d, parent_key="", sep="."):
 
 def recursive_update(target, source):
     for key in source:
-        assert key in target.keys()
+        if key not in target.keys():
+            print(f"Creating key {key} as it does not exist in target")
+            if isinstance(source[key], dict):
+                target[key] = {}
+            else:
+                target[key] = None
         if isinstance(target[key], dict):
             recursive_update(target[key], source[key])
         else:
