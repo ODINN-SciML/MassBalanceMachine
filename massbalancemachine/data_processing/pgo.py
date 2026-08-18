@@ -1,5 +1,6 @@
 import os
 
+import socket
 import pandas as pd
 import geopandas as gpd
 import numpy as np
@@ -318,19 +319,32 @@ def geodetic_target_PGO(geo_file):
     return df
 
 
+def PGO_folder():
+    hostname = socket.gethostname()
+    # We don't want to publish PGO related files for the moment :)
+    if hostname == "ige-osugb1-p48":
+        return (
+            "/home/gossarda/Téléchargements/PGO_data/transfer_12853201_files_c8b76236/"
+        )
+    elif "bigfoot" in hostname:
+        return "/home/gossarda/PGO_data/transfer_12853201_files_c8b76236/"
+    else:
+        raise ValueError(f"Unknown host {hostname}")
+
+
 def outlines_path():
-    shp_file = "/home/gossarda/Téléchargements/PGO_data/transfer_12853201_files_c8b76236/c3s_gi_rgi11_s2_2015_v2.shp"
-    return shp_file
+    return os.path.join(PGO_folder(), "c3s_gi_rgi11_s2_2015_v2.shp")
 
 
 def csv_correspondence_file():
-    csv_correspondence = "/home/gossarda/Téléchargements/PGO_data/transfer_12853201_files_c8b76236/correspondance_GLACIER_NR_rgi_id.csv"
-    return csv_correspondence
+    return os.path.join(PGO_folder(), "correspondance_GLACIER_NR_rgi_id.csv")
 
 
 def pgo_target_file():
-    geo_file = "/home/gossarda/Téléchargements/PGO_data/transfer_12853201_files_c8b76236/merge_final_by_glacier_WGMS_versionGeoid_rgi2016_CEU_2m_with_rgiid.csv"
-    return geo_file
+    return os.path.join(
+        PGO_folder(),
+        "merge_final_by_glacier_WGMS_versionGeoid_rgi2016_CEU_2m_with_rgiid.csv",
+    )
 
 
 def _find_corresponding_custom_id_in_rgi(rgi_gdf, custom_gdf):
