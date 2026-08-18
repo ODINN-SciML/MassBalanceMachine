@@ -686,28 +686,47 @@ def assessOnVal(model, geodataloader, params, async_transfer=None, zeroTgtGeo=Fa
                 if wGeo > 0
                 else geodataloader.glaciersVal()
             )
-            try:
-                current_g = next(glacier_iter)
-            except StopIteration:
-                current_g = None
 
-            # geo future loaded at the first iteration
-            current_geo_future = None
-            if current_g is not None and wGeo > 0 and geodataloader.hasGeo(current_g):
-                current_geo_future = geodataloader.submit_geo(current_g)
+            # Pre-submit the first prefetch_depth glaciers to the queue
+            prefetch_queue = []
+            if wGeo > 0:
+                for _ in range(geodataloader._prefetch_depth):
+                    try:
+                        g = next(glacier_iter)
+                        if geodataloader.hasGeo(g):
+                            future = geodataloader.submit_geo(g)
+                            prefetch_queue.append((g, future))
+                        else:
+                            # Non-geo glacier: add with None future
+                            prefetch_queue.append((g, None))
+                    except StopIteration:
+                        break
 
             batch_idx = 0
-            while current_g is not None:
+            while prefetch_queue or (wGeo == 0):
+                # For non-geo case, fetch directly from iterator
+                if wGeo == 0:
+                    try:
+                        current_g = next(glacier_iter)
+                    except StopIteration:
+                        break
+                    current_geo_future = None
+                else:
+                    # Consume the oldest future from the queue
+                    if not prefetch_queue:
+                        break
+                    current_g, current_geo_future = prefetch_queue.pop(0)
 
-                # Look ahead and start loading geo for the next iteration
-                try:
-                    next_g = next(glacier_iter)
-                except StopIteration:
-                    next_g = None
-
-                next_geo_future = None
-                if next_g is not None and wGeo > 0 and geodataloader.hasGeo(next_g):
-                    next_geo_future = geodataloader.submit_geo(next_g)
+                    # Submit the next glacier (if any) to keep the queue filled
+                    try:
+                        next_g = next(glacier_iter)
+                        if geodataloader.hasGeo(next_g):
+                            next_future = geodataloader.submit_geo(next_g)
+                            prefetch_queue.append((next_g, next_future))
+                        else:
+                            prefetch_queue.append((next_g, None))
+                    except StopIteration:
+                        pass
 
                 if (scalingStakes != "full" or batch_idx == 0) and useStakes:
                     # When scalingStakes="full" all stakes are processed at once and this is independent from the provided glacier
@@ -829,11 +848,7 @@ def assessOnVal(model, geodataloader, params, async_transfer=None, zeroTgtGeo=Fa
                     lossGeo += lossGeo_i
                     cntGeo += 1
 
-                # Shift pipeline
-                current_g = next_g
-                current_geo_future = next_geo_future
                 batch_idx += 1
-
                 batch_bar.update(1)
 
         if cntStake != 0:
@@ -1077,21 +1092,36 @@ def train_geo(
                     glacier_iter = iter(geodataloader.glaciersGeo())
                 else:
                     glacier_iter = iter(geodataloader.glaciers())
-                try:
-                    current_g = next(glacier_iter)
-                except StopIteration:
-                    current_g = None
 
-                # geo future loaded at the first iteration
-                current_geo_future = None
-                if (
-                    current_g is not None
-                    and wGeo > 0
-                    and geodataloader.hasGeo(current_g)
-                ):
-                    current_geo_future = geodataloader.submit_geo(current_g)
+                # Pre-submit the first prefetch_depth glaciers to the queue
+                prefetch_queue = []
+                if wGeo > 0:
+                    for _ in range(geodataloader._prefetch_depth):
+                        try:
+                            g = next(glacier_iter)
+                            if geodataloader.hasGeo(g):
+                                future = geodataloader.submit_geo(g)
+                                prefetch_queue.append((g, future))
+                            else:
+                                # Non-geo glacier: add with None future
+                                prefetch_queue.append((g, None))
+                        except StopIteration:
+                            break
+                else:
+                    # Non-geo case: pre-fill with glaciers (no futures needed)
+                    for _ in range(geodataloader._prefetch_depth):
+                        try:
+                            g = next(glacier_iter)
+                            prefetch_queue.append((g, None))
+                        except StopIteration:
+                            break
 
                 if useStakes and geodataloader.allStakesPerIter:
+                    if prefetch_queue:
+                        current_g, _ = prefetch_queue[0]
+                    else:
+                        current_g = None
+
                     stakes, metadata, point_balance, precomputed_meta_stakes = (
                         geodataloader.stakes(current_g)
                     )
@@ -1124,7 +1154,28 @@ def train_geo(
                                 weightStakes[np.unique(int_id[summer_mask])] = wSummer
 
                 batch_idx = 0
-                while current_g is not None:
+                while prefetch_queue:
+
+                    # Consume the oldest future from the queue
+                    current_g, current_geo_future = prefetch_queue.pop(0)
+
+                    # Submit the next glacier (if any) to keep the queue filled
+                    if wGeo > 0:
+                        try:
+                            next_g = next(glacier_iter)
+                            if geodataloader.hasGeo(next_g):
+                                next_future = geodataloader.submit_geo(next_g)
+                                prefetch_queue.append((next_g, next_future))
+                            else:
+                                prefetch_queue.append((next_g, None))
+                        except StopIteration:
+                            pass
+                    else:
+                        try:
+                            next_g = next(glacier_iter)
+                            prefetch_queue.append((next_g, None))
+                        except StopIteration:
+                            pass
 
                     prof_ctx = (
                         profile(
@@ -1138,20 +1189,6 @@ def train_geo(
                     with prof_ctx as prof:
 
                         optim.zero_grad()
-
-                        # Look ahead and start loading geo for the next iteration
-                        try:
-                            next_g = next(glacier_iter)
-                        except StopIteration:
-                            next_g = None
-
-                        next_geo_future = None
-                        if (
-                            next_g is not None
-                            and wGeo > 0
-                            and geodataloader.hasGeo(next_g)
-                        ):
-                            next_geo_future = geodataloader.submit_geo(next_g)
 
                         if useStakes:
                             if not geodataloader.allStakesPerIter:
@@ -1346,9 +1383,6 @@ def train_geo(
                             "TimeBackwardOptim", backwardOptimTime, globalStep
                         )
 
-                    # Shift pipeline
-                    current_g = next_g
-                    current_geo_future = next_geo_future
                     batch_idx += 1
 
                     batch_bar.set_postfix(
