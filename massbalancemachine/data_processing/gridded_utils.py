@@ -561,6 +561,7 @@ def _prepared_metadata_dict(df_X_geod, feature_columns):
             "ELEVATION_DIFFERENCE"
         ].first()
 
+    # TODO: optimize section below
     grouped_glwd_m_ids = metadata.groupby("GLWD_M_ID_int").agg(
         {"YEAR": "first", "ID": "first", "RGIId": "first"}
     )

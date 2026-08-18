@@ -227,7 +227,8 @@ class GeoDataLoader:
 
         self.normalizer = Normalizer({k: cfg.bnds[k] for k in cfg.featureColumns})
 
-        self._geo_executor = ThreadPoolExecutor(max_workers=1)
+        self._prefetch_depth = 3
+        self._geo_executor = ThreadPoolExecutor(max_workers=self._prefetch_depth)
 
     def prepareGeoData(self) -> None:
         if self.geodeticSource == "Hugonnet21":
@@ -653,10 +654,16 @@ class GeoDataLoader:
                 self.y_target_geo[glacierName].astype(np.float32)
             ).pin_memory()
             err = torch.from_numpy(err.astype(np.float32)).pin_memory()
+            precomputed_meta["GLWD_M_ID_int"] = torch.from_numpy(
+                metadata["GLWD_M_ID_int"].values.astype(np.int64)
+            ).pin_memory()
         else:
             features = torch.from_numpy(features.astype(np.float32))
             y = torch.from_numpy(self.y_target_geo[glacierName].astype(np.float32))
             err = torch.from_numpy(err.astype(np.float32))
+            precomputed_meta["GLWD_M_ID_int"] = torch.from_numpy(
+                metadata["GLWD_M_ID_int"].values.astype(np.int64)
+            )
         return features, metadata, y, err, precomputed_meta
 
     def close(self):

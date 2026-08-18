@@ -216,6 +216,7 @@ def predict_annual_gridded(model, geoGrid, metadata):
 
     # Aggregate per point on the grid
     grouped_ids = aggrMetadata(metadata, "ID_int")
+    # TODO: optimize all of these
     predSumAnnual = aggrPredict(pred, metadata["ID_int"].values)
 
     return grouped_ids, predSumAnnual
@@ -244,41 +245,52 @@ def eval_geodetic(
         ) as pbar:
 
             glacier_iter = iter(geo_dataloader.glaciersGeo())
-            try:
-                current_g = next(glacier_iter)
-            except StopIteration:
-                current_g = None
 
-            # geo future loaded at the first iteration
-            current_geo_future = None
-            if current_g is not None:
-                current_geo_future = geo_dataloader.submit_geo(current_g)
+            # Pre-submit the first prefetch_depth glaciers to the queue
+            prefetch_queue = []
+            for _ in range(geo_dataloader._prefetch_depth):
+                try:
+                    g = next(glacier_iter)
+                    future = geo_dataloader.submit_geo(g)
+                    prefetch_queue.append((g, future))
+                except StopIteration:
+                    break
 
             batch_idx = 0
-            while current_g is not None:
-
-                # Look ahead and start loading geo for the next iteration
-                try:
-                    next_g = next(glacier_iter)
-                except StopIteration:
-                    next_g = None
-
-                next_geo_future = None
-                if next_g is not None:
-                    next_geo_future = geo_dataloader.submit_geo(next_g)
+            while prefetch_queue:
+                # Consume the oldest future from the queue
+                current_g, current_geo_future = prefetch_queue.pop(0)
 
                 pbar.set_description("Geodetic pred for %s" % (current_g), refresh=True)
                 pbar.update(1)
-                # consume prefetched current batch
+
+                # Submit the next glacier (if any) to keep the queue filled
+                try:
+                    next_g = next(glacier_iter)
+                    next_future = geo_dataloader.submit_geo(next_g)
+                    prefetch_queue.append((next_g, next_future))
+                except StopIteration:
+                    pass
+
+                # Consume prefetched current batch
                 if current_geo_future is not None:
-                    geoGrid, metadata, ygeo, errgeo, _ = current_geo_future.result()
+                    geoGrid, metadata, ygeo, errgeo, precomputed_meta = (
+                        current_geo_future.result()
+                    )
                 else:
-                    geoGrid, metadata, ygeo, errgeo, _ = geo_dataloader.geo(current_g)
+                    geoGrid, metadata, ygeo, errgeo, precomputed_meta = (
+                        geo_dataloader.geo(current_g)
+                    )
 
                 geoGrid = geoGrid.to(geo_dataloader.device, non_blocking=async_transfer)
+                precomputed_meta["GLWD_M_ID_int"] = precomputed_meta[
+                    "GLWD_M_ID_int"
+                ].to(geo_dataloader.device, non_blocking=async_transfer)
                 geod_periods = geo_dataloader.geodetic_periods(current_g)
                 geoPred[current_g] = (
-                    predict_geo(model, geoGrid, metadata, ygeo, geod_periods)
+                    predict_geo(
+                        model, geoGrid, metadata, ygeo, geod_periods, precomputed_meta
+                    )
                     .cpu()
                     .item()
                 )
@@ -313,9 +325,6 @@ def eval_geodetic(
                             [df_gridded_monthly, agg_monthly]
                         )
 
-                # Shift pipeline
-                current_g = next_g
-                current_geo_future = next_geo_future
                 batch_idx += 1
 
     dict_df_gridded = {}
@@ -326,18 +335,21 @@ def eval_geodetic(
     return geoPred, geoTarget, geoErr, dict_df_gridded
 
 
-def predict_geo(model, geoGrid, metadata, ygeo, geod_periods):
+def predict_geo(model, geoGrid, metadata, ygeo, geod_periods, precomputed_meta):
+    # TODO: use precomputed metadata for GLWD_M_ID_int
     pred = predict_monthly_gridded(model, geoGrid, metadata)
 
-    idAggr = metadata["GLWD_M_ID"].values
-    int_id, unique_id = pd.factorize(idAggr)
-    metadata = metadata.assign(GLWD_M_ID_int=int_id)
+    idAggr = precomputed_meta["GLWD_M_ID_int"]
+    # idAggr = metadata["GLWD_M_ID"].values
+    # int_id, unique_id = pd.factorize(idAggr)
+    # metadata = metadata.assign(GLWD_M_ID_int=int_id)
 
     # Aggregate per point on the grid
-    grouped_ids = aggrMetadata(metadata, "GLWD_M_ID_int")
-    predSumGeodPeriod = aggrPredict(
-        pred, metadata["GLWD_M_ID_int"].values, reduce="mean"
-    )
+    # grouped_ids = aggrMetadata(metadata, "GLWD_M_ID_int")
+    grouped_ids = precomputed_meta["grouped_glwd_m_ids"]
+    nunique = precomputed_meta["nunique_glwd_m_ids"]
+    predSumGeodPeriod = torch.zeros((nunique,), device=pred.device, dtype=pred.dtype)
+    aggrPredict(pred, idAggr, reduce="mean", out=predSumGeodPeriod)
 
     assert (
         len(ygeo) == 1
@@ -564,9 +576,10 @@ def compute_geo_loss(
 
         # Aggregate glacier wide
         metadataAggrGlwdM = precomputed_meta["grouped_glwd_m_ids"]
-        idAggr = metadata[
-            "GLWD_M_ID_int"
-        ].values  # TODO: could be transfered to the GPU in advance (async in the dataloader)
+        # idAggr = metadata[
+        #     "GLWD_M_ID_int"
+        # ].values  # TODO: could be transfered to the GPU in advance (async in the dataloader)
+        idAggr = precomputed_meta["GLWD_M_ID_int"]
         nunique = precomputed_meta["nunique_glwd_m_ids"]
         predSumGeodPeriod = torch.zeros(
             (nunique,), device=pred.device, dtype=pred.dtype
@@ -882,6 +895,9 @@ def assessOnVal(model, geodataloader, params, async_transfer=None, zeroTgtGeo=Fa
                     errgeo = errgeo.to(
                         geodataloader.device, non_blocking=async_transfer
                     )
+                    precomputed_meta["GLWD_M_ID_int"] = precomputed_meta[
+                        "GLWD_M_ID_int"
+                    ].to(geodataloader.device, non_blocking=async_transfer)
                     geod_periods = geodataloader.geodetic_periods(current_g)
                     lossGeo_i, ypredgeo = compute_geo_loss(
                         model,
@@ -1295,6 +1311,9 @@ def train_geo(
                             errgeo = errgeo.to(
                                 geodataloader.device, non_blocking=async_transfer
                             )
+                            precomputed_meta["GLWD_M_ID_int"] = precomputed_meta[
+                                "GLWD_M_ID_int"
+                            ].to(geodataloader.device, non_blocking=async_transfer)
                             if timeExec:
                                 torch.cuda.synchronize()
                                 geoDataloaderTime = time.time() - st
