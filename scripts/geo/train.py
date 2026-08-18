@@ -422,7 +422,7 @@ with open(os.path.join(ret["misc"]["log_dir"], "best_model.json"), "w") as f:
     info = {"norm": norm_values, "model": st, "inputs": cfg.featureColumns}
     json.dump(info, f, cls=EncodeTensor, sort_keys=True)
 with open(os.path.join(ret["misc"]["log_dir"], "sample_inputs.json"), "w") as f:
-    features, metadata, y = gdl.stakes(glaciers[0])
+    features, metadata, y, _ = gdl.stakes(glaciers[0])
     with torch.no_grad():
         features_torch = torch.tensor(features.astype(np.float32)).to(gdl.device)
         pred = model.forward(features_torch)[:, 0]

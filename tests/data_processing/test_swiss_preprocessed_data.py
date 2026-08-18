@@ -161,7 +161,7 @@ def test_process_or_load_data():
 #     for g in gdl.glaciers():
 #         print(f"Glacier {g}")
 #     g = "silvretta"
-#     s, m, gt = gdl.stakes(g)
+#     s, m, gt, _ = gdl.stakes(g)
 #     nRows = 35587
 #     assert s.shape == (nRows, 16)
 #     assert m.shape == (nRows, 14)

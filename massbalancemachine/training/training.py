@@ -66,7 +66,13 @@ _maxCriterion = ["pearson"]  # Criterion for which higher is better
 
 
 def compute_stake_loss(
-    model, stakes, metadata, point_balance, returnPred=False, weightStakes=None
+    model,
+    stakes,
+    metadata,
+    point_balance,
+    precomputed_meta,
+    returnPred=False,
+    weightStakes=None,
 ):
     """
     Computes the stake loss term.
@@ -86,19 +92,18 @@ def compute_stake_loss(
     Returns a scalar torch value that corresponds to the stake loss term and
     optionally statistics in a dictionary.
     """
-    idAggr = metadata["ID"].values
-    int_id, unique_id = pd.factorize(idAggr)
+    int_id = precomputed_meta["int_id_torch"]
 
     # Make prediction
     pred = model.forward(stakes)[:, 0]
 
-    trueMean = torch.zeros(
-        (len(np.unique(idAggr)),), device=pred.device, dtype=pred.dtype
-    )
+    nunique = precomputed_meta["nunique_ids"]
+    trueMean = torch.zeros((nunique,), device=pred.device, dtype=pred.dtype)
+    predSum = torch.zeros((nunique,), device=pred.device, dtype=pred.dtype)
 
     # Aggregate per stake and periods
     aggrPredict(point_balance, int_id, reduce="mean", out=trueMean)
-    predSum = aggrPredict(pred, int_id)
+    aggrPredict(pred, int_id, out=predSum)
 
     if weightStakes is None:
         mse = nn.functional.mse_loss(predSum, trueMean, reduction="mean")
@@ -160,45 +165,6 @@ def timeWindowGeodeticLoss(
     ).view(1)
     return ((geodetic_MB_pred - geoTarget[0]) / errGeoTarget[0]) ** 2, geodetic_MB_pred
 
-    # yearsPred = metadataAggrYear.YEAR.values
-    # raise NotImplementedError("The average should be performed over months and not years")
-
-    # geodetic_MB_err = torch.zeros(len(geod_periods))
-    # for e, (start_year, end_year) in enumerate(geod_periods):
-    #     geodetic_range = range(
-    #         start_year, end_year
-    #     )  # end_year is 2021 when the end date is 2021-01-01
-
-    #     # Ensure years exist in index before selection
-    #     valid_years = [yr for yr in geodetic_range if yr in yearsPred]
-    #     valid_years = []
-    #     indSlice = []
-    #     for yr in geodetic_range:
-    #         if yr in yearsPred:
-    #             valid_years.append(yr)
-    #             indSlice.append(np.argwhere(yearsPred == yr)[0, 0])
-    #     if valid_years:
-    #         # geodetic_MB_err[e] = (
-    #         #     torch.mean(predSumAnnualGlwd[indSlice]) - geoTarget[e]
-    #         # ) ** 2
-    #         # geodetic_MB_err[e] = (
-    #         #     # TODO: check how average is computed (hydro year)
-    #         #     torch.clamp(
-    #         #         torch.abs(torch.mean(predSumAnnualGlwd[indSlice]) - geoTarget[e])
-    #         #         - errGeoTarget[e],
-    #         #         min=0,
-    #         #     )
-    #         #     ** 2
-    #         # )
-
-    #         # TODO: check how average is computed (hydro year)
-    #         geodetic_MB_err[e] = (
-    #             (torch.mean(predSumAnnualGlwd[indSlice]) - geoTarget[e])/errGeoTarget[e]
-    #         )**2
-    #     else:
-    #         geodetic_MB_err[e] = np.nan  # Handle missing years
-    # return geodetic_MB_err
-
 
 def predict_monthly_gridded(model, geoGrid, metadata):
     # Make prediction
@@ -206,18 +172,14 @@ def predict_monthly_gridded(model, geoGrid, metadata):
     return pred
 
 
-def predict_annual_gridded(model, geoGrid, metadata):
+def predict_annual_gridded(model, geoGrid, metadata, precomputed_meta):
     pred = predict_monthly_gridded(model, geoGrid, metadata)
 
-    idAggr = metadata["ID"].values
-    int_id, unique_id = pd.factorize(idAggr)
-    # TODO: update here and everywhere else needed
-    metadata = metadata.assign(ID_int=int_id)
+    ID_int = precomputed_meta["ID_int"]
 
     # Aggregate per point on the grid
-    grouped_ids = aggrMetadata(metadata, "ID_int")
-    # TODO: optimize all of these
-    predSumAnnual = aggrPredict(pred, metadata["ID_int"].values)
+    grouped_ids = precomputed_meta["grouped_ids"]
+    predSumAnnual = aggrPredict(pred, ID_int)
 
     return grouped_ids, predSumAnnual
 
@@ -286,6 +248,9 @@ def eval_geodetic(
                 precomputed_meta["GLWD_M_ID_int"] = precomputed_meta[
                     "GLWD_M_ID_int"
                 ].to(geo_dataloader.device, non_blocking=async_transfer)
+                precomputed_meta["ID_int"] = precomputed_meta["ID_int"].to(
+                    geo_dataloader.device, non_blocking=async_transfer
+                )
                 geod_periods = geo_dataloader.geodetic_periods(current_g)
                 geoPred[current_g] = (
                     predict_geo(
@@ -299,7 +264,7 @@ def eval_geodetic(
 
                 if callback_annual is not None or return_annual:
                     grouped_ids, predSumAnnual = predict_annual_gridded(
-                        model, geoGrid, metadata
+                        model, geoGrid, metadata, precomputed_meta
                     )
                     grouped_ids["pred"] = predSumAnnual.cpu()
                     if callback_annual is not None:
@@ -336,16 +301,11 @@ def eval_geodetic(
 
 
 def predict_geo(model, geoGrid, metadata, ygeo, geod_periods, precomputed_meta):
-    # TODO: use precomputed metadata for GLWD_M_ID_int
     pred = predict_monthly_gridded(model, geoGrid, metadata)
 
     idAggr = precomputed_meta["GLWD_M_ID_int"]
-    # idAggr = metadata["GLWD_M_ID"].values
-    # int_id, unique_id = pd.factorize(idAggr)
-    # metadata = metadata.assign(GLWD_M_ID_int=int_id)
 
     # Aggregate per point on the grid
-    # grouped_ids = aggrMetadata(metadata, "GLWD_M_ID_int")
     grouped_ids = precomputed_meta["grouped_glwd_m_ids"]
     nunique = precomputed_meta["nunique_glwd_m_ids"]
     predSumGeodPeriod = torch.zeros((nunique,), device=pred.device, dtype=pred.dtype)
@@ -375,52 +335,6 @@ def predict_geo(model, geoGrid, metadata, ygeo, geod_periods, precomputed_meta):
         predSumGeodPeriod * 12 / n_entries_unique_GLWD_M_ID
     ).view(1)
     return geodetic_MB_pred
-
-    # # TODO: optimize this section
-    # # Make prediction and aggregate per point on the grid
-    # # grouped_ids, predSumAnnual = predict_annual_gridded(model, geoGrid, metadata)
-
-    # # Create ID to aggregate glacier wide
-    # idGlwdAggr = grouped_ids["GLWD_ID"].values
-    # int_id_glwd, _ = pd.factorize(idGlwdAggr)
-    # grouped_ids = grouped_ids.assign(GLWD_ID_int=int_id_glwd)
-
-    # # Aggregate glacier wide
-    # metadataAggrYear = aggrMetadataGlwdId(grouped_ids, "GLWD_ID_int")
-    # predSumAnnualGlwd = aggrPredictGlwd(
-    #     predSumAnnual, grouped_ids["GLWD_ID_int"].values
-    # )
-
-    # # TODO: remove the loop since the grid should already correspond to the geodetic period
-
-    # assert len(ygeo) == len(
-    #     geod_periods
-    # ), f"Size of the ground truth is {ygeo.shape} but doesn't match with the number of geodetic periods which is {len(geod_periods)}"
-    # yearsPred = metadataAggrYear.YEAR.values
-
-    # geodetic_MB_pred = torch.zeros(len(geod_periods), device=predSumAnnualGlwd.device)
-    # for e, (start_date, end_date) in enumerate(geod_periods):
-    #     if isinstance(start_date, np.datetime64):
-    #         import pdb; pdb.set_trace()
-    #         raise NotImplementedError()
-    #     else:
-    #         geodetic_range = range(
-    #             start_year, end_year
-    #         )  # end_year is 2021 when the end date is 2021-01-01
-
-    #     # Ensure years exist in index before selection
-    #     valid_years = [yr for yr in geodetic_range if yr in yearsPred]
-    #     valid_years = []
-    #     indSlice = []
-    #     for yr in geodetic_range:
-    #         if yr in yearsPred:
-    #             valid_years.append(yr)
-    #             indSlice.append(np.argwhere(yearsPred == yr)[0, 0])
-    #     if valid_years:
-    #         geodetic_MB_pred[e] = torch.mean(predSumAnnualGlwd[indSlice])
-    #     else:
-    #         geodetic_MB_pred[e] = np.nan  # Handle missing years
-    # return geodetic_MB_pred
 
 
 def compute_geo_loss(
@@ -555,30 +469,10 @@ def compute_geo_loss(
     with record_function("geo_forward"):
         pred = model.forward(geoGrid)[:, 0]
 
-    # with record_function("aggregation_ID"):
-    #     # idAggr = metadata["ID"].values
-    #     # int_id, unique_id = pd.factorize(idAggr)
-    #     # metadata = metadata.assign(ID_int=int_id)
-
-    #     # Aggregate per point on the grid
-    #     # grouped_ids = aggrMetadata(metadata, "ID_int")
-    #     grouped_ids = precomputed_meta["grouped_ids"]
-
-    #     # TODO: check if this is annual sum or multi-annual (geodetic period) sum
-    #     idAggr = metadata[
-    #         "ID_int"
-    #     ].values  # TODO: could be transfered to the GPU in advance (async in the dataloader)
-    #     nunique = precomputed_meta["nunique_ids"]
-    #     predSumAnnual = torch.zeros((nunique,), device=pred.device, dtype=pred.dtype)
-    #     aggrPredict(pred, idAggr, out=predSumAnnual)
-
     with record_function("aggregation_GLWD_M_ID"):
 
         # Aggregate glacier wide
         metadataAggrGlwdM = precomputed_meta["grouped_glwd_m_ids"]
-        # idAggr = metadata[
-        #     "GLWD_M_ID_int"
-        # ].values  # TODO: could be transfered to the GPU in advance (async in the dataloader)
         idAggr = precomputed_meta["GLWD_M_ID_int"]
         nunique = precomputed_meta["nunique_glwd_m_ids"]
         predSumGeodPeriod = torch.zeros(
@@ -624,9 +518,13 @@ def assessOnTest(log_dir, model, geodataloader_test, params, light=False, color=
         0, dtype=np.array(list(geodataloader_test.periodToInt.keys())).dtype
     )  # Initialize with correct dtype
     for g in geodataloader_test.glaciers():
-        stakes, metadata, point_balance = geodataloader_test.stakes(g)
+        stakes, metadata, point_balance, precomputed_meta = geodataloader_test.stakes(g)
         stakes = torch.tensor(stakes.astype(np.float32)).to(geodataloader_test.device)
         point_balance = torch.tensor(point_balance.astype(np.float32)).to(
+            geodataloader_test.device
+        )
+        int_id = precomputed_meta["int_id"]
+        precomputed_meta["int_id_torch"] = torch.tensor(int_id.astype(np.int64)).to(
             geodataloader_test.device
         )
 
@@ -634,10 +532,8 @@ def assessOnTest(log_dir, model, geodataloader_test, params, light=False, color=
             if stakes.shape[0] == 0:
                 weightStakes = None
             else:
-                idAggr = metadata["ID"].values
-                int_id, unique_id = pd.factorize(idAggr)
                 weightStakes = torch.ones(
-                    (len(np.unique(idAggr)),),
+                    (precomputed_meta["nunique_ids"],),
                     device=geodataloader_test.device,
                     dtype=point_balance.dtype,
                 )
@@ -649,18 +545,20 @@ def assessOnTest(log_dir, model, geodataloader_test, params, light=False, color=
                 if summer_mask.any():
                     weightStakes[np.unique(int_id[summer_mask])] = wSummer
 
-        l, ret, int_id = compute_stake_loss(
+        l, ret, _ = compute_stake_loss(
             model,
             stakes,
             metadata,
             point_balance,
+            precomputed_meta,
             returnPred=True,
             weightStakes=weightStakes,
         )
         targetAll = torch.concatenate((targetAll, ret["target"]))
         predAll = torch.concatenate((predAll, ret["pred"]))
-        metadata = metadata.assign(ID_int=int_id)
-        grouped_ids = metadata.groupby("ID_int").agg({"PERIOD": "first"})
+        grouped_ids = (
+            precomputed_meta["metadata"].groupby("ID_int").agg({"PERIOD": "first"})
+        )
         periodAll = np.concatenate((periodAll, np.array(grouped_ids["PERIOD"].values)))
 
         if scalingStakes == "full":
@@ -813,22 +711,26 @@ def assessOnVal(model, geodataloader, params, async_transfer=None, zeroTgtGeo=Fa
 
                 if (scalingStakes != "full" or batch_idx == 0) and useStakes:
                     # When scalingStakes="full" all stakes are processed at once and this is independent from the provided glacier
-                    stakes, metadata, point_balance = geodataloader.stakesVal(current_g)
+                    stakes, metadata, point_balance, precomputed_meta = (
+                        geodataloader.stakesVal(current_g)
+                    )
                     stakes = torch.tensor(stakes.astype(np.float32)).to(
                         geodataloader.device
                     )
                     point_balance = torch.tensor(point_balance.astype(np.float32)).to(
                         geodataloader.device
                     )
+                    int_id = precomputed_meta["int_id"]
+                    precomputed_meta["int_id_torch"] = torch.tensor(
+                        int_id.astype(np.int64)
+                    ).to(geodataloader.device)
 
                     if wWinter != 1.0 or wSummer != 1.0:
                         if stakes.shape[0] == 0:
                             weightStakes = None
                         else:
-                            idAggr = metadata["ID"].values
-                            int_id, unique_id = pd.factorize(idAggr)
                             weightStakes = torch.ones(
-                                (len(np.unique(idAggr)),),
+                                (precomputed_meta["nunique_ids"],),
                                 device=geodataloader.device,
                                 dtype=point_balance.dtype,
                             )
@@ -840,11 +742,12 @@ def assessOnVal(model, geodataloader, params, async_transfer=None, zeroTgtGeo=Fa
                             if summer_mask.any():
                                 weightStakes[np.unique(int_id[summer_mask])] = wSummer
 
-                    l, ret, int_id = compute_stake_loss(
+                    l, ret, _ = compute_stake_loss(
                         model,
                         stakes,
                         metadata,
                         point_balance,
+                        precomputed_meta,
                         returnPred=True,
                         weightStakes=weightStakes,
                     )
@@ -852,14 +755,19 @@ def assessOnVal(model, geodataloader, params, async_transfer=None, zeroTgtGeo=Fa
                     pred = ret["pred"]
                     targetAll = torch.concatenate((targetAll, target))
                     predAll = torch.concatenate((predAll, pred))
-                    metadata = metadata.assign(ID_int=int_id)
-                    grouped_ids = metadata.groupby("ID_int").agg({"PERIOD": "first"})
+                    grouped_ids = (
+                        precomputed_meta["metadata"]
+                        .groupby("ID_int")
+                        .agg({"PERIOD": "first"})
+                    )
                     periodAll = np.concatenate(
                         (periodAll, np.array(grouped_ids["PERIOD"].values))
                     )
 
                     valScalingStakes = (
-                        len(np.unique(int_id)) if scalingStakes == "meas" else 1.0
+                        precomputed_meta["nunique_ids"]
+                        if scalingStakes == "meas"
+                        else 1.0
                     )
                     l = l * valScalingStakes
 
@@ -1183,6 +1091,38 @@ def train_geo(
                 ):
                     current_geo_future = geodataloader.submit_geo(current_g)
 
+                if useStakes and geodataloader.allStakesPerIter:
+                    stakes, metadata, point_balance, precomputed_meta_stakes = (
+                        geodataloader.stakes(current_g)
+                    )
+                    stakes = torch.tensor(stakes.astype(np.float32)).to(
+                        geodataloader.device
+                    )
+                    point_balance = torch.tensor(point_balance.astype(np.float32)).to(
+                        geodataloader.device
+                    )
+                    int_id = precomputed_meta_stakes["int_id"]
+                    precomputed_meta_stakes["int_id_torch"] = torch.tensor(
+                        int_id.astype(np.int64)
+                    ).to(geodataloader.device)
+
+                    if wWinter != 1.0 or wSummer != 1.0:
+                        if stakes.shape[0] == 0:
+                            weightStakes = None
+                        else:
+                            weightStakes = torch.ones(
+                                (precomputed_meta_stakes["nunique_ids"],),
+                                device=geodataloader.device,
+                                dtype=point_balance.dtype,
+                            )
+                            period = metadata["PERIOD"].values
+                            winter_mask = period == "winter"
+                            summer_mask = period == "summer"
+                            if winter_mask.any():
+                                weightStakes[np.unique(int_id[winter_mask])] = wWinter
+                            if summer_mask.any():
+                                weightStakes[np.unique(int_id[summer_mask])] = wSummer
+
                 batch_idx = 0
                 while current_g is not None:
 
@@ -1214,52 +1154,59 @@ def train_geo(
                             next_geo_future = geodataloader.submit_geo(next_g)
 
                         if useStakes:
-                            if timeExec:
-                                torch.cuda.synchronize()
-                                st = time.time()
-                            stakes, metadata, point_balance = geodataloader.stakes(
-                                current_g
-                            )
-                            stakes = torch.tensor(stakes.astype(np.float32)).to(
-                                geodataloader.device
-                            )
-                            point_balance = torch.tensor(
-                                point_balance.astype(np.float32)
-                            ).to(geodataloader.device)
+                            if not geodataloader.allStakesPerIter:
+                                if timeExec:
+                                    torch.cuda.synchronize()
+                                    st = time.time()
+                                (
+                                    stakes,
+                                    metadata,
+                                    point_balance,
+                                    precomputed_meta_stakes,
+                                ) = geodataloader.stakes(current_g)
+                                stakes = torch.tensor(stakes.astype(np.float32)).to(
+                                    geodataloader.device
+                                )
+                                point_balance = torch.tensor(
+                                    point_balance.astype(np.float32)
+                                ).to(geodataloader.device)
+                                int_id = precomputed_meta_stakes["int_id"]
+                                precomputed_meta_stakes["int_id_torch"] = torch.tensor(
+                                    int_id.astype(np.int64)
+                                ).to(geodataloader.device)
 
-                            if wWinter != 1.0 or wSummer != 1.0:
-                                if stakes.shape[0] == 0:
-                                    weightStakes = None
-                                else:
-                                    idAggr = metadata["ID"].values
-                                    int_id, unique_id = pd.factorize(idAggr)
-                                    weightStakes = torch.ones(
-                                        (len(np.unique(idAggr)),),
-                                        device=geodataloader.device,
-                                        dtype=point_balance.dtype,
-                                    )
-                                    period = metadata["PERIOD"].values
-                                    winter_mask = period == "winter"
-                                    summer_mask = period == "summer"
-                                    if winter_mask.any():
-                                        weightStakes[np.unique(int_id[winter_mask])] = (
-                                            wWinter
+                                if wWinter != 1.0 or wSummer != 1.0:
+                                    if stakes.shape[0] == 0:
+                                        weightStakes = None
+                                    else:
+                                        weightStakes = torch.ones(
+                                            (precomputed_meta_stakes["nunique_ids"],),
+                                            device=geodataloader.device,
+                                            dtype=point_balance.dtype,
                                         )
-                                    if summer_mask.any():
-                                        weightStakes[np.unique(int_id[summer_mask])] = (
-                                            wSummer
-                                        )
+                                        period = metadata["PERIOD"].values
+                                        winter_mask = period == "winter"
+                                        summer_mask = period == "summer"
+                                        if winter_mask.any():
+                                            weightStakes[
+                                                np.unique(int_id[winter_mask])
+                                            ] = wWinter
+                                        if summer_mask.any():
+                                            weightStakes[
+                                                np.unique(int_id[summer_mask])
+                                            ] = wSummer
 
                             if timeExec:
                                 torch.cuda.synchronize()
                                 stakesDataloaderTime = time.time() - st
                                 st = time.time()
                             with record_function("stake_forward"):
-                                lossStake, _, int_id = compute_stake_loss(
+                                lossStake, _, _ = compute_stake_loss(
                                     model,
                                     stakes,
                                     metadata,
                                     point_balance,
+                                    precomputed_meta_stakes,
                                     weightStakes=weightStakes,
                                 )
                             if timeExec:
@@ -1268,7 +1215,7 @@ def train_geo(
 
                             # TODO: is it scaled by the number of measurements properly?
                             valScalingStakes = (
-                                len(np.unique(int_id))
+                                precomputed_meta_stakes["nunique_ids"]
                                 if scalingStakes == "meas"
                                 else 1.0
                             )

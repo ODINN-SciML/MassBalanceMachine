@@ -460,8 +460,7 @@ class CustomTorchNeuralNetRegressor(nn.Module):
             stakeMethod = geodataloader.stakesVal if val else geodataloader.stakes
             for g in iterator():
                 # Get input features, metadata and ground truth
-                stakes, metadata, point_balance = stakeMethod(g)
-                idAggr = metadata["ID"].values
+                stakes, metadata, point_balance, precomputed_meta = stakeMethod(g)
 
                 # Make prediction
                 stakesTorch = torch.tensor(stakes.astype(np.float32)).to(
@@ -473,10 +472,15 @@ class CustomTorchNeuralNetRegressor(nn.Module):
                 groundTruthTorch = torch.tensor(point_balance.astype(np.float32)).to(
                     geodataloader.device
                 )
-                int_id, unique_id = pd.factorize(idAggr)
-                trueMean = aggrPredict(groundTruthTorch, int_id, reduce="mean")
-                predSum = aggrPredict(pred, int_id)
-                metadata = metadata.assign(ID_int=int_id)
+                int_id = torch.tensor(precomputed_meta["int_id"].astype(np.int64)).to(
+                    geodataloader.device
+                )
+                nunique = precomputed_meta["nunique_ids"]
+                trueMean = torch.zeros((nunique,), device=pred.device, dtype=pred.dtype)
+                predSum = torch.zeros((nunique,), device=pred.device, dtype=pred.dtype)
+                aggrPredict(groundTruthTorch, int_id, reduce="mean", out=trueMean)
+                aggrPredict(pred, int_id, out=predSum)
+                metadata = metadata.assign(ID_int=precomputed_meta["int_id"])
                 grouped_ids_glacier = aggrMetadata(metadata, "ID_int")
 
                 # Create grouped prediction DataFrame

@@ -225,6 +225,13 @@ class GeoDataLoader:
         else:
             self.precomputed_meta = None
 
+        if self.allStakesPerIter:
+            self.precomputed_meta_stakes = self._metadata_groups_stakes(
+                self.trainStakesDf
+            )
+        else:
+            self.precomputed_meta_stakes = None
+
         self.normalizer = Normalizer({k: cfg.bnds[k] for k in cfg.featureColumns})
 
         self._prefetch_depth = 3
@@ -447,6 +454,28 @@ class GeoDataLoader:
             self.indGlacierValGeo += 1
         self.indGlacierValGeo = 0
 
+    def _metadata_groups_stakes(self, df):
+        feature_columns = self.cfg.featureColumns
+        non_feature_columns = df.columns.difference(feature_columns)
+        if "ELEVATION_DIFFERENCE" in feature_columns:
+            # We also want this in the metadata as this is useful to have it not unnormalized
+            non_feature_columns = list(
+                set(non_feature_columns).union(set(["ELEVATION_DIFFERENCE"]))
+            )
+
+        # Extract metadata and features
+        metadata = df[non_feature_columns]
+        features = df[feature_columns].values
+
+        idAggr = metadata["ID"].values
+        int_id, unique_id = pd.factorize(idAggr)
+        metadata = metadata.assign(ID_int=int_id)
+        return {
+            "metadata": metadata,
+            "int_id": int_id,
+            "nunique_ids": metadata["ID"].nunique(),
+        }
+
     def stakes(self, glacierName: str, overwriteDf: pd.DataFrame = None):
         """
         Returns the training stake data to be used in the model.
@@ -468,7 +497,13 @@ class GeoDataLoader:
         """
         X = overwriteDf if overwriteDf is not None else self.trainStakesDf
         if not self.allStakesPerIter:
-            X = X[X[self.keyGlacierSel] == glacierName]  # .dropna()
+            X = X[X[self.keyGlacierSel] == glacierName]
+            precomputed_meta = self._metadata_groups_stakes(X)
+        else:
+            if overwriteDf is None:
+                precomputed_meta = self.precomputed_meta_stakes
+            else:
+                precomputed_meta = self._metadata_groups_stakes(X)
 
         feature_columns = self.cfg.featureColumns
         non_feature_columns = X.columns.difference(feature_columns)
@@ -479,7 +514,7 @@ class GeoDataLoader:
             )
 
         # Extract metadata and features
-        metadata = X[non_feature_columns]  # .values
+        metadata = X[non_feature_columns]
         features = X[feature_columns].values
 
         groundTruth = X.POINT_BALANCE.values
@@ -487,7 +522,7 @@ class GeoDataLoader:
         features = self.normalizer.normalize(features)
         # metadata = self._mapStrColToInt(metadata, True)
 
-        return features, metadata, groundTruth
+        return features, metadata, groundTruth, precomputed_meta
 
     def stakesVal(self, glacierName: str):
         """
@@ -663,6 +698,9 @@ class GeoDataLoader:
             err = torch.from_numpy(err.astype(np.float32))
             precomputed_meta["GLWD_M_ID_int"] = torch.from_numpy(
                 metadata["GLWD_M_ID_int"].values.astype(np.int64)
+            )
+            precomputed_meta["ID_int"] = torch.from_numpy(
+                metadata["ID_int"].values.astype(np.int64)
             )
         return features, metadata, y, err, precomputed_meta
 
