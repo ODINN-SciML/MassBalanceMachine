@@ -189,7 +189,7 @@ class GeoDataLoader:
                             rgi_id,
                             self.years,
                             "Hugonnet21",
-                            feature_columns=self.cfg.featureColumns,
+                            self.cfg.featureColumns,
                         )
                 elif self.geodeticSource == "PGO":
                     print("Preparing PGO geodetic grids")
@@ -206,7 +206,7 @@ class GeoDataLoader:
                             rgi_id,
                             self.periods_per_glacier[rgi_id],
                             "PGO",
-                            feature_columns=self.cfg.featureColumns,
+                            self.cfg.featureColumns,
                         )
                 else:
                     raise ValueError(f"Unknown geodetic source {self.geodeticSource}.")
@@ -589,32 +589,20 @@ class GeoDataLoader:
             if self.geodeticSource == "Hugonnet21":
                 years = self.years
                 df_X_geod = load_grid_multi_years(glacierName, years, "Hugonnet21")
-                path_prepared_meta = prepare_precomputed_metadata(
-                    glacierName,
-                    years,
-                    "Hugonnet21",
-                    feature_columns=self.cfg.featureColumns,
-                )
                 precomputed_meta = load_precomputed_metadata(
                     glacierName,
                     years,
                     "Hugonnet21",
-                    feature_columns=self.cfg.featureColumns,
+                    self.cfg.featureColumns,
                 )
             elif self.geodeticSource == "PGO":
                 years = self.periods_per_glacier[glacierName]
                 df_X_geod = load_grid_multi_years(glacierName, years, "PGO")
-                prepare_precomputed_metadata(
-                    glacierName,
-                    years,
-                    "PGO",
-                    feature_columns=self.cfg.featureColumns,
-                )
                 precomputed_meta = load_precomputed_metadata(
                     glacierName,
                     years,
                     "PGO",
-                    feature_columns=self.cfg.featureColumns,
+                    self.cfg.featureColumns,
                 )
             # else:
             #     df_X_geod = create_geodetic_input(

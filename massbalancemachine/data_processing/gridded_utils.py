@@ -519,23 +519,20 @@ def prepared_grid_dir_multi_years(rgi_id, years, product_source):
     )
 
 
-def prepared_metadata_dir(rgi_id, years, product_source, feature_columns=None):
+def prepared_metadata_dir(rgi_id, years, product_source, feature_columns):
     base_dir = prepared_grid_dir_multi_years(rgi_id, years, product_source)
-    if feature_columns is None:
-        return base_dir
-    feature_hash = get_hash(",".join(feature_columns))
+    feature_hash = get_hash(",".join(sorted(feature_columns)))
     return os.path.join(base_dir, feature_hash)
 
 
-def _prepared_metadata_dict(df_X_geod):
-    feature_columns = [c for c in df_X_geod.columns if c not in ["POINT_BALANCE"]]
+def _prepared_metadata_dict(df_X_geod, feature_columns):
     metadata = df_X_geod.copy()
-    if "ELEVATION_DIFFERENCE" in feature_columns:
-        feature_columns = list(
-            set(feature_columns).union(set(["ELEVATION_DIFFERENCE"]))
-        )
-
     non_feature_columns = df_X_geod.columns.difference(feature_columns)
+    if "ELEVATION_DIFFERENCE" in feature_columns:
+        # We also want this in the metadata as this is useful to have it not unnormalized
+        non_feature_columns = list(
+            set(non_feature_columns).union(set(["ELEVATION_DIFFERENCE"]))
+        )
     metadata = df_X_geod[non_feature_columns]
 
     int_id, _ = pd.factorize(metadata["ID"].values)
@@ -604,28 +601,30 @@ def _prepared_metadata_dict(df_X_geod):
     }
 
 
-def prepare_precomputed_metadata(rgi_id, years, product_source, feature_columns=None):
+def prepare_precomputed_metadata(rgi_id, years, product_source, feature_columns):
     assert product_source in ["Hugonnet21", "PGO"]
     path_prepared = prepared_metadata_dir(
         rgi_id,
         years,
         product_source,
-        feature_columns=feature_columns,
+        feature_columns,
     )
     os.makedirs(path_prepared, exist_ok=True)
 
-    manifest_path = os.path.join(path_prepared, "metadata_manifest.json")
+    manifest_path = os.path.join(path_prepared, f"{rgi_id}_metadata_manifest.json")
     p = Product(manifest_path)
     if not p.is_up_to_date():
         df_X_geod = load_grid_multi_years(rgi_id, years, product_source)
-        precomputed_meta = _prepared_metadata_dict(df_X_geod)
+        precomputed_meta = _prepared_metadata_dict(df_X_geod, feature_columns)
 
         for key, df in {
             "metadata": precomputed_meta["metadata"],
             "grouped_ids": precomputed_meta["grouped_ids"],
             "grouped_glwd_m_ids": precomputed_meta["grouped_glwd_m_ids"],
         }.items():
-            df.to_parquet(os.path.join(path_prepared, f"{key}.parquet"), index=True)
+            df.to_parquet(
+                os.path.join(path_prepared, f"{rgi_id}_{key}.parquet"), index=True
+            )
 
         manifest = {
             "nunique_glwd_m_ids": int(precomputed_meta["nunique_glwd_m_ids"]),
@@ -637,15 +636,15 @@ def prepare_precomputed_metadata(rgi_id, years, product_source, feature_columns=
     return path_prepared
 
 
-def load_precomputed_metadata(rgi_id, years, product_source, feature_columns=None):
+def load_precomputed_metadata(rgi_id, years, product_source, feature_columns):
     assert product_source in ["Hugonnet21", "PGO"]
     path_prepared = prepared_metadata_dir(
         rgi_id,
         years,
         product_source,
-        feature_columns=feature_columns,
+        feature_columns,
     )
-    manifest_path = os.path.join(path_prepared, "metadata_manifest.json")
+    manifest_path = os.path.join(path_prepared, f"{rgi_id}_metadata_manifest.json")
 
     if not os.path.exists(manifest_path):
         raise FileNotFoundError(
@@ -657,12 +656,14 @@ def load_precomputed_metadata(rgi_id, years, product_source, feature_columns=Non
         manifest = json.load(f)
 
     metadata = {
-        "metadata": pd.read_parquet(os.path.join(path_prepared, "metadata.parquet")),
+        "metadata": pd.read_parquet(
+            os.path.join(path_prepared, f"{rgi_id}_metadata.parquet")
+        ),
         "grouped_ids": pd.read_parquet(
-            os.path.join(path_prepared, "grouped_ids.parquet")
+            os.path.join(path_prepared, f"{rgi_id}_grouped_ids.parquet")
         ),
         "grouped_glwd_m_ids": pd.read_parquet(
-            os.path.join(path_prepared, "grouped_glwd_m_ids.parquet")
+            os.path.join(path_prepared, f"{rgi_id}_grouped_glwd_m_ids.parquet")
         ),
         "nunique_glwd_m_ids": int(manifest["nunique_glwd_m_ids"]),
     }
