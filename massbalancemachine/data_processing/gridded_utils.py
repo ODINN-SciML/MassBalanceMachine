@@ -1,4 +1,5 @@
 import os
+import json
 import pandas as pd
 import numpy as np
 import tqdm
@@ -507,15 +508,170 @@ def geodetic_target_region_Hugonnet21(region_id, cfg, thres_area=None):
     return geodetic_target_Hugonnet21(rgi_ids, cfg)
 
 
-def generate_grid_multi_years(rgi_id, years, product_source):
+def prepared_grid_dir_multi_years(rgi_id, years, product_source):
     assert product_source in ["Hugonnet21", "PGO"]
-    path_prepared = os.path.join(
+    return os.path.join(
         data_path,
         "grids_multiyears",
         product_source,
         "_".join([str(y) for y in years]),
         *(rgi_id_to_folders(rgi_id)[:-1]),
     )
+
+
+def prepared_metadata_dir(rgi_id, years, product_source, feature_columns=None):
+    base_dir = prepared_grid_dir_multi_years(rgi_id, years, product_source)
+    if feature_columns is None:
+        return base_dir
+    feature_hash = get_hash(",".join(feature_columns))
+    return os.path.join(base_dir, feature_hash)
+
+
+def _prepared_metadata_dict(df_X_geod):
+    feature_columns = [c for c in df_X_geod.columns if c not in ["POINT_BALANCE"]]
+    metadata = df_X_geod.copy()
+    if "ELEVATION_DIFFERENCE" in feature_columns:
+        feature_columns = list(
+            set(feature_columns).union(set(["ELEVATION_DIFFERENCE"]))
+        )
+
+    non_feature_columns = df_X_geod.columns.difference(feature_columns)
+    metadata = df_X_geod[non_feature_columns]
+
+    int_id, _ = pd.factorize(metadata["ID"].values)
+    int_glwd_m_id, _ = pd.factorize(metadata["GLWD_M_ID"].values)
+    metadata = metadata.assign(ID_int=int_id, GLWD_M_ID_int=int_glwd_m_id)
+
+    grouped_ids = metadata.groupby("ID_int").agg(
+        {"YEAR": "first", "ID": "first", "RGIId": "first"}
+    )
+    if "GLWD_ID" in metadata.columns:
+        grouped_ids["GLWD_ID"] = metadata.groupby("ID_int")["GLWD_ID"].first()
+    if "GLWD_M_ID" in metadata.columns:
+        grouped_ids["GLWD_M_ID"] = metadata.groupby("ID_int")["GLWD_M_ID"].first()
+    if "POINT_LAT" in metadata.columns:
+        grouped_ids["POINT_LAT"] = metadata.groupby("ID_int")["POINT_LAT"].first()
+    if "POINT_LON" in metadata.columns:
+        grouped_ids["POINT_LON"] = metadata.groupby("ID_int")["POINT_LON"].first()
+    if "PERIOD" in metadata.columns:
+        grouped_ids["PERIOD"] = metadata.groupby("ID_int")["PERIOD"].first()
+    if "POINT_ELEVATION" in metadata.columns:
+        grouped_ids["POINT_ELEVATION"] = metadata.groupby("ID_int")[
+            "POINT_ELEVATION"
+        ].first()
+    if "ELEVATION_DIFFERENCE" in metadata.columns:
+        grouped_ids["ELEVATION_DIFFERENCE"] = metadata.groupby("ID_int")[
+            "ELEVATION_DIFFERENCE"
+        ].first()
+
+    grouped_glwd_m_ids = metadata.groupby("GLWD_M_ID_int").agg(
+        {"YEAR": "first", "ID": "first", "RGIId": "first"}
+    )
+    if "GLWD_ID" in metadata.columns:
+        grouped_glwd_m_ids["GLWD_ID"] = metadata.groupby("GLWD_M_ID_int")[
+            "GLWD_ID"
+        ].first()
+    if "GLWD_M_ID" in metadata.columns:
+        grouped_glwd_m_ids["GLWD_M_ID"] = metadata.groupby("GLWD_M_ID_int")[
+            "GLWD_M_ID"
+        ].first()
+    if "POINT_LAT" in metadata.columns:
+        grouped_glwd_m_ids["POINT_LAT"] = metadata.groupby("GLWD_M_ID_int")[
+            "POINT_LAT"
+        ].first()
+    if "POINT_LON" in metadata.columns:
+        grouped_glwd_m_ids["POINT_LON"] = metadata.groupby("GLWD_M_ID_int")[
+            "POINT_LON"
+        ].first()
+    if "PERIOD" in metadata.columns:
+        grouped_glwd_m_ids["PERIOD"] = metadata.groupby("GLWD_M_ID_int")[
+            "PERIOD"
+        ].first()
+    if "POINT_ELEVATION" in metadata.columns:
+        grouped_glwd_m_ids["POINT_ELEVATION"] = metadata.groupby("GLWD_M_ID_int")[
+            "POINT_ELEVATION"
+        ].first()
+    if "ELEVATION_DIFFERENCE" in metadata.columns:
+        grouped_glwd_m_ids["ELEVATION_DIFFERENCE"] = metadata.groupby("GLWD_M_ID_int")[
+            "ELEVATION_DIFFERENCE"
+        ].first()
+
+    return {
+        "metadata": metadata,
+        "grouped_ids": grouped_ids,
+        "grouped_glwd_m_ids": grouped_glwd_m_ids,
+        "nunique_glwd_m_ids": metadata["GLWD_M_ID_int"].nunique(),
+    }
+
+
+def prepare_precomputed_metadata(rgi_id, years, product_source, feature_columns=None):
+    assert product_source in ["Hugonnet21", "PGO"]
+    path_prepared = prepared_metadata_dir(
+        rgi_id,
+        years,
+        product_source,
+        feature_columns=feature_columns,
+    )
+    os.makedirs(path_prepared, exist_ok=True)
+
+    manifest_path = os.path.join(path_prepared, "metadata_manifest.json")
+    p = Product(manifest_path)
+    if not p.is_up_to_date():
+        df_X_geod = load_grid_multi_years(rgi_id, years, product_source)
+        precomputed_meta = _prepared_metadata_dict(df_X_geod)
+
+        for key, df in {
+            "metadata": precomputed_meta["metadata"],
+            "grouped_ids": precomputed_meta["grouped_ids"],
+            "grouped_glwd_m_ids": precomputed_meta["grouped_glwd_m_ids"],
+        }.items():
+            df.to_parquet(os.path.join(path_prepared, f"{key}.parquet"), index=True)
+
+        manifest = {
+            "nunique_glwd_m_ids": int(precomputed_meta["nunique_glwd_m_ids"]),
+        }
+        with open(manifest_path, "w") as f:
+            json.dump(manifest, f, sort_keys=True)
+        p.gen_chk()
+
+    return path_prepared
+
+
+def load_precomputed_metadata(rgi_id, years, product_source, feature_columns=None):
+    assert product_source in ["Hugonnet21", "PGO"]
+    path_prepared = prepared_metadata_dir(
+        rgi_id,
+        years,
+        product_source,
+        feature_columns=feature_columns,
+    )
+    manifest_path = os.path.join(path_prepared, "metadata_manifest.json")
+
+    if not os.path.exists(manifest_path):
+        raise FileNotFoundError(
+            f"Precomputed metadata not found for {rgi_id} in {path_prepared}. "
+            "Run prepare_precomputed_metadata(...) first."
+        )
+
+    with open(manifest_path, "r") as f:
+        manifest = json.load(f)
+
+    metadata = {
+        "metadata": pd.read_parquet(os.path.join(path_prepared, "metadata.parquet")),
+        "grouped_ids": pd.read_parquet(
+            os.path.join(path_prepared, "grouped_ids.parquet")
+        ),
+        "grouped_glwd_m_ids": pd.read_parquet(
+            os.path.join(path_prepared, "grouped_glwd_m_ids.parquet")
+        ),
+        "nunique_glwd_m_ids": int(manifest["nunique_glwd_m_ids"]),
+    }
+    return metadata
+
+
+def generate_grid_multi_years(rgi_id, years, product_source, feature_columns=None):
+    assert product_source in ["Hugonnet21", "PGO"]
+    path_prepared = prepared_grid_dir_multi_years(rgi_id, years, product_source)
     path_prepared_df = os.path.join(path_prepared, f"{rgi_id}.parquet")
     p = Product(path_prepared_df)
     if not p.is_up_to_date():
@@ -532,13 +688,7 @@ def generate_grid_multi_years(rgi_id, years, product_source):
 
 def load_grid_multi_years(rgi_id, years, product_source):
     assert product_source in ["Hugonnet21", "PGO"]
-    path_prepared = os.path.join(
-        data_path,
-        "grids_multiyears",
-        product_source,
-        "_".join([str(y) for y in years]),
-        *(rgi_id_to_folders(rgi_id)[:-1]),
-    )
+    path_prepared = prepared_grid_dir_multi_years(rgi_id, years, product_source)
     path_prepared_df = os.path.join(path_prepared, f"{rgi_id}.parquet")
     # TODO: determine these based on features and metadata
     columns = [
