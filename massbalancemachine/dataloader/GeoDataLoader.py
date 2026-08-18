@@ -226,8 +226,10 @@ class GeoDataLoader:
             self.precomputed_meta = None
 
         if self.allStakesPerIter:
-            self.precomputed_meta_stakes = self._metadata_groups_stakes(
-                self.trainStakesDf
+            self.precomputed_meta_stakes = (
+                self._metadata_groups_stakes(self.trainStakesDf)
+                if self.trainStakesDf is not None
+                else None
             )
         else:
             self.precomputed_meta_stakes = None

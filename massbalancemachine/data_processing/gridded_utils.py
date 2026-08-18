@@ -681,7 +681,7 @@ def generate_grid_multi_years(rgi_id, years, product_source, feature_columns=Non
         if product_source == "Hugonnet21":
             df_X_geod_rgi_id = geodetic_input_Hugonnet21(rgi_id, years=years)
         elif product_source == "PGO":
-            df_X_geod_rgi_id = geodetic_input_PGO(rgi_id, years=years)
+            df_X_geod_rgi_id = geodetic_input_PGO(rgi_id, years)
         df_X_geod_rgi_id.to_parquet(
             path_prepared_df, engine="pyarrow", compression="snappy"
         )
