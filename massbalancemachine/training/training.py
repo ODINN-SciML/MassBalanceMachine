@@ -112,8 +112,8 @@ def compute_stake_loss(
         mse = (weightStakes * err).sum() / predSum.shape[0]
     ret = {}
     if returnPred:
-        ret["target"] = trueMean.detach().cpu()
-        ret["pred"] = predSum.detach().cpu()
+        ret["target"] = trueMean.detach()
+        ret["pred"] = predSum.detach()
     return mse, ret, int_id
 
 
@@ -512,11 +512,9 @@ def assessOnTest(log_dir, model, geodataloader_test, params, light=False, color=
     if wWinter == 1.0 and wSummer == 1.0:
         weightStakes = None
 
-    targetAll = torch.zeros(0)
-    predAll = torch.zeros(0)
-    periodAll = np.zeros(
-        0, dtype=np.array(list(geodataloader_test.periodToInt.keys())).dtype
-    )  # Initialize with correct dtype
+    targetAll = []
+    predAll = []
+    periodAll = []
     for g in geodataloader_test.glaciers():
         stakes, metadata, point_balance, precomputed_meta = geodataloader_test.stakes(g)
         stakes = torch.tensor(stakes.astype(np.float32)).to(geodataloader_test.device)
@@ -554,16 +552,19 @@ def assessOnTest(log_dir, model, geodataloader_test, params, light=False, color=
             returnPred=True,
             weightStakes=weightStakes,
         )
-        targetAll = torch.concatenate((targetAll, ret["target"]))
-        predAll = torch.concatenate((predAll, ret["pred"]))
+        targetAll.append(ret["target"])
+        predAll.append(ret["pred"])
         grouped_ids = (
             precomputed_meta["metadata"].groupby("ID_int").agg({"PERIOD": "first"})
         )
-        periodAll = np.concatenate((periodAll, np.array(grouped_ids["PERIOD"].values)))
+        periodAll.append(np.array(grouped_ids["PERIOD"].values))
 
         if scalingStakes == "full":
             # All stakes are processed at once and this is independent from the provided glacier
             break
+    targetAll = torch.concatenate(targetAll).cpu()
+    predAll = torch.concatenate(predAll).cpu()
+    periodAll = np.concatenate(periodAll)
 
     mse, rmse, mae, pearson_corr, r2, bias = scores(predAll, targetAll)
 
@@ -664,14 +665,12 @@ def assessOnVal(model, geodataloader, params, async_transfer=None, zeroTgtGeo=Fa
         cntGeo = 0
         lossStake = 0.0
         lossGeo = 0.0
-        targetAll = torch.zeros(0)
-        predAll = torch.zeros(0)
-        periodAll = np.zeros(
-            0, dtype=np.array(list(geodataloader.periodToInt.keys())).dtype
-        )  # Initialize with correct dtype
-        targetAllGeo = torch.zeros(0)
-        sigmaAllGeo = torch.zeros(0)
-        predAllGeo = torch.zeros(0)
+        targetAll = []
+        predAll = []
+        periodAll = []
+        targetAllGeo = []
+        sigmaAllGeo = []
+        predAllGeo = []
 
         with tqdm.tqdm(
             total=iterPerEpoch,
@@ -772,16 +771,14 @@ def assessOnVal(model, geodataloader, params, async_transfer=None, zeroTgtGeo=Fa
                     )
                     target = ret["target"]
                     pred = ret["pred"]
-                    targetAll = torch.concatenate((targetAll, target))
-                    predAll = torch.concatenate((predAll, pred))
+                    targetAll.append(target)
+                    predAll.append(pred)
                     grouped_ids = (
                         precomputed_meta["metadata"]
                         .groupby("ID_int")
                         .agg({"PERIOD": "first"})
                     )
-                    periodAll = np.concatenate(
-                        (periodAll, np.array(grouped_ids["PERIOD"].values))
-                    )
+                    periodAll.append(np.array(grouped_ids["PERIOD"].values))
 
                     valScalingStakes = (
                         precomputed_meta["nunique_ids"]
@@ -836,20 +833,20 @@ def assessOnVal(model, geodataloader, params, async_transfer=None, zeroTgtGeo=Fa
                         precomputed_meta,
                         zeroTgtGeo=zeroTgtGeo,
                     )
-                    targetAllGeo = torch.concatenate(
-                        (targetAllGeo, ygeo.cpu().detach())
-                    )
-                    predAllGeo = torch.concatenate(
-                        (predAllGeo, ypredgeo.cpu().detach())
-                    )
-                    sigmaAllGeo = torch.concatenate(
-                        (sigmaAllGeo, errgeo.cpu().detach())
-                    )
+                    targetAllGeo.append(ygeo.detach())
+                    predAllGeo.append(ypredgeo.detach())
+                    sigmaAllGeo.append(errgeo.detach())
                     lossGeo += lossGeo_i
                     cntGeo += 1
 
                 batch_idx += 1
                 batch_bar.update(1)
+        targetAll = torch.concatenate(targetAll).cpu()
+        predAll = torch.concatenate(predAll).cpu()
+        periodAll = np.concatenate(periodAll)
+        targetAllGeo = torch.concatenate(targetAllGeo).cpu()
+        predAllGeo = torch.concatenate(predAllGeo).cpu()
+        sigmaAllGeo = torch.concatenate(sigmaAllGeo).cpu()
 
         if cntStake != 0:
             lossStake /= cntStake
