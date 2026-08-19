@@ -846,9 +846,14 @@ def assessOnVal(model, geodataloader, params, async_transfer=None, zeroTgtGeo=Fa
         targetAll = torch.concatenate(targetAll).cpu()
         predAll = torch.concatenate(predAll).cpu()
         periodAll = np.concatenate(periodAll)
-        targetAllGeo = torch.concatenate(targetAllGeo).cpu()
-        predAllGeo = torch.concatenate(predAllGeo).cpu()
-        sigmaAllGeo = torch.concatenate(sigmaAllGeo).cpu()
+        if wGeo > 0:
+            targetAllGeo = torch.concatenate(targetAllGeo).cpu()
+            predAllGeo = torch.concatenate(predAllGeo).cpu()
+            sigmaAllGeo = torch.concatenate(sigmaAllGeo).cpu()
+        else:
+            targetAllGeo = torch.zeros(0)
+            predAllGeo = torch.zeros(0)
+            sigmaAllGeo = torch.zeros(0)
 
         if cntStake != 0:
             lossStake /= cntStake
