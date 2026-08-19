@@ -81,6 +81,7 @@ def parseParams(params):
         "train_glaciers": params["training"].get("train_glaciers"),
         "val_glaciers": params["training"].get("val_glaciers"),
         "wGeo": params["training"].get("wGeo", 0.0),
+        "scalingGeo": params["training"].get("scalingGeo", "quad"),
         "bestModelCriterion": params["training"].get("bestModelCriterion", "lossVal"),
         "splitVal": params["training"].get("splitVal", "group-meas-id"),
         "freqVal": params["training"].get("freqVal", 1),

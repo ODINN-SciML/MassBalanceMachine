@@ -119,7 +119,12 @@ def compute_stake_loss(
 
 # TODO: time aggregation!
 def timeWindowGeodeticLoss(
-    predSumGeodPeriod, geoTarget, errGeoTarget, metadataAggrGlwdM, geod_periods
+    predSumGeodPeriod,
+    geoTarget,
+    errGeoTarget,
+    metadataAggrGlwdM,
+    geod_periods,
+    scalingGeo,
 ):
     """
     Given glacier-wide mass balance values for different months, this function
@@ -163,7 +168,14 @@ def timeWindowGeodeticLoss(
     geodetic_MB_pred = torch.sum(
         predSumGeodPeriod * 12 / n_entries_unique_GLWD_M_ID
     ).view(1)
-    return ((geodetic_MB_pred - geoTarget[0]) / errGeoTarget[0]) ** 2, geodetic_MB_pred
+    if scalingGeo == "quad":
+        return (
+            (geodetic_MB_pred - geoTarget[0]) / errGeoTarget[0]
+        ) ** 2, geodetic_MB_pred
+    elif scalingGeo == "linear":
+        return ((geodetic_MB_pred - geoTarget[0])) ** 2 / errGeoTarget[
+            0
+        ], geodetic_MB_pred
 
 
 def predict_monthly_gridded(model, geoGrid, metadata):
@@ -347,6 +359,7 @@ def compute_geo_loss(
     errgeo,
     geod_periods,
     precomputed_meta,
+    scalingGeo,
     zeroTgtGeo=False,
 ):
     # TODO: update docstring
@@ -490,6 +503,7 @@ def compute_geo_loss(
             errgeo,
             metadataAggrGlwdM,
             geod_periods,
+            scalingGeo,
         )
 
     return lossGeo.mean(), ypred  # Compute mean of the different time window scores
@@ -648,6 +662,8 @@ def assessOnTest(log_dir, model, geodataloader_test, params, light=False, color=
 
 def assessOnVal(model, geodataloader, params, async_transfer=None, zeroTgtGeo=False):
     wGeo = params["training"]["wGeo"]
+    scalingGeo = params["training"].get("scalingGeo", "quad")
+    assert scalingGeo in ["quad", "linear"]
     scalingStakes = params["training"]["scalingStakes"]
     iterPerEpoch = geodataloader.lenValGeo() if wGeo > 0 else len(geodataloader)
     nColsProgressBar = 500 if _inJupyterNotebook else 85
@@ -833,6 +849,7 @@ def assessOnVal(model, geodataloader, params, async_transfer=None, zeroTgtGeo=Fa
                         errgeo,
                         geod_periods,
                         precomputed_meta,
+                        scalingGeo,
                         zeroTgtGeo=zeroTgtGeo,
                     )
                     targetAllGeo.append(ygeo.detach())
@@ -1006,6 +1023,8 @@ def train_geo(
     """
     Nepochs = params["training"]["Nepochs"]
     wGeo = params["training"]["wGeo"]
+    scalingGeo = params["training"].get("scalingGeo", "quad")
+    assert scalingGeo in ["quad", "linear"]
     freqVal = params["training"]["freqVal"]
     bestModelCriterion = params["training"]["bestModelCriterion"]
     assert bestModelCriterion in _criterionVal
@@ -1317,6 +1336,7 @@ def train_geo(
                                 errgeo,
                                 geod_periods,
                                 precomputed_meta,
+                                scalingGeo,
                                 zeroTgtGeo=zeroTgtGeo,
                             )
                             if timeExec:
