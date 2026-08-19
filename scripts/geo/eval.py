@@ -290,17 +290,11 @@ print(f"Loaded model {bestModelPath}")
 if pgo:
     pathFolderPGO = os.path.join(pathFolder, "PGO")
     os.makedirs(pathFolderPGO, exist_ok=True)
-    # pgo_glaciers = ["RGI2000-v7.0-G-11-03575", "RGI2000-v7.0-G-11-03576"]
-    pgo_glaciers = None
     from massbalancemachine.data_processing.pgo import pgo_target_file
 
     df = mbm.data_processing.geodetic_target_PGO(pgo_target_file())
     area = df.a_m2 / 1e6
-    df = df[area > 1]
-    # pgo_glaciers = df.RGIId.iloc[:10].values
     pgo_glaciers = df.RGIId.values
-    # pgo_glaciers = ["RGI2000-v7.0-G-11-04025", "RGI2000-v7.0-G-11-03872"]
-    # pgo_glaciers = ["RGI2000-v7.0-G-11-04020", "RGI2000-v7.0-G-11-03872"]
     del df
 
     # Create dataloader
@@ -315,7 +309,6 @@ if pgo:
         keyGlacierSel="RGIId",
         allStakesPerIter=(params["training"]["scalingStakes"] == "full"),
         # additionalYears=additionalYears,
-        # geodeticSource=params["training"]["geodetic_source"],
     )
     pathFolderPred = f"{pathFolderPGO}/pred"
     if savePred:
@@ -480,9 +473,7 @@ if len(df_X_test_subset) > 0 and not noTest:
         keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
         allStakesPerIter=(params["training"]["scalingStakes"] == "full"),
         additionalYears=additionalYears,
-        geodeticSource=params["training"].get(
-            "geodetic_source", "Hugonnet21"
-        ),  # TODO: change
+        geodeticSource=params["training"]["geodetic_source"],
     )
 
     grouped_ids = model.evaluate_group_pred(test_gdl)
@@ -752,9 +743,7 @@ train_gdl = mbm.dataloader.GeoDataLoader(
     keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
     allStakesPerIter=(params["training"]["scalingStakes"] == "full"),
     additionalYears=additionalYears,
-    geodeticSource=params["training"].get(
-        "geodetic_source", "Hugonnet21"
-    ),  # TODO: change
+    geodeticSource=params["training"]["geodetic_source"],
 )
 
 with torch.no_grad():
