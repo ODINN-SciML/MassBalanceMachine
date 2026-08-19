@@ -387,7 +387,7 @@ def aggrPredict(pred, idAggr, reduce="sum", out=None):
     )
     if out is None:
         out = torch.zeros(
-            (len(np.unique(idAggr)),), device=pred.device, dtype=pred.dtype
+            (len(torch.unique(idAggrTorch)),), device=pred.device, dtype=pred.dtype
         )
     # predSumAnnual = out.scatter_reduce(0, idAggrTorch, pred, reduce=reduce)
     predSumAnnual = out.scatter_reduce_(0, idAggrTorch, pred, reduce=reduce)

@@ -179,7 +179,9 @@ def predict_annual_gridded(model, geoGrid, metadata, precomputed_meta):
 
     # Aggregate per point on the grid
     grouped_ids = precomputed_meta["grouped_ids"]
-    predSumAnnual = aggrPredict(pred, ID_int)
+    nunique = precomputed_meta["nunique_ids"]
+    predSumAnnual = torch.zeros((nunique,), device=pred.device, dtype=pred.dtype)
+    aggrPredict(pred, ID_int, out=predSumAnnual)
 
     return grouped_ids, predSumAnnual
 

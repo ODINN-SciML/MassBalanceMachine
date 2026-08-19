@@ -598,6 +598,7 @@ class GeoDataLoader:
             "grouped_ids": grouped_ids,
             "grouped_glwd_m_ids": metadataAggrGlWdM,
             "nunique_glwd_m_ids": metadata["GLWD_M_ID_int"].nunique(),
+            "nunique_ids": metadata["ID_int"].nunique(),
         }
 
     def _geo_sync(self, glacierName: str, async_transfer: bool = False):

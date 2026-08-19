@@ -599,6 +599,7 @@ def _prepared_metadata_dict(df_X_geod, feature_columns):
         "grouped_ids": grouped_ids,
         "grouped_glwd_m_ids": grouped_glwd_m_ids,
         "nunique_glwd_m_ids": metadata["GLWD_M_ID_int"].nunique(),
+        "nunique_ids": metadata["ID_int"].nunique(),
     }
 
 
@@ -629,6 +630,7 @@ def prepare_precomputed_metadata(rgi_id, years, product_source, feature_columns)
 
         manifest = {
             "nunique_glwd_m_ids": int(precomputed_meta["nunique_glwd_m_ids"]),
+            "nunique_ids": int(precomputed_meta["nunique_ids"]),
         }
         with open(manifest_path, "w") as f:
             json.dump(manifest, f, sort_keys=True)
@@ -667,6 +669,7 @@ def load_precomputed_metadata(rgi_id, years, product_source, feature_columns):
             os.path.join(path_prepared, f"{rgi_id}_grouped_glwd_m_ids.parquet")
         ),
         "nunique_glwd_m_ids": int(manifest["nunique_glwd_m_ids"]),
+        "nunique_ids": int(manifest["nunique_ids"]),
     }
     return metadata
 
