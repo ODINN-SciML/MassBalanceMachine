@@ -328,6 +328,8 @@ def PGO_folder():
         )
     elif "bigfoot" in hostname:
         return "/home/gossarda/PGO_data/transfer_12853201_files_c8b76236/"
+    elif hostname == "63bceb1ea564":
+        return "/workspace/PGO_data/transfer_12853201_files_c8b76236/"
     else:
         raise ValueError(f"Unknown host {hostname}")
 

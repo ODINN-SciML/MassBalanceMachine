@@ -66,11 +66,25 @@ parser.add_argument(
     help="Generate annual MB maps for specific glaciers.",
 )
 parser.add_argument(
+    "--profiles",
+    dest="profiles",
+    default=[],
+    nargs="+",
+    help="Generate MB profile plots for specific glaciers.",
+)
+parser.add_argument(
     "--years",
     dest="years",
     default=[],
     nargs="+",
     help="Years for which to generate the annual MB maps.",
+)
+parser.add_argument(
+    "--skip",
+    dest="skip",
+    default=False,
+    action="store_true",
+    help="Skip plots that show all the glaciers. This option allows generating glacier specific comparison quickly.",
 )
 args = parser.parse_args()
 
@@ -82,7 +96,9 @@ plot = args.plot
 noTrain = args.noTrain
 pgo = args.pgo
 maps = args.maps
+profiles = args.profiles
 yearsMaps = [int(y) for y in args.years]
+skip = args.skip
 pathFolder1 = os.path.join("logs", modelFolder1)
 pathFolder2 = os.path.join("logs", modelFolder2)
 name1 = name1 if name1 is not None else modelFolder1
@@ -183,53 +199,54 @@ if pgo:
 
 
 if not noTrain:
-    # Cumulated mass change on train data
-    df_gridded_monthly1 = load_gridded(f"{pathFolder1}/gridded_monthly_train")
-    df_geo1 = load_gridded(f"{pathFolder1}/gridded_geodetic_train")
-    geoTarget = df_geo1.set_index("RGIId").target.to_dict()
-    geoErr = df_geo1.set_index("RGIId").err.to_dict()
+    if not skip:
+        # Cumulated mass change on train data
+        df_gridded_monthly1 = load_gridded(f"{pathFolder1}/gridded_monthly_train")
+        df_geo1 = load_gridded(f"{pathFolder1}/gridded_geodetic_train")
+        geoTarget = df_geo1.set_index("RGIId").target.to_dict()
+        geoErr = df_geo1.set_index("RGIId").err.to_dict()
 
-    # Plot cumulated mass change
-    fig, l1 = mbm.plots.cumulatedMassChange(
-        df_gridded_monthly1,
-        geo={
-            rgi_id: {
-                "mean": geoTarget[rgi_id],
-                "err": geoErr[rgi_id],
-                "start": start_geod_period,
-                "end": end_geod_period,
-            }
-            for rgi_id in geoTarget
-        },
-        linear_fit_breaks=linear_fit_breaks,
-    )
-    del df_gridded_monthly1
-    df_gridded_monthly2 = load_gridded(f"{pathFolder2}/gridded_monthly_train")
-    _, l2 = mbm.plots.cumulatedMassChange(
-        df_gridded_monthly2,
-        geo={
-            rgi_id: {
-                "start": start_geod_period,
-                "end": end_geod_period,
-            }  # Provide the bounds to plot only the cumulated MB of the geodetic time window
-            for rgi_id in geoTarget
-        },
-        axs=fig.axes,
-        color_pred="red",
-        titles={
-            k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
-            for k in glacierNames
-        },
-        linear_fit_breaks=linear_fit_breaks,
-    )
-    del df_gridded_monthly2
-    fig.legend([l1, l2], [name1, name2], loc="lower center", ncol=2)
+        # Plot cumulated mass change
+        fig, l1 = mbm.plots.cumulatedMassChange(
+            df_gridded_monthly1,
+            geo={
+                rgi_id: {
+                    "mean": geoTarget[rgi_id],
+                    "err": geoErr[rgi_id],
+                    "start": start_geod_period,
+                    "end": end_geod_period,
+                }
+                for rgi_id in geoTarget
+            },
+            linear_fit_breaks=linear_fit_breaks,
+        )
+        del df_gridded_monthly1
+        df_gridded_monthly2 = load_gridded(f"{pathFolder2}/gridded_monthly_train")
+        _, l2 = mbm.plots.cumulatedMassChange(
+            df_gridded_monthly2,
+            geo={
+                rgi_id: {
+                    "start": start_geod_period,
+                    "end": end_geod_period,
+                }  # Provide the bounds to plot only the cumulated MB of the geodetic time window
+                for rgi_id in geoTarget
+            },
+            axs=fig.axes,
+            color_pred="red",
+            titles={
+                k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
+                for k in glacierNames
+            },
+            linear_fit_breaks=linear_fit_breaks,
+        )
+        del df_gridded_monthly2
+        fig.legend([l1, l2], [name1, name2], loc="lower center", ncol=2)
 
-    fig.savefig(f"{pathFolder}/cumulated_mass_change_glaciers_train.pdf")
-    fig.savefig(f"{pathFolder}/cumulated_mass_change_glaciers_train.png", dpi=300)
-    if plot:
-        plt.show()
-    plt.close(fig)
+        fig.savefig(f"{pathFolder}/cumulated_mass_change_glaciers_train.pdf")
+        fig.savefig(f"{pathFolder}/cumulated_mass_change_glaciers_train.png", dpi=300)
+        if plot:
+            plt.show()
+        plt.close(fig)
 
     # Load annual data
     df_gridded_annual1 = load_gridded(f"{pathFolder1}/gridded_annual_train")
@@ -238,36 +255,82 @@ if not noTrain:
     # Load stakes data
     df_groupeds_train1 = load_gridded(f"{pathFolder1}/stakes_train")
 
-    # Plot MB profile
-    fig = mbm.plots.profilePerGlacier(
-        df_gridded_annual1[
-            (df_gridded_annual1.YEAR >= start_geod_period)
-            & (df_gridded_annual1.YEAR < end_geod_period)
-        ],
-        color="blue",
-        titles={
-            k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
-            for k in glacierNames
-        },
-        df_stakes=df_groupeds_train1,
-        average_stakes=False,
-    )
-    _ = mbm.plots.profilePerGlacier(
-        df_gridded_annual2[
-            (df_gridded_annual2.YEAR >= start_geod_period)
-            & (df_gridded_annual2.YEAR < end_geod_period)
-        ],
-        color="red",
-        axs=fig.axes,
-        titles={
-            k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
-            for k in glacierNames
-        },
-    )
-    fig.savefig(f"{pathFolder}/MB_profile_individual_glaciers_train.pdf")
-    if plot:
-        plt.show()
-    plt.close(fig)
+    if not skip:
+        # Plot MB profile
+        fig = mbm.plots.profilePerGlacier(
+            df_gridded_annual1[
+                (df_gridded_annual1.YEAR >= start_geod_period)
+                & (df_gridded_annual1.YEAR < end_geod_period)
+            ],
+            color="blue",
+            titles={
+                k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
+                for k in glacierNames
+            },
+            df_stakes=df_groupeds_train1,
+            average_stakes=False,
+        )
+        _ = mbm.plots.profilePerGlacier(
+            df_gridded_annual2[
+                (df_gridded_annual2.YEAR >= start_geod_period)
+                & (df_gridded_annual2.YEAR < end_geod_period)
+            ],
+            color="red",
+            axs=fig.axes,
+            titles={
+                k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
+                for k in glacierNames
+            },
+        )
+        fig.savefig(f"{pathFolder}/MB_profile_individual_glaciers_train.pdf")
+        if plot:
+            plt.show()
+        plt.close(fig)
+
+    if len(profiles) > 0:
+        profilesFolder = f"{pathFolder}/profiles"
+        os.makedirs(profilesFolder, exist_ok=True)
+        train_glaciers = df_gridded_annual1.RGIId.unique()
+        profilesTrain = [rgi_id for rgi_id in profiles if rgi_id in train_glaciers]
+        assert set(profilesTrain).issubset(set(df_gridded_annual2.RGIId.unique()))
+        for rgi_id in profilesTrain:
+            profile_fig = mbm.plots.profilePerGlacier(
+                df_gridded_annual1[
+                    (df_gridded_annual1.YEAR >= start_geod_period)
+                    & (df_gridded_annual1.YEAR < end_geod_period)
+                ],
+                color="blue",
+                custom_order=[rgi_id],
+                titles={
+                    k: (
+                        f"{k} ({glacierNames[k]})"
+                        if glacierNames[k] is not None
+                        else None
+                    )
+                    for k in glacierNames
+                },
+                df_stakes=df_groupeds_train1,
+                average_stakes=False,
+            )
+            _ = mbm.plots.profilePerGlacier(
+                df_gridded_annual2[
+                    (df_gridded_annual2.YEAR >= start_geod_period)
+                    & (df_gridded_annual2.YEAR < end_geod_period)
+                ],
+                color="red",
+                custom_order=[rgi_id],
+                axs=profile_fig.axes,
+                titles={
+                    k: (
+                        f"{k} ({glacierNames[k]})"
+                        if glacierNames[k] is not None
+                        else None
+                    )
+                    for k in glacierNames
+                },
+            )
+            profile_fig.savefig(f"{profilesFolder}/{rgi_id}.pdf")
+            plt.close(profile_fig)
 
     if len(maps) > 0:
         train_glaciers = df_gridded_annual1.RGIId.unique()
@@ -316,61 +379,62 @@ if not noTrain:
     del df_gridded_annual1, df_gridded_annual2
 
 
-# Cumulated mass change on test data
-df_gridded_monthly1 = load_gridded(f"{pathFolder1}/gridded_monthly_test")
-df_geo1 = load_gridded(f"{pathFolder1}/gridded_geodetic_test")
-geoTarget = df_geo1.set_index("RGIId").target.to_dict()
-geoErr = df_geo1.set_index("RGIId").err.to_dict()
+if not skip:
+    # Cumulated mass change on test data
+    df_gridded_monthly1 = load_gridded(f"{pathFolder1}/gridded_monthly_test")
+    df_geo1 = load_gridded(f"{pathFolder1}/gridded_geodetic_test")
+    geoTarget = df_geo1.set_index("RGIId").target.to_dict()
+    geoErr = df_geo1.set_index("RGIId").err.to_dict()
 
-# Plot cumulated mass change
-fig, l1 = mbm.plots.cumulatedMassChange(
-    df_gridded_monthly1,
-    geo={
-        rgi_id: {
-            "mean": geoTarget[rgi_id],
-            "err": geoErr[rgi_id],
-            "start": start_geod_period,
-            "end": end_geod_period,
-        }
-        for rgi_id in geoTarget
-    },
-    linear_fit_breaks=linear_fit_breaks,
-)
-del df_gridded_monthly1
-df_gridded_monthly2 = load_gridded(f"{pathFolder2}/gridded_monthly_test")
-_, l2 = mbm.plots.cumulatedMassChange(
-    df_gridded_monthly2,
-    geo={
-        rgi_id: {
-            "start": start_geod_period,
-            "end": end_geod_period,
-        }  # Provide the bounds to plot only the cumulated MB of the geodetic time window
-        for rgi_id in geoTarget
-    },
-    axs=fig.axes,
-    color_pred="red",
-    titles={
-        k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
-        for k in glacierNames
-    },
-    linear_fit_breaks=linear_fit_breaks,
-)
-del df_gridded_monthly2
-fig.legend(
-    [l1, l2],
-    [name1, name2],
-    loc="lower center",
-    ncol=2,
-    fontsize=18,
-    bbox_to_anchor=(0.5, 0.02),
-)
-plt.tight_layout(rect=[0, 0.1, 1, 1])
+    # Plot cumulated mass change
+    fig, l1 = mbm.plots.cumulatedMassChange(
+        df_gridded_monthly1,
+        geo={
+            rgi_id: {
+                "mean": geoTarget[rgi_id],
+                "err": geoErr[rgi_id],
+                "start": start_geod_period,
+                "end": end_geod_period,
+            }
+            for rgi_id in geoTarget
+        },
+        linear_fit_breaks=linear_fit_breaks,
+    )
+    del df_gridded_monthly1
+    df_gridded_monthly2 = load_gridded(f"{pathFolder2}/gridded_monthly_test")
+    _, l2 = mbm.plots.cumulatedMassChange(
+        df_gridded_monthly2,
+        geo={
+            rgi_id: {
+                "start": start_geod_period,
+                "end": end_geod_period,
+            }  # Provide the bounds to plot only the cumulated MB of the geodetic time window
+            for rgi_id in geoTarget
+        },
+        axs=fig.axes,
+        color_pred="red",
+        titles={
+            k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
+            for k in glacierNames
+        },
+        linear_fit_breaks=linear_fit_breaks,
+    )
+    del df_gridded_monthly2
+    fig.legend(
+        [l1, l2],
+        [name1, name2],
+        loc="lower center",
+        ncol=2,
+        fontsize=18,
+        bbox_to_anchor=(0.5, 0.02),
+    )
+    plt.tight_layout(rect=[0, 0.1, 1, 1])
 
-fig.savefig(f"{pathFolder}/cumulated_mass_change_glaciers_test.pdf")
-fig.savefig(f"{pathFolder}/cumulated_mass_change_glaciers_test.png", dpi=300)
-if plot:
-    plt.show()
-plt.close(fig)
+    fig.savefig(f"{pathFolder}/cumulated_mass_change_glaciers_test.pdf")
+    fig.savefig(f"{pathFolder}/cumulated_mass_change_glaciers_test.png", dpi=300)
+    if plot:
+        plt.show()
+    plt.close(fig)
 
 
 # Load annual data
@@ -381,36 +445,75 @@ df_gridded_annual2 = load_gridded(f"{pathFolder2}/gridded_annual_test")
 df_groupeds_test1 = load_gridded(f"{pathFolder1}/stakes_test")
 
 
-# Plot MB profile
-fig = mbm.plots.profilePerGlacier(
-    df_gridded_annual1[
-        (df_gridded_annual1.YEAR >= start_geod_period)
-        & (df_gridded_annual1.YEAR < end_geod_period)
-    ],
-    color="blue",
-    titles={
-        k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
-        for k in glacierNames
-    },
-    df_stakes=df_groupeds_test1,
-    average_stakes=False,
-)
-_ = mbm.plots.profilePerGlacier(
-    df_gridded_annual2[
-        (df_gridded_annual2.YEAR >= start_geod_period)
-        & (df_gridded_annual2.YEAR < end_geod_period)
-    ],
-    color="red",
-    axs=fig.axes,
-    titles={
-        k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
-        for k in glacierNames
-    },
-)
-fig.savefig(f"{pathFolder}/MB_profile_individual_glaciers_test.pdf")
-if plot:
-    plt.show()
-plt.close(fig)
+if not skip:
+    # Plot MB profile
+    fig = mbm.plots.profilePerGlacier(
+        df_gridded_annual1[
+            (df_gridded_annual1.YEAR >= start_geod_period)
+            & (df_gridded_annual1.YEAR < end_geod_period)
+        ],
+        color="blue",
+        titles={
+            k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
+            for k in glacierNames
+        },
+        df_stakes=df_groupeds_test1,
+        average_stakes=False,
+    )
+    _ = mbm.plots.profilePerGlacier(
+        df_gridded_annual2[
+            (df_gridded_annual2.YEAR >= start_geod_period)
+            & (df_gridded_annual2.YEAR < end_geod_period)
+        ],
+        color="red",
+        axs=fig.axes,
+        titles={
+            k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
+            for k in glacierNames
+        },
+    )
+    fig.savefig(f"{pathFolder}/MB_profile_individual_glaciers_test.pdf")
+    if plot:
+        plt.show()
+    plt.close(fig)
+
+
+if len(profiles) > 0:
+    profilesFolder = f"{pathFolder}/profiles"
+    os.makedirs(profilesFolder, exist_ok=True)
+    test_glaciers = df_gridded_annual1.RGIId.unique()
+    profilesTest = [rgi_id for rgi_id in profiles if rgi_id in test_glaciers]
+    assert set(profilesTest).issubset(set(df_gridded_annual2.RGIId.unique()))
+    for rgi_id in profilesTest:
+        profile_fig = mbm.plots.profilePerGlacier(
+            df_gridded_annual1[
+                (df_gridded_annual1.YEAR >= start_geod_period)
+                & (df_gridded_annual1.YEAR < end_geod_period)
+            ],
+            color="blue",
+            custom_order=[rgi_id],
+            titles={
+                k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
+                for k in glacierNames
+            },
+            df_stakes=df_groupeds_test1,
+            average_stakes=False,
+        )
+        _ = mbm.plots.profilePerGlacier(
+            df_gridded_annual2[
+                (df_gridded_annual2.YEAR >= start_geod_period)
+                & (df_gridded_annual2.YEAR < end_geod_period)
+            ],
+            color="red",
+            custom_order=[rgi_id],
+            axs=profile_fig.axes,
+            titles={
+                k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
+                for k in glacierNames
+            },
+        )
+        profile_fig.savefig(f"{profilesFolder}/{rgi_id}.pdf")
+        plt.close(profile_fig)
 
 
 if len(maps) > 0:

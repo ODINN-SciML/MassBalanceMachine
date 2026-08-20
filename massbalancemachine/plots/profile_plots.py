@@ -68,7 +68,10 @@ def profilePerGlacier(
             df_gl_stakes = None
 
         if len(custom_order) == 1:
-            ax = axs
+            if isinstance(axs, list):
+                ax = axs[0]
+            else:
+                ax = axs
         else:
             ax = (axs if isinstance(axs, list) else axs.flatten())[i]
 
