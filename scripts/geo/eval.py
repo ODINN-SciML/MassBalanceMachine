@@ -913,6 +913,7 @@ geoPred, geoTarget, geoErr, dict_df_gridded = mbm.training.eval_geodetic(
     return_grid_pred=["annual", "monthly"],
     callback_annual=(callback_save_geodetic_annual if savePred else None),
     callback_monthly=(callback_save_geodetic_monthly if savePred else None),
+    include_val=True,
 )
 df_gridded_annual = dict_df_gridded["annual"]
 df_gridded_monthly = dict_df_gridded["monthly"]

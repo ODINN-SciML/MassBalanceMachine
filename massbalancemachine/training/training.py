@@ -204,6 +204,7 @@ def eval_geodetic(
     return_grid_pred=[],
     callback_annual=None,
     callback_monthly=None,
+    include_val=False,
 ):
     geoPred = {}
     geoTarget = {}
@@ -216,11 +217,23 @@ def eval_geodetic(
 
         async_transfer = check_async_transfer_compatibility(geo_dataloader)
 
+        total = geo_dataloader.lenGeo() + (
+            geo_dataloader.lenValGeo() if include_val else 0
+        )
         with tqdm.tqdm(
-            geo_dataloader.glaciersGeo(), total=geo_dataloader.lenGeo()
+            (
+                geo_dataloader.glaciersAllGeo()
+                if include_val
+                else geo_dataloader.glaciersGeo()
+            ),
+            total=total,
         ) as pbar:
 
-            glacier_iter = iter(geo_dataloader.glaciersGeo())
+            glacier_iter = iter(
+                geo_dataloader.glaciersAllGeo()
+                if include_val
+                else geo_dataloader.glaciersGeo()
+            )
 
             # Pre-submit the first prefetch_depth glaciers to the queue
             prefetch_queue = []
