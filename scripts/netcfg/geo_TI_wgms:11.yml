@@ -22,15 +22,14 @@ model:
             - ssrd
             - str
             - aspect
-            - slope
             - svf
-        layers: [128, 64, 64, 16]
+        layers: [128, 64, 32, 16]
     cor_acc:
         inputs:
             - u10
             - v10
             - slope
-        layers: [32, 16, 16]
+        layers: [64, 32, 8]
     cor_abl:
         inputs:
             - fal
@@ -38,7 +37,7 @@ model:
             - sshf
             - ssrd
             - str
-        layers: [64, 32, 16]
+        layers: [32, 16, 8]
 training:
     source_data: wgms:11
     test_glaciers:
