@@ -66,3 +66,68 @@ def mapGlacier(df, rgi_id, year, cfg, ax=None, max_abs=None, title=None, gdir=No
     plt.tight_layout()
 
     return fig
+
+
+def mapGlacierArray(
+    values,
+    metadata,
+    rgi_id=None,
+    year=None,
+    ax=None,
+    max_abs=None,
+    title=None,
+):
+    """Plot a 2D LV95 raster using its ESRI ASCII-grid metadata.
+
+    The input array must use ESRI ASCII-grid row order, with the northernmost
+    row first. No OGGM data or coordinate transformation is required.
+    """
+    values = np.asarray(values, dtype=float)
+    ncols = int(metadata["ncols"])
+    nrows = int(metadata["nrows"])
+    if values.shape != (nrows, ncols):
+        raise ValueError(f"values has shape {values.shape}; expected {(nrows, ncols)}")
+
+    nodata_value = metadata.get("nodata_value", metadata.get("NODATA_value"))
+    if nodata_value is not None:
+        values[values == float(nodata_value)] = np.nan
+
+    finite_values = values[np.isfinite(values)]
+    if finite_values.size == 0:
+        raise ValueError("values contains no finite data")
+    max_abs = (
+        float(np.max(np.abs(finite_values))) if max_abs is None else float(max_abs)
+    )
+    norm = mcolors.TwoSlopeNorm(vmin=-max_abs, vcenter=0, vmax=max_abs)
+
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(9, 9))
+    else:
+        fig = None
+
+    cellsize = float(metadata["cellsize"])
+    xllcorner = float(metadata["xllcorner"])
+    yllcorner = float(metadata["yllcorner"])
+    x = xllcorner + (np.arange(ncols) + 0.5) * cellsize
+    y = yllcorner + (np.arange(nrows) + 0.5) * cellsize
+    custom_grid = xr.Dataset(
+        {
+            "heat": (("y", "x"), np.flip(values, axis=0)),
+        },
+        coords={"x": x, "y": y},
+    )
+    custom_grid.attrs["pyproj_srs"] = "EPSG:2056"
+
+    smap = custom_grid.salem.get_map(countries=False)
+    smap.set_cmap("RdBu")
+    smap.set_norm(norm)
+    smap.set_data(custom_grid.heat.values)
+    smap.plot(ax=ax)
+    smap.append_colorbar(ax=ax, label="Annual MB (m.w.e.)")
+    default_title = "Annual MB"
+    if rgi_id is not None and year is not None:
+        default_title = f"{rgi_id} year {year}"
+    ax.set_title(title or default_title)
+    plt.tight_layout()
+
+    return fig
