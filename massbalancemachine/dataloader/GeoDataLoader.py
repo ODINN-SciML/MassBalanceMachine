@@ -104,6 +104,7 @@ class GeoDataLoader:
         self.indGlacierVal = 0
         self.indGlacierGeo = 0
         self.indGlacierValGeo = 0
+        self.indGlacierAllGeo = 0
         self.periodToInt = {"annual": 0, "winter": 1, "summer": 2}
 
         _, self.month_pos = _rebuild_month_index(months_head_pad, months_tail_pad)
@@ -132,6 +133,7 @@ class GeoDataLoader:
         self.prepareGeoData()
         self.glacierListGeo = self.glaciersWithGeo
         self.glacierListValGeo = self.glaciersValWithGeo
+        self.glacierListAllGeo = self.glaciersAllWithGeo
         if ignoreStakesWithoutGeo:
             raise NotImplementedError(
                 "We need to implement an intersection between glaciersWithGeo and train/validation glaciers"
@@ -139,6 +141,7 @@ class GeoDataLoader:
             self.glacierList = self.glaciersWithGeo
             self.glacierListGeo = self.glaciersWithGeo  # TODO: change this
             self.glacierListValGeo = self.glaciersValWithGeo  # TODO: change this
+            self.glacierListAllGeo = self.glaciersAllWithGeo  # TODO: change this
 
         if len(self.glaciersWithGeo) == 1:
             if self.geodeticSource in ["Hugonnet21", "PGO"]:
@@ -298,6 +301,9 @@ class GeoDataLoader:
                 self.glaciersWithGeo = list(
                     set(trainNoValGlaciers).intersection(self.glaciersWithGeo)
                 )
+            self.glaciersAllWithGeo = list(
+                set(self.glaciersWithGeo).union(self.glaciersValWithGeo)
+            )
         elif self.geodeticSource == "PGO":
             assert (
                 len(self.additionalYears) == 0
@@ -346,6 +352,9 @@ class GeoDataLoader:
             )
             self.glaciersWithGeo = list(
                 set(self.glaciersWithGeo).difference(self.glaciersValWithGeo)
+            )
+            self.glaciersAllWithGeo = list(
+                set(self.glaciersWithGeo).union(self.glaciersValWithGeo)
             )
         # else:
         #     # This works only with Swiss data
@@ -406,6 +415,7 @@ class GeoDataLoader:
         self.indGlacierVal = 0
         self.indGlacierGeo = 0
         self.indGlacierValGeo = 0
+        self.indGlacierAllGeo = 0
 
     def __len__(self):
         return len(self.glacierList)
@@ -455,6 +465,16 @@ class GeoDataLoader:
             yield self.glacierListValGeo[self.indGlacierValGeo]
             self.indGlacierValGeo += 1
         self.indGlacierValGeo = 0
+
+    def glaciersAllGeo(self):
+        """
+        Iterator that returns a glacier in the list of geodetic available glaciers as a string each time it is called.
+        It corresponds to the union of glaciersGeo() and glaciersValGeo()
+        """
+        while self.indGlacierAllGeo < len(self.glacierListAllGeo):
+            yield self.glacierListAllGeo[self.indGlacierAllGeo]
+            self.indGlacierAllGeo += 1
+        self.indGlacierAllGeo = 0
 
     def _metadata_groups_stakes(self, df):
         feature_columns = self.cfg.featureColumns

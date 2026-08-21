@@ -22,9 +22,8 @@ model:
             - ssrd
             - str
             - aspect
-            - slope
             - svf
-        layers: [256, 128, 64, 16]
+        layers: [128, 64, 32, 16]
     cor_acc:
         inputs:
             - u10
@@ -38,7 +37,7 @@ model:
             - sshf
             - ssrd
             - str
-        layers: [128, 64, 32, 8]
+        layers: [32, 16, 8]
 training:
     source_data: wgms:11
     test_glaciers_geo:

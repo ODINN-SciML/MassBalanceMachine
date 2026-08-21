@@ -688,7 +688,7 @@ if len(df_X_test_subset) > 0 and not noTest:
                 # TODO: allow to generate maps outside of that range
                 assert year in years
                 fig = mbm.plots.mapGlacier(
-                    df_gridded_annual, rgi_id, year, cfg, gdir=gdir
+                    df_gridded_annual, rgi_id, cfg, year=year, gdir=gdir
                 )
                 fig.savefig(f"{mapsFolder}/{rgi_id}_{year}.pdf")
                 plt.close(fig)
@@ -913,6 +913,7 @@ geoPred, geoTarget, geoErr, dict_df_gridded = mbm.training.eval_geodetic(
     return_grid_pred=["annual", "monthly"],
     callback_annual=(callback_save_geodetic_annual if savePred else None),
     callback_monthly=(callback_save_geodetic_monthly if savePred else None),
+    include_val=True,
 )
 df_gridded_annual = dict_df_gridded["annual"]
 df_gridded_monthly = dict_df_gridded["monthly"]
@@ -1010,7 +1011,9 @@ if any([m in train_glaciers for m in maps]):
         for year in yearsMaps:
             # TODO: allow to generate maps outside of that range
             assert year in years
-            fig = mbm.plots.mapGlacier(df_gridded_annual, rgi_id, year, cfg, gdir=gdir)
+            fig = mbm.plots.mapGlacier(
+                df_gridded_annual, rgi_id, cfg, year=year, gdir=gdir
+            )
             fig.savefig(f"{mapsFolder}/{rgi_id}_{year}.pdf")
             plt.close(fig)
 del df_gridded_annual, df_gridded_monthly

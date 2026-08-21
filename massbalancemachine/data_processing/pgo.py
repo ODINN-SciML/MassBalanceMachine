@@ -330,6 +330,8 @@ def PGO_folder():
         return "/home/gossarda/PGO_data/transfer_12853201_files_c8b76236/"
     elif hostname == "63bceb1ea564":
         return "/workspace/PGO_data/transfer_12853201_files_c8b76236/"
+    elif hostname == "ige-calcul1" or hostname == "ige-calcul3":
+        return "/home/gossarda/PGO_data/transfer_12853201_files_c8b76236/"
     else:
         raise ValueError(f"Unknown host {hostname}")
 
