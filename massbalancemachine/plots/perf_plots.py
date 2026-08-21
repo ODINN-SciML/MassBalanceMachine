@@ -291,10 +291,14 @@ def predVSTruthGlacierWide(
     geoErr,
     ax=None,
     title="Glacier wide MB",
-    ax_xlim=(-2.5, 1.0),
-    ax_ylim=(-2.5, 1.0),
+    ax_xlim=None,  # (-2.5, 1.0),
+    ax_ylim=None,  # (-2.5, 1.0),
     color="orange",
     legend=False,
+    alpha=None,
+    elinewidth=None,
+    markersize=None,
+    label_fontsize=15,
 ):
 
     if ax is None:
@@ -304,7 +308,15 @@ def predVSTruthGlacierWide(
 
     for g in geoPred.keys():
         ax.errorbar(
-            geoTarget[g], geoPred[g], xerr=2 * geoErr[g], label=g, fmt="o", color=color
+            geoTarget[g],
+            geoPred[g],
+            xerr=2 * geoErr[g],
+            label=g,
+            fmt="o",
+            color=color,
+            elinewidth=elinewidth,
+            markersize=markersize,
+            alpha=alpha,
         )
         if legend:
             plt.text(geoTarget[g] + 0.02, geoPred[g] + 0.02, g, fontsize=10)
@@ -327,8 +339,8 @@ def predVSTruthGlacierWide(
     xlabel = "Observed mean SMB / year [m w.e.]"
     ylabel = "Predicted mean SMB / year [m w.e.]"
 
-    ax.set_xlabel(xlabel, fontsize=20)
-    ax.set_ylabel(ylabel, fontsize=20)
+    ax.set_xlabel(xlabel, fontsize=label_fontsize)
+    ax.set_ylabel(ylabel, fontsize=label_fontsize)
 
     plt.tight_layout()
 

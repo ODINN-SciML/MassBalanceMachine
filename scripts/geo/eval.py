@@ -688,7 +688,7 @@ if len(df_X_test_subset) > 0 and not noTest:
                 # TODO: allow to generate maps outside of that range
                 assert year in years
                 fig = mbm.plots.mapGlacier(
-                    df_gridded_annual, rgi_id, year, cfg, gdir=gdir
+                    df_gridded_annual, rgi_id, cfg, year=year, gdir=gdir
                 )
                 fig.savefig(f"{mapsFolder}/{rgi_id}_{year}.pdf")
                 plt.close(fig)
@@ -1011,7 +1011,9 @@ if any([m in train_glaciers for m in maps]):
         for year in yearsMaps:
             # TODO: allow to generate maps outside of that range
             assert year in years
-            fig = mbm.plots.mapGlacier(df_gridded_annual, rgi_id, year, cfg, gdir=gdir)
+            fig = mbm.plots.mapGlacier(
+                df_gridded_annual, rgi_id, cfg, year=year, gdir=gdir
+            )
             fig.savefig(f"{mapsFolder}/{rgi_id}_{year}.pdf")
             plt.close(fig)
 del df_gridded_annual, df_gridded_monthly

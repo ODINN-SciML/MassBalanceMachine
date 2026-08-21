@@ -7,9 +7,22 @@ import matplotlib.colors as mcolors
 import data_processing
 
 
-def mapGlacier(df, rgi_id, year, cfg, ax=None, max_abs=None, title=None, gdir=None):
+def mapGlacier(
+    df,
+    rgi_id,
+    cfg,
+    year=None,
+    ax=None,
+    max_abs=None,
+    title=None,
+    gdir=None,
+    mapOnly=False,
+):
 
-    df_glacier_year = df[(df.RGIId == rgi_id) & (df.YEAR == year)]
+    if year is not None:
+        df_glacier_year = df[(df.RGIId == rgi_id) & (df.YEAR == year)]
+    else:
+        df_glacier_year = df[(df.RGIId == rgi_id)]
 
     if gdir is None:
         # Initialize the OGGM Config
@@ -43,8 +56,9 @@ def mapGlacier(df, rgi_id, year, cfg, ax=None, max_abs=None, title=None, gdir=No
 
     # Get background topography
     smap = ds.salem.get_map(countries=False)
-    smap.set_shapefile(gdir.read_shapefile("outlines"))
-    smap.set_topography(ds.topo.data)
+    if not mapOnly:
+        smap.set_shapefile(gdir.read_shapefile("outlines"))
+        smap.set_topography(ds.topo.data)
 
     # Build color normalization (white is MB=0)
     max_abs = max_abs or df_glacier_year["pred"].abs().max()
@@ -61,7 +75,7 @@ def mapGlacier(df, rgi_id, year, cfg, ax=None, max_abs=None, title=None, gdir=No
     smap.set_data(heat)
     smap.plot(ax=ax)
     smap.append_colorbar(ax=ax, label="Annual MB (m.w.e.)")
-    ax.set_title(title or f"{rgi_id} year {year}")
+    ax.set_title(title or (f"{rgi_id} year {year}" if year is not None else rgi_id))
 
     plt.tight_layout()
 

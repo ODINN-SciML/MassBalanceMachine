@@ -357,8 +357,8 @@ if not noTrain:
                 mbm.plots.mapGlacier(
                     df_gridded_annual1,
                     rgi_id,
-                    year,
                     cfg,
+                    year=year,
                     ax=axs[0],
                     max_abs=max_abs,
                     title=name1,
@@ -366,8 +366,8 @@ if not noTrain:
                 mbm.plots.mapGlacier(
                     df_gridded_annual2,
                     rgi_id,
-                    year,
                     cfg,
+                    year=year,
                     ax=axs[1],
                     max_abs=max_abs,
                     title=name2,
@@ -535,8 +535,8 @@ if len(maps) > 0:
             mbm.plots.mapGlacier(
                 df_gridded_annual1,
                 rgi_id,
-                year,
                 cfg,
+                year=year,
                 ax=axs[0],
                 max_abs=max_abs,
                 title=name1,
@@ -544,8 +544,8 @@ if len(maps) > 0:
             mbm.plots.mapGlacier(
                 df_gridded_annual2,
                 rgi_id,
-                year,
                 cfg,
+                year=year,
                 ax=axs[1],
                 max_abs=max_abs,
                 title=name2,
