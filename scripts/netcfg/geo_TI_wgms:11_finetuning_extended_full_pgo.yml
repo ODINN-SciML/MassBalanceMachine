@@ -793,7 +793,7 @@ training:
     scalingStakes: full
     bestModelCriterion: lossVal
     splitVal: group-rgi
-    wGeo: 0.1
-    scalingGeo: linear
+    wGeo: 0.001
+    scalingGeo: quad
     wWinter: 1.0
     wSummer: 1.0
