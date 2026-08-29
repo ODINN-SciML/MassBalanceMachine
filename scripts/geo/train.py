@@ -295,11 +295,12 @@ elif "wgms" in sourceData:
     glaciersVal = params["training"].get("val_glaciers_geo") or list(
         df_X_val.RGIId.unique()
     )
+    if params["training"]["splitVal"] == "group-rgi":
+        glaciers = list(set(glaciers).difference(glaciersVal))
 if wGeo:
     assert (
         params["training"]["splitVal"] == "group-rgi"
     ), "With the geodetic training, only glacier split is available for the moment."
-# import pdb; pdb.set_trace()
 gdl = mbm.dataloader.GeoDataLoader(
     cfg,
     glaciers,

@@ -719,6 +719,8 @@ elif "wgms" in sourceData:
     valid_glaciers = params["training"].get("val_glaciers_geo") or list(
         df_X_val.RGIId.unique()
     )
+    if params["training"]["splitVal"] == "group-rgi":
+        train_glaciers = list(set(train_glaciers).difference(valid_glaciers))
 train_glacierNames = mbm.data_processing.oggm_utils._glacier_name(
     list(data_train.RGIId.unique()), cfg
 )
