@@ -534,6 +534,11 @@ class GeoDataLoader:
             non_feature_columns = list(
                 set(non_feature_columns).union(set(["ELEVATION_DIFFERENCE"]))
             )
+        if "POINT_ELEVATION" in feature_columns:
+            # We also want this in the metadata as this is useful to have it not unnormalized
+            non_feature_columns = list(
+                set(non_feature_columns).union(set(["POINT_ELEVATION"]))
+            )
 
         # Extract metadata and features
         metadata = X[non_feature_columns]

@@ -79,6 +79,27 @@ class TILikeModel(nn.Module):
         self.tau_P_c.requires_grad = True
         self.beta_pdd.requires_grad = True
 
+        if "bias_cor" in modelParams:
+            self.inp_bias_cor = modelParams["bias_cor"]["inputs"]
+            self.ind_inp_bias_cor = sorted(
+                [self.input_labels.index(inp) for inp in self.inp_bias_cor]
+            )
+
+            bias_cor_params = modelParams["bias_cor"]
+            bias_cor = [nn.Linear(len(self.inp_bias_cor), bias_cor_params["layers"][0])]
+            for i in range(len(bias_cor_params["layers"]) - 1):
+                bias_cor.append(nn.ReLU())
+                bias_cor.append(
+                    nn.Linear(
+                        bias_cor_params["layers"][i], bias_cor_params["layers"][i + 1]
+                    )
+                )
+            bias_cor.append(nn.ReLU())
+            bias_cor.append(nn.Linear(bias_cor_params["layers"][-1], 2))
+            self.bias_cor = nn.Sequential(*bias_cor)
+        else:
+            self.bias_cor = None
+
         cor_T_params = modelParams["cor_T"]
         cor_T = [nn.Linear(len(self.inp_cor_T), cor_T_params["layers"][0])]
         for i in range(len(cor_T_params["layers"]) - 1):
@@ -144,7 +165,12 @@ class TILikeModel(nn.Module):
         elev_diff = inputs[:, self.ind_elev_diff]
         cor_T = elev_diff * cor_T_val[:, 0] + cor_T_val[:, 1]
 
-        P_solid = P * F.sigmoid(
+        if self.bias_cor is not None:
+            inp_bias_cor = inputs[:, self.ind_inp_bias_cor]
+            P_cor = self.bias_cor(inp_bias_cor)
+        else:
+            P_cor = 0.0
+        P_solid = (P + P_cor) * F.sigmoid(
             (torch.tanh(self.tau_P_s) + 1) * 2 * (self.tau_P_c - cor_T - T)
         )
         curv_pdd = (torch.tanh(self.beta_pdd) + 1) * 2

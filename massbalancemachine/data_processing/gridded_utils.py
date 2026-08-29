@@ -533,6 +533,11 @@ def _prepared_metadata_dict(df_X_geod, feature_columns):
         non_feature_columns = list(
             set(non_feature_columns).union(set(["ELEVATION_DIFFERENCE"]))
         )
+    if "POINT_ELEVATION" in feature_columns:
+        # We also want this in the metadata as this is useful to have it not unnormalized
+        non_feature_columns = list(
+            set(non_feature_columns).union(set(["POINT_ELEVATION"]))
+        )
     metadata = df_X_geod[non_feature_columns]
 
     int_id, _ = pd.factorize(metadata["ID"].values)
