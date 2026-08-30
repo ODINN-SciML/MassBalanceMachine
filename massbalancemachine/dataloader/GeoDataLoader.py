@@ -316,11 +316,11 @@ class GeoDataLoader:
             else:
                 self.rgi_id_to_pgo = buildPGOMapping(self.glacierList)
                 if len(self.glacierListVal) > 0:
-                    rgi_id_to_pgo_val = buildPGOMapping(self.glacierListVal)
-                    rgi_ids_val = list(rgi_id_to_pgo_val.values())
+                    self.rgi_id_to_pgo_val = buildPGOMapping(self.glacierListVal)
+                    rgi_ids_val = list(self.rgi_id_to_pgo_val.values())
                 else:
                     rgi_ids_val = []
-                rgi_ids = list(self.rgi_id_to_pgo.values())
+                rgi_ids = list(set(self.rgi_id_to_pgo.values()).union(rgi_ids_val))
             for g in self.ignoreGlaciers:
                 if g in rgi_ids:
                     rgi_ids.remove(g)
@@ -380,14 +380,14 @@ class GeoDataLoader:
 
     def geodetic_periods(self, g):
         if self.geodeticSource == "PGO" and not g.startswith("RGI2000-v7.0-G-"):
-            g = self.rgi_id_to_pgo[g]
+            g = self.rgi_id_to_pgo.get(g) or self.rgi_id_to_pgo_val[g]
         return self.periods_per_glacier[g]
 
     def elevation_diff_range(self, g: str):
         assert self.hasGeo(g)
         if self.geodeticSource == "PGO":
             if not g.startswith("RGI2000-v7.0-G-"):
-                g = self.rgi_id_to_pgo[g]
+                g = self.rgi_id_to_pgo.get(g) or self.rgi_id_to_pgo_val[g]
         if self.df_X_geod is None:
             if self.geodeticSource == "Hugonnet21":
                 df_X_geod = load_grid_multi_years(g, self.years, "Hugonnet21")
@@ -579,9 +579,9 @@ class GeoDataLoader:
     def hasGeo(self, glacierName: str):
         if self.geodeticSource == "PGO":
             if glacierName in self.rgi_id_to_pgo:
-                return (self.rgi_id_to_pgo[glacierName] in self.glaciersWithGeo) or (
-                    self.rgi_id_to_pgo[glacierName] in self.glaciersValWithGeo
-                )
+                return self.rgi_id_to_pgo[glacierName] in self.glaciersWithGeo
+            elif glacierName in self.rgi_id_to_pgo_val:
+                return self.rgi_id_to_pgo_val[glacierName] in self.glaciersValWithGeo
             else:
                 return False
         else:
@@ -645,7 +645,9 @@ class GeoDataLoader:
         """
         if self.geodeticSource == "PGO":
             if not glacierName.startswith("RGI2000-v7.0-G-"):
-                glacierName = self.rgi_id_to_pgo[glacierName]
+                glacierName = (
+                    self.rgi_id_to_pgo.get(glacierName) or self.rgi_id_to_pgo_val[g]
+                )
         assert (glacierName in self.glaciersWithGeo) or (
             glacierName in self.glaciersValWithGeo
         ), f"Glacier {glacierName} is not in the list of glaciers with available geodetic data for this dataloader."
