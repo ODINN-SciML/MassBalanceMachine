@@ -95,7 +95,7 @@ class TILikeModel(nn.Module):
                     )
                 )
             bias_cor.append(nn.ReLU())
-            bias_cor.append(nn.Linear(bias_cor_params["layers"][-1], 2))
+            bias_cor.append(nn.Linear(bias_cor_params["layers"][-1], 1))
             self.bias_cor = nn.Sequential(*bias_cor)
         else:
             self.bias_cor = None
@@ -167,10 +167,10 @@ class TILikeModel(nn.Module):
 
         if self.bias_cor is not None:
             inp_bias_cor = inputs[:, self.ind_inp_bias_cor]
-            P_cor = self.bias_cor(inp_bias_cor)
+            P_cor = self.bias_cor(inp_bias_cor)[:, 0] / 1000
         else:
             P_cor = 0.0
-        P_solid = (P + P_cor) * F.sigmoid(
+        P_solid = F.relu(P + P_cor) * F.sigmoid(
             (torch.tanh(self.tau_P_s) + 1) * 2 * (self.tau_P_c - cor_T - T)
         )
         curv_pdd = (torch.tanh(self.beta_pdd) + 1) * 2
@@ -206,7 +206,13 @@ class TILikeModel(nn.Module):
         elev_diff = inputs[:, self.ind_elev_diff]
         cor_T = elev_diff * cor_T_val[:, 0] + cor_T_val[:, 1]
 
-        P_solid = P * F.sigmoid(
+        if self.bias_cor is not None:
+            inp_bias_cor = inputs[:, self.ind_inp_bias_cor]
+            P_cor = self.bias_cor(inp_bias_cor)[:, 0] / 1000
+        else:
+            P_cor = 0.0
+        # import pdb; pdb.set_trace()
+        P_solid = F.relu(P + P_cor) * F.sigmoid(
             (torch.tanh(self.tau_P_s) + 1) * 2 * (self.tau_P_c - cor_T - T)
         )
         curv_pdd = (torch.tanh(self.beta_pdd) + 1) * 2
