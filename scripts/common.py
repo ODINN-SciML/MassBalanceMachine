@@ -47,6 +47,8 @@ def parseParams(params):
         else:
             modelParams["cor_acc"] = params["model"]["cor_acc"]
             modelParams["cor_abl"] = params["model"]["cor_abl"]
+        if "bias_cor" in params["model"]:
+            modelParams["bias_cor"] = params["model"]["bias_cor"]
     elif modelParams["type"] == "multi":
         modelParams["glacio"] = {
             "type": params["model"]["glacio"]["type"],
