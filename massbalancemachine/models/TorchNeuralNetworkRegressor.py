@@ -135,6 +135,34 @@ class TILikeModel(nn.Module):
         cor_abl.append(nn.Softplus())
         self.cor_abl = nn.Sequential(*cor_abl)
 
+    def predict_bias_cor_from_df(self, df):
+        """Predict the bias correction for a set of points in a DataFrame.
+
+        The input columns are expected to contain unnormalized values. The
+        returned tensor has the same number of rows as df and it corresponds
+        to the precipitation correction ``P_cor``.
+        """
+        if self.bias_cor is None:
+            raise RuntimeError("This model does not define a bias correction network.")
+
+        missing_columns = [column for column in self.inp_bias_cor if column not in df]
+        if missing_columns:
+            raise ValueError(f"Missing bias correction columns: {missing_columns}")
+
+        parameter = next(self.bias_cor.parameters())
+        inputs = torch.as_tensor(
+            df[self.inp_bias_cor].to_numpy(dtype=np.float32),
+            device=parameter.device,
+            dtype=parameter.dtype,
+        )
+        for column_index, column in enumerate(self.inp_bias_cor):
+            lower_bound, upper_bound = self.normalizing_bounds[column]
+            inputs[:, column_index] = Normalizer._norm(
+                inputs[:, column_index], lower_bound, upper_bound
+            )
+
+        return self.bias_cor(inputs)
+
     def get_cor_T(self, inputs):
         P = Normalizer._unorm(
             inputs[:, self.ind_precip],
