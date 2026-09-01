@@ -40,6 +40,14 @@ class TILikeModel(nn.Module):
         self.inp_bias_T = (
             modelParams["bias_T"]["inputs"] if "bias_T" in modelParams else None
         )
+        self.inp_dir = (
+            modelParams["cor_dir"]["inputs"] if "cor_dir" in modelParams else None
+        )
+        self.inp_terrain = (
+            modelParams["cor_terrain"]["inputs"]
+            if "cor_terrain" in modelParams
+            else None
+        )
         # self.inp_cor_fac = [
         #     "aspect",
         #     "fal",
@@ -74,6 +82,19 @@ class TILikeModel(nn.Module):
             if self.inp_bias_T is not None
             else None
         )
+        self.ind_inp_dir = (
+            sorted([self.input_labels.index(inp) for inp in self.inp_dir])
+            if self.inp_dir is not None
+            else None
+        )
+        self.ind_inp_terrain = (
+            sorted([self.input_labels.index(inp) for inp in self.inp_terrain])
+            if self.inp_terrain is not None
+            else None
+        )
+        if self.inp_dir is not None:
+            self.ind_svf = sorted([self.input_labels.index(inp) for inp in ["svf"]])
+            self.ind_ssrd = sorted([self.input_labels.index(inp) for inp in ["ssrd"]])
         # self.ind_inp_cor_fac = sorted(
         #     [self.input_labels.index(inp) for inp in self.inp_cor_fac]
         # )
@@ -163,6 +184,39 @@ class TILikeModel(nn.Module):
             self.bias_T = nn.Sequential(*bias_T)
         else:
             self.bias_T = None
+        if "cor_dir" in modelParams:
+            cor_dir_params = modelParams["cor_dir"]
+            cor_dir = [nn.Linear(len(self.inp_dir), cor_dir_params["layers"][0])]
+            for i in range(len(cor_dir_params["layers"]) - 1):
+                cor_dir.append(nn.ReLU())
+                cor_dir.append(
+                    nn.Linear(
+                        cor_dir_params["layers"][i], cor_dir_params["layers"][i + 1]
+                    )
+                )
+            cor_dir.append(nn.ReLU())
+            cor_dir.append(nn.Linear(cor_dir_params["layers"][-1], 1))
+            self.cor_dir = nn.Sequential(*cor_dir)
+        else:
+            self.cor_dir = None
+        if "cor_terrain" in modelParams:
+            cor_terrain_params = modelParams["cor_terrain"]
+            cor_terrain = [
+                nn.Linear(len(self.inp_terrain), cor_terrain_params["layers"][0])
+            ]
+            for i in range(len(cor_terrain_params["layers"]) - 1):
+                cor_terrain.append(nn.ReLU())
+                cor_terrain.append(
+                    nn.Linear(
+                        cor_terrain_params["layers"][i],
+                        cor_terrain_params["layers"][i + 1],
+                    )
+                )
+            cor_terrain.append(nn.ReLU())
+            cor_terrain.append(nn.Linear(cor_terrain_params["layers"][-1], 1))
+            self.cor_terrain = nn.Sequential(*cor_terrain)
+        else:
+            self.cor_terrain = None
 
         cor_acc_params = modelParams["cor_acc"]
         cor_acc = [nn.Linear(len(self.inp_cor_acc), cor_acc_params["layers"][0])]
@@ -272,15 +326,41 @@ class TILikeModel(nn.Module):
             # Temperature correction for precipitation and PDD
             # Acts as a shift of the temperature
             cor_T_val = self.cor_T(inp_cor_T)
+            elev_diff = inputs[:, self.ind_elev_diff]
+            cor_T = elev_diff * cor_T_val[:, 0] + cor_T_val[:, 1]
         else:
             grad_T_val = self.grad_T(inp_grad_T)
             bias_T_val = self.bias_T(inp_bias_T)
-            cor_T_val = torch.concatenate([grad_T_val, bias_T_val], dim=1)
-        elev_diff = inputs[:, self.ind_elev_diff]
-        cor_T = elev_diff * cor_T_val[:, 0] + cor_T_val[:, 1]
+            # cor_T_val = torch.concatenate([grad_T_val, bias_T_val], dim=1)
+            elev_diff = inputs[:, self.ind_elev_diff]
+            # cor_T = elev_diff * cor_T_val[:, 0] + cor_T_val[:, 1]
 
-        elev_diff = inputs[:, self.ind_elev_diff]
-        cor_T = elev_diff * cor_T_val[:, 0] + cor_T_val[:, 1]
+            inp_dir = inputs[:, self.ind_inp_dir]
+            inp_terrain = inputs[:, self.ind_inp_terrain]
+            alpha = self.grad_T(inp_grad_T)[:, 0]
+            bias = self.bias_T(inp_bias_T)[:, 0]
+            svf_unorm = Normalizer._unorm(
+                inputs[:, self.ind_svf],
+                self.normalizing_bounds["svf"][0],
+                self.normalizing_bounds["svf"][1],
+            )[:, 0]
+            ssrd = inputs[:, self.ind_ssrd][:, 0]
+            R_dir = self.cor_dir(inp_dir)[:, 0]
+            R_terrain = self.cor_terrain(inp_terrain)[:, 0]
+            cor_T_val = torch.concatenate(
+                [
+                    alpha[:, None],
+                    bias[:, None],
+                    ssrd[:, None],
+                    svf_unorm[:, None],
+                    R_dir[:, None],
+                    R_terrain[:, None],
+                ],
+                dim=1,
+            )
+            cor_T = (
+                elev_diff * alpha + ssrd * (1 - svf_unorm) * R_dir + R_terrain + bias
+            )
 
         if self.bias_cor is not None:
             inp_bias_cor = inputs[:, self.ind_inp_bias_cor]
@@ -332,14 +412,30 @@ class TILikeModel(nn.Module):
             # Temperature correction for precipitation and PDD
             # Acts as a shift of the temperature
             cor_T_val = self.cor_T(inp_cor_T)
+            elev_diff = inputs[:, self.ind_elev_diff]
+            cor_T = elev_diff * cor_T_val[:, 0] + cor_T_val[:, 1]
         else:
             grad_T_val = self.grad_T(inp_grad_T)
             bias_T_val = self.bias_T(inp_bias_T)
-            cor_T_val = torch.concatenate([grad_T_val, bias_T_val], dim=1)
-            # elev_diff = inputs[:, self.ind_elev_diff]
-            # cor_T = elev_diff * grad_T_val[:, 0] + bias_T_val[:, 0]
-        elev_diff = inputs[:, self.ind_elev_diff]
-        cor_T = elev_diff * cor_T_val[:, 0] + cor_T_val[:, 1]
+            # cor_T_val = torch.concatenate([grad_T_val, bias_T_val], dim=1)
+            elev_diff = inputs[:, self.ind_elev_diff]
+            # cor_T = elev_diff * cor_T_val[:, 0] + cor_T_val[:, 1]
+
+            inp_dir = inputs[:, self.ind_inp_dir]
+            inp_terrain = inputs[:, self.ind_inp_terrain]
+            alpha = self.grad_T(inp_grad_T)[:, 0]
+            bias = self.bias_T(inp_bias_T)[:, 0]
+            svf_unorm = Normalizer._unorm(
+                inputs[:, self.ind_svf],
+                self.normalizing_bounds["svf"][0],
+                self.normalizing_bounds["svf"][1],
+            )[:, 0]
+            ssrd = inputs[:, self.ind_ssrd][:, 0]
+            R_dir = self.cor_dir(inp_dir)[:, 0]
+            R_terrain = self.cor_terrain(inp_terrain)[:, 0]
+            cor_T = (
+                elev_diff * alpha + ssrd * (1 - svf_unorm) * R_dir + R_terrain + bias
+            )
 
         if self.bias_cor is not None:
             inp_bias_cor = inputs[:, self.ind_inp_bias_cor]

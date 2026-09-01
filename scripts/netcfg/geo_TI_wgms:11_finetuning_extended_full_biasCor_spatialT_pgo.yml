@@ -24,8 +24,6 @@ model:
             - sshf
             - ssrd
             - str
-            - aspect
-            - svf
         layers: [128, 64, 32, 16]
     bias_T:
         inputs:
@@ -51,6 +49,18 @@ model:
             - POINT_LAT
             - POINT_LON
             - POINT_ELEVATION
+        layers: [32, 16, 8]
+    cor_dir:
+        inputs:
+            - aspect
+            - slope
+        layers: [32, 16, 8]
+    cor_terrain:
+        inputs:
+            - slhf
+            - sshf
+            - str
+            - svf
         layers: [32, 16, 8]
 training:
     source_data: wgms:11
