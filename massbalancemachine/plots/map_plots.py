@@ -17,6 +17,8 @@ def mapGlacier(
     title=None,
     gdir=None,
     mapOnly=False,
+    reverse_cb=False,
+    label_cb="Annual MB (m.w.e.)",
 ):
 
     if year is not None:
@@ -70,11 +72,11 @@ def mapGlacier(
         fig = None
 
     # Plot annual MB
-    smap.set_cmap("RdBu")
+    smap.set_cmap("RdBu_r" if reverse_cb else "RdBu")
     smap.set_norm(norm)
     smap.set_data(heat)
     smap.plot(ax=ax)
-    smap.append_colorbar(ax=ax, label="Annual MB (m.w.e.)")
+    smap.append_colorbar(ax=ax, label=label_cb)
     ax.set_title(title or (f"{rgi_id} year {year}" if year is not None else rgi_id))
 
     plt.tight_layout()

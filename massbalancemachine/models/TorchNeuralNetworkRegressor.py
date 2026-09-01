@@ -31,7 +31,15 @@ class TILikeModel(nn.Module):
         #     "svf", # sky view factor
         # ]
         # self.inp_cor_T = ["t2m", "slhf", "sshf", "ssrd", "str"]
-        self.inp_cor_T = modelParams["cor_T"]["inputs"]
+        self.inp_cor_T = (
+            modelParams["cor_T"]["inputs"] if "cor_T" in modelParams else None
+        )
+        self.inp_grad_T = (
+            modelParams["grad_T"]["inputs"] if "grad_T" in modelParams else None
+        )
+        self.inp_bias_T = (
+            modelParams["bias_T"]["inputs"] if "bias_T" in modelParams else None
+        )
         # self.inp_cor_fac = [
         #     "aspect",
         #     "fal",
@@ -51,8 +59,20 @@ class TILikeModel(nn.Module):
         # ]
         self.inp_cor_acc = modelParams["cor_acc"]["inputs"]
         self.inp_cor_abl = modelParams["cor_abl"]["inputs"]
-        self.ind_inp_cor_T = sorted(
-            [self.input_labels.index(inp) for inp in self.inp_cor_T]
+        self.ind_inp_cor_T = (
+            sorted([self.input_labels.index(inp) for inp in self.inp_cor_T])
+            if self.inp_cor_T is not None
+            else None
+        )
+        self.ind_inp_grad_T = (
+            sorted([self.input_labels.index(inp) for inp in self.inp_grad_T])
+            if self.inp_grad_T is not None
+            else None
+        )
+        self.ind_inp_bias_T = (
+            sorted([self.input_labels.index(inp) for inp in self.inp_bias_T])
+            if self.inp_bias_T is not None
+            else None
         )
         # self.ind_inp_cor_fac = sorted(
         #     [self.input_labels.index(inp) for inp in self.inp_cor_fac]
@@ -100,16 +120,49 @@ class TILikeModel(nn.Module):
         else:
             self.bias_cor = None
 
-        cor_T_params = modelParams["cor_T"]
-        cor_T = [nn.Linear(len(self.inp_cor_T), cor_T_params["layers"][0])]
-        for i in range(len(cor_T_params["layers"]) - 1):
+        if "cor_T" in modelParams:
+            cor_T_params = modelParams["cor_T"]
+            cor_T = [nn.Linear(len(self.inp_cor_T), cor_T_params["layers"][0])]
+            for i in range(len(cor_T_params["layers"]) - 1):
+                cor_T.append(nn.ReLU())
+                cor_T.append(
+                    nn.Linear(cor_T_params["layers"][i], cor_T_params["layers"][i + 1])
+                )
             cor_T.append(nn.ReLU())
-            cor_T.append(
-                nn.Linear(cor_T_params["layers"][i], cor_T_params["layers"][i + 1])
-            )
-        cor_T.append(nn.ReLU())
-        cor_T.append(nn.Linear(cor_T_params["layers"][-1], 2))
-        self.cor_T = nn.Sequential(*cor_T)
+            cor_T.append(nn.Linear(cor_T_params["layers"][-1], 2))
+            self.cor_T = nn.Sequential(*cor_T)
+        else:
+            self.cor_T = None
+        if "grad_T" in modelParams:
+            grad_T_params = modelParams["grad_T"]
+            grad_T = [nn.Linear(len(self.inp_grad_T), grad_T_params["layers"][0])]
+            for i in range(len(grad_T_params["layers"]) - 1):
+                grad_T.append(nn.ReLU())
+                grad_T.append(
+                    nn.Linear(
+                        grad_T_params["layers"][i], grad_T_params["layers"][i + 1]
+                    )
+                )
+            grad_T.append(nn.ReLU())
+            grad_T.append(nn.Linear(grad_T_params["layers"][-1], 1))
+            self.grad_T = nn.Sequential(*grad_T)
+        else:
+            self.grad_T = None
+        if "bias_T" in modelParams:
+            bias_T_params = modelParams["bias_T"]
+            bias_T = [nn.Linear(len(self.inp_bias_T), bias_T_params["layers"][0])]
+            for i in range(len(bias_T_params["layers"]) - 1):
+                bias_T.append(nn.ReLU())
+                bias_T.append(
+                    nn.Linear(
+                        bias_T_params["layers"][i], bias_T_params["layers"][i + 1]
+                    )
+                )
+            bias_T.append(nn.ReLU())
+            bias_T.append(nn.Linear(bias_T_params["layers"][-1], 1))
+            self.bias_T = nn.Sequential(*bias_T)
+        else:
+            self.bias_T = None
 
         cor_acc_params = modelParams["cor_acc"]
         cor_acc = [nn.Linear(len(self.inp_cor_acc), cor_acc_params["layers"][0])]
@@ -163,32 +216,68 @@ class TILikeModel(nn.Module):
 
         return self.bias_cor(inputs)
 
+    def predict_temp_bias_from_df(self, df):
+        """Predict the temperature bias for a set of points in a DataFrame.
+
+        The input columns are expected to contain unnormalized values. The
+        returned tensor has the same number of rows as df and it corresponds
+        to the temperature bias ``bias_T_val``.
+        """
+        if self.bias_cor is None:
+            raise RuntimeError("This model does not define a bias correction network.")
+
+        missing_columns = [column for column in self.inp_bias_T if column not in df]
+        if missing_columns:
+            raise ValueError(f"Missing bias correction columns: {missing_columns}")
+
+        parameter = next(self.bias_cor.parameters())
+        inputs = torch.as_tensor(
+            df[self.inp_bias_T].to_numpy(dtype=np.float32),
+            device=parameter.device,
+            dtype=parameter.dtype,
+        )
+        for column_index, column in enumerate(self.inp_bias_T):
+            lower_bound, upper_bound = self.normalizing_bounds[column]
+            inputs[:, column_index] = Normalizer._norm(
+                inputs[:, column_index], lower_bound, upper_bound
+            )
+
+        return self.bias_T(inputs)
+
     def get_cor_T(self, inputs):
         P = Normalizer._unorm(
             inputs[:, self.ind_precip],
             self.normalizing_bounds["tp"][0],
             self.normalizing_bounds["tp"][1],
         )
-        T = (
-            Normalizer._unorm(
-                inputs[:, self.ind_temp],
-                self.normalizing_bounds["t2m"][0],
-                self.normalizing_bounds["t2m"][1],
-            )
-            # + 273.15
+        T = Normalizer._unorm(
+            inputs[:, self.ind_temp],
+            self.normalizing_bounds["t2m"][0],
+            self.normalizing_bounds["t2m"][1],
         )  # in Celsius degrees
         elev_diff_unorm = Normalizer._unorm(
             inputs[:, self.ind_elev_diff],
             self.normalizing_bounds["ELEVATION_DIFFERENCE"][0],
             self.normalizing_bounds["ELEVATION_DIFFERENCE"][1],
         )
-        inp_cor_T = inputs[:, self.ind_inp_cor_T]
+        if self.cor_T is not None:
+            inp_cor_T = inputs[:, self.ind_inp_cor_T]
+        else:
+            inp_grad_T = inputs[:, self.ind_inp_grad_T]
+            inp_bias_T = inputs[:, self.ind_inp_bias_T]
         inp_cor_acc = inputs[:, self.ind_inp_cor_acc]
         inp_cor_abl = inputs[:, self.ind_inp_cor_abl]
 
-        # Temperature correction for precipitation and PDD
-        # Acts as a shift of the temperature
-        cor_T_val = self.cor_T(inp_cor_T)
+        if self.cor_T is not None:
+            # Temperature correction for precipitation and PDD
+            # Acts as a shift of the temperature
+            cor_T_val = self.cor_T(inp_cor_T)
+        else:
+            grad_T_val = self.grad_T(inp_grad_T)
+            bias_T_val = self.bias_T(inp_bias_T)
+            cor_T_val = torch.concatenate([grad_T_val, bias_T_val], dim=1)
+        elev_diff = inputs[:, self.ind_elev_diff]
+        cor_T = elev_diff * cor_T_val[:, 0] + cor_T_val[:, 1]
 
         elev_diff = inputs[:, self.ind_elev_diff]
         cor_T = elev_diff * cor_T_val[:, 0] + cor_T_val[:, 1]
@@ -207,7 +296,18 @@ class TILikeModel(nn.Module):
         cor_acc = self.cor_acc(inp_cor_acc).view(-1)
         cor_abl = self.cor_abl(inp_cor_abl).view(-1)
 
-        return cor_T, P, T, P_solid, PDD, elev_diff_unorm, cor_acc, cor_abl
+        return (
+            cor_T,
+            cor_T_val,
+            P,
+            T,
+            P_solid,
+            P_cor,
+            PDD,
+            elev_diff_unorm,
+            cor_acc,
+            cor_abl,
+        )
 
     def forward(self, inputs):
         P = Normalizer._unorm(
@@ -215,22 +315,29 @@ class TILikeModel(nn.Module):
             self.normalizing_bounds["tp"][0],
             self.normalizing_bounds["tp"][1],
         )
-        T = (
-            Normalizer._unorm(
-                inputs[:, self.ind_temp],
-                self.normalizing_bounds["t2m"][0],
-                self.normalizing_bounds["t2m"][1],
-            )
-            # + 273.15
+        T = Normalizer._unorm(
+            inputs[:, self.ind_temp],
+            self.normalizing_bounds["t2m"][0],
+            self.normalizing_bounds["t2m"][1],
         )  # in Celsius degrees
-        inp_cor_T = inputs[:, self.ind_inp_cor_T]
+        if self.cor_T is not None:
+            inp_cor_T = inputs[:, self.ind_inp_cor_T]
+        else:
+            inp_grad_T = inputs[:, self.ind_inp_grad_T]
+            inp_bias_T = inputs[:, self.ind_inp_bias_T]
         inp_cor_acc = inputs[:, self.ind_inp_cor_acc]
         inp_cor_abl = inputs[:, self.ind_inp_cor_abl]
 
-        # Temperature correction for precipitation and PDD
-        # Acts as a shift of the temperature
-        cor_T_val = self.cor_T(inp_cor_T)
-
+        if self.cor_T is not None:
+            # Temperature correction for precipitation and PDD
+            # Acts as a shift of the temperature
+            cor_T_val = self.cor_T(inp_cor_T)
+        else:
+            grad_T_val = self.grad_T(inp_grad_T)
+            bias_T_val = self.bias_T(inp_bias_T)
+            cor_T_val = torch.concatenate([grad_T_val, bias_T_val], dim=1)
+            # elev_diff = inputs[:, self.ind_elev_diff]
+            # cor_T = elev_diff * grad_T_val[:, 0] + bias_T_val[:, 0]
         elev_diff = inputs[:, self.ind_elev_diff]
         cor_T = elev_diff * cor_T_val[:, 0] + cor_T_val[:, 1]
 
@@ -239,7 +346,6 @@ class TILikeModel(nn.Module):
             P_cor = self.bias_cor(inp_bias_cor)[:, 0] / 1000
         else:
             P_cor = 0.0
-        # import pdb; pdb.set_trace()
         P_solid = F.relu(P + P_cor) * F.sigmoid(
             (torch.tanh(self.tau_P_s) + 1) * 2 * (self.tau_P_c - cor_T - T)
         )

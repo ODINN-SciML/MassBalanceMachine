@@ -41,7 +41,13 @@ def parseParams(params):
         modelParams["dropout"] = params["model"].get("dropout", 0.0)
         modelParams["downscale"] = downscale
     elif modelParams["type"] == "TIlike":
-        modelParams["cor_T"] = params["model"]["cor_T"]
+        if "cor_T" in params["model"]:
+            modelParams["cor_T"] = params["model"]["cor_T"]
+        elif "grad_T" in params["model"] and "bias_T" in params["model"]:
+            modelParams["grad_T"] = params["model"]["grad_T"]
+            modelParams["bias_T"] = params["model"]["bias_T"]
+        else:
+            ValueError("Cannot identify the type of temperature downscaling")
         if "cor_fac" in params["model"]:
             modelParams["cor_fac"] = {"layers": params["model"]["cor_fac"]["layers"]}
         else:
