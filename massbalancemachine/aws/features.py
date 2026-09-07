@@ -46,9 +46,9 @@ def _interpolate_glacier_topography(
     return monthly_precipitation
 
 
-def build_features(aws_code: str):
+def build_features(aws_code: str, data_dir=None):
     monthly_precipitation = load_aws_monthly_precipitation(
-        aws_code, include_metadata=True
+        aws_code, data_dir=data_dir, include_metadata=True
     )
     monthly_precipitation = monthly_precipitation.rename(
         columns={
@@ -69,14 +69,17 @@ def build_features(aws_code: str):
     )
 
 
-def create_aws_grid(aws_code: str) -> pd.DataFrame:
+def create_aws_grid(aws_code: str, data_dir=None) -> pd.DataFrame:
     """Create a glacier-grid-compatible monthly dataframe for one AWS.
 
     Each row represents one complete month of AWS data. Spatial columns use
     the same names as :func:`create_glacier_grid_RGI`, while the temporal
     columns describe the calendar month represented by the row.
     """
-    features = build_features(aws_code).copy()
+    if data_dir is None:
+        features = build_features(aws_code).copy()
+    else:
+        features = build_features(aws_code, data_dir=data_dir).copy()
     features["POINT_ID"] = 1
     features["N_MONTHS"] = 1
     features["YEAR"] = features["Date"].dt.year

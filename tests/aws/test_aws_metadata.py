@@ -3,6 +3,8 @@ import pytest
 import geopandas as gpd
 import pyproj
 import xarray as xr
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from shapely.geometry import box
 from types import SimpleNamespace
 
@@ -15,6 +17,20 @@ from massbalancemachine.aws.data import (
     load_aws_monthly_precipitation,
 )
 from massbalancemachine.aws.features import _interpolate_glacier_topography
+
+
+LOCAL_AWS_DATA = Path(__file__).parent / "data"
+
+
+def test_load_aws_data_from_local_sample():
+    metadata = parse_aws_metadata(LOCAL_AWS_DATA / "Metadata")
+    data = load_aws_data("FVG0001", data_dir=LOCAL_AWS_DATA)
+
+    assert metadata.loc[0, "Code"] == "FVG0001"
+    assert data["Date"].tolist() == [
+        pd.Timestamp("2007-01-01"),
+        pd.Timestamp("2007-01-02"),
+    ]
 
 
 def test_parse_aws_metadata_directory(tmp_path):
@@ -169,11 +185,18 @@ def test_interpolate_glacier_topography_returns_nan_outside_grid():
     assert result[["aspect", "slope"]].isna().all().all()
 
 
+def _run_with_tmp_path(test):
+    with TemporaryDirectory() as directory:
+        test(Path(directory))
+
+
 if __name__ == "__main__":
-    test_parse_aws_metadata_directory()
-    test_load_aws_data()
-    test_load_aws_data_rejects_unknown_code()
-    test_load_aws_monthly_precipitation_discards_incomplete_months()
-    test_load_aws_monthly_precipitation_includes_metadata()
+    test_load_aws_data_from_local_sample()
+    _run_with_tmp_path(test_parse_aws_metadata_directory)
+    _run_with_tmp_path(test_parse_aws_metadata_rejects_missing_required_columns)
+    _run_with_tmp_path(test_load_aws_data)
+    _run_with_tmp_path(test_load_aws_data_rejects_unknown_code)
+    _run_with_tmp_path(test_load_aws_monthly_precipitation_discards_incomplete_months)
+    _run_with_tmp_path(test_load_aws_monthly_precipitation_includes_metadata)
     test_check_aws_glacier_proximity()
     test_interpolate_glacier_topography_returns_nan_outside_grid()

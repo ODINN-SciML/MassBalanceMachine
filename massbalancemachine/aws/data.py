@@ -7,6 +7,7 @@ from .download import _ensure_dataset, eear_dir
 
 def load_aws_data(
     aws_code: str,
+    data_dir: str | Path | None = None,
 ) -> pd.DataFrame:
     """Load the daily data for one AWS.
 
@@ -14,6 +15,8 @@ def load_aws_data(
     ----------
     aws_code
         Station code, for example ``"FVG0072"``.
+    data_dir
+        Local EEAR-Clim directory. When omitted, EEAR-Clim is downloaded. Used mainly for the tests.
 
     Returns
     -------
@@ -31,9 +34,11 @@ def load_aws_data(
     if not isinstance(aws_code, str) or not aws_code.strip():
         raise ValueError("aws_code must be a non-empty string")
 
-    _ensure_dataset()
-
-    data_dir = Path(eear_dir)
+    if data_dir is None:
+        _ensure_dataset()
+        data_dir = Path(eear_dir)
+    else:
+        data_dir = Path(data_dir)
     if not data_dir.is_dir():
         raise FileNotFoundError(f"AWS data directory does not exist: {data_dir}")
 
@@ -69,6 +74,7 @@ def load_aws_monthly_precipitation(
     include_metadata: bool = False,
     region_id: int | str = 11,
     rgi_gdf=None,
+    data_dir: str | Path | None = None,
 ) -> pd.DataFrame:
     """Load complete-month mean daily precipitation for one AWS.
 
@@ -79,7 +85,7 @@ def load_aws_monthly_precipitation(
     ``Longitude``, ``Elevation``, and the nearest ``RGIId`` from
     ``check_aws_glacier_proximity``.
     """
-    data = load_aws_data(aws_code)
+    data = load_aws_data(aws_code, data_dir=data_dir)
     if "P" not in data.columns:
         raise ValueError(f"AWS data for {aws_code!r} does not contain a P column")
 
@@ -100,7 +106,7 @@ def load_aws_monthly_precipitation(
     result = result[["Date", "P"]]
 
     if include_metadata:
-        metadata_path = Path(eear_dir) / "Metadata"
+        metadata_path = Path(eear_dir if data_dir is None else data_dir) / "Metadata"
         metadata = parse_aws_metadata(metadata_path)
         station_metadata = metadata[metadata["Code"].eq(aws_code)]
         if station_metadata.empty:

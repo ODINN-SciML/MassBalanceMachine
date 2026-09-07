@@ -21,11 +21,15 @@ REQUIRED_METADATA_COLUMNS = {
 AVAILABILITY_COLUMNS = ("T", "TMIN", "TMAX", "P")
 
 
-def parse_aws_metadata() -> pd.DataFrame:
-    _ensure_dataset()
-    metadata_path = os.path.join(eear_dir, "Metadata", "Metadata")
+def parse_aws_metadata(metadata_path: str | os.PathLike | None = None) -> pd.DataFrame:
+    """Load one or more EEAR-Clim AWS metadata files.
 
-    """Load one or more EEAR-Clim AWS metadata files."""
+    A local file or directory can be supplied to avoid downloading EEAR-Clim. This is used mainly for the tests.
+    """
+    if metadata_path is None:
+        _ensure_dataset()
+        metadata_path = os.path.join(eear_dir, "Metadata", "Metadata")
+
     metadata_path = Path(metadata_path)
     if metadata_path.is_dir():
         metadata_files = sorted(metadata_path.glob("*_meta.txt"))
