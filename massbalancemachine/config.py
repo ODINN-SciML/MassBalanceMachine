@@ -45,6 +45,11 @@ DEFAULT_BNDS: Dict[str, Tuple[float, float]] = {
     "u10": (-10, 10),
     "v10": (-10, 10),
     "svf": (0, 1),
+    "tp_sum": (0, 1),
+    "slhf_sum": (-10e7, 10e7),
+    "sshf_sum": (-10e7, 10e7),
+    "ssrd_sum": (-10e7, 10e7),
+    "str_sum": (-10e7, 10e7),
 }
 
 # Small, declarative region differences live here.

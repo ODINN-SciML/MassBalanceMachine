@@ -14,7 +14,7 @@ class TILikeModel(nn.Module):
         super().__init__(*args, **kwargs)
         self.input_labels = modelParams["inputs"]
         self.normalizing_bounds = normalizing_bounds
-        self.ind_precip = self.input_labels.index("tp")
+        self.ind_precip = self.input_labels.index("tp_sum")
         self.ind_temp = self.input_labels.index("t2m")
         self.ind_elev_diff = self.input_labels.index("ELEVATION_DIFFERENCE")
         # self.inputs = [
@@ -104,13 +104,13 @@ class TILikeModel(nn.Module):
         self.ind_inp_cor_abl = sorted(
             [self.input_labels.index(inp) for inp in self.inp_cor_abl]
         )
-        self.beta1 = 1.4
+        self.beta1 = 10.0
         self.beta2 = 0.0049
         init_tau_P_s = 1.5
         init_tau_P_c = 1.0
         init_beta_pdd = 1.0
         self.tau_P_s = torch.nn.Parameter(
-            torch.arctanh((torch.ones(1) * init_tau_P_s / 2) - 1)
+            torch.arctanh((torch.ones(1) * init_tau_P_s / 2) - 1.1)
         )
         self.tau_P_c = torch.nn.Parameter(torch.ones(1) * init_tau_P_c)
         self.beta_pdd = torch.nn.Parameter(
@@ -195,7 +195,7 @@ class TILikeModel(nn.Module):
                     )
                 )
             cor_dir.append(nn.ReLU())
-            cor_dir.append(nn.Linear(cor_dir_params["layers"][-1], 1))
+            cor_dir.append(nn.Linear(cor_dir_params["layers"][-1], 1, bias=False))
             self.cor_dir = nn.Sequential(*cor_dir)
         else:
             self.cor_dir = None
@@ -213,7 +213,9 @@ class TILikeModel(nn.Module):
                     )
                 )
             cor_terrain.append(nn.ReLU())
-            cor_terrain.append(nn.Linear(cor_terrain_params["layers"][-1], 1))
+            cor_terrain.append(
+                nn.Linear(cor_terrain_params["layers"][-1], 1, bias=False)
+            )
             self.cor_terrain = nn.Sequential(*cor_terrain)
         else:
             self.cor_terrain = None
@@ -301,8 +303,8 @@ class TILikeModel(nn.Module):
     def get_cor_T(self, inputs):
         P = Normalizer._unorm(
             inputs[:, self.ind_precip],
-            self.normalizing_bounds["tp"][0],
-            self.normalizing_bounds["tp"][1],
+            self.normalizing_bounds["tp_sum"][0],
+            self.normalizing_bounds["tp_sum"][1],
         )
         T = Normalizer._unorm(
             inputs[:, self.ind_temp],
@@ -329,16 +331,17 @@ class TILikeModel(nn.Module):
             elev_diff = inputs[:, self.ind_elev_diff]
             cor_T = elev_diff * cor_T_val[:, 0] + cor_T_val[:, 1]
         else:
-            grad_T_val = self.grad_T(inp_grad_T)
-            bias_T_val = self.bias_T(inp_bias_T)
+            # grad_T_val = self.grad_T(inp_grad_T)
+            # bias_T_val = self.bias_T(inp_bias_T)
             # cor_T_val = torch.concatenate([grad_T_val, bias_T_val], dim=1)
             elev_diff = inputs[:, self.ind_elev_diff]
             # cor_T = elev_diff * cor_T_val[:, 0] + cor_T_val[:, 1]
 
             inp_dir = inputs[:, self.ind_inp_dir]
             inp_terrain = inputs[:, self.ind_inp_terrain]
-            alpha = self.grad_T(inp_grad_T)[:, 0]
-            bias = self.bias_T(inp_bias_T)[:, 0]
+            alpha = 1 - 15 * F.sigmoid(self.grad_T(inp_grad_T)[:, 0])
+            # alpha = self.grad_T(inp_grad_T)[:, 0]
+            bias = 5 * F.tanh(self.bias_T(inp_bias_T)[:, 0])
             svf_unorm = Normalizer._unorm(
                 inputs[:, self.ind_svf],
                 self.normalizing_bounds["svf"][0],
@@ -359,21 +362,30 @@ class TILikeModel(nn.Module):
                 dim=1,
             )
             cor_T = (
-                elev_diff * alpha + ssrd * (1 - svf_unorm) * R_dir + R_terrain + bias
+                # elev_diff * alpha + ssrd * (1 - svf_unorm) * R_dir + R_terrain + bias
+                elev_diff * alpha
+                + R_dir
+                + R_terrain
+                + bias
             )
 
         if self.bias_cor is not None:
             inp_bias_cor = inputs[:, self.ind_inp_bias_cor]
-            P_cor = self.bias_cor(inp_bias_cor)[:, 0] / 1000
+            P_cor = self.bias_cor(inp_bias_cor)[:, 0]
         else:
             P_cor = 0.0
-        P_solid = F.relu(P + P_cor) * F.sigmoid(
-            (torch.tanh(self.tau_P_s) + 1) * 2 * (self.tau_P_c - cor_T - T)
+        # P_solid = F.softplus(P + P_cor, beta=1/0.01) * F.sigmoid(
+        P_solid = (
+            P
+            * F.sigmoid(P_cor)
+            * F.sigmoid(
+                (torch.tanh(self.tau_P_s) + 1.1) * 2 * (self.tau_P_c - cor_T - T)
+            )
         )
         curv_pdd = (torch.tanh(self.beta_pdd) + 1) * 2
         PDD = F.softplus((T + cor_T) * curv_pdd) / curv_pdd
 
-        cor_acc = self.cor_acc(inp_cor_acc).view(-1)
+        cor_acc = F.sigmoid(self.cor_acc(inp_cor_acc).view(-1))
         cor_abl = self.cor_abl(inp_cor_abl).view(-1)
 
         return (
@@ -392,8 +404,8 @@ class TILikeModel(nn.Module):
     def forward(self, inputs):
         P = Normalizer._unorm(
             inputs[:, self.ind_precip],
-            self.normalizing_bounds["tp"][0],
-            self.normalizing_bounds["tp"][1],
+            self.normalizing_bounds["tp_sum"][0],
+            self.normalizing_bounds["tp_sum"][1],
         )
         T = Normalizer._unorm(
             inputs[:, self.ind_temp],
@@ -415,16 +427,17 @@ class TILikeModel(nn.Module):
             elev_diff = inputs[:, self.ind_elev_diff]
             cor_T = elev_diff * cor_T_val[:, 0] + cor_T_val[:, 1]
         else:
-            grad_T_val = self.grad_T(inp_grad_T)
-            bias_T_val = self.bias_T(inp_bias_T)
+            # grad_T_val = self.grad_T(inp_grad_T)
+            # bias_T_val = self.bias_T(inp_bias_T)
             # cor_T_val = torch.concatenate([grad_T_val, bias_T_val], dim=1)
             elev_diff = inputs[:, self.ind_elev_diff]
             # cor_T = elev_diff * cor_T_val[:, 0] + cor_T_val[:, 1]
 
             inp_dir = inputs[:, self.ind_inp_dir]
             inp_terrain = inputs[:, self.ind_inp_terrain]
-            alpha = self.grad_T(inp_grad_T)[:, 0]
-            bias = self.bias_T(inp_bias_T)[:, 0]
+            alpha = 1 - 15 * F.sigmoid(self.grad_T(inp_grad_T)[:, 0])
+            # alpha = self.grad_T(inp_grad_T)[:, 0]
+            bias = 5 * F.tanh(self.bias_T(inp_bias_T)[:, 0])
             svf_unorm = Normalizer._unorm(
                 inputs[:, self.ind_svf],
                 self.normalizing_bounds["svf"][0],
@@ -434,27 +447,37 @@ class TILikeModel(nn.Module):
             R_dir = self.cor_dir(inp_dir)[:, 0]
             R_terrain = self.cor_terrain(inp_terrain)[:, 0]
             cor_T = (
-                elev_diff * alpha + ssrd * (1 - svf_unorm) * R_dir + R_terrain + bias
+                # elev_diff * alpha + ssrd * (1 - svf_unorm) * R_dir + R_terrain + bias
+                elev_diff * alpha
+                + R_dir
+                + R_terrain
+                + bias
             )
 
         if self.bias_cor is not None:
             inp_bias_cor = inputs[:, self.ind_inp_bias_cor]
-            P_cor = self.bias_cor(inp_bias_cor)[:, 0] / 1000
+            P_cor = self.bias_cor(inp_bias_cor)[:, 0]
         else:
             P_cor = 0.0
-        P_solid = F.relu(P + P_cor) * F.sigmoid(
-            (torch.tanh(self.tau_P_s) + 1) * 2 * (self.tau_P_c - cor_T - T)
+        # P_solid = F.softplus(P + P_cor, beta=1/0.01) * F.sigmoid(
+        P_solid = (
+            P
+            * F.sigmoid(P_cor)
+            * F.sigmoid(
+                (torch.tanh(self.tau_P_s) + 1.1) * 2 * (self.tau_P_c - cor_T - T)
+            )
         )
         curv_pdd = (torch.tanh(self.beta_pdd) + 1) * 2
         PDD = F.softplus((T + cor_T) * curv_pdd) / curv_pdd
 
         # Accumulation factor correction
-        cor_acc = self.cor_acc(inp_cor_acc).view(-1)
+        cor_acc = F.sigmoid(self.cor_acc(inp_cor_acc).view(-1))
 
         # Ablation factor correction
         cor_abl = self.cor_abl(inp_cor_abl).view(-1)
 
         MB = self.beta1 * cor_acc * P_solid - self.beta2 * cor_abl * PDD
+        # TODO: changer scaling de beta2 pour correspondre aux valeurs typiques calées avec ODINN
         return MB.view(-1, 1)
 
 

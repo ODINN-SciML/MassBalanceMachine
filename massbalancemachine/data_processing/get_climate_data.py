@@ -102,6 +102,27 @@ def get_climate_features_(
     # Combine the climate data with the altitude climate data
     df = _combine_dataframes(df, climate_df, altitude_df)
 
+    # Compute the sum of the fluxes per month from the average fluxes per day
+    # Cf https://confluence.ecmwf.int/spaces/CKB/pages/76414402/ERA5+data+documentation#ERA5:datadocumentation-Meanrates/fluxesandaccumulations
+    fluxes_cols = ["tp", "slhf", "str", "sshf", "ssrd"]
+    df_cols = df.columns.values
+    month_to_id = {(month_abbr[i].lower()): i for i in range(1, 13)}
+    new_cols = {}
+    for col_df in df_cols:
+        m = [col_df.startswith(c) for c in fluxes_cols]
+        if any(m):
+            assert np.sum(m) == 1
+            flux_col = np.array(fluxes_cols)[np.array(m)][0]
+            suffix = col_df.replace(flux_col + "_", "")
+            id_month = str(month_to_id[suffix.replace("_", "")])
+            # Incorrect because we retrieve the year of the hydrological year and not the true year associated to the measurement
+            days_in_month = pd.to_datetime(
+                df.YEAR.astype(str) + "-" + id_month + "-01"
+            ).dt.days_in_month
+            sum_col = flux_col + "_sum_" + suffix
+            new_cols[sum_col] = df[col_df].values * days_in_month
+    df = pd.concat([df, pd.DataFrame(new_cols, index=df.index)], axis=1)
+
     # Remove climate artifacts
     df = smooth_era5land_by_mode(df, vois_climate, vois_other)
 

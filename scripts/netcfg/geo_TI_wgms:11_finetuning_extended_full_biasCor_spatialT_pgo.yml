@@ -10,7 +10,7 @@ model:
         - ssrd
         - str
         - t2m
-        - tp
+        - tp_sum
         - svf
         - u10
         - v10
@@ -54,6 +54,8 @@ model:
         inputs:
             - aspect
             - slope
+            - svf
+            - ssrd
         layers: [32, 16, 8]
     cor_terrain:
         inputs:

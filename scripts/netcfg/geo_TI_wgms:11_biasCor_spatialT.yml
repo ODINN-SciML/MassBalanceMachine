@@ -10,7 +10,7 @@ model:
         - ssrd
         - str
         - t2m
-        - tp
+        - tp_sum
         - svf
         - u10
         - v10
@@ -54,6 +54,8 @@ model:
         inputs:
             - aspect
             - slope
+            - svf
+            - ssrd
         layers: [32, 16, 8]
     cor_terrain:
         inputs:
@@ -159,7 +161,7 @@ training:
         - RGI60-11.00719
     optim: ADAM
     scheduler: StepLR
-    lr: 5e-4
+    lr: 1e-3
     scheduler_step_size: 500
     Nepochs: 2000
     scalingStakes: full

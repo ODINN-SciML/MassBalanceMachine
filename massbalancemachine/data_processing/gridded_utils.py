@@ -268,6 +268,11 @@ def create_gridded_features_from_mask_per_year(args):
                 "str",
                 "u10",
                 "v10",
+                "tp_sum",
+                "slhf_sum",
+                "sshf_sum",
+                "ssrd_sum",
+                "str_sum",
             ]
             # Topographical columns
             voi_topographical = [
@@ -734,6 +739,11 @@ def load_grid_multi_years(rgi_id, years, product_source):
         "v10",
         "GLWD_M_ID",
         "GLWD_ID",
+        "tp_sum",
+        # "slhf_sum",
+        # "sshf_sum",
+        # "ssrd_sum",
+        # "str_sum",
     ]
     df = pd.read_parquet(path_prepared_df, columns=columns)
     return df
