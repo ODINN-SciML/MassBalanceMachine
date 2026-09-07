@@ -15,6 +15,7 @@ __all__ = [
     "metrics",
     "sampling",
     "utils",
+    "aws",
 ]
 
 import dataloader
@@ -26,6 +27,7 @@ import geodata
 import training
 import plots
 import metrics
+import aws
 
 # import sampling # Do not import by default since this is an advanced feature
 import utils

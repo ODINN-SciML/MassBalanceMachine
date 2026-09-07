@@ -150,8 +150,13 @@ def get_custom_glacier_mask(gdir):
     return ds, glacier_indices
 
 
-def get_glacier_mask(rgi_id: str, custom_working_dir: str, cfg: config.Config):
-    """Given a `rgi_id` gets glacier xarray from OGGM and masks it over the glacier outline."""
+def get_glacier_mask(
+    rgi_id: str,
+    custom_working_dir: str,
+    cfg: config.Config,
+    mask: bool = True,
+):
+    """Given a `rgi_id`, load an OGGM grid, optionally masking fields outside the glacier outline."""
 
     # Initialize the OGGM Config
     _initialize_oggm_config(custom_working_dir)
@@ -171,23 +176,28 @@ def get_glacier_mask(rgi_id: str, custom_working_dir: str, cfg: config.Config):
     glacier_mask = np.where(
         ds["glacier_mask"].values == 0, np.nan, ds["glacier_mask"].values
     )
+    field_mask = glacier_mask if mask else 1.0
 
-    # Create glacier mask
-    ds = ds.assign(masked_slope=glacier_mask * ds["slope"])
-    ds = ds.assign(masked_elev=glacier_mask * ds["topo"])
-    ds = ds.assign(masked_aspect=glacier_mask * ds["aspect"])
-    ds = ds.assign(masked_dis=glacier_mask * ds["dis_from_border"])
-    ds = ds.assign(masked_hug=glacier_mask * ds["hugonnet_dhdt"])
-    ds = ds.assign(masked_cit=glacier_mask * ds["consensus_ice_thickness"])
+    ds = ds.assign(masked_slope=field_mask * ds["slope"])
+    ds = ds.assign(masked_elev=field_mask * ds["topo"])
+    ds = ds.assign(masked_aspect=field_mask * ds["aspect"])
+    ds = ds.assign(masked_dis=field_mask * ds["dis_from_border"])
+    ds = ds.assign(masked_hug=field_mask * ds["hugonnet_dhdt"])
+    ds = ds.assign(masked_cit=field_mask * ds["consensus_ice_thickness"])
     if "millan_ice_thickness" in ds:
-        ds = ds.assign(masked_mit=glacier_mask * ds["millan_ice_thickness"])
+        ds = ds.assign(masked_mit=field_mask * ds["millan_ice_thickness"])
     if "millan_v" in ds:
         # Some glaciers do not have velocity data
-        ds = ds.assign(masked_miv=glacier_mask * ds["millan_v"])
-        ds = ds.assign(masked_mivx=glacier_mask * ds["millan_vx"])
-        ds = ds.assign(masked_mivy=glacier_mask * ds["millan_vy"])
+        ds = ds.assign(masked_miv=field_mask * ds["millan_v"])
+        ds = ds.assign(masked_mivx=field_mask * ds["millan_vx"])
+        ds = ds.assign(masked_mivy=field_mask * ds["millan_vy"])
 
-    glacier_indices = np.where(ds["glacier_mask"].values == 1)
+    if mask:
+        glacier_indices = np.where(ds["glacier_mask"].values == 1)
+    else:
+        glacier_indices = np.where(
+            np.isfinite(ds["aspect"].values) & np.isfinite(ds["slope"].values)
+        )
     return ds, glacier_indices, gdir
 
 
