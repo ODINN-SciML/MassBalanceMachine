@@ -6,11 +6,11 @@ import xarray as xr
 from shapely.geometry import box
 from types import SimpleNamespace
 
-from massbalancemachine.aws.aws_metadata import (
+from massbalancemachine.aws.metadata import (
     check_aws_glacier_proximity,
     parse_aws_metadata,
 )
-from massbalancemachine.aws.aws_data import (
+from massbalancemachine.aws.data import (
     load_aws_data,
     load_aws_monthly_precipitation,
 )
@@ -167,3 +167,13 @@ def test_interpolate_glacier_topography_returns_nan_outside_grid():
     result = _interpolate_glacier_topography(metadata, ds, glacier_indices, gdir)
 
     assert result[["aspect", "slope"]].isna().all().all()
+
+
+if __name__ == "__main__":
+    test_parse_aws_metadata_directory()
+    test_load_aws_data()
+    test_load_aws_data_rejects_unknown_code()
+    test_load_aws_monthly_precipitation_discards_incomplete_months()
+    test_load_aws_monthly_precipitation_includes_metadata()
+    test_check_aws_glacier_proximity()
+    test_interpolate_glacier_topography_returns_nan_outside_grid()

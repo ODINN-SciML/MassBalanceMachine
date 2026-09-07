@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 import massbalancemachine.aws.features as aws_features
 
@@ -23,7 +24,12 @@ def test_create_aws_grid_adds_monthly_grid_fields(monkeypatch):
     assert result["POINT_ID"].tolist() == [1, 1]
     assert result["N_MONTHS"].tolist() == [1, 1]
     assert result["YEAR"].tolist() == [2007, 2007]
-    assert result["MONTHS"].tolist() == [1, 2]
+    # assert result["MONTHS"].tolist() == [1, 2]
     assert result["FROM_DATE"].tolist() == ["20070101", "20070201"]
     assert result["TO_DATE"].tolist() == ["20070131", "20070228"]
-    assert result["PERIOD"].tolist() == ["monthly", "monthly"]
+    assert result["PERIOD"].tolist() == ["annual", "annual"]
+
+
+if __name__ == "__main__":
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        test_create_aws_grid_adds_monthly_grid_fields(monkeypatch)

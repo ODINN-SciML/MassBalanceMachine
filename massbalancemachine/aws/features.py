@@ -5,7 +5,7 @@ from scipy.interpolate import griddata
 
 from config import Config
 from data_processing.get_topo_data import get_glacier_mask
-from .aws_data import load_aws_monthly_precipitation
+from .data import load_aws_monthly_precipitation
 
 
 def _interpolate_glacier_topography(

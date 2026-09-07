@@ -1,9 +1,14 @@
 """Utilities for loading AWS metadata and checking glacier proximity."""
 
 from pathlib import Path
-
+import os
 import geopandas as gpd
 import pandas as pd
+
+from .download import _ensure_dataset, eear_dir
+
+
+# TODO: add  _format_data_credit
 
 
 REQUIRED_METADATA_COLUMNS = {
@@ -16,7 +21,10 @@ REQUIRED_METADATA_COLUMNS = {
 AVAILABILITY_COLUMNS = ("T", "TMIN", "TMAX", "P")
 
 
-def parse_aws_metadata(metadata_path: str | Path) -> pd.DataFrame:
+def parse_aws_metadata() -> pd.DataFrame:
+    _ensure_dataset()
+    metadata_path = os.path.join(eear_dir, "Metadata", "Metadata")
+
     """Load one or more EEAR-Clim AWS metadata files."""
     metadata_path = Path(metadata_path)
     if metadata_path.is_dir():

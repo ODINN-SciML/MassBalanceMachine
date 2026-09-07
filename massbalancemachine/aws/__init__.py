@@ -1,8 +1,8 @@
-from .aws_metadata import (
+from .metadata import (
     check_aws_glacier_proximity,
     parse_aws_metadata,
 )
-from .aws_data import (
+from .data import (
     load_aws_data,
     load_aws_monthly_precipitation,
 )
