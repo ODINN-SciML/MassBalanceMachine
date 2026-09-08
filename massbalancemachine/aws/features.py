@@ -7,6 +7,7 @@ from scipy.interpolate import griddata
 from pathlib import Path
 
 from config import Config
+from data_processing.Dataset import Dataset
 from data_processing.get_topo_data import get_glacier_mask
 from data_processing.glacier_utils import create_dem_file_RGI, generate_svf_file
 from data_processing.Product import Product
@@ -105,7 +106,7 @@ def _load_or_create_aws_svf(rgi_id, cfg):
     return xr.open_dataset(os.path.join(path_rgi_id, "svf.nc"))
 
 
-def build_features(aws_code: str, data_dir=None):
+def build_features(aws_code: str, cfg, data_dir=None):
     monthly_precipitation = load_aws_monthly_precipitation(
         aws_code, data_dir=data_dir, include_metadata=True
     )
@@ -121,7 +122,7 @@ def build_features(aws_code: str, data_dir=None):
     if pd.isna(rgi_id):
         raise ValueError(f"AWS {aws_code!r} has no corresponding glacier")
 
-    cfg = Config()
+    # cfg = Config()
     ds, glacier_indices, gdir = get_glacier_mask(rgi_id, "", cfg, mask=False)
     features = _interpolate_glacier_topography(
         monthly_precipitation, ds, glacier_indices, gdir
@@ -133,7 +134,7 @@ def build_features(aws_code: str, data_dir=None):
         return _interpolate_aws_svf(features, ds, gdir, svf)
 
 
-def create_aws_grid(aws_code: str, data_dir=None) -> pd.DataFrame:
+def create_aws_grid(aws_code: str, cfg, data_dir=None) -> pd.DataFrame:
     """Create a glacier-grid-compatible monthly dataframe for one AWS.
 
     Each row represents one complete month of AWS data. Spatial columns use
@@ -141,11 +142,12 @@ def create_aws_grid(aws_code: str, data_dir=None) -> pd.DataFrame:
     columns describe the calendar month represented by the row.
     """
     if data_dir is None:
-        features = build_features(aws_code).copy()
+        features = build_features(aws_code, cfg).copy()
     else:
-        features = build_features(aws_code, data_dir=data_dir).copy()
+        features = build_features(aws_code, cfg, data_dir=data_dir).copy()
     features["POINT_ID"] = 1
     features["N_MONTHS"] = 1
+    features["POINT_BALANCE"] = 0  # fake PMB for simplicity (not used)
     features["YEAR"] = features["Date"].dt.year
     # features["MONTHS"] = features["Date"].dt.month
     features["FROM_DATE"] = features["Date"].dt.strftime("%Y%m%d")
@@ -154,3 +156,76 @@ def create_aws_grid(aws_code: str, data_dir=None) -> pd.DataFrame:
     ).dt.strftime("%Y%m%d")
     features["PERIOD"] = "annual"
     return features
+
+
+def monthly_features(
+    aws_code: str,
+    cfg,
+    region_id: int,
+    data_dir=None,
+) -> pd.DataFrame:
+    """Build the monthly climate/topographical feature dataframe for one AWS.
+
+    Extracted from the AWS notebook: builds the AWS monthly grid, wraps it in
+    a :class:`Dataset`, and matches ERA5-Land climate data to each row's
+    ``Date`` (see :func:`create_aws_grid` for the topographical columns,
+    which are already attached before this runs).
+
+    Args:
+        aws_code (str): AWS station code, e.g. ``"LOM0154"``.
+        cfg: Config instance.
+        region_id (int): RGI region ID.
+        data_dir: Passed through to :func:`create_aws_grid`. Defaults to `None`.
+
+    Returns:
+        pd.DataFrame: The AWS monthly dataframe with climate features added.
+    """
+
+    processed_path = os.path.join(data_path, "AWS", "EEAR-Clim_processed")
+    feat_path = os.path.join(processed_path, f"{aws_code}.parquet")
+    p = Product(feat_path)
+    if not p.is_up_to_date():
+
+        # Climate columns
+        vois_climate = [
+            "t2m",
+            "tp",
+            "slhf",
+            "sshf",
+            "ssrd",
+            "fal",
+            "str",
+            "u10",
+            "v10",
+            "tp_sum",
+            "slhf_sum",
+            "sshf_sum",
+            "ssrd_sum",
+            "str_sum",
+        ]
+
+        feat = create_aws_grid(aws_code, cfg, data_dir=data_dir)
+
+        dataset_grid = Dataset(
+            cfg=cfg,
+            data=feat,
+            region_name="",
+            region_id=region_id,
+        )
+
+        dataset_grid.get_climate_features(
+            change_units=True,
+            monthly=True,
+            smoothing_vois={
+                "vois_climate": vois_climate,
+                "vois_other": ["ALTITUDE_CLIMATE"],
+            },
+        )
+
+        df = dataset_grid.data
+
+        df.to_parquet(feat_path, index=True)
+
+        p.gen_chk()
+
+    return pd.read_parquet(feat_path)

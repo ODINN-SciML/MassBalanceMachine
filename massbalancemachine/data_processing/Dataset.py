@@ -117,6 +117,7 @@ class Dataset:
         geopotential_data: str = None,
         change_units: bool = False,
         smoothing_vois: dict = None,
+        monthly: bool = False,
     ) -> None:
         """
         Fetches all the climate data, for a list of variables of interest, for the specified RGI IDs.
@@ -128,6 +129,8 @@ class Dataset:
                 Defaults to `None` which automatically downloads the file if necessary using the CDSAPI.
             change_units (bool, optional): A boolean indicating whether to change the units of the climate data. Default to False.
             smoothing_vois (dict, optional): A dictionary containing the variables of interest for smoothing climate artifacts. Default to None.
+            monthly (bool, optional): Match ERA5 data to each row's Date instead of building hydrological-year climate columns. Default to False.
+                This is useful if your data are already at a monthly resolution.
         """
         output_fname = self._get_output_filename("climate_features", self.output_format)
 
@@ -155,6 +158,7 @@ class Dataset:
             self.months_head_pad,
             vois_climate,
             vois_other,
+            monthly,
         )
 
     def get_potential_rad(self, path_to_direct: str) -> None:

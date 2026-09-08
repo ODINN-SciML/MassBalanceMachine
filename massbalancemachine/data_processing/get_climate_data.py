@@ -30,6 +30,7 @@ def get_climate_features_(
     months_head_pad,  # after 'sep'
     vois_climate: list = None,
     vois_other: list = None,
+    monthly: bool = False,
 ) -> pd.DataFrame:
     """
     Takes as input ERA5-Land monthly averaged climate data (pre-downloaded), and matches this with the locations
@@ -84,6 +85,16 @@ def get_climate_features_(
         # Reduce expver dimension
         ds_climate = ds_climate.reduce(np.nansum, "expver")
 
+    if monthly:
+        return _get_monthly_climate_features(
+            df,
+            ds_climate,
+            ds_geopotential_metric,
+            vois_climate=vois_climate,
+            vois_other=vois_other,
+            output_fname=output_fname,
+        )
+
     # Create a date range for one hydrological year
     df = _add_date_range(df, months_tail_pad, months_head_pad)
 
@@ -134,6 +145,52 @@ def get_climate_features_(
         df.to_csv(output_fname, index=False)
 
     return df
+
+
+def _get_monthly_climate_features(
+    df,
+    ds_climate,
+    ds_geopotential,
+    vois_climate,
+    vois_other,
+    output_fname,
+):
+    """Append ERA5 features selected at each row's monthly ``Date``."""
+    if "Date" not in df:
+        raise ValueError("Monthly climate extraction requires a Date column.")
+
+    df = df.copy()
+    df["Date"] = pd.to_datetime(df["Date"])
+    df["range_date"] = df["Date"].map(lambda date: pd.DatetimeIndex([date]))
+    climate_df = _process_climate_data(
+        ds_climate,
+        df,
+        months_tail_pad=[],
+        months_head_pad=[],
+        monthly=True,
+        vois_climate=vois_climate,
+    )
+
+    # Compute the sum of the fluxes per month from the average fluxes per day
+    # Cf https://confluence.ecmwf.int/spaces/CKB/pages/76414402/ERA5+data+documentation#ERA5:datadocumentation-Meanrates/fluxesandaccumulations
+    fluxes_cols = ["tp", "slhf", "str", "sshf", "ssrd"]
+    days_in_month = df["Date"].dt.days_in_month.to_numpy()
+    for variable in fluxes_cols:
+        if variable in climate_df and f"{variable}_sum" in (vois_climate or []):
+            climate_df[f"{variable}_sum"] = climate_df[variable] * days_in_month
+
+    altitude_df = _process_altitude_data(ds_geopotential, df)
+    result = _combine_dataframes(df, climate_df, altitude_df)
+    result = _calculate_elevation_difference(result)
+    # Note: smooth_era5land_by_mode is NOT applied here. It removes ERA5-Land
+    # grid-cell artifacts by collapsing a column to its single most frequent
+    # value across all rows, which is appropriate when rows are multiple
+    # spatial points sharing one hydrological year. Here rows are consecutive
+    # months at a single, fixed station, so that would wipe out the real
+    # month-to-month climate signal instead of removing noise.
+    if output_fname is not None:
+        result.to_csv(output_fname, index=False)
+    return result
 
 
 def get_first_last_month(df):
@@ -378,6 +435,8 @@ def _process_climate_data(
     df: pd.DataFrame,
     months_tail_pad,
     months_head_pad,
+    monthly: bool = False,
+    vois_climate: list = None,
 ) -> pd.DataFrame:
     """Process climate data for all points and times.
 
@@ -394,10 +453,10 @@ def _process_climate_data(
     # Check that the time window of all the entries is included in the range of the climate data
     start_climate = ds_climate.time.min().values
     end_climate = ds_climate.time.max().values
-    min_start_df = pd.to_datetime(df.FROM_DATE).min()
-    max_end_df = pd.to_datetime(df.TO_DATE).max() + pd.tseries.offsets.MonthBegin(
-        0
-    )  # Offset to beginning of next month for the end of the period
+    min_start_df = pd.to_datetime(df["Date"] if monthly else df.FROM_DATE).min()
+    max_end_df = pd.to_datetime(
+        df["Date"] if monthly else df.TO_DATE
+    ).max() + pd.tseries.offsets.MonthBegin(0)
     assert (
         min_start_df >= start_climate
     ), f"The measurement periods start outside of the climate time range. Climate data start on {start_climate} but measurements start up to {min_start_df}."
@@ -445,9 +504,26 @@ def _process_climate_data(
     lat_da = xr.DataArray(pts_lat, dims="points")
     lon_da = xr.DataArray(pts_lon_chk if ds_uses_0360 else pts_lon, dims="points")
 
-    # Create a 2D array of date ranges
-    date_array = np.array([r.values for r in df["range_date"].values])
-    time_da = xr.DataArray(date_array, dims=["points", "time"])
+    if monthly:
+        climate_variables = [
+            variable
+            for variable in (vois_climate or [])
+            if not variable.endswith("_sum") and variable in ds_climate
+        ]
+        missing_variables = [
+            variable
+            for variable in (vois_climate or [])
+            if not variable.endswith("_sum") and variable not in ds_climate
+        ]
+        if missing_variables:
+            raise ValueError(
+                f"Climate variables not found in dataset: {missing_variables}"
+            )
+        ds_climate = ds_climate[climate_variables]
+        time_da = xr.DataArray(df["Date"].to_numpy(), dims="points")
+    else:
+        date_array = np.array([r.values for r in df["range_date"].values])
+        time_da = xr.DataArray(date_array, dims=["points", "time"])
 
     climate_data_points = ds_climate.sel(
         latitude=lat_da,
@@ -467,7 +543,12 @@ def _process_climate_data(
         climate_data_points.to_dataframe().drop(columns=dropColumns).reset_index()
     )
 
-    climate_df = climate_df.drop(columns=["points", "time"])
+    climate_df = climate_df.drop(
+        columns=[column for column in ["points", "time"] if column in climate_df]
+    )
+
+    if monthly:
+        return climate_df
 
     num_rows, num_cols = climate_df.shape
     N_MONTHS = date_array.shape[1]
@@ -510,7 +591,7 @@ def _combine_dataframes(
     df: pd.DataFrame, climate_df: pd.DataFrame, altitude_df: pd.DataFrame
 ) -> pd.DataFrame:
     """Combine DataFrames and add altitude data."""
-    df = df.drop(columns=["range_date"]).reset_index(drop=True)
+    df = df.drop(columns=["range_date"], errors="ignore").reset_index(drop=True)
     climate_df = climate_df.reset_index(drop=True)
     altitude_df = altitude_df.drop(columns=["latitude", "longitude", "z"]).reset_index(
         drop=True

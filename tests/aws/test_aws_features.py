@@ -6,13 +6,15 @@ from types import SimpleNamespace
 from pathlib import Path
 
 import massbalancemachine.aws.features as aws_features
+import massbalancemachine as mbm
 
 
 @pytest.mark.integration
 def test_build_features_lom0154_retrieves_svf():
     data_dir = Path(__file__).parent / "data"
 
-    result = aws_features.build_features("LOM0154", data_dir=data_dir)
+    cfg = mbm.Config()
+    result = aws_features.build_features("LOM0154", cfg, data_dir=data_dir)
 
     assert result["svf"].notna().all()
     assert result["svf"].between(0, 1).all()
@@ -31,9 +33,10 @@ def test_create_aws_grid_adds_monthly_grid_fields(monkeypatch):
             "slope": [20.0, 20.0],
         }
     )
-    monkeypatch.setattr(aws_features, "build_features", lambda aws_code: monthly)
+    monkeypatch.setattr(aws_features, "build_features", lambda aws_code, cfg: monthly)
 
-    result = aws_features.create_aws_grid("TEST0001")
+    cfg = mbm.Config()
+    result = aws_features.create_aws_grid("TEST0001", cfg)
 
     assert result["POINT_ID"].tolist() == [1, 1]
     assert result["N_MONTHS"].tolist() == [1, 1]

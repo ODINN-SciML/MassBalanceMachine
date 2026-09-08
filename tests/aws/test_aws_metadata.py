@@ -18,7 +18,6 @@ from massbalancemachine.aws.data import (
 )
 from massbalancemachine.aws.features import _interpolate_glacier_topography
 
-
 LOCAL_AWS_DATA = Path(__file__).parent / "data"
 
 
