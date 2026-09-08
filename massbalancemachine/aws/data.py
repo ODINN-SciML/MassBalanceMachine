@@ -109,7 +109,7 @@ def load_aws_monthly_precipitation(
         if data_dir is None:
             metadata_path = None
         else:
-            metadata_path = Path(eear_dir) / "Metadata" / "Metadata"
+            metadata_path = Path(data_dir) / "Metadata"
         metadata = parse_aws_metadata(metadata_path)
         station_metadata = metadata[metadata["Code"].eq(aws_code)]
         if station_metadata.empty:

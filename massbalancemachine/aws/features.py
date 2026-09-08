@@ -87,7 +87,6 @@ def _interpolate_aws_svf(monthly_precipitation, ds, gdir, svf):
 
 
 def _load_or_create_aws_svf(rgi_id, cfg):
-    print(f"{rgi_id=}")
     """Create or load cached DEM/SVF files for an AWS glacier."""
     grid_path = os.path.join(data_path, "grids", "Hugonnet21")
     path_rgi_id = os.path.join(grid_path, *rgi_id_to_folders(rgi_id))
