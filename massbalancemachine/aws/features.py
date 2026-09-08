@@ -118,6 +118,7 @@ def build_features(aws_code: str, cfg, data_dir=None):
         }
     )
 
+    assert len(monthly_precipitation["RGIId"]) > 0, "Monthly precipitation is empty."
     rgi_id = monthly_precipitation["RGIId"].iloc[0]
     if pd.isna(rgi_id):
         raise ValueError(f"AWS {aws_code!r} has no corresponding glacier")
@@ -159,7 +160,7 @@ def create_aws_grid(aws_code: str, cfg, data_dir=None) -> pd.DataFrame:
 
 
 def monthly_features(
-    aws_code: str,
+    aws_codes: str,
     cfg,
     region_id: int,
     data_dir=None,
@@ -172,7 +173,7 @@ def monthly_features(
     which are already attached before this runs).
 
     Args:
-        aws_code (str): AWS station code, e.g. ``"LOM0154"``.
+        aws_codes (list of str): AWS station code, e.g. ``["LOM0154"]``.
         cfg: Config instance.
         region_id (int): RGI region ID.
         data_dir: Passed through to :func:`create_aws_grid`. Defaults to `None`.
@@ -180,52 +181,72 @@ def monthly_features(
     Returns:
         pd.DataFrame: The AWS monthly dataframe with climate features added.
     """
+    if not isinstance(aws_codes, list):
+        aws_codes = [aws_codes]
 
     processed_path = os.path.join(data_path, "AWS", "EEAR-Clim_processed")
-    feat_path = os.path.join(processed_path, f"{aws_code}.parquet")
-    p = Product(feat_path)
-    if not p.is_up_to_date():
 
-        # Climate columns
-        vois_climate = [
-            "t2m",
-            "tp",
-            "slhf",
-            "sshf",
-            "ssrd",
-            "fal",
-            "str",
-            "u10",
-            "v10",
-            "tp_sum",
-            "slhf_sum",
-            "sshf_sum",
-            "ssrd_sum",
-            "str_sum",
-        ]
+    for code in aws_codes:
+        feat_path = os.path.join(processed_path, f"{code}.parquet")
+        p = Product(feat_path)
+        if not p.is_up_to_date():
 
-        feat = create_aws_grid(aws_code, cfg, data_dir=data_dir)
+            # Climate columns
+            vois_climate = [
+                "t2m",
+                "tp",
+                "slhf",
+                "sshf",
+                "ssrd",
+                "fal",
+                "str",
+                "u10",
+                "v10",
+                "tp_sum",
+                "slhf_sum",
+                "sshf_sum",
+                "ssrd_sum",
+                "str_sum",
+            ]
 
-        dataset_grid = Dataset(
-            cfg=cfg,
-            data=feat,
-            region_name="",
-            region_id=region_id,
-        )
+            feat = create_aws_grid(code, cfg, data_dir=data_dir)
 
-        dataset_grid.get_climate_features(
-            change_units=True,
-            monthly=True,
-            smoothing_vois={
-                "vois_climate": vois_climate,
-                "vois_other": ["ALTITUDE_CLIMATE"],
-            },
-        )
+            feat["P"] = feat["P"] / 1000  # mm/day -> m/day, to match ERA5's "tp" units
 
-        df = dataset_grid.data
+            # Compute cumulative fluxes over each month
+            fluxes_cols = ["P"]
+            days_in_month = feat["Date"].dt.days_in_month.to_numpy()
+            for variable in fluxes_cols:
+                if variable in feat and f"{variable}_sum":
+                    feat[f"{variable}_sum"] = feat[variable] * days_in_month
 
-        df.to_parquet(feat_path, index=True)
+            dataset_grid = Dataset(
+                cfg=cfg,
+                data=feat,
+                region_name="",
+                region_id=region_id,
+            )
 
-        p.gen_chk()
+            dataset_grid.get_climate_features(
+                change_units=True,
+                monthly=True,
+                smoothing_vois={
+                    "vois_climate": vois_climate,
+                    "vois_other": ["ALTITUDE_CLIMATE"],
+                },
+            )
 
-    return pd.read_parquet(feat_path)
+            df = dataset_grid.data
+
+            df.to_parquet(feat_path, index=True)
+
+            p.gen_chk()
+
+    df_assembled = pd.DataFrame()
+    for i, code in enumerate(aws_codes):
+        feat_path = os.path.join(processed_path, f"{code}.parquet")
+        df = pd.read_parquet(feat_path)
+        df["ID"] = i
+        df_assembled = pd.concat([df_assembled, df], ignore_index=True)
+
+    return df_assembled
