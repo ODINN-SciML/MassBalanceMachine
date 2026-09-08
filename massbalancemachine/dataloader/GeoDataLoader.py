@@ -90,6 +90,7 @@ class GeoDataLoader:
         device=torch.device("cpu"),
         allStakesPerIter=False,
         additionalYears=[],  # years for which to ensure the gridded products are generated in addition to what is required to process the dataset (which is based on the geodeticSource argument); this is used only when geoGlaciers="stakes"
+        noGeo=False,
     ) -> None:
         self.cfg = cfg
         self.glacierList = (
@@ -130,10 +131,11 @@ class GeoDataLoader:
             ), "If validation data stakes are not provided we don't expect a list of validation glaciers."
 
         # Prepare geodetic data
-        self.prepareGeoData()
-        self.glacierListGeo = self.glaciersWithGeo
-        self.glacierListValGeo = self.glaciersValWithGeo
-        self.glacierListAllGeo = self.glaciersAllWithGeo
+        if not noGeo:
+            self.prepareGeoData()
+            self.glacierListGeo = self.glaciersWithGeo
+            self.glacierListValGeo = self.glaciersValWithGeo
+            self.glacierListAllGeo = self.glaciersAllWithGeo
         if ignoreStakesWithoutGeo:
             raise NotImplementedError(
                 "We need to implement an intersection between glaciersWithGeo and train/validation glaciers"
@@ -143,7 +145,7 @@ class GeoDataLoader:
             self.glacierListValGeo = self.glaciersValWithGeo  # TODO: change this
             self.glacierListAllGeo = self.glaciersAllWithGeo  # TODO: change this
 
-        if len(self.glaciersWithGeo) == 1:
+        if not noGeo and len(self.glaciersWithGeo) == 1:
             if self.geodeticSource in ["Hugonnet21", "PGO"]:
                 raise NotImplementedError()
             # # Preload geodetic data into memory if there is only one glacier
@@ -153,7 +155,7 @@ class GeoDataLoader:
             #     self.periods_per_glacier,
             #     to_seasonal=False,
             # )
-        else:
+        elif not noGeo:
             if self.preloadGeodetic:
                 if self.geodeticSource == "Hugonnet21":
                     print("Preloading Hugonnet21 geodetic grids")
@@ -214,7 +216,7 @@ class GeoDataLoader:
                 else:
                     raise ValueError(f"Unknown geodetic source {self.geodeticSource}.")
 
-        if self.df_X_geod is not None:
+        if not noGeo and self.df_X_geod is not None:
             if len(self.glaciersWithGeo) == 1:
                 self.precomputed_meta = {
                     self.glaciersWithGeo[0]: self._metadata_groups(self.df_X_geod)
@@ -527,6 +529,12 @@ class GeoDataLoader:
             else:
                 precomputed_meta = self._metadata_groups_stakes(X)
 
+        return self._extract_stakes(X, precomputed_meta)
+
+    def _extract_stakes(self, X: pd.DataFrame, precomputed_meta):
+        """Split a stakes-like dataframe into normalized features, metadata,
+        and ground truth. Shared by `stakes` and `stakesFromDf`.
+        """
         feature_columns = self.cfg.featureColumns
         non_feature_columns = X.columns.difference(feature_columns)
         if "ELEVATION_DIFFERENCE" in feature_columns:
@@ -560,6 +568,40 @@ class GeoDataLoader:
         # metadata = self._mapStrColToInt(metadata, True)
 
         return features, metadata, groundTruth, precomputed_meta
+
+    def stakesFromDf(self, df: pd.DataFrame, glacierName: str = None):
+        """
+        Runs an arbitrary stakes-like dataframe through the same processing as
+        `stakes`, without requiring it to be part of `trainStakesDf` /
+        `valStakesDf`. Useful for dataframes built outside the usual stake
+        pipeline, such as the AWS monthly climate/topographical features from
+        `create_aws_climate_topo_features` / `monthly_features`.
+
+        Args:
+            df (pd.DataFrame): A stakes-like dataframe. Must contain
+                `cfg.featureColumns` and `POINT_BALANCE`. If it has no "ID"
+                column, one is added automatically (`np.arange(len(df))`),
+                treating each row as an independent measurement, which is
+                correct for dataframes already at monthly resolution (one row
+                per month, as opposed to the wide hydrological-year rows that
+                `transform_to_monthly` explodes into several monthly rows
+                sharing one "ID").
+            glacierName (str, optional): If given and `df` has a
+                `self.keyGlacierSel` column, `df` is filtered to
+                `df[self.keyGlacierSel] == glacierName` first, like `stakes`
+                does. Ignored if `df` doesn't have that column (e.g. AWS
+                dataframes, which use "RGIId" rather than "GLACIER").
+
+        See the `stakes` docstring for the meaning of the returned values.
+        """
+        df = df.copy()
+        if "ID" not in df.columns:
+            df["ID"] = np.arange(len(df))
+        if glacierName is not None and self.keyGlacierSel in df.columns:
+            df = df[df[self.keyGlacierSel] == glacierName]
+
+        precomputed_meta = self._metadata_groups_stakes(df)
+        return self._extract_stakes(df, precomputed_meta)
 
     def stakesVal(self, glacierName: str):
         """
