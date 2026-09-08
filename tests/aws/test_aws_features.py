@@ -1,7 +1,21 @@
 import pandas as pd
 import pytest
+import pyproj
+import xarray as xr
+from types import SimpleNamespace
+from pathlib import Path
 
 import massbalancemachine.aws.features as aws_features
+
+
+@pytest.mark.integration
+def test_build_features_lom0154_retrieves_svf():
+    data_dir = Path(__file__).parent / "data"
+
+    result = aws_features.build_features("LOM0154", data_dir=data_dir)
+
+    assert result["svf"].notna().all()
+    assert result["svf"].between(0, 1).all()
 
 
 def test_create_aws_grid_adds_monthly_grid_fields(monkeypatch):
@@ -30,6 +44,42 @@ def test_create_aws_grid_adds_monthly_grid_fields(monkeypatch):
     assert result["PERIOD"].tolist() == ["annual", "annual"]
 
 
+def test_interpolate_aws_svf_returns_nan_outside_grid():
+    monthly = pd.DataFrame({"POINT_LON": [2.0], "POINT_LAT": [0.5]})
+    ds = xr.Dataset(coords={"x": [0.0, 1.0], "y": [0.0, 1.0]})
+    svf = xr.Dataset(
+        {"svf": (("y", "x"), [[0.2, 0.4], [0.6, 0.8]])},
+        coords={"x": [0.0, 1.0], "y": [0.0, 1.0]},
+    )
+    gdir = SimpleNamespace(grid=SimpleNamespace(proj=pyproj.Proj("epsg:4326")))
+
+    result = aws_features._interpolate_aws_svf(monthly, ds, gdir, svf)
+
+    assert result["svf"].isna().all()
+
+
+def test_interpolate_topography_uses_netcdf_domain_not_glacier_outline():
+    monthly = pd.DataFrame({"POINT_LON": [0.5], "POINT_LAT": [0.5]})
+    ds = xr.Dataset(
+        {
+            "aspect": (("y", "x"), [[10.0, 20.0], [30.0, 40.0]]),
+            "slope": (("y", "x"), [[5.0, 6.0], [7.0, 8.0]]),
+        },
+        coords={"x": [0.0, 1.0], "y": [0.0, 1.0]},
+    )
+    glacier_indices = (pd.array([0, 0, 1, 1]), pd.array([0, 1, 0, 1]))
+    gdir = SimpleNamespace(grid=SimpleNamespace(proj=pyproj.Proj("epsg:4326")))
+
+    result = aws_features._interpolate_glacier_topography(
+        monthly, ds, glacier_indices, gdir
+    )
+
+    assert result[["aspect", "slope"]].notna().all().all()
+
+
 if __name__ == "__main__":
+    test_build_features_lom0154_retrieves_svf()
     with pytest.MonkeyPatch.context() as monkeypatch:
         test_create_aws_grid_adds_monthly_grid_fields(monkeypatch)
+    test_interpolate_aws_svf_returns_nan_outside_grid()
+    test_interpolate_topography_uses_netcdf_domain_not_glacier_outline()

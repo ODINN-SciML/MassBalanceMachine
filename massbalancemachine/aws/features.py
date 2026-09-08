@@ -1,11 +1,33 @@
+import os
 import numpy as np
 import pandas as pd
 import pyproj
+import xarray as xr
 from scipy.interpolate import griddata
+from pathlib import Path
 
 from config import Config
 from data_processing.get_topo_data import get_glacier_mask
+from data_processing.glacier_utils import create_dem_file_RGI, generate_svf_file
+from data_processing.Product import Product
+from data_processing.product_utils import rgi_id_to_folders, data_path
 from .data import load_aws_monthly_precipitation
+
+
+def _get_aws_grid_location(monthly_precipitation, ds, gdir):
+    """Return AWS grid coordinates and whether they are inside the NetCDF."""
+    transformer = pyproj.Transformer.from_proj(
+        pyproj.Proj("epsg:4326"), gdir.grid.proj, always_xy=True
+    )
+    aws_x, aws_y = transformer.transform(
+        monthly_precipitation["POINT_LON"].iloc[0],
+        monthly_precipitation["POINT_LAT"].iloc[0],
+    )
+    inside_netcdf = (
+        ds.x.values.min() <= aws_x <= ds.x.values.max()
+        and ds.y.values.min() <= aws_y <= ds.y.values.max()
+    )
+    return aws_x, aws_y, inside_netcdf
 
 
 def _interpolate_glacier_topography(
@@ -14,19 +36,14 @@ def _interpolate_glacier_topography(
     glacier_indices,
     gdir,
 ) -> pd.DataFrame:
-    """Interpolate glacier-grid aspect and slope at the AWS location."""
-    aws_lon = monthly_precipitation["POINT_LON"].iloc[0]
-    aws_lat = monthly_precipitation["POINT_LAT"].iloc[0]
-    transformer = pyproj.Transformer.from_proj(
-        pyproj.Proj("epsg:4326"), gdir.grid.proj, always_xy=True
-    )
-    aws_x, aws_y = transformer.transform(aws_lon, aws_lat)
+    """Interpolate aspect and slope on the full OGGM NetCDF domain.
 
-    netcdf_x = ds.x.values
-    netcdf_y = ds.y.values
-    inside_netcdf = (
-        netcdf_x.min() <= aws_x <= netcdf_x.max()
-        and netcdf_y.min() <= aws_y <= netcdf_y.max()
+    The input grid must come from ``get_glacier_mask(..., mask=False)``. The
+    glacier outline mask is intentionally not used here: an AWS may be outside
+    the glacier while still being inside the NetCDF domain.
+    """
+    aws_x, aws_y, inside_netcdf = _get_aws_grid_location(
+        monthly_precipitation, ds, gdir
     )
     if not inside_netcdf:
         monthly_precipitation[["aspect", "slope"]] = np.nan
@@ -44,6 +61,49 @@ def _interpolate_glacier_topography(
         monthly_precipitation[variable] = interpolated
 
     return monthly_precipitation
+
+
+def _interpolate_aws_svf(monthly_precipitation, ds, gdir, svf):
+    """Interpolate cached SVF on the full OGGM NetCDF domain.
+
+    Being outside the glacier outline is valid. Only an AWS outside the
+    NetCDF coordinate domain receives ``NaN``.
+    """
+    aws_x, aws_y, inside_netcdf = _get_aws_grid_location(
+        monthly_precipitation, ds, gdir
+    )
+    if not inside_netcdf:
+        monthly_precipitation["svf"] = np.nan
+        return monthly_precipitation
+
+    svf_x, svf_y = np.meshgrid(svf.x.values, svf.y.values)
+    points = np.column_stack((svf_x.ravel(), svf_y.ravel()))
+    values = svf["svf"].values.ravel()
+    interpolated = griddata(points, values, (aws_x, aws_y), method="linear")
+    if np.isnan(interpolated):
+        interpolated = griddata(points, values, (aws_x, aws_y), method="nearest")
+    monthly_precipitation["svf"] = interpolated
+    return monthly_precipitation
+
+
+def _load_or_create_aws_svf(rgi_id, cfg):
+    print(f"{rgi_id=}")
+    """Create or load cached DEM/SVF files for an AWS glacier."""
+    grid_path = os.path.join(data_path, "grids", "Hugonnet21")
+    path_rgi_id = os.path.join(grid_path, *rgi_id_to_folders(rgi_id))
+    svf_file = os.path.join(path_rgi_id, "svf.nc")
+    p_svf = Product(svf_file)
+    if not p_svf.is_up_to_date():
+
+        # Create DEM grid
+        create_dem_file_RGI(cfg, rgi_id, path_rgi_id)
+
+        # Generate sky view factor
+        generate_svf_file(path_rgi_id)
+
+        p_svf.gen_chk()
+
+    return xr.open_dataset(os.path.join(path_rgi_id, "svf.nc"))
 
 
 def build_features(aws_code: str, data_dir=None):
@@ -64,9 +124,14 @@ def build_features(aws_code: str, data_dir=None):
 
     cfg = Config()
     ds, glacier_indices, gdir = get_glacier_mask(rgi_id, "", cfg, mask=False)
-    return _interpolate_glacier_topography(
+    features = _interpolate_glacier_topography(
         monthly_precipitation, ds, glacier_indices, gdir
     )
+    if not _get_aws_grid_location(features, ds, gdir)[2]:
+        features["svf"] = np.nan
+        return features
+    with _load_or_create_aws_svf(rgi_id, cfg) as svf:
+        return _interpolate_aws_svf(features, ds, gdir, svf)
 
 
 def create_aws_grid(aws_code: str, data_dir=None) -> pd.DataFrame:
