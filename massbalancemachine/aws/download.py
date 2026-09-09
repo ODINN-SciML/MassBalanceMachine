@@ -1,6 +1,5 @@
 from pathlib import Path
 import os
-import zenodo_get
 import zipfile
 
 from data_processing.product_utils import data_path
@@ -46,6 +45,8 @@ def _ensure_dataset():
     if extract:
         print("Downloading the EEAR-Clim dataset")
         if download:
+            import zenodo_get
+
             zenodo_get.download(
                 record_or_doi="10.5281/zenodo.10951609",
                 output_dir=eear_dir,
