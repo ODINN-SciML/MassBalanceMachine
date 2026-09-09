@@ -42,9 +42,9 @@ GLAMOS_CSV_URL = "https://doi.glamos.ch/data/volumechange/volumechange.csv"
 
 
 def glamos_folder():
-    """Directory holding the cached GLAMOS inputs. Overridable with the
-    `MBM_GLAMOS_DIR` environment variable."""
-    return os.environ.get("MBM_GLAMOS_DIR", os.path.join(data_path, "GLAMOS"))
+    """Directory holding the cached GLAMOS inputs, always the same place so that a
+    later run finds what an earlier one downloaded."""
+    return os.path.join(data_path, "GLAMOS")
 
 
 def glamos_volume_change_file(download: bool = True):

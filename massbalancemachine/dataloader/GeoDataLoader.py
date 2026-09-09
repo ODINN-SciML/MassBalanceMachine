@@ -54,9 +54,10 @@ def buildGlacierMapping(glacierList, geodeticSource: str):
     """Map every glacier of `glacierList` onto the identifier the geodetic source
     uses for it.
 
-    The mapping is many-to-one for GLAMOS: the Swiss inventory and the RGI do not cut
-    the ice into the same glaciers, so several RGI ids legitimately share one SGI
-    entity - Claridenfirn is one SGI glacier that RGI 6.2 splits into four.
+    Several RGI ids mapping onto one entity is expected and kept: the Swiss inventory
+    and the RGI do not cut the ice into the same glaciers, and Claridenfirn is one SGI
+    glacier that RGI 6.2 splits into four. The reverse - one RGI id matching several
+    entities - is dropped, see below.
     """
     if isNativeGlacierId(glacierList[0], geodeticSource):
         # Glacier list already follows the source's own identifiers
@@ -70,19 +71,19 @@ def buildGlacierMapping(glacierList, geodeticSource: str):
     )  # Use first glacier to retrieve region
     if geodeticSource == "PGO":
         table_df = table_RGI62_to_PGO(region_id)
-        # The PGO crosswalk can map one RGI id onto several PGO entities; those are
-        # ambiguous and dropped.
-        uniqueMatchOnly = True
     elif geodeticSource == "GLAMOS":
         table_df = table_RGI62_to_GLAMOS(region_id=region_id)
-        uniqueMatchOnly = False
     else:
         raise ValueError(f"No glacier id mapping available for {geodeticSource}.")
 
+    # A glacier is only mapped when the crosswalk gives it exactly one entity. Several
+    # rows mean the RGI outline straddles two of them and there is no basis for
+    # picking one; attributing a whole glacier-wide geodetic rate to the wrong entity
+    # is worse than leaving that glacier out of the geodetic loss altogether.
     mapping = {}
     for rgi_id_rgi6 in rgi_ids_rgi6:
         tmp = table_df[table_df.RGIId == rgi_id_rgi6]
-        if tmp.shape[0] == 1 or (not uniqueMatchOnly and tmp.shape[0] > 0):
+        if tmp.shape[0] == 1:
             mapping[rgi_id_rgi6] = tmp.custom_id.values[0]
     return mapping
 
@@ -414,10 +415,6 @@ class GeoDataLoader:
                 )
                 glacier_ids_val = list(self.glacier_id_map_val.values())
             glacier_ids = list(set(self.glacier_id_map.values()).union(glacier_ids_val))
-        # Kept under their historical names for the code that reads them
-        self.rgi_id_to_pgo = self.glacier_id_map
-        self.rgi_id_to_pgo_val = self.glacier_id_map_val
-
         for g in self.ignoreGlaciers:
             if g in glacier_ids:
                 glacier_ids.remove(g)
