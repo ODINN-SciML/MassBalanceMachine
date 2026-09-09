@@ -12,11 +12,14 @@ Date Created: 21/07/2024
 
 import os
 from calendar import month_abbr
+from functools import lru_cache
+from typing import Optional
 import xarray as xr
 import numpy as np
 import pandas as pd
 
 import config
+from data_processing.climate_data_download import path_climate_data
 from data_processing.utils.hydro_year import months_hydro_year, _rebuild_month_index
 
 
@@ -57,13 +60,10 @@ def get_climate_features_(
             f"Geopotential data file {geopotential_data} does not exist."
         )
 
-    # Load the two climate datasets
-    ds_climate, ds_geopotential = _load_datasets(climate_data, geopotential_data)
-
-    # Makes things easier down the line
-    # Change temperature to Celsius and precipitation to m.w.e
-    if change_units:
-        ds_climate["t2m"] = ds_climate["t2m"] - 273.15
+    # Load the two climate datasets. Shared between calls, hence read-only here.
+    ds_climate, ds_geopotential = _load_datasets(
+        climate_data, geopotential_data, change_units
+    )
 
     # Get latitudes and longitudes from the climate dataset.
     lat, lon = ds_climate.latitude, ds_climate.longitude
@@ -80,10 +80,6 @@ def get_climate_features_(
 
     # Calculate the geopotential height in meters
     ds_geopotential_metric = _calculate_geopotential_height(ds_geopotential_cropped)
-
-    if "expver" in ds_climate.dims:
-        # Reduce expver dimension
-        ds_climate = ds_climate.reduce(np.nansum, "expver")
 
     if monthly:
         return _get_monthly_climate_features(
@@ -320,13 +316,98 @@ def smooth_era5land_by_mode(df, vois_climate=None, vois_other=None):
     return df
 
 
-def _load_datasets(climate_data: str, geopotential_data: str) -> tuple:
-    """Load climate and geopotential datasets."""
+def _file_stamp(path: str) -> tuple:
+    """Cheap identity of a file, so that replacing it invalidates the cache below."""
+    stat = os.stat(path)
+    return (stat.st_mtime_ns, stat.st_size)
+
+
+@lru_cache(maxsize=2)
+def _load_datasets_cached(
+    climate_data: str, geopotential_data: str, change_units: bool, stamps: tuple
+) -> tuple:
+    """Load the ERA5 files and apply the preparation that depends only on them.
+
+    Kept behind a cache because the whole regional climate file is read into
+    memory - close to a gigabyte for an Alpine region - and the gridded feature
+    generation asks for it once per glacier *and per year*. Reloading it every time
+    dominated the cost of a task and made memory use sawtooth, since a worker
+    allocated a fresh copy before the previous one was collected.
+
+    `stamps` is not used: it is part of the cache key so that a climate file
+    replaced on disk is reloaded instead of served from a stale entry.
+    """
+    del stamps  # only a cache key
     with (
         xr.open_dataset(climate_data) as dataset_climate,
         xr.open_dataset(geopotential_data) as dataset_geopotential,
     ):
-        return dataset_climate.load(), dataset_geopotential.load()
+        ds_climate = dataset_climate.load()
+        ds_geopotential = dataset_geopotential.load()
+
+    # Makes things easier down the line
+    # Change temperature to Celsius and precipitation to m.w.e
+    if change_units:
+        # Not an in-place assignment: the datasets are shared between calls.
+        ds_climate = ds_climate.assign(t2m=ds_climate["t2m"] - 273.15)
+
+    if "expver" in ds_climate.dims:
+        # Reduce expver dimension
+        ds_climate = ds_climate.reduce(np.nansum, "expver")
+
+    return ds_climate, ds_geopotential
+
+
+def _load_datasets(
+    climate_data: str, geopotential_data: str, change_units: bool = False
+) -> tuple:
+    """Load climate and geopotential datasets.
+
+    The returned datasets are shared with every other caller asking for the same
+    files, so they must be treated as read-only: derive new datasets with
+    `assign`, `sel` or `reduce` rather than assigning into them.
+    """
+    stamps = (_file_stamp(climate_data), _file_stamp(geopotential_data))
+    return _load_datasets_cached(climate_data, geopotential_data, change_units, stamps)
+
+
+def climate_file_paths(region_id) -> tuple:
+    """The ERA5 climate and geopotential files of a region."""
+    local_path = path_climate_data(region_id)
+    return (
+        local_path + "era5_monthly_averaged_data.nc",
+        local_path + "era5_geopotential_pressure.nc",
+    )
+
+
+def climate_memory_footprint(region_id) -> Optional[int]:
+    """Bytes the ERA5 data of a region occupies once loaded, or None if it is not
+    downloaded yet.
+
+    Read from the file headers, without loading anything: `nbytes` of a lazily
+    opened dataset is computed from the variable shapes and dtypes. This is what a
+    worker generating gridded features holds for as long as it lives, and therefore
+    the term that decides how many of them fit in memory.
+    """
+    climate_data, geopotential_data = climate_file_paths(region_id)
+    if not (os.path.isfile(climate_data) and os.path.isfile(geopotential_data)):
+        return None
+    with (
+        xr.open_dataset(climate_data) as ds_climate,
+        xr.open_dataset(geopotential_data) as ds_geopotential,
+    ):
+        return ds_climate.nbytes + ds_geopotential.nbytes
+
+
+def warm_climate_cache(region_id, change_units: bool = True) -> None:
+    """Load the climate data of a region into the cache of the current process.
+
+    Called before a pool of workers is forked: the workers inherit the loaded
+    arrays instead of each reading the files themselves.
+    """
+    climate_data, geopotential_data = climate_file_paths(region_id)
+    if os.path.isfile(climate_data) and os.path.isfile(geopotential_data):
+        _load_datasets(climate_data, geopotential_data, change_units)
 
 
 def _calculate_geopotential_height(ds_geopotential: xr.Dataset) -> xr.Dataset:

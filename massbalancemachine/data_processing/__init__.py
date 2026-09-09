@@ -14,15 +14,25 @@ from data_processing.wgms import (
 )
 
 from data_processing.Product import Product
-from data_processing.product_utils import rgi_id_to_folders
+from data_processing.product_utils import rgi_id_to_folders, glacier_id_to_folders
+from data_processing.custom_outlines import CustomOutlineSpec, build_custom_gdirs
 from data_processing.gridded_utils import (
     create_gridded_features_RGI,
     create_gridded_features_PGO,
+    create_gridded_features_GLAMOS,
     geodetic_input_Hugonnet21,
     geodetic_input_PGO,
+    geodetic_input_GLAMOS,
     geodetic_target_Hugonnet21,
     geodetic_target_region_Hugonnet21,
     generate_grid_multi_years,
     load_grid_multi_years,
 )
 from data_processing.pgo import geodetic_target_PGO
+from data_processing.glamos import (
+    geodetic_target_GLAMOS,
+    load_glamos_volume_change,
+    load_sgi_outlines,
+    select_glamos_windows,
+    table_RGI62_to_GLAMOS,
+)

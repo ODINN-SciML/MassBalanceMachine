@@ -4,17 +4,10 @@ import socket
 import pandas as pd
 import geopandas as gpd
 import numpy as np
-from pyproj import CRS
-import oggm.utils
 
-from data_processing.oggm_utils import (
-    _initialize_oggm_config,
-    _initialize_custom_glacier_directories,
-)
+from data_processing.custom_outlines import CustomOutlineSpec, build_custom_gdirs
 from data_processing.product_utils import (
-    rgi_id_to_folders,
     region_id_folders,
-    mbm_path,
     data_path,
 )
 from data_processing.Product import Product
@@ -49,70 +42,33 @@ def prepare_PGO_outlines(shp_file: str, csv_corresp: str, rgi_ids_to_keep=None):
     return custom_outlines
 
 
-def prepare_custom_glaciers_mask(
-    custom_outlines, custom_tmp_working_dir="oggm-custom-pgo"
-):
-    # Initialize the OGGM Config
-    working_dir = oggm.utils.gettempdir(dirname=custom_tmp_working_dir, reset=True)
-    _initialize_oggm_config(working_dir)
+def pgo_outline_spec(**overrides) -> CustomOutlineSpec:
+    """Description of the PGO outlines for the generic custom-outline machinery.
 
-    # Retrieve projection
-    crs = CRS(custom_outlines.crs)
-    utm_zone = crs.utm_zone
-    if utm_zone is None:
-        centroid_lon = custom_outlines.geometry.centroid.x.mean()
-        centroid_lat = custom_outlines.geometry.centroid.y.mean()
-
-        zone_number = int((centroid_lon + 180) / 6) + 1
-        hemisphere = "N" if centroid_lat >= 0 else "S"
-        utm_zone = f"{zone_number}{hemisphere}"
-    utm_crs = CRS.from_dict(
-        {"proj": "utm", "zone": zone_number, "south": centroid_lat < 0}
-    )
-    custom_outlines = custom_outlines.to_crs(utm_crs)
-
-    # Cook dataframe into an RGI-compatible GeoDataFrame
-    # o1_region should match the RGI region of your area (e.g. '11' for Central Europe)
-    rgidf = oggm.utils.cook_rgidf(
-        custom_outlines,
+    The PGO shapefile already carries RGI v7 ids, so the glacier id used throughout
+    the grids is that RGI v7 id rather than a dataset-specific one.
+    """
+    spec = dict(
+        name="PGO",
+        id_column="RGIId",
         o1_region="11",
-        assign_column_values={"RGIId": "RGIId"},
+        src_date="2019-01-01 00:00:00",
+        dem_source="COPDEM30",
     )
-    rgidf["utm_zone"] = utm_zone
+    spec.update(overrides)
+    return CustomOutlineSpec(**spec)
 
-    # Drop samples for which there is no associated RGI ID
-    rgidf = rgidf[rgidf["RGIId"].notna()]
+
+def prepare_custom_glaciers_mask(custom_outlines, spec: CustomOutlineSpec = None):
+    """Build the OGGM glacier directories of the PGO outlines.
+
+    Thin wrapper kept for the existing PGO callers; `build_custom_gdirs` does the
+    work and is what a new outline dataset should use directly.
+    """
+    gdirs, rgidf = build_custom_gdirs(custom_outlines, spec or pgo_outline_spec())
     # Check RGI ID format
     for rgi_id in rgidf.RGIId.unique():
         assert "RGI2000-v7.0" in rgi_id
-
-    # geom_utm = rgidf.geometry.to_crs(utm_crs)
-    # rgidf["Area"] = geom_utm.area / 1e6
-
-    # Merge entries that share the same RGI ID
-    merged_df = rgidf.dissolve(by="RGIId").reset_index()
-
-    # Reproject and compute area in km²
-    geom_utm = merged_df.geometry.to_crs(utm_crs)
-    merged_df.Area = geom_utm.area / 1e6
-
-    # Replace the geometry by the convex hull of the set of geometries to get a grid that covers all of the entries
-    # That geometry is overwritten in _initialize_custom_glacier_directories by the union of all geometries since OGGM does not handle MultiPolygon
-    merged_df["geometry"] = merged_df.geometry.convex_hull
-
-    df = merged_df
-    df = df.rename(
-        columns={
-            "RGIId": "rgi_id",
-            "O1Region": "o1region",
-            "O2Region": "o2region",
-        }
-    )
-    df["src_date"] = "2019-01-01 00:00:00"
-
-    # Run OGGM and overwrite geometry
-    gdirs = _initialize_custom_glacier_directories(df, rgidf)
-
     return gdirs, rgidf
 
 

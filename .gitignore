@@ -57,3 +57,6 @@ publish/
 *.parquet
 *.pt
 *.ipynb_checkpoints/
+
+# Point mass-balance reconstructions written by the OGGM calibration notebooks
+oggm_monthly_point_mb*.csv

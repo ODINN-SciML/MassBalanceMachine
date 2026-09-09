@@ -8,6 +8,8 @@ Date Created: 21/07/2024
 """
 
 import os
+from functools import lru_cache
+
 import config
 
 import xarray as xr
@@ -132,11 +134,17 @@ def glacier_cell_area(rgi_id: str, custom_working_dir: str, cfg: config.Config):
     return cell_area
 
 
-def get_custom_glacier_mask(gdir):
-    rgi_id = gdir.rgi_id
+def _open_gridded_data(gridded_data_path: str) -> xr.Dataset:
+    with xr.open_dataset(gridded_data_path) as ds:
+        return ds.load()
 
-    with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
-        ds = ds.load()
+
+def _mask_custom(ds: xr.Dataset) -> tuple:
+    """Mask the fields of a glacier directory built from custom outlines.
+
+    Such a directory only carries what `tasks.gridded_attributes` produces, so
+    there is no ice thickness, no velocity and no elevation change to mask.
+    """
     glacier_mask = np.where(
         ds["glacier_mask"].values == 0, np.nan, ds["glacier_mask"].values
     )
@@ -150,29 +158,8 @@ def get_custom_glacier_mask(gdir):
     return ds, glacier_indices
 
 
-def get_glacier_mask(
-    rgi_id: str,
-    custom_working_dir: str,
-    cfg: config.Config,
-    mask: bool = True,
-):
-    """Given a `rgi_id`, load an OGGM grid, optionally masking fields outside the glacier outline."""
-
-    # Initialize the OGGM Config
-    _initialize_oggm_config(custom_working_dir)
-
-    # Initialize the OGGM Glacier Directory, given the RGI ID
-    gdirs = _initialize_glacier_directories([rgi_id], cfg)
-
-    # Get oggm data for that RGI ID
-    oggm_rgis = [gdir.rgi_id for gdir in gdirs]
-    if rgi_id not in oggm_rgis:
-        raise ValueError(f"RGI ID {rgi_id} not found in OGGM data")
-    for gdir in gdirs:
-        if gdir.rgi_id == rgi_id:
-            break
-    with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
-        ds = ds.load()
+def _mask_rgi(ds: xr.Dataset, mask: bool) -> tuple:
+    """Mask the fields of a pre-processed RGI glacier directory."""
     glacier_mask = np.where(
         ds["glacier_mask"].values == 0, np.nan, ds["glacier_mask"].values
     )
@@ -198,6 +185,78 @@ def get_glacier_mask(
         glacier_indices = np.where(
             np.isfinite(ds["aspect"].values) & np.isfinite(ds["slope"].values)
         )
+    return ds, glacier_indices
+
+
+MASK_BUILDERS = {"custom": _mask_custom, "RGI": _mask_rgi}
+
+
+@lru_cache(maxsize=2)
+def _masked_glacier_grid_cached(
+    gridded_data_path: str, kind: str, mask: bool, stamp: tuple
+) -> tuple:
+    """`stamp` is only part of the cache key, so that a rebuilt glacier directory
+    is read again instead of being served from a stale entry."""
+    del stamp
+    ds = _open_gridded_data(gridded_data_path)
+    if kind == "custom":
+        return _mask_custom(ds)
+    return _mask_rgi(ds, mask)
+
+
+def masked_glacier_grid(gdir, kind: str, mask: bool = True) -> tuple:
+    """Masked grid of a glacier, cached per process.
+
+    Same result as `get_custom_glacier_mask` / `get_glacier_mask`, but taking an
+    already-resolved glacier directory and remembering the last grids it was asked
+    for. It exists for the workers generating gridded features: they process one
+    glacier over many years, and would otherwise re-read and re-mask the same
+    netCDF for each of them - or, worse, receive it pickled with every task.
+
+    The returned dataset is shared between callers, so it must not be modified.
+
+    Args:
+        gdir: the OGGM glacier directory.
+        kind: "custom" for a directory built from custom outlines, "RGI" for a
+            pre-processed RGI one, which carries more fields to mask.
+        mask: keep only the cells inside the outline. "custom" ignores it.
+    """
+    assert kind in MASK_BUILDERS, f"Unknown glacier grid kind {kind!r}."
+    path = gdir.get_filepath("gridded_data")
+    stat = os.stat(path)
+    return _masked_glacier_grid_cached(
+        path, kind, mask, (stat.st_mtime_ns, stat.st_size)
+    )
+
+
+def get_custom_glacier_mask(gdir):
+    return _mask_custom(_open_gridded_data(gdir.get_filepath("gridded_data")))
+
+
+def get_glacier_mask(
+    rgi_id: str,
+    custom_working_dir: str,
+    cfg: config.Config,
+    mask: bool = True,
+):
+    """Given a `rgi_id`, load an OGGM grid, optionally masking fields outside the glacier outline."""
+
+    # Initialize the OGGM Config
+    _initialize_oggm_config(custom_working_dir)
+
+    # Initialize the OGGM Glacier Directory, given the RGI ID
+    gdirs = _initialize_glacier_directories([rgi_id], cfg)
+
+    # Get oggm data for that RGI ID
+    oggm_rgis = [gdir.rgi_id for gdir in gdirs]
+    if rgi_id not in oggm_rgis:
+        raise ValueError(f"RGI ID {rgi_id} not found in OGGM data")
+    for gdir in gdirs:
+        if gdir.rgi_id == rgi_id:
+            break
+    ds, glacier_indices = _mask_rgi(
+        _open_gridded_data(gdir.get_filepath("gridded_data")), mask
+    )
     return ds, glacier_indices, gdir
 
 

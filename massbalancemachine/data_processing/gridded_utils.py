@@ -11,17 +11,29 @@ from oggm import utils
 
 from data_processing.Dataset import Dataset
 from data_processing.Product import Product
-from data_processing.product_utils import rgi_id_to_folders, mbm_path, data_path
+from data_processing.product_utils import (
+    rgi_id_to_folders,
+    glacier_id_to_folders,
+    mbm_path,
+    data_path,
+)
 from data_processing.get_topo_data import (
     glacier_cell_area,
     get_glacier_mask,
-    get_custom_glacier_mask,
+    masked_glacier_grid,
 )
+from data_processing.parallel_utils import gridded_worker_count
+from data_processing.custom_outlines import assert_spec_matches, build_custom_gdirs
 from data_processing.pgo import (
     prepare_PGO_outlines,
-    prepare_custom_glaciers_mask,
+    pgo_outline_spec,
     outlines_path,
     csv_correspondence_file,
+)
+from data_processing.glamos import (
+    glamos_outline_spec,
+    load_sgi_outlines,
+    SWITZERLAND_REGION_ID,
 )
 from data_processing.glacier_utils import (
     create_glacier_grid_RGI,
@@ -32,121 +44,256 @@ from data_processing.glacier_utils import (
 from data_processing.utils.data_preprocessing import get_hash
 
 
+def years_from_time_range(start, end):
+    """Calendar years a geodetic window spans.
+
+    The year of `end` is left out when the window stops on the 1st of January,
+    since no month of that year is inside the window.
+    """
+    year_start = pd.Timestamp(start).year
+    offset = 1 if (pd.Timestamp(end).month == 1) and (pd.Timestamp(end).day == 1) else 0
+    year_end = pd.Timestamp(end).year - offset
+    return range(year_start, year_end + 1)
+
+
+def _glacier_grid_products(grid_path, glacier_id, years):
+    """The `Product`s tracking the gridded output of one glacier: one parquet per
+    year plus the sky view factor, which is year-independent."""
+    path_glacier = os.path.join(grid_path, *glacier_id_to_folders(glacier_id))
+    products = {
+        year: Product(os.path.abspath(os.path.join(path_glacier, f"{year}.parquet")))
+        for year in years
+    }
+    products["svf"] = Product(os.path.join(path_glacier, "svf.nc"))
+    return path_glacier, products
+
+
+def _gridded_features_for_glacier(
+    cfg,
+    glacier_id,
+    gdir,
+    mask_kind,
+    years,
+    region_id,
+    path_glacier,
+    products,
+    write_dem,
+    multi=True,
+    num_workers=None,
+):
+    """Generate the per-year gridded products of one glacier.
+
+    Shared by every grid source; what differs between them - where the outlines
+    come from, how the glacier directory and its mask are built, and how the DEM is
+    written out - is decided by the caller and passed in.
+
+    Args:
+        mask_kind (str): "custom" or "RGI", telling the workers which fields the
+            glacier directory carries. The grid itself is not passed to them: each
+            reads it once from the glacier directory and keeps it, which is both
+            cheaper than pickling it with every task and lighter in memory.
+        write_dem (callable): writes `dem.nc` into `path_glacier`, from which the
+            sky view factor is derived. `create_dem_file_RGI` for the RGI grids,
+            `create_custom_dem_file` for grids built on custom outlines.
+        num_workers (int): number of processes to generate the years with. Left to
+            None it is derived from the memory free at this moment, see
+            `parallel_utils.worker_count`.
+    """
+    # Check if sky view factor needs to be generated
+    p = products["svf"]
+    if not p.is_up_to_date():
+
+        # Create DEM grid
+        write_dem(path_glacier)
+
+        # Generate sky view factor
+        generate_svf_file(path_glacier)
+
+        p.gen_chk()
+
+    args = [
+        (
+            glacier_id,
+            year,
+            region_id,
+            cfg,
+            gdir,
+            mask_kind,
+            path_glacier,
+        )
+        for year in years
+    ]
+
+    with tqdm.tqdm(total=len(args)) as pbar:
+        if multi:
+            n_workers = gridded_worker_count(
+                region_id,
+                requested=num_workers,
+                max_workers=min(len(args), os.cpu_count() or 4),
+            )
+            # Create a pool of workers
+            with multiprocessing.Pool(processes=n_workers) as pool:
+                for year in pool.imap_unordered(
+                    create_gridded_features_from_mask_per_year, args
+                ):
+                    pbar.update(1)  # Update progress bar
+                    pbar.set_description(
+                        "%s: Generating gridded data for %i" % (glacier_id, year)
+                    )  # Update description
+        else:
+            for arg in args:
+                year = create_gridded_features_from_mask_per_year(arg)
+                pbar.update(1)  # Update progress bar
+                pbar.set_description(
+                    "%s: Generating gridded data for %i" % (glacier_id, year)
+                )  # Update description
+
+
+def _create_gridded_features_custom_outlines(
+    cfg,
+    time_ranges,
+    outlines,
+    spec,
+    region_id,
+    multi=True,
+    num_workers=None,
+):
+    """Generate the gridded products of a set of glaciers described by custom
+    outlines, one geodetic window per glacier.
+
+    Args:
+        time_ranges: {glacier_id: (start_date, end_date)}. The years to generate are
+            derived from the window, so a glacier is only gridded over the period
+            its geodetic target actually covers.
+        outlines (gpd.GeoDataFrame): the outlines of those glaciers.
+        spec (CustomOutlineSpec): description of the outline dataset.
+        region_id (int): RGI first-order region, needed to locate the climate data.
+        num_workers (int): number of processes to use. Left to None it follows the
+            memory free on the machine, see `parallel_utils.worker_count`.
+    """
+    glacier_ids = list(time_ranges.keys())
+    grid_path = spec.grid_root()
+    # Before anything, and in particular before the early return below: a cached grid
+    # carries no record of which outlines produced it, so this is the only thing
+    # standing between a request for one variant of a dataset and the grids of
+    # another one that happens to use the same glacier ids.
+    assert_spec_matches(spec, grid_path, overwrite=spec.reset)
+
+    reprocess = False
+    products = {}
+    paths = {}
+    glacier_id_to_years = {}
+    for glacier_id in glacier_ids:
+        start, end = time_ranges[glacier_id]
+        years = years_from_time_range(start, end)
+        glacier_id_to_years[glacier_id] = years
+        paths[glacier_id], products[glacier_id] = _glacier_grid_products(
+            grid_path, glacier_id, years
+        )
+
+        if any([not p.is_up_to_date() for p in products[glacier_id].values()]):
+            reprocess = True
+
+    if reprocess:
+        gdirs, _ = build_custom_gdirs(outlines, spec)
+    else:
+        return
+
+    ids_gdirs = [gdir.rgi_id for gdir in gdirs]
+    assert all(
+        [glacier_id in ids_gdirs for glacier_id in glacier_ids]
+    ), "Not all keys in time_ranges have an associated glacier directory. There is probably a bug in the processing somewhere."
+
+    gdirs.sort(key=lambda gdir: gdir.rgi_id)
+    for gdir in gdirs:
+        glacier_id = gdir.rgi_id
+        if glacier_id not in products:
+            # The outlines can cover more glaciers than the ones asked for
+            continue
+
+        if all([p.is_up_to_date() for p in products[glacier_id].values()]):
+            print(f"All gridded products are already generated for {glacier_id}")
+            continue
+
+        _gridded_features_for_glacier(
+            cfg,
+            glacier_id,
+            gdir,
+            "custom",
+            glacier_id_to_years[glacier_id],
+            region_id,
+            paths[glacier_id],
+            products[glacier_id],
+            write_dem=lambda path, gdir=gdir: create_custom_dem_file(gdir, path),
+            multi=multi,
+            num_workers=num_workers,
+        )
+
+
 def create_gridded_features_PGO(
     cfg,
     time_ranges,
     multi=True,
+    num_workers=None,
 ):
     rgi_ids = list(time_ranges.keys())
     custom_outlines = prepare_PGO_outlines(
         outlines_path(), csv_correspondence_file(), rgi_ids_to_keep=rgi_ids
     )
+    # PGO ids are RGI v7 ids, e.g. "RGI2000-v7.0-G-11-00147"
+    region_ids = {int(rgi_id.split("-")[3]) for rgi_id in rgi_ids}
+    assert (
+        len(region_ids) == 1
+    ), f"The PGO glaciers to process span several RGI regions: {sorted(region_ids)}."
 
-    grid_path = os.path.join(data_path, "grids", "PGO")
+    _create_gridded_features_custom_outlines(
+        cfg,
+        time_ranges,
+        custom_outlines,
+        pgo_outline_spec(),
+        region_ids.pop(),
+        multi=multi,
+        num_workers=num_workers,
+    )
 
-    reprocess = False
-    products = {}
-    rgi_id_to_years = {}
-    for rgi_id in rgi_ids:
-        path_rgi_id = os.path.join(grid_path, *rgi_id_to_folders(rgi_id))
-        start, end = time_ranges[rgi_id]
-        year_start = pd.Timestamp(start).year
-        offset = (
-            1 if (pd.Timestamp(end).month == 1) and (pd.Timestamp(end).day == 1) else 0
-        )  # No need to generate year of end if this corresponds to the 1st of January
-        year_end = pd.Timestamp(end).year - offset
-        years = range(year_start, year_end + 1)
-        rgi_id_to_years[rgi_id] = years
-        products[rgi_id] = {}
-        for year in years:
-            save_path = os.path.abspath(os.path.join(path_rgi_id, f"{year}.parquet"))
-            products[rgi_id][year] = Product(save_path)
 
-        # Add sky view factor product
-        svf_file = os.path.join(path_rgi_id, "svf.nc")
-        products[rgi_id]["svf"] = Product(svf_file)
+def create_gridded_features_GLAMOS(
+    cfg,
+    time_ranges,
+    epoch: int = 1973,
+    dem_source: str = "SRTM",
+    multi=True,
+    num_workers=None,
+):
+    """Generate the gridded products of Swiss glaciers on the outlines of the
+    Swiss Glacier Inventory, keyed by their SGI id.
 
-        if any([not p.is_up_to_date() for p in products[rgi_id].values()]):
-            reprocess = True
+    A GLAMOS geodetic mass balance is referenced to the glacier area of its own
+    epoch, so the grids are built on the SGI inventory contemporary with the
+    calibration windows rather than on the RGI outlines. `dem_source` defaults to
+    SRTM, whose February 2000 acquisition matches the NASADEM shipped with the RGI
+    directories, so the two geometries see the same ice surface and only the
+    outline differs.
 
-    if reprocess:
-        gdirs, rgidf = prepare_custom_glaciers_mask(custom_outlines)
-    else:
-        return
+    Args:
+        time_ranges: {sgi_id: (start_date, end_date)}, one geodetic window per SGI
+            entity.
+        epoch (int): the SGI inventory epoch to take the outlines from.
+        num_workers (int): number of processes to use. Left to None it follows the
+            memory free on the machine, see `parallel_utils.worker_count`.
+    """
+    sgi_ids = list(time_ranges.keys())
+    outlines = load_sgi_outlines(epoch=epoch, sgi_ids_to_keep=sgi_ids)
 
-    rgi_ids_gdirs = [gdir.rgi_id for gdir in gdirs]
-    assert all(
-        [rgi_id in rgi_ids_gdirs for rgi_id in rgi_ids]
-    ), "Not all keys in time_ranges have an associated glacier directory. There is probably a bug in the processing somewhere."
-
-    gdirs.sort(key=lambda gdir: gdir.rgi_id)
-    for gdir in gdirs:
-        rgi_id = gdir.rgi_id
-        region_id = int(rgi_id.split("-")[3])
-        path_rgi_id = os.path.join(grid_path, *rgi_id_to_folders(rgi_id))
-
-        if all([p.is_up_to_date() for p in products[rgi_id].values()]):
-            print(f"All gridded products are already generated for {rgi_id}")
-            continue
-
-        # Check if sky view factor needs to be generated
-        p = products[rgi_id]["svf"]
-        if not p.is_up_to_date():
-
-            # Create DEM grid
-            create_custom_dem_file(gdir, path_rgi_id)
-
-            # Generate sky view factor
-            generate_svf_file(path_rgi_id)
-
-            p.gen_chk()
-
-        # Get glacier mask from OGGM
-        ds, glacier_indices = get_custom_glacier_mask(gdir)
-
-        years = rgi_id_to_years[rgi_id]
-        with tqdm.tqdm(total=len(years)) as pbar:
-            if multi:
-                # Create a pool of workers
-                with multiprocessing.Pool(processes=7) as pool:
-                    for year in pool.imap_unordered(
-                        create_gridded_features_from_mask_per_year,
-                        [
-                            (
-                                rgi_id,
-                                year,
-                                region_id,
-                                cfg,
-                                ds,
-                                glacier_indices,
-                                gdir,
-                                path_rgi_id,
-                            )
-                            for year in years
-                        ],
-                    ):
-                        pbar.update(1)  # Update progress bar
-                        pbar.set_description(
-                            "%s: Generating gridded data for %i" % (rgi_id, year)
-                        )  # Update description
-            else:
-                for year in years:
-                    create_gridded_features_from_mask_per_year(
-                        (
-                            rgi_id,
-                            year,
-                            region_id,
-                            cfg,
-                            ds,
-                            glacier_indices,
-                            gdir,
-                            path_rgi_id,
-                        )
-                    )
-                    pbar.update(1)  # Update progress bar
-                    pbar.set_description(
-                        "%s: Generating gridded data for %i" % (rgi_id, year)
-                    )  # Update description
+    _create_gridded_features_custom_outlines(
+        cfg,
+        time_ranges,
+        outlines,
+        glamos_outline_spec(epoch=epoch, dem_source=dem_source),
+        SWITZERLAND_REGION_ID,
+        multi=multi,
+        num_workers=num_workers,
+    )
 
 
 def create_gridded_features_RGI(
@@ -154,87 +301,51 @@ def create_gridded_features_RGI(
     rgi_ids,
     years=range(2000, 2020),
     multi=True,
+    num_workers=None,
 ):
     grid_path = os.path.join(data_path, "grids", "Hugonnet21")
     for rgi_id in rgi_ids:
         region_id = int(rgi_id.split("-")[1].split(".")[0])
 
-        products = {}
-        path_rgi_id = os.path.join(grid_path, *rgi_id_to_folders(rgi_id))
-        for year in years:
-            save_path = os.path.abspath(os.path.join(path_rgi_id, f"{year}.parquet"))
-            products[year] = Product(save_path)
-
-        # Add sky view factor product
-        svf_file = os.path.join(path_rgi_id, "svf.nc")
-        products["svf"] = Product(svf_file)
+        path_rgi_id, products = _glacier_grid_products(grid_path, rgi_id, years)
 
         if all([p.is_up_to_date() for p in products.values()]):
             # print(f"All gridded products are already generated for {rgi_id}")
             continue
 
-        # Check if sky view factor needs to be generated
-        p = products["svf"]
-        if not p.is_up_to_date():
+        # Get the glacier directory from OGGM. The grid it holds is read by the
+        # workers themselves, so it is dropped here.
+        _, _, gdir = get_glacier_mask(rgi_id, "", cfg)
 
-            # Create DEM grid
-            create_dem_file_RGI(cfg, rgi_id, path_rgi_id)
-
-            # Generate sky view factor
-            generate_svf_file(path_rgi_id)
-
-            p.gen_chk()
-
-        # Get glacier mask from OGGM
-        ds, glacier_indices, gdir = get_glacier_mask(rgi_id, "", cfg)
-
-        with tqdm.tqdm(total=len(years)) as pbar:
-            if multi:
-                # Create a pool of workers
-                with multiprocessing.Pool(processes=7) as pool:
-                    for year in pool.imap_unordered(
-                        create_gridded_features_from_mask_per_year,
-                        [
-                            (
-                                rgi_id,
-                                year,
-                                region_id,
-                                cfg,
-                                ds,
-                                glacier_indices,
-                                gdir,
-                                path_rgi_id,
-                            )
-                            for year in years
-                        ],
-                    ):
-                        pbar.update(1)  # Update progress bar
-                        pbar.set_description(
-                            "%s: Generating gridded data for %i" % (rgi_id, year)
-                        )  # Update description
-            else:
-                for year in years:
-                    create_gridded_features_from_mask_per_year(
-                        (
-                            rgi_id,
-                            year,
-                            region_id,
-                            cfg,
-                            ds,
-                            glacier_indices,
-                            gdir,
-                            path_rgi_id,
-                        )
-                    )
+        _gridded_features_for_glacier(
+            cfg,
+            rgi_id,
+            gdir,
+            "RGI",
+            years,
+            region_id,
+            path_rgi_id,
+            products,
+            write_dem=lambda path, rgi_id=rgi_id: create_dem_file_RGI(
+                cfg, rgi_id, path
+            ),
+            multi=multi,
+            num_workers=num_workers,
+        )
 
 
 def create_gridded_features_from_mask_per_year(args):
-    rgi_id, year, region_id, cfg, ds, glacier_indices, gdir, path_rgi_id = args
+    rgi_id, year, region_id, cfg, gdir, mask_kind, path_rgi_id = args
     try:
         save_path = os.path.abspath(os.path.join(path_rgi_id, f"{year}.parquet"))
         p = Product(save_path)
 
         if not p.is_up_to_date():
+
+            # The masked grid of the glacier, read from its directory rather than
+            # received with the task: consecutive years of one glacier hit the
+            # cache, so it is read once per worker instead of once per year.
+            ds, glacier_indices = masked_glacier_grid(gdir, mask_kind)
 
             # Load sky view factor
             svf = xr.open_dataset(os.path.join(path_rgi_id, "svf.nc"))
@@ -334,20 +445,25 @@ def create_gridded_features_from_mask_per_year(args):
     return year
 
 
-def geodetic_input_PGO(rgi_id, time_range):
+def _geodetic_input_windowed(glacier_id, time_range, product_source):
+    """Assemble the per-year gridded products of one glacier over a geodetic window.
+
+    Used by every source whose target covers an arbitrary date range rather than a
+    whole number of calendar years, so the first and the last year of the window are
+    clipped to the months the window actually covers.
+    """
     assert (
         len(time_range) == 1
     ), "Only one geodetic target per glacier is supported for the moment."
-    grid_path = os.path.join(data_path, "grids", "PGO")
+    grid_path = os.path.join(data_path, "grids", product_source)
     start_date, end_date = time_range[0]
+    years = years_from_time_range(start_date, end_date)
+    # The calendar years the window opens and closes in. The closing year is not
+    # necessarily the last generated one: a window ending on the 1st of January covers
+    # no month of that year, so `years_from_time_range` already left it out and the
+    # month clipping below must not fire on the last year that was kept.
     year_start = pd.Timestamp(start_date).year
-    offset = (
-        1
-        if (pd.Timestamp(end_date).month == 1) and (pd.Timestamp(end_date).day == 1)
-        else 0
-    )  # No need to generate year of end if this corresponds to the 1st of January
-    year_end = pd.Timestamp(end_date).year - offset
-    years = range(year_start, year_end + 1)
+    year_end = pd.Timestamp(end_date).year
     month_to_id = {
         month_abbr[i].lower() + ("_" if i > 9 else ""): i for i in range(1, 13)
     }
@@ -356,25 +472,23 @@ def geodetic_input_PGO(rgi_id, time_range):
     maxId = -1
     for year in years:
         file_path = os.path.abspath(
-            os.path.join(grid_path, *rgi_id_to_folders(rgi_id), f"{year}.parquet")
+            os.path.join(
+                grid_path, *glacier_id_to_folders(glacier_id), f"{year}.parquet"
+            )
         )
         df_grid = pd.read_parquet(file_path)
-        if year == year_start or year == year_end:
+        if year in (year_start, year_end):
             df_grid["MONTHS_NUM"] = df_grid.MONTHS.map(lambda month: month_to_id[month])
             if year == year_start:
                 df_grid = df_grid[df_grid.MONTHS_NUM >= pd.Timestamp(start_date).month]
-            elif year == year_end:
+            if year == year_end:
                 df_grid = df_grid[df_grid.MONTHS_NUM < pd.Timestamp(end_date).month]
             df_grid = df_grid.drop(columns=["MONTHS_NUM"])
 
         # Remap ID so that one ID covers only one year
         df_grid["ID"] = df_grid["ID"] + maxId + 1
 
-        # df_grid["GLWD_M_ID"] = df_grid.apply(
-        #     lambda x: get_hash(f"{rgi_id}_{year}_{x.MONTHS}"),
-        #     axis=1,
-        # ).astype(str)
-        df_grid["GLWD_M_ID"] = f"{rgi_id}_{year}_" + df_grid.MONTHS
+        df_grid["GLWD_M_ID"] = f"{glacier_id}_{year}_" + df_grid.MONTHS
 
         # Append to the final dataframe
         df_X_geod = pd.concat([df_X_geod, df_grid], ignore_index=True)
@@ -382,16 +496,20 @@ def geodetic_input_PGO(rgi_id, time_range):
         # Update the ID counter
         maxId = df_X_geod.ID.max()
 
-    # df_X_geod["GLWD_ID"] = df_X_geod.apply(
-    #     lambda x: get_hash(f"{rgi_id}"),
-    #     axis=1,
-    # ).astype(str)
-    df_X_geod["GLWD_ID"] = f"{rgi_id}"
+    df_X_geod["GLWD_ID"] = f"{glacier_id}"
 
     df_X_geod["aspect"] = 180 * df_X_geod["aspect"] / np.pi
     df_X_geod["slope"] = 180 * df_X_geod["slope"] / np.pi
 
     return df_X_geod
+
+
+def geodetic_input_PGO(rgi_id, time_range):
+    return _geodetic_input_windowed(rgi_id, time_range, "PGO")
+
+
+def geodetic_input_GLAMOS(sgi_id, time_range):
+    return _geodetic_input_windowed(sgi_id, time_range, "GLAMOS")
 
 
 def geodetic_input_Hugonnet21(
@@ -404,7 +522,7 @@ def geodetic_input_Hugonnet21(
     maxId = -1
     for year in years:
         file_path = os.path.abspath(
-            os.path.join(grid_path, *rgi_id_to_folders(rgi_id), f"{year}.parquet")
+            os.path.join(grid_path, *glacier_id_to_folders(rgi_id), f"{year}.parquet")
         )
         df_grid = pd.read_parquet(file_path)
 
@@ -513,14 +631,49 @@ def geodetic_target_region_Hugonnet21(region_id, cfg, thres_area=None):
     return geodetic_target_Hugonnet21(rgi_ids, cfg)
 
 
+GEODETIC_INPUT_FN = {
+    "Hugonnet21": geodetic_input_Hugonnet21,
+    "PGO": geodetic_input_PGO,
+    "GLAMOS": geodetic_input_GLAMOS,
+}
+
+# Sources whose geodetic target covers an arbitrary date window rather than a whole
+# number of calendar years. `years` is then a list holding one (start, end) tuple.
+WINDOWED_SOURCES = {"PGO", "GLAMOS"}
+
+
+def _check_product_source(product_source):
+    assert product_source in GEODETIC_INPUT_FN, (
+        f"Unknown gridded product source {product_source!r}. "
+        f"Known sources: {sorted(GEODETIC_INPUT_FN)}."
+    )
+
+
+def _period_key(years):
+    """Folder name identifying the period a multi-year grid covers.
+
+    `years` is either an iterable of calendar years, or - for a windowed source -
+    a list holding one (start_date, end_date) tuple. The dates are rendered as
+    plain ISO days so that the folder name does not depend on the repr of whichever
+    date type the target table happened to use.
+    """
+    parts = []
+    for y in years:
+        if isinstance(y, tuple):
+            parts.extend(pd.Timestamp(d).strftime("%Y-%m-%d") for d in y)
+        else:
+            parts.append(str(y))
+    return "_".join(parts)
+
+
 def prepared_grid_dir_multi_years(rgi_id, years, product_source):
-    assert product_source in ["Hugonnet21", "PGO"]
+    _check_product_source(product_source)
     return os.path.join(
         data_path,
         "grids_multiyears",
         product_source,
-        "_".join([str(y) for y in years]),
-        *(rgi_id_to_folders(rgi_id)[:-1]),
+        _period_key(years),
+        *(glacier_id_to_folders(rgi_id)[:-1]),
     )
 
 
@@ -620,7 +773,7 @@ def _prepared_metadata_dict(df_X_geod, feature_columns):
 
 
 def prepare_precomputed_metadata(rgi_id, years, product_source, feature_columns):
-    assert product_source in ["Hugonnet21", "PGO"]
+    _check_product_source(product_source)
     path_prepared = prepared_metadata_dir(
         rgi_id,
         years,
@@ -656,7 +809,7 @@ def prepare_precomputed_metadata(rgi_id, years, product_source, feature_columns)
 
 
 def load_precomputed_metadata(rgi_id, years, product_source, feature_columns):
-    assert product_source in ["Hugonnet21", "PGO"]
+    _check_product_source(product_source)
     path_prepared = prepared_metadata_dir(
         rgi_id,
         years,
@@ -690,17 +843,14 @@ def load_precomputed_metadata(rgi_id, years, product_source, feature_columns):
     return metadata
 
 
-def generate_grid_multi_years(rgi_id, years, product_source, feature_columns=None):
-    assert product_source in ["Hugonnet21", "PGO"]
+def generate_grid_multi_years(rgi_id, years, product_source):
+    _check_product_source(product_source)
     path_prepared = prepared_grid_dir_multi_years(rgi_id, years, product_source)
     path_prepared_df = os.path.join(path_prepared, f"{rgi_id}.parquet")
     p = Product(path_prepared_df)
     if not p.is_up_to_date():
         os.makedirs(path_prepared, exist_ok=True)
-        if product_source == "Hugonnet21":
-            df_X_geod_rgi_id = geodetic_input_Hugonnet21(rgi_id, years=years)
-        elif product_source == "PGO":
-            df_X_geod_rgi_id = geodetic_input_PGO(rgi_id, years)
+        df_X_geod_rgi_id = GEODETIC_INPUT_FN[product_source](rgi_id, years)
         df_X_geod_rgi_id.to_parquet(
             path_prepared_df, engine="pyarrow", compression="snappy"
         )
@@ -708,7 +858,7 @@ def generate_grid_multi_years(rgi_id, years, product_source, feature_columns=Non
 
 
 def load_grid_multi_years(rgi_id, years, product_source):
-    assert product_source in ["Hugonnet21", "PGO"]
+    _check_product_source(product_source)
     path_prepared = prepared_grid_dir_multi_years(rgi_id, years, product_source)
     path_prepared_df = os.path.join(path_prepared, f"{rgi_id}.parquet")
     # TODO: determine these based on features and metadata
