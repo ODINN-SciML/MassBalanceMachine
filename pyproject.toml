@@ -60,6 +60,7 @@ nbstripout = "^0.8.1"
 setuptools = "81"
 tensorboard = "^2.19.0"
 zenodo-get = "^3.1.0"
+psutil = "^7.2.2"
 
 [tool.poetry.group.docs]
 optional = false

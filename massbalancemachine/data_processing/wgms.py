@@ -14,6 +14,7 @@ from data_processing.oggm_utils import _initialize_oggm_config
 from data_processing.get_topo_data import (
     glacier_cell_area,
     get_glacier_mask,
+    masked_glacier_grid,
 )
 from data_processing.glacier_utils import (
     create_glacier_grid_RGI,
@@ -21,6 +22,7 @@ from data_processing.glacier_utils import (
     generate_svf_file,
 )
 from data_processing.utils.data_preprocessing import get_hash
+from data_processing.parallel_utils import gridded_worker_count
 
 wgms_zip_file = "DOI-WGMS-FoG-2026-02-10.zip"
 
@@ -224,7 +226,15 @@ def _prepare_glacier_wide_mb(rgi_ids):
     return df
 
 
-def load_glacier_wide_annual_mb(rgi_ids, cfg, multi=True):
+def load_glacier_wide_annual_mb(rgi_ids, cfg, multi=True, num_workers=None):
+    """Glacier-wide annual mass balance of the WGMS glaciers, with the gridded
+    features backing it.
+
+    Args:
+        num_workers (int): number of processes to generate the years with. Left to
+            None it follows the memory free on the machine, see
+            `parallel_utils.worker_count`.
+    """
 
     grid_path = os.path.join(data_path, "grids", "WGMS")
     path_rgi_ids = {
@@ -289,13 +299,19 @@ def load_glacier_wide_annual_mb(rgi_ids, cfg, multi=True):
 
             p.gen_chk()
 
-        # Get glacier mask from OGGM
-        ds, glacier_indices, gdir = get_glacier_mask(rgi_id, "", cfg)
+        # Get the glacier directory from OGGM. The grid it holds is read by the
+        # workers themselves, so it is dropped here.
+        _, _, gdir = get_glacier_mask(rgi_id, "", cfg)
 
         with tqdm.tqdm(total=len(years)) as pbar:
             if multi:
+                n_workers = gridded_worker_count(
+                    region_id,
+                    requested=num_workers,
+                    max_workers=min(len(years), os.cpu_count() or 4),
+                )
                 # Create a pool of workers
-                with multiprocessing.Pool(processes=7) as pool:
+                with multiprocessing.Pool(processes=n_workers) as pool:
                     for year in pool.imap_unordered(
                         create_gridded_features_from_mask_per_year,
                         [
@@ -305,8 +321,6 @@ def load_glacier_wide_annual_mb(rgi_ids, cfg, multi=True):
                                 region_id,
                                 cfg,
                                 df_gl,
-                                ds,
-                                glacier_indices,
                                 gdir,
                                 path_rgi_id,
                             )
@@ -326,8 +340,6 @@ def load_glacier_wide_annual_mb(rgi_ids, cfg, multi=True):
                             region_id,
                             cfg,
                             df_gl,
-                            ds,
-                            glacier_indices,
                             gdir,
                             path_rgi_id,
                         )
@@ -365,12 +377,17 @@ def load_glacier_wide_annual_mb(rgi_ids, cfg, multi=True):
 
 
 def create_gridded_features_from_mask_per_year(args):
-    rgi_id, year, region_id, cfg, df_gl, ds, glacier_indices, gdir, path_rgi_id = args
+    rgi_id, year, region_id, cfg, df_gl, gdir, path_rgi_id = args
     try:
         save_path = os.path.abspath(os.path.join(path_rgi_id, f"{year}.parquet"))
         p = Product(save_path)
 
         if not p.is_up_to_date():
+
+            # The masked grid of the glacier, read from its directory rather than
+            # received with the task: consecutive years of one glacier hit the
+            # cache, so it is read once per worker instead of once per year.
+            ds, glacier_indices = masked_glacier_grid(gdir, "RGI")
 
             # Load sky view factor
             svf = xr.open_dataset(os.path.join(path_rgi_id, "svf.nc"))

@@ -20,8 +20,9 @@ from data_processing.product_utils import (
 from data_processing.get_topo_data import (
     glacier_cell_area,
     get_glacier_mask,
-    get_custom_glacier_mask,
+    masked_glacier_grid,
 )
+from data_processing.parallel_utils import gridded_worker_count
 from data_processing.custom_outlines import assert_spec_matches, build_custom_gdirs
 from data_processing.pgo import (
     prepare_PGO_outlines,
@@ -71,14 +72,14 @@ def _gridded_features_for_glacier(
     cfg,
     glacier_id,
     gdir,
-    ds,
-    glacier_indices,
+    mask_kind,
     years,
     region_id,
     path_glacier,
     products,
     write_dem,
     multi=True,
+    num_workers=None,
 ):
     """Generate the per-year gridded products of one glacier.
 
@@ -87,9 +88,16 @@ def _gridded_features_for_glacier(
     written out - is decided by the caller and passed in.
 
     Args:
+        mask_kind (str): "custom" or "RGI", telling the workers which fields the
+            glacier directory carries. The grid itself is not passed to them: each
+            reads it once from the glacier directory and keeps it, which is both
+            cheaper than pickling it with every task and lighter in memory.
         write_dem (callable): writes `dem.nc` into `path_glacier`, from which the
             sky view factor is derived. `create_dem_file_RGI` for the RGI grids,
             `create_custom_dem_file` for grids built on custom outlines.
+        num_workers (int): number of processes to generate the years with. Left to
+            None it is derived from the memory free at this moment, see
+            `parallel_utils.worker_count`.
     """
     # Check if sky view factor needs to be generated
     p = products["svf"]
@@ -109,9 +117,8 @@ def _gridded_features_for_glacier(
             year,
             region_id,
             cfg,
-            ds,
-            glacier_indices,
             gdir,
+            mask_kind,
             path_glacier,
         )
         for year in years
@@ -119,8 +126,13 @@ def _gridded_features_for_glacier(
 
     with tqdm.tqdm(total=len(args)) as pbar:
         if multi:
+            n_workers = gridded_worker_count(
+                region_id,
+                requested=num_workers,
+                max_workers=min(len(args), os.cpu_count() or 4),
+            )
             # Create a pool of workers
-            with multiprocessing.Pool(processes=7) as pool:
+            with multiprocessing.Pool(processes=n_workers) as pool:
                 for year in pool.imap_unordered(
                     create_gridded_features_from_mask_per_year, args
                 ):
@@ -144,6 +156,7 @@ def _create_gridded_features_custom_outlines(
     spec,
     region_id,
     multi=True,
+    num_workers=None,
 ):
     """Generate the gridded products of a set of glaciers described by custom
     outlines, one geodetic window per glacier.
@@ -155,6 +168,8 @@ def _create_gridded_features_custom_outlines(
         outlines (gpd.GeoDataFrame): the outlines of those glaciers.
         spec (CustomOutlineSpec): description of the outline dataset.
         region_id (int): RGI first-order region, needed to locate the climate data.
+        num_workers (int): number of processes to use. Left to None it follows the
+            memory free on the machine, see `parallel_utils.worker_count`.
     """
     glacier_ids = list(time_ranges.keys())
     grid_path = spec.grid_root()
@@ -200,21 +215,18 @@ def _create_gridded_features_custom_outlines(
             print(f"All gridded products are already generated for {glacier_id}")
             continue
 
-        # Get glacier mask from OGGM
-        ds, glacier_indices = get_custom_glacier_mask(gdir)
-
         _gridded_features_for_glacier(
             cfg,
             glacier_id,
             gdir,
-            ds,
-            glacier_indices,
+            "custom",
             glacier_id_to_years[glacier_id],
             region_id,
             paths[glacier_id],
             products[glacier_id],
             write_dem=lambda path, gdir=gdir: create_custom_dem_file(gdir, path),
             multi=multi,
+            num_workers=num_workers,
         )
 
 
@@ -222,6 +234,7 @@ def create_gridded_features_PGO(
     cfg,
     time_ranges,
     multi=True,
+    num_workers=None,
 ):
     rgi_ids = list(time_ranges.keys())
     custom_outlines = prepare_PGO_outlines(
@@ -240,6 +253,7 @@ def create_gridded_features_PGO(
         pgo_outline_spec(),
         region_ids.pop(),
         multi=multi,
+        num_workers=num_workers,
     )
 
 
@@ -249,6 +263,7 @@ def create_gridded_features_GLAMOS(
     epoch: int = 1973,
     dem_source: str = "SRTM",
     multi=True,
+    num_workers=None,
 ):
     """Generate the gridded products of Swiss glaciers on the outlines of the
     Swiss Glacier Inventory, keyed by their SGI id.
@@ -264,6 +279,8 @@ def create_gridded_features_GLAMOS(
         time_ranges: {sgi_id: (start_date, end_date)}, one geodetic window per SGI
             entity.
         epoch (int): the SGI inventory epoch to take the outlines from.
+        num_workers (int): number of processes to use. Left to None it follows the
+            memory free on the machine, see `parallel_utils.worker_count`.
     """
     sgi_ids = list(time_ranges.keys())
     outlines = load_sgi_outlines(epoch=epoch, sgi_ids_to_keep=sgi_ids)
@@ -275,6 +292,7 @@ def create_gridded_features_GLAMOS(
         glamos_outline_spec(epoch=epoch, dem_source=dem_source),
         SWITZERLAND_REGION_ID,
         multi=multi,
+        num_workers=num_workers,
     )
 
 
@@ -283,6 +301,7 @@ def create_gridded_features_RGI(
     rgi_ids,
     years=range(2000, 2020),
     multi=True,
+    num_workers=None,
 ):
     grid_path = os.path.join(data_path, "grids", "Hugonnet21")
     for rgi_id in rgi_ids:
@@ -294,15 +313,15 @@ def create_gridded_features_RGI(
             # print(f"All gridded products are already generated for {rgi_id}")
             continue
 
-        # Get glacier mask from OGGM
-        ds, glacier_indices, gdir = get_glacier_mask(rgi_id, "", cfg)
+        # Get the glacier directory from OGGM. The grid it holds is read by the
+        # workers themselves, so it is dropped here.
+        _, _, gdir = get_glacier_mask(rgi_id, "", cfg)
 
         _gridded_features_for_glacier(
             cfg,
             rgi_id,
             gdir,
-            ds,
-            glacier_indices,
+            "RGI",
             years,
             region_id,
             path_rgi_id,
@@ -311,16 +330,22 @@ def create_gridded_features_RGI(
                 cfg, rgi_id, path
             ),
             multi=multi,
+            num_workers=num_workers,
         )
 
 
 def create_gridded_features_from_mask_per_year(args):
-    rgi_id, year, region_id, cfg, ds, glacier_indices, gdir, path_rgi_id = args
+    rgi_id, year, region_id, cfg, gdir, mask_kind, path_rgi_id = args
     try:
         save_path = os.path.abspath(os.path.join(path_rgi_id, f"{year}.parquet"))
         p = Product(save_path)
 
         if not p.is_up_to_date():
+
+            # The masked grid of the glacier, read from its directory rather than
+            # received with the task: consecutive years of one glacier hit the
+            # cache, so it is read once per worker instead of once per year.
+            ds, glacier_indices = masked_glacier_grid(gdir, mask_kind)
 
             # Load sky view factor
             svf = xr.open_dataset(os.path.join(path_rgi_id, "svf.nc"))
