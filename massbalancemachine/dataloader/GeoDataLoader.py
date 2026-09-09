@@ -20,38 +20,75 @@ from data_processing.utils import _rebuild_month_index
 from data_processing.gridded_utils import (
     create_gridded_features_RGI,
     create_gridded_features_PGO,
+    create_gridded_features_GLAMOS,
     geodetic_input_Hugonnet21,
-    geodetic_input_PGO,
     geodetic_target_Hugonnet21,
     geodetic_target_region_Hugonnet21,
     generate_grid_multi_years,
     load_grid_multi_years,
     load_precomputed_metadata,
     prepare_precomputed_metadata,
+    GEODETIC_INPUT_FN,
+    WINDOWED_SOURCES,
 )
 from data_processing.pgo import pgo_target_file, geodetic_target_PGO, table_RGI62_to_PGO
+from data_processing.glamos import geodetic_target_GLAMOS, table_RGI62_to_GLAMOS
 from models.TorchNeuralNetworkRegressor import aggrMetadata
 
 
-def buildPGOMapping(glacierList):
-    # A list of glaciers was provided, we need to check the version
-    if glacierList[0].startswith("RGI2000-v7.0-G-"):
-        # Glacier list follows RGI v7
-        rgi_id_to_pgo = {rgi_id: rgi_id for rgi_id in glacierList}
-    else:
-        # We have to find the mapping between glacier list which is in RGI v6 and the PGO list which follows RGI v7
-        rgi_ids_rgi6 = glacierList
-        region_id = int(
-            rgi_ids_rgi6[0].split(".")[0].split("-")[1]
-        )  # Use first glacier to retrieve region
-        table_df = table_RGI62_to_PGO(region_id)
+def isNativeGlacierId(glacierName: str, geodeticSource: str) -> bool:
+    """Whether `glacierName` is already expressed in the identifier scheme of
+    `geodeticSource`, and therefore needs no translation from an RGI 6.2 id.
 
-        rgi_id_to_pgo = {}
-        for rgi_id_rgi6 in rgi_ids_rgi6:
-            tmp = table_df[table_df.RGIId == rgi_id_rgi6]
-            if tmp.shape[0] == 1:
-                rgi_id_to_pgo[rgi_id_rgi6] = tmp.custom_id.values[0]
-    return rgi_id_to_pgo
+    PGO glaciers are named by their RGI v7 id, GLAMOS ones by their SGI id
+    ("B36-26"), which is anything that is not an RGI id.
+    """
+    if geodeticSource == "PGO":
+        return glacierName.startswith("RGI2000-v7.0-G-")
+    if geodeticSource == "GLAMOS":
+        return not glacierName.startswith("RGI")
+    return True
+
+
+def buildGlacierMapping(glacierList, geodeticSource: str):
+    """Map every glacier of `glacierList` onto the identifier the geodetic source
+    uses for it.
+
+    The mapping is many-to-one for GLAMOS: the Swiss inventory and the RGI do not cut
+    the ice into the same glaciers, so several RGI ids legitimately share one SGI
+    entity - Claridenfirn is one SGI glacier that RGI 6.2 splits into four.
+    """
+    if isNativeGlacierId(glacierList[0], geodeticSource):
+        # Glacier list already follows the source's own identifiers
+        return {glacier_id: glacier_id for glacier_id in glacierList}
+
+    # We have to find the mapping between the glacier list, which is in RGI v6, and
+    # the identifiers of the geodetic source
+    rgi_ids_rgi6 = glacierList
+    region_id = int(
+        rgi_ids_rgi6[0].split(".")[0].split("-")[1]
+    )  # Use first glacier to retrieve region
+    if geodeticSource == "PGO":
+        table_df = table_RGI62_to_PGO(region_id)
+        # The PGO crosswalk can map one RGI id onto several PGO entities; those are
+        # ambiguous and dropped.
+        uniqueMatchOnly = True
+    elif geodeticSource == "GLAMOS":
+        table_df = table_RGI62_to_GLAMOS(region_id=region_id)
+        uniqueMatchOnly = False
+    else:
+        raise ValueError(f"No glacier id mapping available for {geodeticSource}.")
+
+    mapping = {}
+    for rgi_id_rgi6 in rgi_ids_rgi6:
+        tmp = table_df[table_df.RGIId == rgi_id_rgi6]
+        if tmp.shape[0] == 1 or (not uniqueMatchOnly and tmp.shape[0] > 0):
+            mapping[rgi_id_rgi6] = tmp.custom_id.values[0]
+    return mapping
+
+
+def buildPGOMapping(glacierList):
+    return buildGlacierMapping(glacierList, "PGO")
 
 
 class GeoDataLoader:
@@ -91,6 +128,7 @@ class GeoDataLoader:
         allStakesPerIter=False,
         additionalYears=[],  # years for which to ensure the gridded products are generated in addition to what is required to process the dataset (which is based on the geodeticSource argument); this is used only when geoGlaciers="stakes"
         noGeo=False,
+        geodeticSourceOptions: dict = None,  # extra options handed to the geodetic target of `geodeticSource`; see `_prepareGeoDataWindowed`
     ) -> None:
         self.cfg = cfg
         self.glacierList = (
@@ -120,6 +158,7 @@ class GeoDataLoader:
         self.device = device
         self.allStakesPerIter = allStakesPerIter
         self.additionalYears = additionalYears
+        self.geodeticSourceOptions = geodeticSourceOptions or {}
 
         if valStakesDf is not None:
             assert (
@@ -146,7 +185,7 @@ class GeoDataLoader:
             self.glacierListAllGeo = self.glaciersAllWithGeo  # TODO: change this
 
         if not noGeo and len(self.glaciersWithGeo) == 1:
-            if self.geodeticSource in ["Hugonnet21", "PGO"]:
+            if self.geodeticSource in {"Hugonnet21"} | WINDOWED_SOURCES:
                 raise NotImplementedError()
             # # Preload geodetic data into memory if there is only one glacier
             # self.df_X_geod = create_geodetic_input(
@@ -166,14 +205,16 @@ class GeoDataLoader:
                         self.df_X_geod[rgi_id] = geodetic_input_Hugonnet21(
                             rgi_id, years=self.years
                         )
-                elif self.geodeticSource == "PGO":
-                    print("Preloading PGO geodetic grids")
+                elif self.geodeticSource in WINDOWED_SOURCES:
+                    print(f"Preloading {self.geodeticSource} geodetic grids")
+                    geodetic_input = GEODETIC_INPUT_FN[self.geodeticSource]
                     self.df_X_geod = {}
-                    for rgi_id in tqdm.tqdm(
+                    for glacier_id in tqdm.tqdm(
                         self.glaciersWithGeo + self.glaciersValWithGeo
                     ):
-                        self.df_X_geod[rgi_id] = geodetic_input_PGO(
-                            rgi_id, time_range=self.periods_per_glacier[rgi_id]
+                        self.df_X_geod[glacier_id] = geodetic_input(
+                            glacier_id,
+                            time_range=self.periods_per_glacier[glacier_id],
                         )
                 else:
                     raise ValueError(f"Unknown geodetic source {self.geodeticSource}.")
@@ -188,7 +229,6 @@ class GeoDataLoader:
                             rgi_id,
                             self.years,
                             "Hugonnet21",
-                            feature_columns=self.cfg.featureColumns,
                         )
                         prepare_precomputed_metadata(
                             rgi_id,
@@ -196,21 +236,20 @@ class GeoDataLoader:
                             "Hugonnet21",
                             self.cfg.featureColumns,
                         )
-                elif self.geodeticSource == "PGO":
-                    print("Preparing PGO geodetic grids")
-                    for rgi_id in tqdm.tqdm(
+                elif self.geodeticSource in WINDOWED_SOURCES:
+                    print(f"Preparing {self.geodeticSource} geodetic grids")
+                    for glacier_id in tqdm.tqdm(
                         self.glaciersWithGeo + self.glaciersValWithGeo
                     ):
                         generate_grid_multi_years(
-                            rgi_id,
-                            self.periods_per_glacier[rgi_id],
-                            "PGO",
-                            feature_columns=self.cfg.featureColumns,
+                            glacier_id,
+                            self.periods_per_glacier[glacier_id],
+                            self.geodeticSource,
                         )
                         prepare_precomputed_metadata(
-                            rgi_id,
-                            self.periods_per_glacier[rgi_id],
-                            "PGO",
+                            glacier_id,
+                            self.periods_per_glacier[glacier_id],
+                            self.geodeticSource,
                             self.cfg.featureColumns,
                         )
                 else:
@@ -306,58 +345,8 @@ class GeoDataLoader:
             self.glaciersAllWithGeo = list(
                 set(self.glaciersWithGeo).union(self.glaciersValWithGeo)
             )
-        elif self.geodeticSource == "PGO":
-            assert (
-                len(self.additionalYears) == 0
-            ), "Option additionalYears is not available yet with PGO geodetic data."
-            dfGeo = geodetic_target_PGO(pgo_target_file())
-            if self.glacierList is None:
-                # We are working with geodetic data only, no need to map RGI62 IDs to PGO IDs
-                rgi_ids = dfGeo.RGIId.unique()
-                self.rgi_id_to_pgo = {rgi_id: rgi_id for rgi_id in rgi_ids}
-            else:
-                self.rgi_id_to_pgo = buildPGOMapping(self.glacierList)
-                if len(self.glacierListVal) > 0:
-                    self.rgi_id_to_pgo_val = buildPGOMapping(self.glacierListVal)
-                    rgi_ids_val = list(self.rgi_id_to_pgo_val.values())
-                else:
-                    rgi_ids_val = []
-                rgi_ids = list(set(self.rgi_id_to_pgo.values()).union(rgi_ids_val))
-            for g in self.ignoreGlaciers:
-                if g in rgi_ids:
-                    rgi_ids.remove(g)
-                if g in rgi_ids_val:
-                    rgi_ids_val.remove(g)
-            self.years = None
-            time_ranges = {}
-            for rgi_id in rgi_ids:
-                start_date = dfGeo[dfGeo.RGIId == rgi_id].FROM_DATE.values[0]
-                end_date = dfGeo[dfGeo.RGIId == rgi_id].TO_DATE.values[0]
-                time_ranges[rgi_id] = (start_date, end_date)
-            create_gridded_features_PGO(self.cfg, time_ranges)
-            self.periods_per_glacier = {}
-            self.y_target_geo = {}
-            self.err_target_geo = {}
-            self.glaciersWithGeo = []
-            for rgi_id in rgi_ids:
-                if rgi_id in dfGeo.RGIId.values:
-                    tmp = dfGeo[dfGeo.RGIId == rgi_id]
-                    mean_pmb = tmp.mwe_per_year.values[0]
-                    err_pmb = tmp.sigma_mwe_per_year.values[0]
-                    self.periods_per_glacier[rgi_id] = [time_ranges[rgi_id]]
-                    self.y_target_geo[rgi_id] = np.array([mean_pmb])
-                    self.err_target_geo[rgi_id] = np.array([err_pmb])
-                    self.glaciersWithGeo.append(rgi_id)
-            # Split glaciersWithGeo into validation and training glaciers
-            self.glaciersValWithGeo = list(
-                set(self.glaciersWithGeo).intersection(rgi_ids_val)
-            )
-            self.glaciersWithGeo = list(
-                set(self.glaciersWithGeo).difference(self.glaciersValWithGeo)
-            )
-            self.glaciersAllWithGeo = list(
-                set(self.glaciersWithGeo).union(self.glaciersValWithGeo)
-            )
+        elif self.geodeticSource in WINDOWED_SOURCES:
+            self._prepareGeoDataWindowed()
         # else:
         #     # This works only with Swiss data
         #     geodetic_mb = get_geodetic_MB(self.cfg)
@@ -380,21 +369,119 @@ class GeoDataLoader:
         #         f"Geodetic data contain {len(self.glaciersWithGeo)} glaciers out of {len(self.glacierList)}."
         #     )
 
+    def _prepareGeoDataWindowed(self) -> None:
+        """Prepare a geodetic source whose target covers an arbitrary date window
+        rather than a fixed set of calendar years.
+
+        PGO and GLAMOS share this shape: a table with one window and one rate per
+        glacier, identifiers of their own that the RGI 6.2 glacier list has to be
+        mapped onto, and grids built on the source's own outlines over exactly the
+        years its window spans.
+
+        `geodeticSourceOptions` is forwarded to the source's target function. It
+        matters for GLAMOS, whose windows reach back to the 19th century: pass
+        `min_year` to keep the selection inside the climate forcing, along with
+        `max_year`, `min_window_years` and `min_covered` to choose which windows are
+        eligible at all (see `data_processing.glamos.select_glamos_windows`).
+        """
+        source = self.geodeticSource
+        assert (
+            len(self.additionalYears) == 0
+        ), f"Option additionalYears is not available yet with {source} geodetic data."
+
+        if source == "PGO":
+            dfGeo = geodetic_target_PGO(pgo_target_file(), **self.geodeticSourceOptions)
+            create_gridded_features = create_gridded_features_PGO
+        elif source == "GLAMOS":
+            dfGeo = geodetic_target_GLAMOS(**self.geodeticSourceOptions)
+            create_gridded_features = create_gridded_features_GLAMOS
+        else:
+            raise ValueError(f"Unknown windowed geodetic source {source}.")
+
+        glacier_ids_val = []
+        if self.glacierList is None:
+            # We are working with geodetic data only, no need to map RGI62 IDs to the
+            # identifiers of the geodetic source
+            glacier_ids = list(dfGeo.RGIId.unique())
+            self.glacier_id_map = {g: g for g in glacier_ids}
+            self.glacier_id_map_val = {}
+        else:
+            self.glacier_id_map = buildGlacierMapping(self.glacierList, source)
+            self.glacier_id_map_val = {}
+            if len(self.glacierListVal) > 0:
+                self.glacier_id_map_val = buildGlacierMapping(
+                    self.glacierListVal, source
+                )
+                glacier_ids_val = list(self.glacier_id_map_val.values())
+            glacier_ids = list(set(self.glacier_id_map.values()).union(glacier_ids_val))
+        # Kept under their historical names for the code that reads them
+        self.rgi_id_to_pgo = self.glacier_id_map
+        self.rgi_id_to_pgo_val = self.glacier_id_map_val
+
+        for g in self.ignoreGlaciers:
+            if g in glacier_ids:
+                glacier_ids.remove(g)
+            if g in glacier_ids_val:
+                glacier_ids_val.remove(g)
+
+        self.years = None
+        time_ranges = {}
+        for glacier_id in glacier_ids:
+            tmp = dfGeo[dfGeo.RGIId == glacier_id]
+            time_ranges[glacier_id] = (
+                tmp.FROM_DATE.values[0],
+                tmp.TO_DATE.values[0],
+            )
+        create_gridded_features(self.cfg, time_ranges)
+
+        self.periods_per_glacier = {}
+        self.y_target_geo = {}
+        self.err_target_geo = {}
+        self.glaciersWithGeo = []
+        for glacier_id in glacier_ids:
+            if glacier_id in dfGeo.RGIId.values:
+                tmp = dfGeo[dfGeo.RGIId == glacier_id]
+                mean_pmb = tmp.mwe_per_year.values[0]
+                err_pmb = tmp.sigma_mwe_per_year.values[0]
+                self.periods_per_glacier[glacier_id] = [time_ranges[glacier_id]]
+                self.y_target_geo[glacier_id] = np.array([mean_pmb])
+                self.err_target_geo[glacier_id] = np.array([err_pmb])
+                self.glaciersWithGeo.append(glacier_id)
+        # Split glaciersWithGeo into validation and training glaciers
+        self.glaciersValWithGeo = list(
+            set(self.glaciersWithGeo).intersection(glacier_ids_val)
+        )
+        self.glaciersWithGeo = list(
+            set(self.glaciersWithGeo).difference(self.glaciersValWithGeo)
+        )
+        self.glaciersAllWithGeo = list(
+            set(self.glaciersWithGeo).union(self.glaciersValWithGeo)
+        )
+
+    def _toSourceGlacierId(self, glacierName: str) -> str:
+        """Translate an RGI 6.2 glacier name into the identifier the geodetic source
+        uses, leaving it alone if it already is one."""
+        if self.geodeticSource not in WINDOWED_SOURCES:
+            return glacierName
+        if isNativeGlacierId(glacierName, self.geodeticSource):
+            return glacierName
+        return (
+            self.glacier_id_map.get(glacierName) or self.glacier_id_map_val[glacierName]
+        )
+
     def geodetic_periods(self, g):
-        if self.geodeticSource == "PGO" and not g.startswith("RGI2000-v7.0-G-"):
-            g = self.rgi_id_to_pgo.get(g) or self.rgi_id_to_pgo_val[g]
-        return self.periods_per_glacier[g]
+        return self.periods_per_glacier[self._toSourceGlacierId(g)]
 
     def elevation_diff_range(self, g: str):
         assert self.hasGeo(g)
-        if self.geodeticSource == "PGO":
-            if not g.startswith("RGI2000-v7.0-G-"):
-                g = self.rgi_id_to_pgo.get(g) or self.rgi_id_to_pgo_val[g]
+        g = self._toSourceGlacierId(g)
         if self.df_X_geod is None:
             if self.geodeticSource == "Hugonnet21":
                 df_X_geod = load_grid_multi_years(g, self.years, "Hugonnet21")
-            elif self.geodeticSource == "PGO":
-                df_X_geod = load_grid_multi_years(g, self.periods_per_glacier[g], "PGO")
+            else:
+                df_X_geod = load_grid_multi_years(
+                    g, self.periods_per_glacier[g], self.geodeticSource
+                )
             precomputed_meta = self._metadata_groups(df_X_geod)
         else:
             if self.preloadGeodetic:
@@ -629,11 +716,11 @@ class GeoDataLoader:
         return list(feature_columns), list(meta_data_columns)
 
     def hasGeo(self, glacierName: str):
-        if self.geodeticSource == "PGO":
-            if glacierName in self.rgi_id_to_pgo:
-                return self.rgi_id_to_pgo[glacierName] in self.glaciersWithGeo
-            elif glacierName in self.rgi_id_to_pgo_val:
-                return self.rgi_id_to_pgo_val[glacierName] in self.glaciersValWithGeo
+        if self.geodeticSource in WINDOWED_SOURCES:
+            if glacierName in self.glacier_id_map:
+                return self.glacier_id_map[glacierName] in self.glaciersWithGeo
+            elif glacierName in self.glacier_id_map_val:
+                return self.glacier_id_map_val[glacierName] in self.glaciersValWithGeo
             else:
                 return False
         else:
@@ -695,11 +782,7 @@ class GeoDataLoader:
                 dataframe is named "ID_int" where "_int" stands for integer.
             groundTruth (np.ndarray): The ground truth geodetic mass balance values.
         """
-        if self.geodeticSource == "PGO":
-            if not glacierName.startswith("RGI2000-v7.0-G-"):
-                glacierName = (
-                    self.rgi_id_to_pgo.get(glacierName) or self.rgi_id_to_pgo_val[g]
-                )
+        glacierName = self._toSourceGlacierId(glacierName)
         assert (glacierName in self.glaciersWithGeo) or (
             glacierName in self.glaciersValWithGeo
         ), f"Glacier {glacierName} is not in the list of glaciers with available geodetic data for this dataloader."
@@ -713,13 +796,15 @@ class GeoDataLoader:
                     "Hugonnet21",
                     self.cfg.featureColumns,
                 )
-            elif self.geodeticSource == "PGO":
+            elif self.geodeticSource in WINDOWED_SOURCES:
                 years = self.periods_per_glacier[glacierName]
-                df_X_geod = load_grid_multi_years(glacierName, years, "PGO")
+                df_X_geod = load_grid_multi_years(
+                    glacierName, years, self.geodeticSource
+                )
                 precomputed_meta = load_precomputed_metadata(
                     glacierName,
                     years,
-                    "PGO",
+                    self.geodeticSource,
                     self.cfg.featureColumns,
                 )
             # else:
