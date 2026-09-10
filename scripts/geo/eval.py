@@ -22,7 +22,7 @@ from scripts.nongeo.utils import (
     setFeatures,
 )
 from scripts.gridsearch import recursive_update
-from scripts.common import default_glacier_name
+from scripts.common import default_glacier_name, geodetic_table, geodetic_windows
 
 warnings.filterwarnings("ignore")
 
@@ -355,17 +355,9 @@ if pgo:
     df_gridded_annual = dict_df_gridded["annual"]
     df_gridded_monthly = dict_df_gridded["monthly"]
     del dict_df_gridded
+    df_geo = geodetic_table(geoTarget, geoErr, geoPred, pgo_gdl)
     if savePred:
         print("Saving gridded prediction...")
-        kk = geoTarget.keys()
-        df_geo = pd.DataFrame(
-            {
-                "RGIId": kk,
-                "target": [geoTarget[k] for k in kk],
-                "err": [geoErr[k] for k in kk],
-                "pred": [geoPred[k] for k in kk],
-            }
-        )
         df_geo.to_parquet(
             f"{pathFolderPGO}/gridded_geodetic_pgo.parquet",
             engine="pyarrow",
@@ -386,14 +378,8 @@ if pgo:
             json.dump(
                 {
                     rgi_id: [
-                        (
-                            np.datetime_as_string(
-                                pgo_gdl.periods_per_glacier[rgi_id][0][0]
-                            ),
-                            np.datetime_as_string(
-                                pgo_gdl.periods_per_glacier[rgi_id][0][1]
-                            ),
-                        )
+                        (np.datetime_as_string(start), np.datetime_as_string(end))
+                        for start, end in pgo_gdl.periods_per_glacier[rgi_id]
                     ]
                     for rgi_id in pgo_gdl.periods_per_glacier.keys()
                 },
@@ -405,15 +391,7 @@ if pgo:
     # Plot cumulated mass change
     fig, _ = mbm.plots.cumulatedMassChange(
         df_gridded_monthly,
-        geo={
-            rgi_id: {
-                "mean": geoTarget[rgi_id],
-                "err": geoErr[rgi_id],
-                "start": pgo_gdl.periods_per_glacier[rgi_id][0][0],
-                "end": pgo_gdl.periods_per_glacier[rgi_id][0][1],
-            }
-            for rgi_id in geoTarget
-        },
+        geo=geodetic_windows(df_geo),
     )
     fig.savefig(f"{pathFolderPGO}/cumulated_mass_change_glaciers_test.pdf")
     if plot:
@@ -619,17 +597,9 @@ if len(df_X_test_subset) > 0 and not noTest:
     df_gridded_annual = dict_df_gridded["annual"]
     df_gridded_monthly = dict_df_gridded["monthly"]
     del dict_df_gridded
+    df_geo = geodetic_table(geoTarget, geoErr, geoPred, test_gdl)
     if savePred:
         print("Saving gridded prediction...")
-        kk = geoTarget.keys()
-        df_geo = pd.DataFrame(
-            {
-                "RGIId": kk,
-                "target": [geoTarget[k] for k in kk],
-                "err": [geoErr[k] for k in kk],
-                "pred": [geoPred[k] for k in kk],
-            }
-        )
         df_geo.to_parquet(
             f"{pathFolder}/gridded_geodetic_test.parquet",
             engine="pyarrow",
@@ -682,15 +652,7 @@ if len(df_X_test_subset) > 0 and not noTest:
     # Plot cumulated mass change
     fig, _ = mbm.plots.cumulatedMassChange(
         df_gridded_monthly,
-        geo={
-            rgi_id: {
-                "mean": geoTarget[rgi_id],
-                "err": geoErr[rgi_id],
-                "start": test_gdl.geodetic_periods(rgi_id)[0][0],
-                "end": test_gdl.geodetic_periods(rgi_id)[0][1],
-            }
-            for rgi_id in geoTarget
-        },
+        geo=geodetic_windows(df_geo),
     )
     fig.savefig(f"{pathFolder}/cumulated_mass_change_glaciers_test.pdf")
     if plot:
@@ -1037,17 +999,9 @@ geoPred, geoTarget, geoErr, dict_df_gridded = mbm.training.eval_geodetic(
 df_gridded_annual = dict_df_gridded["annual"]
 df_gridded_monthly = dict_df_gridded["monthly"]
 del dict_df_gridded
+df_geo = geodetic_table(geoTarget, geoErr, geoPred, train_gdl)
 if savePred:
     print("Saving gridded prediction...")
-    kk = geoTarget.keys()
-    df_geo = pd.DataFrame(
-        {
-            "RGIId": kk,
-            "target": [geoTarget[k] for k in kk],
-            "err": [geoErr[k] for k in kk],
-            "pred": [geoPred[k] for k in kk],
-        }
-    )
     df_geo.to_parquet(
         f"{pathFolder}/gridded_geodetic_train.parquet",
         engine="pyarrow",
@@ -1103,15 +1057,7 @@ plt.close(fig)
 # Plot cumulated mass change
 fig, _ = mbm.plots.cumulatedMassChange(
     df_gridded_monthly,
-    geo={
-        rgi_id: {
-            "mean": geoTarget[rgi_id],
-            "err": geoErr[rgi_id],
-            "start": train_gdl.geodetic_periods(rgi_id)[0][0],
-            "end": train_gdl.geodetic_periods(rgi_id)[0][1],
-        }
-        for rgi_id in geoTarget
-    },
+    geo=geodetic_windows(df_geo),
 )
 fig.savefig(f"{pathFolder}/cumulated_mass_change_glaciers_train.pdf")
 if plot:

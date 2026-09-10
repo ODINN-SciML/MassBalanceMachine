@@ -21,6 +21,7 @@ from scripts.nongeo.utils import (
     testData,
     setFeatures,
 )
+from scripts.common import geodetic_windows
 
 parser = argparse.ArgumentParser("Compare two different models.")
 parser.add_argument("modelFolder1", type=str, help="Folder of the 1st model to load.")
@@ -144,43 +145,30 @@ if pgo:
     # Cumulated mass change on train data
     df_gridded_monthly1 = load_gridded(f"{pathFolder1}/PGO/gridded_monthly_pgo")
     df_geo1 = load_gridded(f"{pathFolder1}/PGO/gridded_geodetic_pgo")
-    geoTarget = df_geo1.set_index("RGIId").target.to_dict()
-    geoErr = df_geo1.set_index("RGIId").err.to_dict()
 
-    with open(f"{pathFolder1}/PGO/periodsPerGlacier.json", "r") as f:
-        periods_per_glacier = json.load(f)
-        for rgi_id in periods_per_glacier.keys():
-            periods_per_glacier[rgi_id] = [
-                (
-                    np.datetime64(periods_per_glacier[rgi_id][0][0]),
-                    np.datetime64(periods_per_glacier[rgi_id][0][1]),
-                )
-            ]
+    if "start" not in df_geo1.columns:
+        # Table saved when a glacier could only have one geodetic window, whose bounds
+        # were only written to periodsPerGlacier.json
+        with open(f"{pathFolder1}/PGO/periodsPerGlacier.json", "r") as f:
+            periods_per_glacier = json.load(f)
+        df_geo1["start"] = df_geo1.RGIId.map(
+            lambda rgi_id: np.datetime64(periods_per_glacier[rgi_id][0][0])
+        )
+        df_geo1["end"] = df_geo1.RGIId.map(
+            lambda rgi_id: np.datetime64(periods_per_glacier[rgi_id][0][1])
+        )
 
     # Plot cumulated mass change
     fig, l1 = mbm.plots.cumulatedMassChange(
         df_gridded_monthly1,
-        geo={
-            rgi_id: {
-                "mean": geoTarget[rgi_id],
-                "err": geoErr[rgi_id],
-                "start": periods_per_glacier[rgi_id][0][0],
-                "end": periods_per_glacier[rgi_id][0][1],
-            }
-            for rgi_id in geoTarget
-        },
+        geo=geodetic_windows(df_geo1),
     )
     del df_gridded_monthly1
     df_gridded_monthly2 = load_gridded(f"{pathFolder2}/PGO/gridded_monthly_pgo")
     _, l2 = mbm.plots.cumulatedMassChange(
         df_gridded_monthly2,
-        geo={
-            rgi_id: {
-                "start": periods_per_glacier[rgi_id][0][0],
-                "end": periods_per_glacier[rgi_id][0][1],
-            }  # Provide the bounds to plot only the cumulated MB of the geodetic time window
-            for rgi_id in geoTarget
-        },
+        # Provide the bounds to plot only the cumulated MB of the geodetic time windows
+        geo=geodetic_windows(df_geo1, with_target=False),
         axs=fig.axes,
         color_pred="red",
         titles={
@@ -203,34 +191,22 @@ if not noTrain:
         # Cumulated mass change on train data
         df_gridded_monthly1 = load_gridded(f"{pathFolder1}/gridded_monthly_train")
         df_geo1 = load_gridded(f"{pathFolder1}/gridded_geodetic_train")
-        geoTarget = df_geo1.set_index("RGIId").target.to_dict()
-        geoErr = df_geo1.set_index("RGIId").err.to_dict()
+        default_period = (start_geod_period, end_geod_period)
 
         # Plot cumulated mass change
         fig, l1 = mbm.plots.cumulatedMassChange(
             df_gridded_monthly1,
-            geo={
-                rgi_id: {
-                    "mean": geoTarget[rgi_id],
-                    "err": geoErr[rgi_id],
-                    "start": start_geod_period,
-                    "end": end_geod_period,
-                }
-                for rgi_id in geoTarget
-            },
+            geo=geodetic_windows(df_geo1, default_period=default_period),
             linear_fit_breaks=linear_fit_breaks,
         )
         del df_gridded_monthly1
         df_gridded_monthly2 = load_gridded(f"{pathFolder2}/gridded_monthly_train")
         _, l2 = mbm.plots.cumulatedMassChange(
             df_gridded_monthly2,
-            geo={
-                rgi_id: {
-                    "start": start_geod_period,
-                    "end": end_geod_period,
-                }  # Provide the bounds to plot only the cumulated MB of the geodetic time window
-                for rgi_id in geoTarget
-            },
+            # Provide the bounds to plot only the cumulated MB of the geodetic time windows
+            geo=geodetic_windows(
+                df_geo1, with_target=False, default_period=default_period
+            ),
             axs=fig.axes,
             color_pred="red",
             titles={
@@ -383,34 +359,20 @@ if not skip:
     # Cumulated mass change on test data
     df_gridded_monthly1 = load_gridded(f"{pathFolder1}/gridded_monthly_test")
     df_geo1 = load_gridded(f"{pathFolder1}/gridded_geodetic_test")
-    geoTarget = df_geo1.set_index("RGIId").target.to_dict()
-    geoErr = df_geo1.set_index("RGIId").err.to_dict()
+    default_period = (start_geod_period, end_geod_period)
 
     # Plot cumulated mass change
     fig, l1 = mbm.plots.cumulatedMassChange(
         df_gridded_monthly1,
-        geo={
-            rgi_id: {
-                "mean": geoTarget[rgi_id],
-                "err": geoErr[rgi_id],
-                "start": start_geod_period,
-                "end": end_geod_period,
-            }
-            for rgi_id in geoTarget
-        },
+        geo=geodetic_windows(df_geo1, default_period=default_period),
         linear_fit_breaks=linear_fit_breaks,
     )
     del df_gridded_monthly1
     df_gridded_monthly2 = load_gridded(f"{pathFolder2}/gridded_monthly_test")
     _, l2 = mbm.plots.cumulatedMassChange(
         df_gridded_monthly2,
-        geo={
-            rgi_id: {
-                "start": start_geod_period,
-                "end": end_geod_period,
-            }  # Provide the bounds to plot only the cumulated MB of the geodetic time window
-            for rgi_id in geoTarget
-        },
+        # Provide the bounds to plot only the cumulated MB of the geodetic time windows
+        geo=geodetic_windows(df_geo1, with_target=False, default_period=default_period),
         axs=fig.axes,
         color_pred="red",
         titles={

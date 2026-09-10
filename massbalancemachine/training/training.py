@@ -118,12 +118,35 @@ def compute_stake_loss(
     return mse, ret, int_id
 
 
+def geodeticWindowPred(predSumGeodPeriod, windowWeights, geod_periods):
+    """
+    Mean annual glacier-wide MB of every geodetic time window of a glacier.
+
+    Args:
+        predSumGeodPeriod (torch.Tensor): Predicted glacier-wide MB values for each
+            month, indexed by GLWD_M_ID_int.
+        windowWeights (torch.Tensor): Matrix of shape (number of windows, number of
+            months) returned by the geodetic dataloader, see
+            `data_processing.gridded_utils.geodetic_window_weights`. It is built on
+            the geodetic periods and checks that the grid covers each of them.
+        geod_periods (list of tuple): The geodetic time windows, only used to check
+            that the weights correspond to them.
+
+    Returns a torch.Tensor with one value per time window.
+    """
+    assert windowWeights.shape == (
+        len(geod_periods),
+        predSumGeodPeriod.shape[0],
+    ), f"The window weights have shape {tuple(windowWeights.shape)} but there are {len(geod_periods)} geodetic periods and {predSumGeodPeriod.shape[0]} months."
+    return windowWeights.to(predSumGeodPeriod.dtype) @ predSumGeodPeriod
+
+
 # TODO: time aggregation!
 def timeWindowGeodeticLoss(
     predSumGeodPeriod,
     geoTarget,
     errGeoTarget,
-    metadataAggrGlwdM,
+    windowWeights,
     geod_periods,
     scalingGeo,
 ):
@@ -137,46 +160,24 @@ def timeWindowGeodeticLoss(
         geoTarget (torch.Tensor): Ground truth MB values for the different time windows.
         errGeoTarget (torch.Tensor): 1 sigma error of the ground truth MB values for the
             different time windows.
-        metadataAggrGlwdM (pd.DataFrame): Metadata per month associated to each prediction. Must be
-            of the same length as `predSumGeodPeriod`.
-        geod_periods (dict of tuple of ints): Dictionary containing the time windows
-            as tuples with 2 integer values which are the start and end years. Must
-            be of the same size as `geoTarget`.
+        windowWeights (torch.Tensor): Weights turning the monthly values into the
+            mean annual MB of every time window, see `geodeticWindowPred`.
+        geod_periods (list of tuple): The time windows. Must be of the same size as
+            `geoTarget`.
 
     Returns a torch.Tensor that contains the geodetic loss terms for each of the
-    time windows.
+    time windows, and the predicted geodetic MB of each window.
     """
-    assert (
-        len(geoTarget) == 1
-    ), "For the moment only one geodetic target is supported in timeWindowGeodeticLoss."
     assert len(geoTarget) == len(
         geod_periods
     ), f"Size of the ground truth is {geoTarget.shape} but doesn't match with the number of geodetic periods which is {len(geod_periods)}"
-    start_date, end_date = geod_periods[0]
-    n_entries_unique_GLWD_M_ID = metadataAggrGlwdM["GLWD_M_ID"].nunique()
-    if isinstance(start_date, np.datetime64):
-        n_months_geo_period = (
-            pd.Timestamp(end_date).month + pd.Timestamp(end_date).year * 12
-        ) - (pd.Timestamp(start_date).month + pd.Timestamp(start_date).year * 12)
-        assert (
-            n_months_geo_period == n_entries_unique_GLWD_M_ID
-        ), f"The number of unique GLWD_M_ID entries is {n_entries_unique_GLWD_M_ID} which does not match the geodetic period {geod_periods}."
-    else:
-        assert (
-            end_date - start_date
-        ) * 12 == n_entries_unique_GLWD_M_ID, f"The number of unique GLWD_M_ID entries is {n_entries_unique_GLWD_M_ID} which does not match the geodetic period {geod_periods}."
-
-    geodetic_MB_pred = torch.sum(
-        predSumGeodPeriod * 12 / n_entries_unique_GLWD_M_ID
-    ).view(1)
+    geodetic_MB_pred = geodeticWindowPred(
+        predSumGeodPeriod, windowWeights, geod_periods
+    )
     if scalingGeo == "quad":
-        return (
-            (geodetic_MB_pred - geoTarget[0]) / errGeoTarget[0]
-        ) ** 2, geodetic_MB_pred
+        return ((geodetic_MB_pred - geoTarget) / errGeoTarget) ** 2, geodetic_MB_pred
     elif scalingGeo == "linear":
-        return ((geodetic_MB_pred - geoTarget[0])) ** 2 / errGeoTarget[
-            0
-        ], geodetic_MB_pred
+        return (geodetic_MB_pred - geoTarget) ** 2 / errGeoTarget, geodetic_MB_pred
 
 
 def predict_monthly_gridded(model, geoGrid, metadata):
@@ -338,16 +339,20 @@ def eval_geodetic(
                 precomputed_meta["ID_int"] = precomputed_meta["ID_int"].to(
                     geo_dataloader.device, non_blocking=async_transfer
                 )
+                precomputed_meta["geo_window_weights"] = precomputed_meta[
+                    "geo_window_weights"
+                ].to(geo_dataloader.device, non_blocking=async_transfer)
                 geod_periods = geo_dataloader.geodetic_periods(current_g)
+                # One value per geodetic window of the glacier
                 geoPred[current_g] = (
                     predict_geo(
                         model, geoGrid, metadata, ygeo, geod_periods, precomputed_meta
                     )
                     .cpu()
-                    .item()
+                    .numpy()
                 )
-                geoTarget[current_g] = ygeo.item()
-                geoErr[current_g] = errgeo.item()
+                geoTarget[current_g] = ygeo.cpu().numpy()
+                geoErr[current_g] = errgeo.cpu().numpy()
 
                 if callback_annual is not None or return_annual:
                     grouped_ids, predSumAnnual = predict_annual_gridded(
@@ -392,36 +397,17 @@ def predict_geo(model, geoGrid, metadata, ygeo, geod_periods, precomputed_meta):
 
     idAggr = precomputed_meta["GLWD_M_ID_int"]
 
-    # Aggregate per point on the grid
-    grouped_ids = precomputed_meta["grouped_glwd_m_ids"]
+    # Aggregate glacier wide
     nunique = precomputed_meta["nunique_glwd_m_ids"]
     predSumGeodPeriod = torch.zeros((nunique,), device=pred.device, dtype=pred.dtype)
     aggrPredict(pred, idAggr, reduce="mean", out=predSumGeodPeriod)
 
-    assert (
-        len(ygeo) == 1
-    ), "For the moment only one geodetic target is supported in predict_geo."
     assert len(ygeo) == len(
         geod_periods
     ), f"Size of the ground truth is {ygeo.shape} but doesn't match with the number of geodetic periods which is {len(geod_periods)}"
-    start_date, end_date = geod_periods[0]
-    n_entries_unique_GLWD_M_ID = grouped_ids["GLWD_M_ID"].nunique()
-    if isinstance(start_date, np.datetime64):
-        n_months_geo_period = (
-            pd.Timestamp(end_date).month + pd.Timestamp(end_date).year * 12
-        ) - (pd.Timestamp(start_date).month + pd.Timestamp(start_date).year * 12)
-        assert (
-            n_months_geo_period == n_entries_unique_GLWD_M_ID
-        ), f"The number of unique GLWD_M_ID entries is {n_entries_unique_GLWD_M_ID} which does not match the geodetic period {geod_periods}."
-    else:
-        assert (
-            end_date - start_date
-        ) * 12 == n_entries_unique_GLWD_M_ID, f"The number of unique GLWD_M_ID entries is {n_entries_unique_GLWD_M_ID} which does not match the geodetic period {geod_periods}."
-
-    geodetic_MB_pred = torch.sum(
-        predSumGeodPeriod * 12 / n_entries_unique_GLWD_M_ID
-    ).view(1)
-    return geodetic_MB_pred
+    return geodeticWindowPred(
+        predSumGeodPeriod, precomputed_meta["geo_window_weights"], geod_periods
+    )
 
 
 def compute_geo_loss(
@@ -560,7 +546,6 @@ def compute_geo_loss(
     with record_function("aggregation_GLWD_M_ID"):
 
         # Aggregate glacier wide
-        metadataAggrGlwdM = precomputed_meta["grouped_glwd_m_ids"]
         idAggr = precomputed_meta["GLWD_M_ID_int"]
         nunique = precomputed_meta["nunique_glwd_m_ids"]
         predSumGeodPeriod = torch.zeros(
@@ -574,7 +559,7 @@ def compute_geo_loss(
             predSumGeodPeriod,
             ygeo,
             errgeo,
-            metadataAggrGlwdM,
+            precomputed_meta["geo_window_weights"],
             geod_periods,
             scalingGeo,
         )
@@ -723,9 +708,9 @@ def assessOnTest(log_dir, model, geodataloader_test, params, light=False, color=
         plt.close(fig)
 
         kGl = list(geoPred.keys())
-        sigmaAllGeo = np.array([geoErr[k] for k in kGl])
-        predAllGeo = np.array([geoPred[k] for k in kGl])
-        targetAllGeo = np.array([geoTarget[k] for k in kGl])
+        sigmaAllGeo = np.concatenate([geoErr[k] for k in kGl])
+        predAllGeo = np.concatenate([geoPred[k] for k in kGl])
+        targetAllGeo = np.concatenate([geoTarget[k] for k in kGl])
         w = 1 / sigmaAllGeo**2
         rmse_geo = np.sqrt((w * (targetAllGeo - predAllGeo) ** 2).sum() / (w.sum()))
         stats["rmseGeo"] = rmse_geo.item()
@@ -912,6 +897,9 @@ def assessOnVal(model, geodataloader, params, async_transfer=None, zeroTgtGeo=Fa
                     )
                     precomputed_meta["GLWD_M_ID_int"] = precomputed_meta[
                         "GLWD_M_ID_int"
+                    ].to(geodataloader.device, non_blocking=async_transfer)
+                    precomputed_meta["geo_window_weights"] = precomputed_meta[
+                        "geo_window_weights"
                     ].to(geodataloader.device, non_blocking=async_transfer)
                     geod_periods = geodataloader.geodetic_periods(current_g)
                     lossGeo_i, ypredgeo = compute_geo_loss(
@@ -1393,6 +1381,9 @@ def train_geo(
                             )
                             precomputed_meta["GLWD_M_ID_int"] = precomputed_meta[
                                 "GLWD_M_ID_int"
+                            ].to(geodataloader.device, non_blocking=async_transfer)
+                            precomputed_meta["geo_window_weights"] = precomputed_meta[
+                                "geo_window_weights"
                             ].to(geodataloader.device, non_blocking=async_transfer)
                             if timeExec:
                                 torch.cuda.synchronize()

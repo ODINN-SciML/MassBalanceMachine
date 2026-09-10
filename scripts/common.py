@@ -137,6 +137,57 @@ def loadParams(modelType):
     return parsedParams
 
 
+def geodetic_table(geoTarget, geoErr, geoPred, gdl):
+    """Geodetic targets and predictions returned by `mbm.training.eval_geodetic`, as
+    a dataframe with one row per geodetic window of every glacier. The columns start
+    and end are the bounds of the window."""
+    rows = []
+    for g in geoTarget:
+        for (start, end), target, err, pred in zip(
+            gdl.geodetic_periods(g), geoTarget[g], geoErr[g], geoPred[g]
+        ):
+            rows.append(
+                {
+                    "RGIId": g,
+                    "start": start,
+                    "end": end,
+                    "target": target,
+                    "err": err,
+                    "pred": pred,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def geodetic_windows(df_geo, with_target=True, default_period=None):
+    """Geodetic windows of every glacier in the format `mbm.plots.cumulatedMassChange`
+    expects, from a table built by `geodetic_table`.
+
+    Args:
+        df_geo (pd.DataFrame): table with one row per geodetic window.
+        with_target (bool): include the observed rates and their uncertainty.
+            Without them only the bounds are given, which restricts the plot to the
+            geodetic windows.
+        default_period (tuple): bounds used when the table has no start and end
+            columns, which is the case of the tables saved when a glacier could only
+            have one geodetic window.
+    """
+    geo = {}
+    for g, df in df_geo.groupby("RGIId", sort=False):
+        if "start" in df.columns:
+            entry = {"start": df.start.tolist(), "end": df.end.tolist()}
+        else:
+            entry = {
+                "start": [default_period[0]] * len(df),
+                "end": [default_period[1]] * len(df),
+            }
+        if with_target:
+            entry["mean"] = df.target.to_numpy()
+            entry["err"] = df.err.to_numpy()
+        geo[g] = entry
+    return geo
+
+
 def default_glacier_name(rgi_id):
     return {
         # # Norway

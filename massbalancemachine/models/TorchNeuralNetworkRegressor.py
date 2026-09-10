@@ -675,7 +675,11 @@ def aggrPredict(pred, idAggr, reduce="sum", out=None):
             (len(torch.unique(idAggrTorch)),), device=pred.device, dtype=pred.dtype
         )
     # predSumAnnual = out.scatter_reduce(0, idAggrTorch, pred, reduce=reduce)
-    predSumAnnual = out.scatter_reduce_(0, idAggrTorch, pred, reduce=reduce)
+    # include_self=False: the initial value of `out` must not count as a sample,
+    # otherwise a mean over N values is computed as sum / (N + 1)
+    predSumAnnual = out.scatter_reduce_(
+        0, idAggrTorch, pred, reduce=reduce, include_self=False
+    )
     return predSumAnnual  # This shares memory with out
 
 
@@ -702,9 +706,12 @@ def aggrPredictGlwd(pred, idAggr, out=None):
         out = torch.zeros(
             (len(np.unique(idAggr)),), device=pred.device, dtype=pred.dtype
         )
+    # Aggregations of glacier wide values are always averaged. include_self=False: the
+    # initial value of `out` must not count as a sample, otherwise the mean over N
+    # values is computed as sum / (N + 1)
     predSumAnnualGlwd = out.scatter_reduce_(
-        0, idAggrTorch, pred, reduce="mean"
-    )  # Aggregations of glacier wide values are always averaged
+        0, idAggrTorch, pred, reduce="mean", include_self=False
+    )
     return predSumAnnualGlwd  # This shares memory with out
 
 

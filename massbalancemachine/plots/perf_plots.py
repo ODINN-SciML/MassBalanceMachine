@@ -308,11 +308,12 @@ def predVSTruthGlacierWide(
     else:
         fig = None
 
+    # A glacier holds one value per geodetic window, so it can have several points
     for g in geoPred.keys():
         ax.errorbar(
             geoTarget[g],
             geoPred[g],
-            xerr=2 * geoErr[g],
+            xerr=2 * np.asarray(geoErr[g]),
             label=g,
             fmt="o",
             color=color,
@@ -321,7 +322,10 @@ def predVSTruthGlacierWide(
             alpha=alpha,
         )
         if legend:
-            plt.text(geoTarget[g] + 0.02, geoPred[g] + 0.02, g, fontsize=10)
+            for target, pred in zip(
+                np.atleast_1d(geoTarget[g]), np.atleast_1d(geoPred[g])
+            ):
+                plt.text(target + 0.02, pred + 0.02, g, fontsize=10)
 
     # Diagonal line
     pt = (0, 0)

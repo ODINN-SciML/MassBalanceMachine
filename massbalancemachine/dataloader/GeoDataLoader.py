@@ -25,6 +25,7 @@ from data_processing.gridded_utils import (
     geodetic_target_Hugonnet21,
     geodetic_target_region_Hugonnet21,
     generate_grid_multi_years,
+    geodetic_window_weights,
     load_grid_multi_years,
     load_precomputed_metadata,
     prepare_precomputed_metadata,
@@ -160,6 +161,8 @@ class GeoDataLoader:
         self.allStakesPerIter = allStakesPerIter
         self.additionalYears = additionalYears
         self.geodeticSourceOptions = geodeticSourceOptions or {}
+        # Geodetic window weights of every glacier, see `_geoWindowWeights`
+        self._window_weights = {}
 
         if valStakesDf is not None:
             assert (
@@ -374,16 +377,18 @@ class GeoDataLoader:
         """Prepare a geodetic source whose target covers an arbitrary date window
         rather than a fixed set of calendar years.
 
-        PGO and GLAMOS share this shape: a table with one window and one rate per
-        glacier, identifiers of their own that the RGI 6.2 glacier list has to be
-        mapped onto, and grids built on the source's own outlines over exactly the
-        years its window spans.
+        PGO and GLAMOS share this shape: a table with one row per window, each with
+        its own rate, identifiers of their own that the RGI 6.2 glacier list has to
+        be mapped onto, and grids built on the source's own outlines over exactly
+        the years the windows span. PGO has one window per glacier, GLAMOS one or
+        several.
 
         `geodeticSourceOptions` is forwarded to the source's target function. It
         matters for GLAMOS, whose windows reach back to the 19th century: pass
         `min_year` to keep the selection inside the climate forcing, along with
         `max_year`, `min_window_years` and `min_covered` to choose which windows are
-        eligible at all (see `data_processing.glamos.select_glamos_windows`).
+        eligible at all, and `multi_period` to keep several windows per glacier
+        (see `data_processing.glamos.select_glamos_windows`).
         """
         source = self.geodeticSource
         assert (
@@ -422,28 +427,27 @@ class GeoDataLoader:
                 glacier_ids_val.remove(g)
 
         self.years = None
-        time_ranges = {}
+        windows = {}
         for glacier_id in glacier_ids:
-            tmp = dfGeo[dfGeo.RGIId == glacier_id]
-            time_ranges[glacier_id] = (
-                tmp.FROM_DATE.values[0],
-                tmp.TO_DATE.values[0],
-            )
+            tmp = dfGeo[dfGeo.RGIId == glacier_id].sort_values("FROM_DATE")
+            if len(tmp) > 0:
+                windows[glacier_id] = tmp
+        time_ranges = {
+            glacier_id: list(zip(tmp.FROM_DATE.values, tmp.TO_DATE.values))
+            for glacier_id, tmp in windows.items()
+        }
         create_gridded_features(self.cfg, time_ranges)
 
         self.periods_per_glacier = {}
         self.y_target_geo = {}
         self.err_target_geo = {}
         self.glaciersWithGeo = []
-        for glacier_id in glacier_ids:
-            if glacier_id in dfGeo.RGIId.values:
-                tmp = dfGeo[dfGeo.RGIId == glacier_id]
-                mean_pmb = tmp.mwe_per_year.values[0]
-                err_pmb = tmp.sigma_mwe_per_year.values[0]
-                self.periods_per_glacier[glacier_id] = [time_ranges[glacier_id]]
-                self.y_target_geo[glacier_id] = np.array([mean_pmb])
-                self.err_target_geo[glacier_id] = np.array([err_pmb])
-                self.glaciersWithGeo.append(glacier_id)
+        for glacier_id, tmp in windows.items():
+            # One entry per window, in the order of `periods_per_glacier`
+            self.periods_per_glacier[glacier_id] = time_ranges[glacier_id]
+            self.y_target_geo[glacier_id] = tmp.mwe_per_year.to_numpy()
+            self.err_target_geo[glacier_id] = tmp.sigma_mwe_per_year.to_numpy()
+            self.glaciersWithGeo.append(glacier_id)
         # Split glaciersWithGeo into validation and training glaciers
         self.glaciersValWithGeo = list(
             set(self.glaciersWithGeo).intersection(glacier_ids_val)
@@ -847,6 +851,7 @@ class GeoDataLoader:
         # )
 
         err = self.err_target_geo[glacierName]
+        window_weights = self._geoWindowWeights(glacierName, metadata)
         if async_transfer:
             features = torch.from_numpy(features.astype(np.float32)).pin_memory()
             y = torch.from_numpy(
@@ -856,6 +861,7 @@ class GeoDataLoader:
             precomputed_meta["GLWD_M_ID_int"] = torch.from_numpy(
                 metadata["GLWD_M_ID_int"].values.astype(np.int64)
             ).pin_memory()
+            precomputed_meta["geo_window_weights"] = window_weights.pin_memory()
         else:
             features = torch.from_numpy(features.astype(np.float32))
             y = torch.from_numpy(self.y_target_geo[glacierName].astype(np.float32))
@@ -866,7 +872,22 @@ class GeoDataLoader:
             precomputed_meta["ID_int"] = torch.from_numpy(
                 metadata["ID_int"].values.astype(np.int64)
             )
+            precomputed_meta["geo_window_weights"] = window_weights
         return features, metadata, y, err, precomputed_meta
+
+    def _geoWindowWeights(self, glacierName: str, metadata: pd.DataFrame):
+        """Tensor turning the glacier-wide monthly predictions of a glacier into the
+        mean annual mass balance of each of its geodetic windows, see
+        `data_processing.gridded_utils.geodetic_window_weights`.
+
+        The grid of a glacier does not change during the life of the dataloader, so
+        the tensor is computed once and cached.
+        """
+        if glacierName not in self._window_weights:
+            self._window_weights[glacierName] = torch.from_numpy(
+                geodetic_window_weights(metadata, self.periods_per_glacier[glacierName])
+            )
+        return self._window_weights[glacierName]
 
     def close(self):
         self._geo_executor.shutdown(wait=False)

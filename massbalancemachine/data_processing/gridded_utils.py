@@ -56,6 +56,65 @@ def years_from_time_range(start, end):
     return range(year_start, year_end + 1)
 
 
+def years_from_time_ranges(time_ranges):
+    """Calendar years covered by at least one of several geodetic windows, sorted."""
+    return sorted(set().union(*(years_from_time_range(s, e) for s, e in time_ranges)))
+
+
+# Month names used in the gridded products, which are generated per calendar year
+MONTH_TO_ID = {month_abbr[i].lower() + ("_" if i > 9 else ""): i for i in range(1, 13)}
+
+
+def _window_month_bounds(window):
+    """First month and one past the last month of a geodetic window, both counted in
+    months since year 0.
+
+    A window is either a pair of dates, whose day is ignored as everywhere else in
+    the geodetic pipeline, or a pair of calendar years such as the (2000, 2020) of
+    Hugonnet21, which runs from January of the first to December of the year before
+    the second.
+    """
+    start, end = window
+    if isinstance(start, (int, np.integer)):
+        return start * 12, end * 12
+    start, end = pd.Timestamp(start), pd.Timestamp(end)
+    return start.year * 12 + start.month - 1, end.year * 12 + end.month - 1
+
+
+def geodetic_window_weights(metadata, periods):
+    """Matrix turning the glacier-wide monthly predictions into the mean annual mass
+    balance of every geodetic window.
+
+    Args:
+        metadata (pd.DataFrame): metadata of a geodetic grid, with the YEAR, MONTHS
+            and GLWD_M_ID_int columns.
+        periods (list of tuple): the geodetic windows of the glacier, see
+            `_window_month_bounds`.
+
+    Returns a float32 array of shape (number of windows, number of GLWD_M_ID_int)
+    whose entry (k, m) is 12 / (number of months of window k) if month m lies in
+    window k, and 0 otherwise. Column m is the month whose GLWD_M_ID_int is m, which
+    is the order the monthly predictions are aggregated in, so the product of this
+    matrix with the monthly glacier-wide predictions is the rate of every window.
+    """
+    months = metadata.groupby("GLWD_M_ID_int").agg({"YEAR": "first", "MONTHS": "first"})
+    assert (months.index.to_numpy() == np.arange(len(months))).all()
+    month_index = (
+        months.YEAR.to_numpy().astype(np.int64) * 12
+        + months.MONTHS.map(MONTH_TO_ID).to_numpy()
+        - 1
+    )
+    weights = np.zeros((len(periods), len(months)), dtype=np.float32)
+    for k, window in enumerate(periods):
+        lo, hi = _window_month_bounds(window)
+        inside = (month_index >= lo) & (month_index < hi)
+        assert (
+            inside.sum() == hi - lo
+        ), f"The geodetic grid has {inside.sum()} months inside the window {window}, which spans {hi - lo} months."
+        weights[k, inside] = 12 / (hi - lo)
+    return weights
+
+
 def _glacier_grid_products(grid_path, glacier_id, years):
     """The `Product`s tracking the gridded output of one glacier: one parquet per
     year plus the sky view factor, which is year-independent."""
@@ -159,12 +218,12 @@ def _create_gridded_features_custom_outlines(
     num_workers=None,
 ):
     """Generate the gridded products of a set of glaciers described by custom
-    outlines, one geodetic window per glacier.
+    outlines, over the geodetic windows of every glacier.
 
     Args:
-        time_ranges: {glacier_id: (start_date, end_date)}. The years to generate are
-            derived from the window, so a glacier is only gridded over the period
-            its geodetic target actually covers.
+        time_ranges: {glacier_id: [(start_date, end_date), ...]}. The years to
+            generate are those covered by at least one window, so a glacier is only
+            gridded over the periods its geodetic targets actually cover.
         outlines (gpd.GeoDataFrame): the outlines of those glaciers.
         spec (CustomOutlineSpec): description of the outline dataset.
         region_id (int): RGI first-order region, needed to locate the climate data.
@@ -184,8 +243,7 @@ def _create_gridded_features_custom_outlines(
     paths = {}
     glacier_id_to_years = {}
     for glacier_id in glacier_ids:
-        start, end = time_ranges[glacier_id]
-        years = years_from_time_range(start, end)
+        years = years_from_time_ranges(time_ranges[glacier_id])
         glacier_id_to_years[glacier_id] = years
         paths[glacier_id], products[glacier_id] = _glacier_grid_products(
             grid_path, glacier_id, years
@@ -276,8 +334,8 @@ def create_gridded_features_GLAMOS(
     outline differs.
 
     Args:
-        time_ranges: {sgi_id: (start_date, end_date)}, one geodetic window per SGI
-            entity.
+        time_ranges: {sgi_id: [(start_date, end_date), ...]}, the geodetic windows
+            of every SGI entity.
         epoch (int): the SGI inventory epoch to take the outlines from.
         num_workers (int): number of processes to use. Left to None it follows the
             memory free on the machine, see `parallel_utils.worker_count`.
@@ -446,27 +504,19 @@ def create_gridded_features_from_mask_per_year(args):
 
 
 def _geodetic_input_windowed(glacier_id, time_range, product_source):
-    """Assemble the per-year gridded products of one glacier over a geodetic window.
+    """Assemble the per-year gridded products of one glacier over its geodetic
+    windows.
 
     Used by every source whose target covers an arbitrary date range rather than a
-    whole number of calendar years, so the first and the last year of the window are
-    clipped to the months the window actually covers.
+    whole number of calendar years. `time_range` is the list of (start_date,
+    end_date) windows of the glacier. The grid holds every month that lies in at
+    least one window, once: a month shared by two windows is predicted once and
+    weighted into both by `geodetic_window_weights`. With a single window this
+    clips the first and the last year to the months the window actually covers.
     """
-    assert (
-        len(time_range) == 1
-    ), "Only one geodetic target per glacier is supported for the moment."
     grid_path = os.path.join(data_path, "grids", product_source)
-    start_date, end_date = time_range[0]
-    years = years_from_time_range(start_date, end_date)
-    # The calendar years the window opens and closes in. The closing year is not
-    # necessarily the last generated one: a window ending on the 1st of January covers
-    # no month of that year, so `years_from_time_range` already left it out and the
-    # month clipping below must not fire on the last year that was kept.
-    year_start = pd.Timestamp(start_date).year
-    year_end = pd.Timestamp(end_date).year
-    month_to_id = {
-        month_abbr[i].lower() + ("_" if i > 9 else ""): i for i in range(1, 13)
-    }
+    bounds = [_window_month_bounds(window) for window in time_range]
+    years = years_from_time_ranges(time_range)
 
     df_X_geod = pd.DataFrame()
     maxId = -1
@@ -477,13 +527,11 @@ def _geodetic_input_windowed(glacier_id, time_range, product_source):
             )
         )
         df_grid = pd.read_parquet(file_path)
-        if year in (year_start, year_end):
-            df_grid["MONTHS_NUM"] = df_grid.MONTHS.map(lambda month: month_to_id[month])
-            if year == year_start:
-                df_grid = df_grid[df_grid.MONTHS_NUM >= pd.Timestamp(start_date).month]
-            if year == year_end:
-                df_grid = df_grid[df_grid.MONTHS_NUM < pd.Timestamp(end_date).month]
-            df_grid = df_grid.drop(columns=["MONTHS_NUM"])
+        month_index = year * 12 + df_grid.MONTHS.map(MONTH_TO_ID).to_numpy() - 1
+        in_a_window = np.zeros(len(df_grid), dtype=bool)
+        for lo, hi in bounds:
+            in_a_window |= (month_index >= lo) & (month_index < hi)
+        df_grid = df_grid[in_a_window]
 
         # Remap ID so that one ID covers only one year
         df_grid["ID"] = df_grid["ID"] + maxId + 1
@@ -638,7 +686,8 @@ GEODETIC_INPUT_FN = {
 }
 
 # Sources whose geodetic target covers an arbitrary date window rather than a whole
-# number of calendar years. `years` is then a list holding one (start, end) tuple.
+# number of calendar years. `years` is then a list of (start, end) tuples, one per
+# geodetic window of the glacier.
 WINDOWED_SOURCES = {"PGO", "GLAMOS"}
 
 
@@ -653,17 +702,31 @@ def _period_key(years):
     """Folder name identifying the period a multi-year grid covers.
 
     `years` is either an iterable of calendar years, or - for a windowed source -
-    a list holding one (start_date, end_date) tuple. The dates are rendered as
-    plain ISO days so that the folder name does not depend on the repr of whichever
-    date type the target table happened to use.
+    a list of (start_date, end_date) tuples. The dates are rendered as plain ISO
+    days so that the folder name does not depend on the repr of whichever date type
+    the target table happened to use.
+
+    Several windows would make the name grow by 22 characters per window and quickly
+    exceed the 255 allowed for a file name, so the name then holds the overall
+    bounds, the number of windows and a hash of the full list. A single window keeps
+    the plain name, so the folders generated before multiple windows were supported
+    remain valid.
     """
     parts = []
+    windows = []
     for y in years:
         if isinstance(y, tuple):
-            parts.extend(pd.Timestamp(d).strftime("%Y-%m-%d") for d in y)
+            window = [pd.Timestamp(d).strftime("%Y-%m-%d") for d in y]
+            windows.append(window)
+            parts.extend(window)
         else:
             parts.append(str(y))
-    return "_".join(parts)
+    key = "_".join(parts)
+    if len(windows) > 1:
+        first = min(w[0] for w in windows)
+        last = max(w[1] for w in windows)
+        return f"{first}_{last}_{len(windows)}w_{get_hash(key)}"
+    return key
 
 
 def prepared_grid_dir_multi_years(rgi_id, years, product_source):

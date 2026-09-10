@@ -8,6 +8,15 @@ import time
 from data_processing.utils.data_preprocessing import get_hash
 
 
+def _decimal_year(date):
+    """Bound of a geodetic window in the decimal years of the monthly time axis. The
+    bound is either a date or a calendar year."""
+    if isinstance(date, (int, float, np.integer, np.floating)):
+        return float(date)
+    date = pd.Timestamp(date)
+    return date.year + (date.month - 1) / 12
+
+
 def cumulatedMassChange(
     df_gridded,
     geo=None,
@@ -73,17 +82,14 @@ def cumulatedMassChange(
         monthly_df["time"] = month_id / 12 + monthly_df["YEAR"]
 
         if geo is not None and test_gl in geo:
-            # Filter monthly_df to keep only predictions inside the geodetic time window
-            start_year = geo[test_gl]["start"]
-            end_year = geo[test_gl]["end"]
-            if isinstance(start_year, np.datetime64):
-                start_year = (pd.Timestamp(start_year).month - 1) / 12 + pd.Timestamp(
-                    start_year
-                ).year
-            if isinstance(end_year, np.datetime64):
-                end_year = (pd.Timestamp(end_year).month - 1) / 12 + pd.Timestamp(
-                    end_year
-                ).year
+            # A glacier can have several geodetic windows: "start", "end", "mean" and
+            # "err" are then sequences with one entry per window, and a scalar
+            # otherwise
+            starts = [_decimal_year(d) for d in np.atleast_1d(geo[test_gl]["start"])]
+            ends = [_decimal_year(d) for d in np.atleast_1d(geo[test_gl]["end"])]
+            # Filter monthly_df to keep only predictions inside the geodetic time windows
+            start_year = min(starts)
+            end_year = max(ends)
             monthly_df = monthly_df[
                 (monthly_df.time >= start_year) & (monthly_df.time <= end_year)
             ]
@@ -92,8 +98,6 @@ def cumulatedMassChange(
         t = monthly_df.time.values
         y = monthly_df.pred.values
         begin_t = monthly_df.time.min() - 1 / 12
-        end_t = monthly_df.time.max()
-        window_width = end_t - begin_t
         t = np.concatenate([[begin_t], t])
         y = np.concatenate([[0.0], y])
         (line,) = ax.plot(t, np.cumsum(y), color=color_pred)
@@ -128,17 +132,36 @@ def cumulatedMassChange(
 
         nyear = monthly_df.YEAR.nunique()
         if geo is not None and test_gl in geo and "mean" in geo[test_gl]:
-            tgt = geo[test_gl]["mean"]
-            err = geo[test_gl]["err"]
-            years = [begin_t, end_t]
-            ax.plot(years, [0, tgt * window_width], color=color_obs)
-            ax.fill_between(
-                years,
-                [0, (tgt - 2 * err) * window_width],
-                [0, (tgt + 2 * err) * window_width],
-                color=color_obs,
-                alpha=0.3,
+            windows = sorted(
+                zip(
+                    starts,
+                    ends,
+                    np.atleast_1d(geo[test_gl]["mean"]),
+                    np.atleast_1d(geo[test_gl]["err"]),
+                )
             )
+            cumulated_pred = np.cumsum(y)
+            prev_end, prev_obs = None, None
+            for start, end, tgt, err in windows:
+                if prev_end is not None and np.isclose(start, prev_end):
+                    # Back-to-back windows: the observed cumulated MB carries on
+                    anchor = prev_obs
+                else:
+                    # First window, or one after a gap in the observations: it starts
+                    # from the predicted cumulated MB so that the slopes can be compared
+                    anchor = np.interp(start, t, cumulated_pred)
+                years = [start, end]
+                width = end - start
+                ax.plot(years, [anchor, anchor + tgt * width], color=color_obs)
+                # The band only reflects the uncertainty of this window
+                ax.fill_between(
+                    years,
+                    [anchor, anchor + (tgt - 2 * err) * width],
+                    [anchor, anchor + (tgt + 2 * err) * width],
+                    color=color_obs,
+                    alpha=0.3,
+                )
+                prev_end, prev_obs = end, anchor + tgt * width
 
         ax.grid()
 
@@ -150,8 +173,8 @@ def cumulatedMassChange(
         step_years_xticks = nyear // 10 if nyear >= 10 else 1
         ax.set_xticks(
             np.arange(
-                int(start_year),
-                int(start_year) + nyear + step_years_xticks,
+                int(begin_t),
+                int(begin_t) + nyear + step_years_xticks,
                 step_years_xticks,
             )
         )

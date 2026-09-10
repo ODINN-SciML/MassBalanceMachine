@@ -21,6 +21,7 @@ import os
 import zipfile
 import urllib.request
 
+import numpy as np
 import pandas as pd
 import geopandas as gpd
 
@@ -143,20 +144,67 @@ def glamos_outline_spec(epoch: int = 1973, dem_source: str = "SRTM", **overrides
     return CustomOutlineSpec(**spec)
 
 
+def _best_window_chain(windows):
+    """Rows of the best set of non-overlapping windows of one glacier.
+
+    Two windows may share a survey year (one ends in 1967, the next starts in 1967):
+    with the 1st-of-January convention of `geodetic_target_GLAMOS` they do not cover a
+    common month. Among all such sets the one kept has **the most windows**, then the
+    **longest total duration**, then the **lowest sum of sigma^2**. Nested windows are
+    never combined, since they are built on the same DEMs and their errors are
+    strongly correlated.
+
+    The search is the classic weighted interval scheduling dynamic program over the
+    windows sorted by end year; a glacier has at most a few dozen windows.
+    """
+    windows = windows.sort_values(["y1", "y0"])
+    y0 = windows.y0.to_numpy()
+    y1 = windows.y1.to_numpy()
+    dur = windows.dur.to_numpy()
+    sigma2 = windows.sigma.fillna(np.inf).to_numpy() ** 2
+
+    # best[i] is the best chain whose last window is i, scored as a tuple compared
+    # lexicographically: (number of windows, total duration, -sum of sigma^2)
+    best = []
+    for i in range(len(windows)):
+        score, chain = (1, dur[i], -sigma2[i]), [i]
+        for j in range(i):
+            if y1[j] <= y0[i]:
+                prev_score, prev_chain = best[j]
+                candidate = (
+                    prev_score[0] + 1,
+                    prev_score[1] + dur[i],
+                    prev_score[2] - sigma2[i],
+                )
+                if candidate > score:
+                    score, chain = candidate, prev_chain + [i]
+        best.append((score, chain))
+    _, chain = max(best, key=lambda b: b[0])
+    return windows.iloc[chain]
+
+
 def select_glamos_windows(
     glamos,
     max_year: int = 2000,
     min_window_years: int = 10,
     min_covered: float = 95,
     min_year: int = None,
+    multi_period: bool = False,
 ):
-    """Pick one geodetic window per SGI entity.
+    """Pick the geodetic windows of every SGI entity.
 
-    A glacier can have dozens of overlapping GLAMOS windows, so one has to be chosen.
-    The rule is **the longest window, ties broken on the lowest reported sigma**:
-    the mismatch between the survey dates and the calendar years the model integrates
-    is a fixed offset in years, so its relative weight falls as the window grows, and
-    the signal-to-noise of a DEM difference improves with the elapsed time.
+    A glacier can have dozens of overlapping GLAMOS windows, so a choice has to be
+    made. By default a single window is kept: **the longest one, ties broken on the
+    lowest reported sigma**. The mismatch between the survey dates and the calendar
+    years the model integrates is a fixed offset in years, so its relative weight
+    falls as the window grows, and the signal-to-noise of a DEM difference improves
+    with the elapsed time.
+
+    With `multi_period` the glacier instead contributes a chain of non-overlapping
+    windows, see `_best_window_chain`. Every window of the chain satisfies the same
+    eligibility criteria, so each is still at least `min_window_years` long, but
+    together they constrain how the mass balance varies within the period rather
+    than only its mean.
 
     Args:
         max_year: every window must end at or before this year. This is what makes a
@@ -167,6 +215,11 @@ def select_glamos_windows(
         min_year: earliest year a window may start at. Set it to the first year of
             the climate forcing, otherwise the windows built on 1850s-1930s maps are
             selected and cannot be modelled.
+        multi_period: keep several non-overlapping windows per glacier instead of the
+            longest one.
+
+    Returns the selected rows indexed by SGI id, sorted by start year within a
+    glacier. The index is unique only without `multi_period`.
     """
     candidates = glamos.loc[
         (glamos.y1 <= max_year)
@@ -175,11 +228,18 @@ def select_glamos_windows(
     ]
     if min_year is not None:
         candidates = candidates.loc[candidates.y0 >= min_year]
-    return (
-        candidates.sort_values(["dur", "sigma"], ascending=[False, True])
-        .drop_duplicates("SGI-ID")
-        .set_index("SGI-ID")
-    )
+    if not multi_period:
+        return (
+            candidates.sort_values(["dur", "sigma"], ascending=[False, True])
+            .drop_duplicates("SGI-ID")
+            .set_index("SGI-ID")
+        )
+    chains = [
+        _best_window_chain(windows) for _, windows in candidates.groupby("SGI-ID")
+    ]
+    if not chains:
+        return candidates.set_index("SGI-ID")
+    return pd.concat(chains).sort_values(["SGI-ID", "y0"]).set_index("SGI-ID")
 
 
 def geodetic_target_GLAMOS(
@@ -188,11 +248,14 @@ def geodetic_target_GLAMOS(
     min_covered: float = 95,
     min_year: int = None,
     sgi_ids_to_keep=None,
+    multi_period: bool = False,
 ):
-    """GLAMOS geodetic targets, one window per SGI entity.
+    """GLAMOS geodetic targets, one window per SGI entity or, with `multi_period`,
+    a chain of non-overlapping windows per entity (see `select_glamos_windows`).
 
     Returns a dataframe shaped like the one `data_processing.pgo.geodetic_target_PGO`
-    returns, so that both can drive the same code path in `GeoDataLoader`:
+    returns, so that both can drive the same code path in `GeoDataLoader`, with one
+    row per window:
 
         RGIId                 the SGI entity id, e.g. "B36-26"
         FROM_DATE, TO_DATE    start and end of the geodetic window
@@ -213,9 +276,10 @@ def geodetic_target_GLAMOS(
         min_window_years=min_window_years,
         min_covered=min_covered,
         min_year=min_year,
+        multi_period=multi_period,
     )
     if sgi_ids_to_keep is not None:
-        chosen = chosen.loc[chosen.index.intersection(list(sgi_ids_to_keep))]
+        chosen = chosen.loc[chosen.index.isin(list(sgi_ids_to_keep))]
 
     df = chosen.reset_index().rename(columns={"SGI-ID": "RGIId"})
     df["FROM_DATE"] = pd.to_datetime(df.y0.astype(str) + "-01-01")
