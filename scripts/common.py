@@ -24,6 +24,11 @@ def parseParams(params):
     Nepochs = int(params["training"].get("Nepochs", 1000))
     source_data = params["training"].get("source_data", "iceland")
     geodetic_source = params["training"].get("geodetic_source", "Hugonnet21")
+    geodetic_source_test = params["training"].get("geodetic_source_test")
+    geodetic_source_options = params["training"].get("geodetic_source_options", {})
+    geodetic_source_test_options = params["training"].get(
+        "geodetic_source_test_options", {}
+    )
     inputs = params["model"].get("inputs") or mbm.dataloader._default_input(source_data)
     batch_size = int(params["training"].get("batch_size", 128))
     weight_decay = float(params["training"].get("weight_decay", 0.0))
@@ -76,6 +81,9 @@ def parseParams(params):
     trainingParams = {
         "source_data": source_data,
         "geodetic_source": geodetic_source,
+        "geodetic_source_options": geodetic_source_options,
+        "geodetic_source_test": geodetic_source_test,
+        "geodetic_source_test_options": geodetic_source_test_options,
         "lr": lr,
         "momentum": momentum,
         "beta1": beta1,
@@ -95,6 +103,7 @@ def parseParams(params):
         "scalingGeo": params["training"].get("scalingGeo", "quad"),
         "bestModelCriterion": params["training"].get("bestModelCriterion", "lossVal"),
         "splitVal": params["training"].get("splitVal", "group-meas-id"),
+        "splitTest": params["training"].get("splitTest", "group-rgi"),
         "freqVal": params["training"].get("freqVal", 1),
         "log_suffix": params["training"].get("log_suffix", ""),
         "log_prefix": params["training"].get("log_prefix", ""),

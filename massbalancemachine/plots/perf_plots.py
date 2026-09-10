@@ -214,6 +214,8 @@ def predVSTruthPerGlacier(
 
     for i, test_gl in enumerate(custom_order):
         df_gl = grouped_ids[grouped_ids[order_key] == test_gl]
+        if df_gl.shape[0] == 0:
+            continue
 
         ax = axs.flatten()[i]
 

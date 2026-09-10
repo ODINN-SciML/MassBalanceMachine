@@ -231,7 +231,10 @@ elif "wgms" in sourceData:
     else:
         rgi_region = None
     datasetManager = mbm.dataloader.SourceManagerWGMS(
-        cfg, params, test_split_on="RGIId", rgi_region=rgi_region
+        cfg,
+        params,
+        test_split_on=params["training"].get("splitTest", "RGIId"),
+        rgi_region=rgi_region,
     )
 train_set, test_set, months_head_pad, months_tail_pad = datasetManager.train_test_sets()
 
@@ -314,6 +317,7 @@ gdl = mbm.dataloader.GeoDataLoader(
     preloadGeodetic=(wGeo > 0 and len(glaciers) < 60),
     allStakesPerIter=(params["training"]["scalingStakes"] == "full"),
     geodeticSource=params["training"]["geodetic_source"],
+    geodeticSourceOptions=params["training"].get("geodetic_source_options"),
 )
 
 
@@ -450,7 +454,10 @@ gdl_test = mbm.dataloader.GeoDataLoader(
     keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
     preloadGeodetic=False,  # wGeo > 0,
     allStakesPerIter=(params["training"]["scalingStakes"] == "full"),
-    geodeticSource=params["training"]["geodetic_source"],
+    geodeticSource=params["training"].get("geodetic_source_test")
+    or params["training"]["geodetic_source"],
+    geodeticSourceOptions=params["training"].get("geodetic_source_test_options")
+    or params["training"].get("geodetic_source_options"),
 )
 
 model.eval()

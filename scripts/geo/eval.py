@@ -223,7 +223,10 @@ elif "wgms" in sourceData:
     else:
         rgi_region = None
     datasetManager = mbm.dataloader.SourceManagerWGMS(
-        cfg, params, test_split_on="RGIId", rgi_region=rgi_region
+        cfg,
+        params,
+        test_split_on=params["training"].get("splitTest", "RGIId"),
+        rgi_region=rgi_region,
     )
 train_set, test_set, months_head_pad, months_tail_pad = datasetManager.train_test_sets()
 
@@ -473,7 +476,10 @@ if len(df_X_test_subset) > 0 and not noTest:
         keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
         allStakesPerIter=(params["training"]["scalingStakes"] == "full"),
         additionalYears=additionalYears,
-        geodeticSource=params["training"]["geodetic_source"],
+        geodeticSource=params["training"].get("geodetic_source_test")
+        or params["training"]["geodetic_source"],
+        geodeticSourceOptions=params["training"].get("geodetic_source_test_options")
+        or params["training"].get("geodetic_source_options"),
     )
 
     grouped_ids = model.evaluate_group_pred(test_gdl)
@@ -746,6 +752,7 @@ train_gdl = mbm.dataloader.GeoDataLoader(
     allStakesPerIter=(params["training"]["scalingStakes"] == "full"),
     additionalYears=additionalYears,
     geodeticSource=params["training"]["geodetic_source"],
+    geodeticSourceOptions=params["training"].get("geodetic_source_options"),
 )
 
 with torch.no_grad():
@@ -1039,6 +1046,7 @@ if onRegion:
         ignoreGlaciers=["RGI60-08.00333", "RGI60-08.02308", "RGI60-08.02550"],
         allStakesPerIter=(params["training"]["scalingStakes"] == "full"),
         geodeticSource=params["training"]["geodetic_source"],
+        geodeticSourceOptions=params["training"].get("geodetic_source_options"),
     )
 
     geoPred, geoTarget, geoErr, _ = mbm.training.eval_geodetic(model, region_gdl)

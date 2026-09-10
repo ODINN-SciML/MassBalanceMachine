@@ -283,12 +283,35 @@ class SourceManager:
         # TODO: add some prints and checks
 
         # Split between train and test sets
-        train_set, test_set = set_dataloader_splits(
-            dataloader,
-            test_split_on=self.test_split_on,
-            test_splits=self.test_glaciers,
-            random_state=self.cfg.seed,
-        )
+        if "YEAR" in self.test_split_on:
+            tmp = self.test_split_on.split(":")
+            year_split = int(tmp[1][1:])
+            split = tmp[1][0]
+            if split == "<":
+                # Train glaciers are before year_split
+                test_split = dataloader.data[
+                    dataloader.data["YEAR"] >= year_split
+                ].YEAR.unique()
+            elif split == ">":
+                # Train glaciers are after year_split
+                test_split = dataloader.data[
+                    dataloader.data["YEAR"] <= year_split
+                ].YEAR.unique()
+            else:
+                raise ValueError(split)
+            train_set, test_set = set_dataloader_splits(
+                dataloader,
+                test_split_on="YEAR",
+                test_splits=test_split,
+                random_state=self.cfg.seed,
+            )
+        else:
+            train_set, test_set = set_dataloader_splits(
+                dataloader,
+                test_split_on=self.test_split_on,
+                test_splits=self.test_glaciers,
+                random_state=self.cfg.seed,
+            )
         return train_set, test_set, months_head_pad, months_tail_pad
 
 
