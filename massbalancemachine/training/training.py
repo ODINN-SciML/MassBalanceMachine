@@ -17,6 +17,7 @@ import git
 import time
 
 from plots import predVSTruth, predVSTruthGlacierWide
+from data_processing.Dataset import Normalizer
 from models.TorchNeuralNetworkRegressor import (
     aggrPredict,
     aggrMetadata,
@@ -182,6 +183,65 @@ def predict_monthly_gridded(model, geoGrid, metadata):
     # Make prediction
     pred = model.forward(geoGrid)[:, 0]
     return pred
+
+
+def ti_intermediates_gridded(model, geo_dataloader, glacierName):
+    """
+    Evaluates the intermediate variables of a TIlike model on the geodetic grid of
+    a glacier.
+
+    Args:
+        model (CustomTorchNeuralNetRegressor): Model whose module is a TILikeModel.
+        geo_dataloader (GeoDataLoader): Dataloader providing the geodetic grid of
+            the glacier.
+        glacierName (str): Glacier to evaluate.
+
+    Returns a pd.DataFrame with one row per grid point and month of the geodetic
+    period. Besides the location and time columns (RGIId, YEAR, MONTHS, POINT_LAT,
+    POINT_LON, POINT_ELEVATION), it contains the downscaled temperature
+    (T_downscaled), the temperature bias (T_bias), the precipitation scaling
+    correction (P_scaling), the bias corrected precipitation (P_corrected) and the
+    accumulation and ablation factors (cor_acc, cor_abl).
+    """
+    module = model.module
+    assert hasattr(
+        module, "get_cor_T"
+    ), f"Model {type(module).__name__} does not expose the intermediate variables of a TIlike model."
+    cfg = geo_dataloader.cfg
+    with torch.no_grad():
+        geoGrid, metadata, _, _, _ = geo_dataloader.geo(glacierName)
+        geoGrid = geoGrid.to(geo_dataloader.device)
+        cor_T, cor_T_val, P, T, _, P_cor, _, _, cor_acc, cor_abl = module.get_cor_T(
+            geoGrid
+        )
+        # P_cor is a scalar when the model has no precipitation bias correction
+        P_scaling = torch.sigmoid(torch.as_tensor(P_cor, device=P.device)).expand_as(P)
+
+        df = pd.DataFrame(
+            {
+                "RGIId": metadata["RGIId"].values,
+                "YEAR": metadata["YEAR"].values,
+                "MONTHS": metadata["MONTHS"].values,
+                "T_downscaled": (T + cor_T).cpu().numpy(),
+                "T_bias": cor_T_val[:, 1].cpu().numpy(),
+                "P_scaling": P_scaling.cpu().numpy(),
+                "P_corrected": (P * P_scaling).cpu().numpy(),
+                "cor_acc": cor_acc.cpu().numpy(),
+                "cor_abl": cor_abl.cpu().numpy(),
+            }
+        )
+        # Location columns that are model inputs are not part of the metadata, so
+        # they are recovered from the normalized features
+        for col in ["POINT_LAT", "POINT_LON", "POINT_ELEVATION"]:
+            if col in metadata.columns:
+                df[col] = metadata[col].values
+            else:
+                df[col] = Normalizer._unorm(
+                    geoGrid[:, cfg.featureColumns.index(col)].cpu().double().numpy(),
+                    cfg.bnds[col][0],
+                    cfg.bnds[col][1],
+                )
+    return df
 
 
 def predict_annual_gridded(model, geoGrid, metadata, precomputed_meta):

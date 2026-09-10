@@ -100,6 +100,13 @@ parser.add_argument(
     help="Years for which to compute the distributed MB. This is also used to generate the annual MB maps.",
 )
 parser.add_argument(
+    "--inspect",
+    dest="inspect",
+    default=[],
+    nargs="+",
+    help="Test glaciers for which to plot the intermediate variables of a TIlike model on the geodetic grid. Figures are saved in <log_dir>/inspect/<RGIId>.",
+)
+parser.add_argument(
     "-o",
     "--overwrite",
     type=str,
@@ -119,6 +126,7 @@ pgo = args.pgo
 color = args.color
 maps = args.maps
 yearsMaps = [int(y) for y in args.years]
+inspectGlaciers = args.inspect
 overwrite = args.overwrite
 pathFolder = os.path.join("logs", modelFolder)
 
@@ -126,6 +134,9 @@ if len(maps) > 0:
     assert (
         len(yearsMaps) > 0
     ), "If distributed maps are generated, the option years must be provided."
+assert not (
+    noTest and len(inspectGlaciers) > 0
+), "Option inspect requires the evaluation on test data."
 
 if not plot:
     # To avoid GC issues because of the threads, we run the script without a GUI
@@ -148,6 +159,9 @@ if overwrite is not None:
 
 featuresInpModel = params["model"]["inputs"]
 sourceData = params["training"]["source_data"]
+assert (
+    len(inspectGlaciers) == 0 or params["model"]["type"] == "TIlike"
+), "Option inspect is only available for TIlike models."
 
 metaData = getMetaData(featuresInpModel, sourceData)
 
@@ -481,6 +495,10 @@ if len(df_X_test_subset) > 0 and not noTest:
         geodeticSourceOptions=params["training"].get("geodetic_source_test_options")
         or params["training"].get("geodetic_source_options"),
     )
+    for rgi_id in inspectGlaciers:
+        assert test_gdl.hasGeo(
+            rgi_id
+        ), f"Glacier {rgi_id} provided in option inspect is not a test glacier with geodetic data."
 
     grouped_ids = model.evaluate_group_pred(test_gdl)
     scores = mbm.metrics.seasonal_scores(
@@ -700,7 +718,99 @@ if len(df_X_test_subset) > 0 and not noTest:
                 plt.close(fig)
     del df_gridded_annual, df_gridded_monthly
 
+    if len(inspectGlaciers) > 0:
+        # Initialize OGGM once for all to avoid repeated and useless computations
+        mbm.data_processing.oggm_utils._initialize_oggm_config("")
+        gdirs = mbm.data_processing.oggm_utils._initialize_glacier_directories(
+            inspectGlaciers, cfg
+        )
+
+        def save_inspect_fig(fig, rgi_id, name):
+            inspectFolder = os.path.join(pathFolder, "inspect", rgi_id)
+            os.makedirs(inspectFolder, exist_ok=True)
+            fig.savefig(os.path.join(inspectFolder, f"{name}.png"))
+            if plot:
+                plt.show()
+            plt.close(fig)
+
+        for rgi_id, gdir in zip(inspectGlaciers, gdirs):
+            print(f"Inspecting intermediate variables of {rgi_id}")
+            df_inter = mbm.training.ti_intermediates_gridded(model, test_gdl, rgi_id)
+            period = f"{df_inter.YEAR.min()}-{df_inter.YEAR.max()}"
+
+            fig = mbm.plots.monthlyProfile(
+                df_inter,
+                "T_downscaled",
+                xlabel="Temperature (°C)",
+                title=f"{rgi_id}\ndownscaled temperature averaged over {period}",
+                lapse_rate_unit="°C/km",
+            )
+            save_inspect_fig(fig, rgi_id, "temperature_downscaled_profile")
+
+            fig = mbm.plots.monthlyMaps(
+                df_inter,
+                "T_downscaled",
+                rgi_id,
+                cfg,
+                gdir=gdir,
+                title=f"{rgi_id}\ndownscaled temperature averaged over {period}",
+                label_cb="Temperature (°C)",
+            )
+            save_inspect_fig(fig, rgi_id, "temperature_downscaled_maps_monthly")
+
+            fig = mbm.plots.periodMap(
+                df_inter,
+                "T_downscaled",
+                rgi_id,
+                cfg,
+                gdir=gdir,
+                title=f"{rgi_id}\ndownscaled temperature averaged over {period}",
+                label_cb="Temperature (°C)",
+            )
+            save_inspect_fig(fig, rgi_id, "temperature_downscaled_map_period")
+
+            fig = mbm.plots.monthlyProfile(
+                df_inter,
+                "T_bias",
+                xlabel="Temperature bias (°C)",
+                title=f"{rgi_id}\ntemperature bias averaged over {period}",
+            )
+            save_inspect_fig(fig, rgi_id, "temperature_bias_profile")
+
+            fig = mbm.plots.monthlyProfile(
+                df_inter,
+                "P_scaling",
+                xlabel="Precipitation scaling correction (-)",
+                title=f"{rgi_id}\nprecipitation scaling correction averaged over {period}",
+            )
+            save_inspect_fig(fig, rgi_id, "precipitation_scaling_profile")
+
+            fig = mbm.plots.monthlyProfile(
+                df_inter,
+                "P_corrected",
+                xlabel="Precipitation (m w.e. month$^{-1}$)",
+                title=f"{rgi_id}\nbias corrected precipitation averaged over {period}",
+            )
+            save_inspect_fig(fig, rgi_id, "precipitation_corrected_profile")
+
+            fig, axs = plt.subplots(1, 2, figsize=(12, 6), sharey=True)
+            mbm.plots.monthlyProfile(
+                df_inter, "cor_acc", ax=axs[0], xlabel="Accumulation factor (-)"
+            )
+            mbm.plots.monthlyProfile(
+                df_inter, "cor_abl", ax=axs[1], xlabel="Ablation factor (-)"
+            )
+            axs[1].set_ylabel(None)
+            fig.suptitle(f"{rgi_id}\nTI factors averaged over {period}")
+            fig.tight_layout()
+            save_inspect_fig(fig, rgi_id, "accumulation_ablation_factors_profile")
+
+            del df_inter
+
 else:
+    assert (
+        len(inspectGlaciers) == 0
+    ), "Option inspect requires test data but the test set is empty."
     resTest = None
 
 

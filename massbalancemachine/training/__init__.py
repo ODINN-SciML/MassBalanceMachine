@@ -5,4 +5,5 @@ from training.training import (
     assessOnTest,
     assessOnVal,
     eval_geodetic,
+    ti_intermediates_gridded,
 )

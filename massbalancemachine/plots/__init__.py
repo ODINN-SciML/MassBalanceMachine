@@ -9,5 +9,6 @@ from plots.profile_plots import profilePerGlacier, profilePerGlacierPerMonth
 from plots.temporal_plots import cumulatedMassChange
 from plots.input_plot import histogram_mb, scatterplot_mb
 from plots.map_plots import mapGlacier, mapGlacierArray
+from plots.ti_plots import monthlyProfile, monthlyMaps, periodMap
 from plots.train_plots import plot_training_history
 from plots.style import use_mbm_style, COLOR_ANNUAL, COLOR_WINTER
