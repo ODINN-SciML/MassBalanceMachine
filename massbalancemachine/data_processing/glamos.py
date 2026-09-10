@@ -25,7 +25,7 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 
-from data_processing.custom_outlines import CustomOutlineSpec
+from data_processing.custom_outlines import CustomOutlineSpec, match_rgi62_by_overlap
 from data_processing.product_utils import data_path
 from data_processing.Product import Product
 from data_processing.glacier_utils import get_region_shape_file
@@ -296,10 +296,11 @@ def table_RGI62_to_GLAMOS(
 ):
     """Crosswalk from RGI 6.2 ids to the SGI entity of one inventory epoch.
 
-    The match is made by **area overlap**, never by name: GLAMOS carries 1,422
-    distinct names and fuzzy matching cannot separate `Feegletscher` from
-    `Feegletscher N`, gives four identical answers for the Clariden ids, and fails
-    outright on Gietro, Murtel and Basodino.
+    The match is made by **area overlap**, never by name, see
+    `custom_outlines.match_rgi62_by_overlap`: GLAMOS carries 1,422 distinct names
+    and fuzzy matching cannot separate `Feegletscher` from `Feegletscher N`, gives
+    four identical answers for the Clariden ids, and fails outright on Gietro,
+    Murtel and Basodino.
 
     The mapping is many RGI ids to one SGI entity, which is the real relation:
     Claridenfirn is one SGI glacier that RGI 6.2 splits into four, and Findel and
@@ -329,26 +330,12 @@ def table_RGI62_to_GLAMOS(
     if p.is_up_to_date():
         return pd.read_csv(save_path)
 
-    sgi = load_sgi_outlines(epoch=epoch).to_crs(SGI_CRS)
-    rgi = gpd.read_file(get_region_shape_file(region_id)).to_crs(sgi.crs)
-    rgi = rgi[["RGIId", "geometry"]].copy()
-    rgi["area_rgi"] = rgi.area / 1e6
-    sgi["area_sgi"] = sgi.area / 1e6
-
-    inter = gpd.overlay(
-        rgi[["RGIId", "area_rgi", "geometry"]],
-        sgi[["SGI", "area_sgi", "geometry"]],
-        how="intersection",
-    )
-    inter["ov"] = inter.area / 1e6
-
-    matches = inter.sort_values("ov", ascending=False).drop_duplicates("RGIId").copy()
-    matches["frac_rgi"] = matches.ov / matches.area_rgi
-    matches["frac_sgi"] = matches.ov / matches.area_sgi
-    matches = matches.loc[
-        matches.frac_rgi >= min_frac_rgi,
-        ["RGIId", "SGI", "area_rgi", "area_sgi", "frac_rgi", "frac_sgi"],
-    ].rename(columns={"SGI": "custom_id"})
+    matches = match_rgi62_by_overlap(
+        load_sgi_outlines(epoch=epoch).to_crs(SGI_CRS),
+        "SGI",
+        gpd.read_file(get_region_shape_file(region_id)),
+        min_frac_rgi=min_frac_rgi,
+    ).rename(columns={"area_custom": "area_sgi", "frac_custom": "frac_sgi"})
 
     matches.to_csv(save_path, index=False)
     p.gen_chk()

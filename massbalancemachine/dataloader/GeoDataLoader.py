@@ -21,6 +21,7 @@ from data_processing.gridded_utils import (
     create_gridded_features_RGI,
     create_gridded_features_PGO,
     create_gridded_features_GLAMOS,
+    create_gridded_features_Rabatel16,
     geodetic_input_Hugonnet21,
     geodetic_target_Hugonnet21,
     geodetic_target_region_Hugonnet21,
@@ -34,6 +35,10 @@ from data_processing.gridded_utils import (
 )
 from data_processing.pgo import pgo_target_file, geodetic_target_PGO, table_RGI62_to_PGO
 from data_processing.glamos import geodetic_target_GLAMOS, table_RGI62_to_GLAMOS
+from data_processing.rabatel16 import (
+    geodetic_target_Rabatel16,
+    table_RGI62_to_Rabatel16,
+)
 from models.TorchNeuralNetworkRegressor import aggrMetadata
 
 
@@ -42,11 +47,12 @@ def isNativeGlacierId(glacierName: str, geodeticSource: str) -> bool:
     `geodeticSource`, and therefore needs no translation from an RGI 6.2 id.
 
     PGO glaciers are named by their RGI v7 id, GLAMOS ones by their SGI id
-    ("B36-26"), which is anything that is not an RGI id.
+    ("B36-26") and Rabatel16 ones by their GLIMS id ("G006985E45951N"), which for
+    the last two is anything that is not an RGI id.
     """
     if geodeticSource == "PGO":
         return glacierName.startswith("RGI2000-v7.0-G-")
-    if geodeticSource == "GLAMOS":
+    if geodeticSource in ("GLAMOS", "Rabatel16"):
         return not glacierName.startswith("RGI")
     return True
 
@@ -74,6 +80,8 @@ def buildGlacierMapping(glacierList, geodeticSource: str):
         table_df = table_RGI62_to_PGO(region_id)
     elif geodeticSource == "GLAMOS":
         table_df = table_RGI62_to_GLAMOS(region_id=region_id)
+    elif geodeticSource == "Rabatel16":
+        table_df = table_RGI62_to_Rabatel16(region_id=region_id)
     else:
         raise ValueError(f"No glacier id mapping available for {geodeticSource}.")
 
@@ -377,18 +385,20 @@ class GeoDataLoader:
         """Prepare a geodetic source whose target covers an arbitrary date window
         rather than a fixed set of calendar years.
 
-        PGO and GLAMOS share this shape: a table with one row per window, each with
-        its own rate, identifiers of their own that the RGI 6.2 glacier list has to
-        be mapped onto, and grids built on the source's own outlines over exactly
-        the years the windows span. PGO has one window per glacier, GLAMOS one or
-        several.
+        PGO, GLAMOS and Rabatel16 share this shape: a table with one row per window,
+        each with its own rate, identifiers of their own that the RGI 6.2 glacier list
+        has to be mapped onto, and grids built on the source's own outlines over
+        exactly the years the windows span. PGO and Rabatel16 have one window per
+        glacier, GLAMOS one or several.
 
         `geodeticSourceOptions` is forwarded to the source's target function. It
         matters for GLAMOS, whose windows reach back to the 19th century: pass
         `min_year` to keep the selection inside the climate forcing, along with
         `max_year`, `min_window_years` and `min_covered` to choose which windows are
         eligible at all, and `multi_period` to keep several windows per glacier
-        (see `data_processing.glamos.select_glamos_windows`).
+        (see `data_processing.glamos.select_glamos_windows`). Rabatel16 requires
+        `start_year` and `end_year`, the hydrological years its annual balances are
+        summed over (see `data_processing.rabatel16.geodetic_target_Rabatel16`).
         """
         source = self.geodeticSource
         assert (
@@ -401,6 +411,9 @@ class GeoDataLoader:
         elif source == "GLAMOS":
             dfGeo = geodetic_target_GLAMOS(**self.geodeticSourceOptions)
             create_gridded_features = create_gridded_features_GLAMOS
+        elif source == "Rabatel16":
+            dfGeo = geodetic_target_Rabatel16(**self.geodeticSourceOptions)
+            create_gridded_features = create_gridded_features_Rabatel16
         else:
             raise ValueError(f"Unknown windowed geodetic source {source}.")
 

@@ -35,6 +35,12 @@ from data_processing.glamos import (
     load_sgi_outlines,
     SWITZERLAND_REGION_ID,
 )
+from data_processing.rabatel16 import (
+    rabatel16_outline_spec,
+    rabatel16_dem_file,
+    load_rabatel16_outlines,
+    FRENCH_ALPS_REGION_ID,
+)
 from data_processing.glacier_utils import (
     create_glacier_grid_RGI,
     create_dem_file_RGI,
@@ -354,6 +360,43 @@ def create_gridded_features_GLAMOS(
     )
 
 
+def create_gridded_features_Rabatel16(
+    cfg,
+    time_ranges,
+    spec=None,
+    multi=True,
+    num_workers=None,
+):
+    """Generate the gridded products of French glaciers on the 1985-86 outlines used
+    by Rabatel et al. (2016), keyed by their GLIMS id.
+
+    Args:
+        time_ranges: {glims_id: [(start_date, end_date), ...]}, the geodetic windows
+            of every glacier.
+        spec (CustomOutlineSpec): description of the outlines, by default
+            `rabatel16_outline_spec()`, which builds the grids on the IGN DEM of the
+            late 1970s.
+        num_workers (int): number of processes to use. Left to None it follows the
+            memory free on the machine, see `parallel_utils.worker_count`.
+    """
+    glims_ids = list(time_ranges.keys())
+    outlines = load_rabatel16_outlines(glacier_ids_to_keep=glims_ids)
+    spec = spec or rabatel16_outline_spec()
+    if spec.dem_file == rabatel16_dem_file(prepare=False):
+        # The IGN DEM OGGM reads is derived from the raw one, and written only once
+        rabatel16_dem_file()
+
+    _create_gridded_features_custom_outlines(
+        cfg,
+        time_ranges,
+        outlines,
+        spec,
+        FRENCH_ALPS_REGION_ID,
+        multi=multi,
+        num_workers=num_workers,
+    )
+
+
 def create_gridded_features_RGI(
     cfg,
     rgi_ids,
@@ -560,6 +603,10 @@ def geodetic_input_GLAMOS(sgi_id, time_range):
     return _geodetic_input_windowed(sgi_id, time_range, "GLAMOS")
 
 
+def geodetic_input_Rabatel16(glims_id, time_range):
+    return _geodetic_input_windowed(glims_id, time_range, "Rabatel16")
+
+
 def geodetic_input_Hugonnet21(
     rgi_id,
     years=range(2000, 2020),
@@ -683,12 +730,13 @@ GEODETIC_INPUT_FN = {
     "Hugonnet21": geodetic_input_Hugonnet21,
     "PGO": geodetic_input_PGO,
     "GLAMOS": geodetic_input_GLAMOS,
+    "Rabatel16": geodetic_input_Rabatel16,
 }
 
 # Sources whose geodetic target covers an arbitrary date window rather than a whole
 # number of calendar years. `years` is then a list of (start, end) tuples, one per
 # geodetic window of the glacier.
-WINDOWED_SOURCES = {"PGO", "GLAMOS"}
+WINDOWED_SOURCES = {"PGO", "GLAMOS", "Rabatel16"}
 
 
 def _check_product_source(product_source):

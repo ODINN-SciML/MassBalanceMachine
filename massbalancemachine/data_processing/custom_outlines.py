@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from typing import Optional, Union
 
 import geopandas as gpd
+import pandas as pd
 from pyproj import CRS
 import oggm.utils
 
@@ -159,6 +160,52 @@ def _utm_crs_of(outlines: gpd.GeoDataFrame) -> CRS:
     return CRS.from_dict(
         {"proj": "utm", "zone": zone_number, "south": centroid_lat < 0}
     )
+
+
+def match_rgi62_by_overlap(
+    outlines: gpd.GeoDataFrame,
+    id_column: str,
+    rgi62: gpd.GeoDataFrame,
+    min_frac_rgi: float = 0.5,
+) -> pd.DataFrame:
+    """Crosswalk from RGI 6.2 ids to the entities of a custom inventory.
+
+    The match is made by **area overlap**, never by name: names are spelled
+    differently from one inventory to the next and do not separate neighbouring
+    glaciers. Every RGI outline is given the entity it overlaps most, so the mapping
+    is many RGI ids to one entity, which is the real relation whenever the custom
+    inventory predates a glacier splitting into several.
+
+    Args:
+        outlines: the custom outlines, in a projected CRS with metres as unit, one
+            row per entity and carrying `id_column`.
+        id_column: column of `outlines` holding the entity id.
+        rgi62: the RGI 6.2 outlines to match, in any CRS.
+        min_frac_rgi: an RGI outline is accepted as belonging to an entity only if
+            at least this fraction of it lies inside, which removes largest-overlap
+            matches that are really no match at all.
+
+    Returns a dataframe with columns RGIId, custom_id (the entity id), area_rgi,
+    area_custom, frac_rgi, frac_custom, the areas being in km².
+    """
+    assert (
+        outlines.crs.is_projected
+    ), "The outlines must be in a projected CRS for their areas to be meaningful."
+    custom = outlines[[id_column, "geometry"]].rename(columns={id_column: "custom_id"})
+    custom["area_custom"] = custom.area / 1e6
+    rgi = rgi62[["RGIId", "geometry"]].to_crs(outlines.crs)
+    rgi["area_rgi"] = rgi.area / 1e6
+
+    inter = gpd.overlay(rgi, custom, how="intersection")
+    inter["ov"] = inter.area / 1e6
+
+    matches = inter.sort_values("ov", ascending=False).drop_duplicates("RGIId").copy()
+    matches["frac_rgi"] = matches.ov / matches.area_rgi
+    matches["frac_custom"] = matches.ov / matches.area_custom
+    return matches.loc[
+        matches.frac_rgi >= min_frac_rgi,
+        ["RGIId", "custom_id", "area_rgi", "area_custom", "frac_rgi", "frac_custom"],
+    ]
 
 
 def build_custom_gdirs(outlines: gpd.GeoDataFrame, spec: CustomOutlineSpec):

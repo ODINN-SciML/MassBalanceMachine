@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import rasterio
 import xarray as xr
 from oggm import workflow, tasks
 from oggm import cfg as oggmCfg
@@ -37,6 +38,27 @@ def _initialize_glacier_directories(rgi_ids_list: list, cfg: config.Config) -> l
     return glacier_directories
 
 
+def check_elevation_raster(path: str):
+    """Refuse a raster that cannot be a DEM.
+
+    OGGM reads the first band of a user DEM as elevations. Given a rendered image of a
+    DEM - grey levels stretched to 0-255 in 8-bit bands - it fails on the nodata value
+    of `define_glacier_region`, but `continue_on_error` swallows that and the run only
+    breaks later on a missing `gridded_data.nc`, far from the cause. The same image
+    converted to another data type would not fail at all: the glaciers would lie
+    between 0 and 255 m and every feature derived from the DEM would be wrong.
+    """
+    with rasterio.open(path) as src:
+        dtype = src.dtypes[0]
+        assert src.count == 1 and dtype != "uint8", (
+            f"{path} does not look like an elevation raster: it has {src.count} "
+            f"band(s) of {dtype} with colour interpretation "
+            f"{[c.name for c in src.colorinterp]}. This is typically a rendered image "
+            "of the DEM rather than the DEM itself; a single band of elevations is "
+            "expected."
+        )
+
+
 def _define_glacier_region_with_dem(gdirs, dem_source, dem_file):
     """Run `tasks.define_glacier_region` on `gdirs` with the requested DEM.
 
@@ -51,6 +73,10 @@ def _define_glacier_region_with_dem(gdirs, dem_source, dem_file):
             tasks.define_glacier_region, gdirs, source=dem_source
         )
         return
+
+    paths = set(dem_file.values()) if isinstance(dem_file, dict) else {dem_file}
+    for path in paths:
+        check_elevation_raster(path)
 
     prev_dem_file = oggmCfg.PATHS.get("dem_file", "")
     try:
