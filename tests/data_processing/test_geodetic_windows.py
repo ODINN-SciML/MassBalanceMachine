@@ -57,6 +57,29 @@ def test_single_period_keeps_the_longest_window():
     assert selected.loc["B"].sigma == 0.1
 
 
+def test_single_period_can_break_ties_on_the_most_recent_window():
+    glamos = _glamos_table(
+        [
+            ("A", 1956, 1980, 0.1),
+            ("A", 1970, 1994, 0.3),
+            ("A", 1960, 1984, 0.2),
+            # the same window twice: sigma still decides
+            ("B", 1960, 1990, 0.2),
+            ("B", 1960, 1990, 0.1),
+            ("B", 1950, 1980, 0.05),
+        ]
+    )
+    selected = select_glamos_windows(
+        glamos, max_year=2000, min_window_years=10, tie_break="recent"
+    )
+    assert selected.index.is_unique
+    assert _chain(selected, "A") == [(1970, 1994)]
+    assert _chain(selected, "B") == [(1960, 1990)]
+    assert selected.loc["B"].sigma == 0.1
+    with pytest.raises(AssertionError):
+        select_glamos_windows(glamos, tie_break="longest")
+
+
 def test_multi_period_chains_non_overlapping_windows():
     glamos = _glamos_table(
         [

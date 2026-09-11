@@ -190,15 +190,16 @@ def select_glamos_windows(
     min_covered: float = 95,
     min_year: int = None,
     multi_period: bool = False,
+    tie_break: str = "sigma",
 ):
     """Pick the geodetic windows of every SGI entity.
 
     A glacier can have dozens of overlapping GLAMOS windows, so a choice has to be
     made. By default a single window is kept: **the longest one, ties broken on the
-    lowest reported sigma**. The mismatch between the survey dates and the calendar
-    years the model integrates is a fixed offset in years, so its relative weight
-    falls as the window grows, and the signal-to-noise of a DEM difference improves
-    with the elapsed time.
+    lowest reported sigma**, or on the most recent window with `tie_break="recent"`.
+    The mismatch between the survey dates and the calendar years the model integrates
+    is a fixed offset in years, so its relative weight falls as the window grows, and
+    the signal-to-noise of a DEM difference improves with the elapsed time.
 
     With `multi_period` the glacier instead contributes a chain of non-overlapping
     windows, see `_best_window_chain`. Every window of the chain satisfies the same
@@ -217,10 +218,17 @@ def select_glamos_windows(
             selected and cannot be modelled.
         multi_period: keep several non-overlapping windows per glacier instead of the
             longest one.
+        tie_break: how the single window is chosen among the longest ones, "sigma"
+            for the lowest sigma, "recent" for the latest one, then the lowest sigma.
+            Ignored with `multi_period`.
 
     Returns the selected rows indexed by SGI id, sorted by start year within a
     glacier. The index is unique only without `multi_period`.
     """
+    tie_break_keys = {"sigma": ["sigma"], "recent": ["y1", "y0", "sigma"]}
+    assert (
+        tie_break in tie_break_keys
+    ), f"tie_break must be one of {sorted(tie_break_keys)}, not {tie_break!r}."
     candidates = glamos.loc[
         (glamos.y1 <= max_year)
         & (glamos.dur >= min_window_years)
@@ -229,8 +237,9 @@ def select_glamos_windows(
     if min_year is not None:
         candidates = candidates.loc[candidates.y0 >= min_year]
     if not multi_period:
+        keys = ["dur"] + tie_break_keys[tie_break]
         return (
-            candidates.sort_values(["dur", "sigma"], ascending=[False, True])
+            candidates.sort_values(keys, ascending=[k == "sigma" for k in keys])
             .drop_duplicates("SGI-ID")
             .set_index("SGI-ID")
         )
@@ -249,6 +258,7 @@ def geodetic_target_GLAMOS(
     min_year: int = None,
     sgi_ids_to_keep=None,
     multi_period: bool = False,
+    tie_break: str = "sigma",
 ):
     """GLAMOS geodetic targets, one window per SGI entity or, with `multi_period`,
     a chain of non-overlapping windows per entity (see `select_glamos_windows`).
@@ -277,6 +287,7 @@ def geodetic_target_GLAMOS(
         min_covered=min_covered,
         min_year=min_year,
         multi_period=multi_period,
+        tie_break=tie_break,
     )
     if sgi_ids_to_keep is not None:
         chosen = chosen.loc[chosen.index.isin(list(sgi_ids_to_keep))]
