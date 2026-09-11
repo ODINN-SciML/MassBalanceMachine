@@ -1,9 +1,12 @@
 """Tests of the source-agnostic helpers used by the custom outline datasets (GLAMOS,
-Rabatel16): the crosswalk from RGI 6.2 ids by area overlap, and the check that a
-user-supplied DEM holds elevations.
+Rabatel16): the crosswalk from RGI 6.2 ids by area overlap, the check that a
+user-supplied DEM holds elevations, and the specification stored next to the products.
 
 None of them needs downloaded data: the outlines and the rasters are synthetic.
 """
+
+import json
+import os
 
 import numpy as np
 import geopandas as gpd
@@ -12,8 +15,15 @@ import rasterio
 from rasterio.transform import from_origin
 from shapely.geometry import box
 
-from data_processing.custom_outlines import match_rgi62_by_overlap
+from data_processing.custom_outlines import (
+    SPEC_FILE,
+    CustomOutlineSpec,
+    assert_spec_matches,
+    match_rgi62_by_overlap,
+    portable_path,
+)
 from data_processing.oggm_utils import check_elevation_raster
+from data_processing.product_utils import data_path
 
 UTM32N = "EPSG:32632"
 
@@ -101,3 +111,36 @@ def test_elevation_raster_refuses_a_rendered_image(tmp_path):
     grey = _write_raster(tmp_path / "grey.tif", [180], "uint8")
     with pytest.raises(AssertionError, match="rendered image"):
         check_elevation_raster(grey)
+
+
+def test_portable_path_is_relative_to_the_data_folder():
+    inside = os.path.join(data_path, "Rabatel16", "dem.tif")
+    assert portable_path(inside) == os.path.join("Rabatel16", "dem.tif")
+    # The same file in a `.data` tree generated on another machine
+    assert portable_path(
+        "/home/someone/MassBalanceMachine/.data/Rabatel16/dem.tif"
+    ) == (os.path.join("Rabatel16", "dem.tif"))
+    # A raster outside any `.data` tree is left as it is
+    assert portable_path("/srv/dems/dem.tif") == "/srv/dems/dem.tif"
+
+
+def test_stored_spec_is_portable_across_machines(tmp_path):
+    spec = CustomOutlineSpec(
+        name="Test", dem_file=os.path.join(data_path, "Test", "dem.tif")
+    )
+    assert_spec_matches(spec, str(tmp_path))
+    with open(tmp_path / SPEC_FILE) as f:
+        assert json.load(f)["dem_file"] == os.path.join("Test", "dem.tif")
+
+    # A spec written by an earlier version on another machine, with an absolute path
+    stored = {**spec.fingerprint(), "dem_file": "/elsewhere/repo/.data/Test/dem.tif"}
+    with open(tmp_path / SPEC_FILE, "w") as f:
+        json.dump(stored, f)
+    assert_spec_matches(spec, str(tmp_path))
+
+    # ... but another DEM is still refused
+    other = CustomOutlineSpec(
+        name="Test", dem_file=os.path.join(data_path, "Test", "other_dem.tif")
+    )
+    with pytest.raises(ValueError, match="dem_file"):
+        assert_spec_matches(other, str(tmp_path))

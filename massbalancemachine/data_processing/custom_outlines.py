@@ -92,6 +92,8 @@ class CustomOutlineSpec:
         """The fields that change what the glacier directories and the grids
         contain. `working_dir` and `reset` say where and how the work is done, not
         what comes out of it, so they are left out.
+
+        A DEM file inside `.data/` is recorded relative to it, see `portable_path`.
         """
         return {
             "id_column": self.id_column,
@@ -100,8 +102,38 @@ class CustomOutlineSpec:
             "src_date": self.src_date,
             "bgndate": self.bgndate,
             "dem_source": self.dem_source,
-            "dem_file": self.dem_file,
+            "dem_file": _portable_dem_file(self.dem_file),
         }
+
+
+def portable_path(path: str) -> str:
+    """`path` relative to `.data/` when it lies inside it, unchanged otherwise.
+
+    A `.data/` tree is copied from one machine to another as it is, so a path stored
+    next to its products must not depend on where the tree sits. An absolute path
+    written by an earlier version of this module, possibly on another machine, is
+    recognised by its `.data` component and brought to the same relative form.
+    """
+    resolved = os.path.abspath(path)
+    root = os.path.abspath(data_path)
+    if os.path.commonpath([resolved, root]) == root:
+        return os.path.relpath(resolved, root)
+    parts = os.path.normpath(path).split(os.sep)
+    marker = os.path.basename(root)
+    if os.path.isabs(path) and marker in parts:
+        last = len(parts) - 1 - parts[::-1].index(marker)
+        return os.path.join(*parts[last + 1 :])
+    return path
+
+
+def _portable_dem_file(dem_file):
+    """`CustomOutlineSpec.dem_file`, one path or a {glacier_id: path} mapping, in the
+    `portable_path` form."""
+    if isinstance(dem_file, dict):
+        return {k: portable_path(v) for k, v in dem_file.items()}
+    if dem_file is not None:
+        return portable_path(dem_file)
+    return None
 
 
 SPEC_FILE = "mbm_outline_spec.json"
@@ -128,6 +160,8 @@ def assert_spec_matches(
     if os.path.exists(path) and not overwrite:
         with open(path) as f:
             stored = json.load(f)
+        # A spec written with an absolute DEM path, before `portable_path`, still matches
+        stored["dem_file"] = _portable_dem_file(stored.get("dem_file"))
         differing = {
             k: (stored.get(k), v) for k, v in fingerprint.items() if stored.get(k) != v
         }
