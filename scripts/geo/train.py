@@ -314,7 +314,7 @@ gdl = mbm.dataloader.GeoDataLoader(
     months_tail_pad=months_tail_pad,
     valStakesDf=df_X_val,
     keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
-    preloadGeodetic=(wGeo > 0 and len(glaciers) < 60),
+    preloadGeodetic=False,  # TODO: add an option to control this,#(wGeo > 0 and len(glaciers) < 60),
     allStakesPerIter=(params["training"]["scalingStakes"] == "full"),
     geodeticSource=params["training"]["geodetic_source"],
     geodeticSourceOptions=params["training"].get("geodetic_source_options"),
