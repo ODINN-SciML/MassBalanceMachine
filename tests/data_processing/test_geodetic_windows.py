@@ -1,11 +1,17 @@
 """Tests of the support for several geodetic windows per glacier: the choice of the
 GLAMOS windows, the weights that turn the monthly predictions into the rate of every
-window, and the geodetic loss built on them.
+window, the geodetic loss built on them, and the cumulated mass change plot that
+compares every window with its target.
 
 None of them needs downloaded data: the GLAMOS table and the grid metadata are
 synthetic.
 """
 
+import matplotlib
+
+matplotlib.use("Agg")
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
@@ -17,6 +23,7 @@ from data_processing.gridded_utils import (
     _period_key,
     geodetic_window_weights,
 )
+from plots.temporal_plots import cumulatedMassChange, window_cumulated_pred
 from training.training import timeWindowGeodeticLoss
 
 
@@ -190,3 +197,73 @@ def test_loss_has_one_term_per_window():
     loss, ypred = timeWindowGeodeticLoss(pred, target, sigma, weights, windows, "quad")
     torch.testing.assert_close(ypred, torch.tensor([12.0, 24.0]))
     torch.testing.assert_close(loss, torch.tensor([4.0, 4.0]))
+
+
+def _two_window_glacier():
+    """Monthly glacier-wide predictions of one glacier over two back-to-back windows,
+    1960-1970 and 1970-1990, as `eval_geodetic` returns them: every month is -0.1
+    m w.e. in the first window and -0.05 in the second."""
+    meta = _monthly_metadata(range(1960, 1990))
+    meta["RGIId"] = "A"
+    meta["pred"] = np.where(meta.YEAR < 1970, -0.1, -0.05)
+    windows = [
+        (pd.Timestamp("1960-01-01"), pd.Timestamp("1970-01-01")),
+        (pd.Timestamp("1970-01-01"), pd.Timestamp("1990-01-01")),
+    ]
+    return meta, windows
+
+
+def test_cumulated_pred_starts_from_zero_in_every_window():
+    meta, windows = _two_window_glacier()
+    meta["MONTH_INDEX"] = meta.YEAR * 12 + meta.MONTHS.map(MONTH_TO_ID) - 1
+    rates = geodetic_window_weights(meta, windows) @ meta.pred.to_numpy()
+    np.testing.assert_allclose(rates, [-1.2, -0.6], rtol=1e-6)
+
+    for (start, end), rate in zip(windows, rates):
+        lo, hi = start.year * 12, end.year * 12
+        t, c = window_cumulated_pred(meta, lo, hi)
+        assert t[0] == start.year and c[0] == 0
+        assert t[-1] == end.year
+        # the cumulated MB at the end of a window is the rate the geodetic loss
+        # compares with the target, times the length of the window, and owes nothing
+        # to the previous window
+        np.testing.assert_allclose(c[-1], rate * (end.year - start.year), rtol=1e-6)
+
+
+def test_cumulated_mass_change_compares_every_window_with_its_own_target():
+    meta, windows = _two_window_glacier()
+    geo = {
+        "A": {
+            "start": [w[0] for w in windows],
+            "end": [w[1] for w in windows],
+            # the prediction matches the first target, and misses the second one
+            "mean": np.array([-1.2, -0.8]),
+            "err": np.array([0.1, 0.1]),
+        }
+    }
+    fig, ax = plt.subplots(1, 1)
+    cumulatedMassChange(meta, geo=geo, axs=[ax], color_pred="b", color_obs="k")
+    pred = [l for l in ax.lines if l.get_color() == "b"]
+    obs = [l for l in ax.lines if l.get_color() == "k"]
+    plt.close(fig)
+
+    assert len(pred) == len(obs) == 2
+    for p, o, (start, end) in zip(pred, obs, windows):
+        assert p.get_xdata()[0] == o.get_xdata()[0] == start.year
+        assert p.get_xdata()[-1] == o.get_xdata()[-1] == end.year
+        assert p.get_ydata()[0] == o.get_ydata()[0] == 0
+    np.testing.assert_allclose(pred[0].get_ydata()[-1], -12.0, rtol=1e-6)
+    np.testing.assert_allclose(obs[0].get_ydata()[-1], -12.0, rtol=1e-6)
+    # the second window is not shifted by what was lost in the first one
+    np.testing.assert_allclose(pred[1].get_ydata()[-1], -12.0, rtol=1e-6)
+    np.testing.assert_allclose(obs[1].get_ydata()[-1], -16.0, rtol=1e-6)
+
+
+def test_cumulated_mass_change_without_geodetic_data_cumulates_everything():
+    meta, _ = _two_window_glacier()
+    fig, ax = plt.subplots(1, 1)
+    cumulatedMassChange(meta, axs=[ax], color_pred="b")
+    (pred,) = ax.lines
+    plt.close(fig)
+    assert pred.get_xdata()[0] == 1960 and pred.get_xdata()[-1] == 1990
+    np.testing.assert_allclose(pred.get_ydata()[-1], -24.0, rtol=1e-6)
