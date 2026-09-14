@@ -53,6 +53,7 @@ from data_processing.custom_outlines import CustomOutlineSpec, match_rgi62_by_ov
 from data_processing.product_utils import data_path
 from data_processing.Product import Product
 from data_processing.glacier_utils import get_region_shape_file
+from data_processing.utils.years import contiguous_year_runs
 
 # The French Alps are entirely inside RGI region 11 (Central Europe), second-order
 # region 11-01 (Alps).
@@ -439,7 +440,9 @@ def period_sigma_mwe_per_year(n_years: int):
     )
 
 
-def period_smb_to_window(smb: pd.DataFrame, start_year: int, end_year: int):
+def period_smb_to_window(
+    smb: pd.DataFrame, start_year: int, end_year: int, verbose: bool = True
+):
     """Sum the annual glacier-wide balances of every glacier over one period.
 
     The period runs over the hydrological years `start_year` to `end_year` included,
@@ -463,7 +466,7 @@ def period_smb_to_window(smb: pd.DataFrame, start_year: int, end_year: int):
         n_years=("year", "nunique"), cumulative_mwe=("smb", "sum")
     )
     complete = per_glacier.n_years == n_years
-    if not complete.all():
+    if not complete.all() and verbose:
         incomplete = per_glacier[~complete].reset_index()
         print(
             f"Rabatel16: {len(incomplete)} glacier(s) without a balance for every "
@@ -480,10 +483,49 @@ def period_smb_to_window(smb: pd.DataFrame, start_year: int, end_year: int):
     return df.sort_values("RGIId").reset_index(drop=True)
 
 
+def periods_from_allowed_years(
+    allowed_years, available_years, min_period_years: int = 5
+):
+    """Hydrological-year periods of the series that fit inside `allowed_years`.
+
+    A period over the hydrological years `s .. e` runs from the 1st of October of
+    `s - 1` to the 1st of October of `e`, so it touches the calendar years `s - 1 .. e`
+    and fits inside a run of allowed calendar years `a .. b` when `s >= a + 1` and
+    `e <= b`. Each maximal run therefore gives at most one period, the widest one, cut
+    down to the years the series actually holds.
+
+    Unlike GLAMOS this needs no tolerance on the boundary: the balances are annual, so
+    a period can stop exactly where the allowed years stop, while a GLAMOS window is
+    fixed by its survey dates and may have to cross by a year or two.
+
+    Args:
+        allowed_years: the calendar years one side of a split owns.
+        available_years: the hydrological years the series holds.
+        min_period_years: periods shorter than this are dropped.
+
+    Returns a list of (start_year, end_year) pairs, sorted.
+    """
+    available = {int(y) for y in available_years}
+    if not available:
+        return []
+    first_available, last_available = min(available), max(available)
+    periods = []
+    for first, last in contiguous_year_runs(allowed_years):
+        start = max(first + 1, first_available)
+        end = min(last, last_available)
+        if end - start + 1 >= min_period_years:
+            periods.append((start, end))
+    return periods
+
+
 def geodetic_target_Rabatel16(
-    start_year: int,
-    end_year: int,
+    start_year: int = None,
+    end_year: int = None,
     glacier_ids_to_keep=None,
+    allowed_years=None,
+    min_period_years: int = 5,
+    smb=None,
+    verbose: bool = True,
 ):
     """Mass balance of French glaciers over the hydrological years `start_year` to
     `end_year`, summed from their annual glacier-wide balances (see
@@ -501,17 +543,68 @@ def geodetic_target_Rabatel16(
                               slightly more over a shorter period, see
                               `period_sigma_mwe_per_year`
 
+    With `allowed_years` the period is not given but derived: the series is summed over
+    every period that fits inside those years, one row per period and per glacier, which
+    is how one side of a split by year gets its own targets. See
+    `periods_from_allowed_years`.
+
     Args:
         start_year, end_year: first and last hydrological year of the period, each
             ending in September of that year. The grids are built on the 1985
             outlines, so the further the period is from 1985, the more the glacier it
             describes differs from the one modelled.
         glacier_ids_to_keep: GLIMS ids to restrict the target to.
+        allowed_years: calendar years the periods may touch, instead of `start_year`
+            and `end_year`.
+        min_period_years: with `allowed_years`, shortest period to keep.
+        smb: the annual balances, read and filtered by `load_rabatel16_smb` when they
+            are not given. Pass them to call this repeatedly, for instance once per
+            candidate of a split search.
+        verbose: report the glaciers and the periods left out. Worth turning off in a
+            search, which calls this once per candidate.
     """
-    smb = load_rabatel16_smb()
+    smb = load_rabatel16_smb() if smb is None else smb
     if glacier_ids_to_keep is not None:
         smb = smb[smb.GLIMS_ID.isin(list(glacier_ids_to_keep))]
-    return period_smb_to_window(smb, start_year, end_year)
+
+    if allowed_years is None:
+        assert (
+            start_year is not None and end_year is not None
+        ), "Give either start_year and end_year, or allowed_years."
+        return period_smb_to_window(smb, start_year, end_year, verbose=verbose)
+
+    assert (
+        start_year is None and end_year is None
+    ), "allowed_years replaces start_year and end_year."
+    periods = periods_from_allowed_years(
+        allowed_years, smb.year, min_period_years=min_period_years
+    )
+    if len(periods) == 0:
+        if verbose:
+            print(
+                "Rabatel16: no period of at least "
+                f"{min_period_years} years fits in the years given, no target."
+            )
+        return pd.DataFrame(
+            columns=[
+                "RGIId",
+                "name",
+                "n_years",
+                "cumulative_mwe",
+                "FROM_DATE",
+                "TO_DATE",
+                "mwe_per_year",
+                "sigma_mwe_per_year",
+            ]
+        )
+    windows = pd.concat(
+        [
+            period_smb_to_window(smb, start, end, verbose=verbose)
+            for start, end in periods
+        ],
+        ignore_index=True,
+    )
+    return windows.sort_values(["RGIId", "FROM_DATE"]).reset_index(drop=True)
 
 
 def table_RGI62_to_Rabatel16(

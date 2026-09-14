@@ -246,12 +246,14 @@ data_train["y"] = train_set["y"]
 setFeatures(cfg, data_train, featuresInpModel)
 split_key = params["training"].get("splitVal", "group-meas-id")
 val_glaciers = params["training"].get("val_glaciers", None)
+val_years = params["training"].get("val_years", None)
 df_X_train, y_train, df_X_val, y_val = trainValData(
     cfg,
     train_set,
     featuresInpModel,
     split_key=split_key,
     val_glaciers=val_glaciers,
+    val_years=val_years,
 )
 tot = df_X_train.ID.nunique() + df_X_val.ID.nunique() + test_set["df_X"].ID.nunique()
 print(
@@ -301,23 +303,38 @@ elif "wgms" in sourceData:
     if params["training"]["splitVal"] == "group-rgi":
         glaciers = list(set(glaciers).difference(glaciersVal))
 if wGeo:
-    assert (
-        params["training"]["splitVal"] == "group-rgi"
-    ), "With the geodetic training, only glacier split is available for the moment."
-gdl = mbm.dataloader.GeoDataLoader(
-    cfg,
-    glaciers,
-    device=device,
-    trainStakesDf=df_X_train,
-    glacierListVal=glaciersVal,
-    months_head_pad=months_head_pad,
-    months_tail_pad=months_tail_pad,
-    valStakesDf=df_X_val,
-    keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
-    preloadGeodetic=False,  # TODO: add an option to control this,#(wGeo > 0 and len(glaciers) < 60),
-    allStakesPerIter=(params["training"]["scalingStakes"] == "full"),
-    geodeticSource=params["training"]["geodetic_source"],
-    geodeticSourceOptions=params["training"].get("geodetic_source_options"),
+    assert params["training"]["splitVal"] in (
+        "group-rgi",
+        "group-year",
+    ), "With the geodetic training, only the glacier and the year splits are available."
+
+
+# The two sides get a dataloader of their own. With a split per year the same glacier
+# carries a geodetic window on each side, over different periods, which one dataloader
+# could not hold: its geodetic data is keyed by glacier. `geodetic_source_options_val`
+# is what restricts the validation windows to the validation years.
+def buildGeoDataLoader(glacierList, stakesDf, sourceOptions):
+    return mbm.dataloader.GeoDataLoader(
+        cfg,
+        glacierList,
+        device=device,
+        trainStakesDf=stakesDf,
+        months_head_pad=months_head_pad,
+        months_tail_pad=months_tail_pad,
+        keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
+        preloadGeodetic=False,  # TODO: add an option to control this,#(wGeo > 0 and len(glaciers) < 60),
+        allStakesPerIter=(params["training"]["scalingStakes"] == "full"),
+        geodeticSource=params["training"]["geodetic_source"],
+        geodeticSourceOptions=sourceOptions,
+    )
+
+
+geodeticSourceOptions = params["training"].get("geodetic_source_options")
+gdl = buildGeoDataLoader(glaciers, df_X_train, geodeticSourceOptions)
+gdlVal = buildGeoDataLoader(
+    glaciersVal,
+    df_X_val,
+    params["training"].get("geodetic_source_options_val") or geodeticSourceOptions,
 )
 
 
@@ -402,6 +419,7 @@ ret = mbm.training.train_geo(
     timeExec=timeExec,
     useProfiler=prof,
     multi=multi,
+    geodataloaderVal=gdlVal,
 )
 
 print()
@@ -464,7 +482,7 @@ model.eval()
 with torch.no_grad():
     print("Computing performance on test set")
     resTest = mbm.training.assessOnTest(ret["misc"]["log_dir"], model, gdl_test, params)
-    resVal = mbm.training.assessOnVal(model, gdl, params)
+    resVal = mbm.training.assessOnVal(model, gdlVal, params, separateLoader=True)
     with open(os.path.join(ret["misc"]["log_dir"], "perf.json"), "w") as f:
         json.dump({"test": resTest, "val": resVal}, f, indent=4)
 print("Performance:")

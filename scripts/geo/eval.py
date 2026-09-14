@@ -253,12 +253,14 @@ data_test["y"] = test_set["y"]
 setFeatures(cfg, data_train, featuresInpModel)
 split_key = params["training"].get("splitVal", "group-meas-id")
 val_glaciers = params["training"].get("val_glaciers", None)
+val_years = params["training"].get("val_years", None)
 df_X_train, y_train, df_X_val, y_val = trainValData(
     cfg,
     train_set,
     featuresInpModel,
     split_key=split_key,
     val_glaciers=val_glaciers,
+    val_years=val_years,
 )
 df_X_test_subset = testData(cfg, test_set, featuresInpModel)
 
@@ -810,31 +812,42 @@ if len(train_glacierNames) > 0 and len(test_glacierNames) > 0:
     with open(os.path.join(pathFolder, "glacierNames.json"), "w") as f:
         json.dump(glacierNames, f, indent=4, sort_keys=True)
 
-# Create dataloader
-train_gdl = mbm.dataloader.GeoDataLoader(
-    cfg,
-    train_glaciers,
-    device=device,
-    trainStakesDf=df_X_train,
-    glacierListVal=valid_glaciers,
-    months_head_pad=months_head_pad,
-    months_tail_pad=months_tail_pad,
-    valStakesDf=df_X_val,
-    keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
-    allStakesPerIter=(params["training"]["scalingStakes"] == "full"),
-    additionalYears=additionalYears,
-    geodeticSource=params["training"]["geodetic_source"],
-    geodeticSourceOptions=params["training"].get("geodetic_source_options"),
+
+# Create dataloaders, one per side: with a split per year the same glacier carries a
+# geodetic window on each side, over different periods, which one dataloader cannot hold
+def buildGeoDataLoader(glacierList, stakesDf, sourceOptions):
+    return mbm.dataloader.GeoDataLoader(
+        cfg,
+        glacierList,
+        device=device,
+        trainStakesDf=stakesDf,
+        months_head_pad=months_head_pad,
+        months_tail_pad=months_tail_pad,
+        keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
+        allStakesPerIter=(params["training"]["scalingStakes"] == "full"),
+        additionalYears=additionalYears,
+        geodeticSource=params["training"]["geodetic_source"],
+        geodeticSourceOptions=sourceOptions,
+    )
+
+
+geodeticSourceOptions = params["training"].get("geodetic_source_options")
+train_gdl = buildGeoDataLoader(train_glaciers, df_X_train, geodeticSourceOptions)
+val_gdl = buildGeoDataLoader(
+    valid_glaciers,
+    df_X_val,
+    params["training"].get("geodetic_source_options_val") or geodeticSourceOptions,
 )
 
 with torch.no_grad():
-    resVal = mbm.training.assessOnVal(model, train_gdl, params)
+    resVal = mbm.training.assessOnVal(model, val_gdl, params, separateLoader=True)
     with open(os.path.join(pathFolder, "perf.json"), "w") as f:
         json.dump({"test": resTest, "val": resVal}, f, indent=4)
 
-# PMB predictions
+# PMB predictions. The validation dataloader holds the validation stakes as its own
+# stake data, so they are read through its train-side accessor.
 grouped_ids_train = model.evaluate_group_pred(train_gdl)
-grouped_ids_valid = model.evaluate_group_pred(train_gdl, val=True)
+grouped_ids_valid = model.evaluate_group_pred(val_gdl)
 
 # PMB train
 scores_train = mbm.metrics.seasonal_scores(
@@ -988,18 +1001,49 @@ def callback_save_geodetic_monthly(g, df):
     )
 
 
+# Both sides are evaluated, each through its own dataloader, and reported together as
+# before. A glacier of both sides appears twice, its validation entry marked as such.
 geoPred, geoTarget, geoErr, dict_df_gridded = mbm.training.eval_geodetic(
     model,
     train_gdl,
     return_grid_pred=["annual", "monthly"],
     callback_annual=(callback_save_geodetic_annual if savePred else None),
     callback_monthly=(callback_save_geodetic_monthly if savePred else None),
-    include_val=True,
 )
-df_gridded_annual = dict_df_gridded["annual"]
-df_gridded_monthly = dict_df_gridded["monthly"]
-del dict_df_gridded
-df_geo = geodetic_table(geoTarget, geoErr, geoPred, train_gdl)
+geoPredVal, geoTargetVal, geoErrVal, dict_df_gridded_val = mbm.training.eval_geodetic(
+    model,
+    val_gdl,
+    return_grid_pred=["annual", "monthly"],
+    callback_annual=(callback_save_geodetic_annual if savePred else None),
+    callback_monthly=(callback_save_geodetic_monthly if savePred else None),
+)
+df_geo = pd.concat(
+    [
+        geodetic_table(geoTarget, geoErr, geoPred, train_gdl).assign(side="train"),
+        geodetic_table(geoTargetVal, geoErrVal, geoPredVal, val_gdl).assign(side="val"),
+    ],
+    ignore_index=True,
+)
+
+
+def _merge_geodetic(train_side, val_side):
+    """The two sides in one dictionary, a glacier present in both keeping both entries."""
+    merged = dict(train_side)
+    for glacier, value in val_side.items():
+        merged[f"{glacier} (val)" if glacier in merged else glacier] = value
+    return merged
+
+
+geoPred = _merge_geodetic(geoPred, geoPredVal)
+geoTarget = _merge_geodetic(geoTarget, geoTargetVal)
+geoErr = _merge_geodetic(geoErr, geoErrVal)
+df_gridded_annual = pd.concat(
+    [dict_df_gridded["annual"], dict_df_gridded_val["annual"]], ignore_index=True
+)
+df_gridded_monthly = pd.concat(
+    [dict_df_gridded["monthly"], dict_df_gridded_val["monthly"]], ignore_index=True
+)
+del dict_df_gridded, dict_df_gridded_val
 if savePred:
     print("Saving gridded prediction...")
     df_geo.to_parquet(

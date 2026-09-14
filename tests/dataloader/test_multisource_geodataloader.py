@@ -14,7 +14,12 @@ import pandas as pd
 import pytest
 
 import massbalancemachine as mbm
+from data_processing.glamos import geodetic_target_GLAMOS
 from data_processing.product_utils import data_path, glacier_id_to_folders
+from data_processing.rabatel16 import (
+    geodetic_target_Rabatel16,
+    rabatel16_outlines_file,
+)
 from dataloader.GeoDataLoader import buildGlacierMappingMultiSource
 
 # Pizolgletscher (one RGI id) and Plattalva / Griessfirn, as in the GLAMOS test
@@ -83,7 +88,7 @@ def _skip_without_cached_grids():
         if not os.path.isfile(svf):
             pytest.skip(f"no cached {source} grid for {glacier_id} at {svf}")
     try:
-        outlines = mbm.data_processing.rabatel16.rabatel16_outlines_file()
+        outlines = rabatel16_outlines_file()
     except ValueError as e:  # unknown host
         pytest.skip(f"the raw Rabatel16 files are not available here: {e}")
     if not os.path.isfile(outlines):
@@ -135,12 +140,8 @@ def test_geodataloader_on_glamos_and_rabatel16():
     _skip_without_cached_grids()
     cfg = _cfg()
 
-    target_glamos = mbm.data_processing.glamos.geodetic_target_GLAMOS(
-        **GEODETIC_SOURCE_OPTIONS["GLAMOS"]
-    )
-    target_rabatel = mbm.data_processing.geodetic_target_Rabatel16(
-        **GEODETIC_SOURCE_OPTIONS["Rabatel16"]
-    )
+    target_glamos = geodetic_target_GLAMOS(**GEODETIC_SOURCE_OPTIONS["GLAMOS"])
+    target_rabatel = geodetic_target_Rabatel16(**GEODETIC_SOURCE_OPTIONS["Rabatel16"])
 
     # Identifier schemes mixed on purpose: an RGI id and a GLIMS id in training, an
     # SGI id and an RGI id in validation

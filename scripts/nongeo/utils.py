@@ -174,7 +174,12 @@ class NetworkBinding(nn.Module):
 
 
 def trainValData(
-    cfg, train_set, feature_columns, split_key="group-meas-id", val_glaciers=None
+    cfg,
+    train_set,
+    feature_columns,
+    split_key="group-meas-id",
+    val_glaciers=None,
+    val_years=None,
 ):
     """
     Split training dataset into train and validation sets.
@@ -185,6 +190,7 @@ def trainValData(
         - feature_columns: List of string representing the columns to be used as features in the dataframe.
         - split_key (str): Type of split between the train and validation sets.
         - val_glaciers (list or None): Optional list of glaciers to be kept aside for validation. If this option is used the split is done per glacier and split_key is ignored.
+        - val_years (list or None): Years kept aside for validation, with `split_key="group-year"`. A measurement goes to the side holding the year it was measured in, so that the geodetic windows of each side stay in that side's years.
     """
     # Validation and train split:
     data_train = train_set["df_X"]
@@ -198,6 +204,21 @@ def trainValData(
         val_indices = full_df.loc[full_df.RGIId.isin(val_glaciers)].index.values
         train_glaciers = list(set(full_df.RGIId.unique()).difference(val_glaciers))
         train_indices = full_df.loc[full_df.RGIId.isin(train_glaciers)].index.values
+
+    elif split_key == "group-year":
+
+        assert (
+            val_years is not None
+        ), "With splitVal='group-year', val_years must be provided."
+        val_years = set(int(y) for y in val_years)
+        full_df = data_train.reset_index()
+        is_val = full_df.YEAR.isin(val_years)
+        val_indices = full_df.loc[is_val].index.values
+        train_indices = full_df.loc[~is_val].index.values
+        print(
+            f"Split per year: {len(val_years)} validation years, "
+            f"{full_df.loc[~is_val].YEAR.nunique()} train years"
+        )
 
     else:
 

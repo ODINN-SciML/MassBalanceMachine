@@ -718,12 +718,41 @@ def assessOnTest(log_dir, model, geodataloader_test, params, light=False, color=
     return stats
 
 
-def assessOnVal(model, geodataloader, params, async_transfer=None, zeroTgtGeo=False):
+def assessOnVal(
+    model,
+    geodataloader,
+    params,
+    async_transfer=None,
+    zeroTgtGeo=False,
+    separateLoader=False,
+):
+    """Loss and metrics of a model on the validation set.
+
+    Args:
+        geodataloader (GeoDataLoader): by default the training dataloader, whose
+            validation lists and validation stakes are used. With `separateLoader` it
+            is instead a dataloader built for the validation set alone, holding the
+            validation stakes as its stake data and the validation glaciers as its
+            glacier list; its own train-side accessors are then the validation ones.
+            That is what a split by year needs, since the same glacier can carry a
+            geodetic window on each side and one dataloader only holds one window per
+            glacier.
+    """
     wGeo = params["training"]["wGeo"]
     scalingGeo = params["training"].get("scalingGeo", "quad")
     assert scalingGeo in ["quad", "linear"]
     scalingStakes = params["training"]["scalingStakes"]
-    iterPerEpoch = geodataloader.lenValGeo() if wGeo > 0 else len(geodataloader)
+    # Accessors of the validation side, which are the train-side ones of a loader built
+    # for the validation set alone
+    lenGeoVal = geodataloader.lenGeo if separateLoader else geodataloader.lenValGeo
+    glaciersGeoVal = (
+        geodataloader.glaciersGeo if separateLoader else geodataloader.glaciersValGeo
+    )
+    glaciersVal = (
+        geodataloader.glaciers if separateLoader else geodataloader.glaciersVal
+    )
+    stakesVal = geodataloader.stakes if separateLoader else geodataloader.stakesVal
+    iterPerEpoch = lenGeoVal() if wGeo > 0 else len(geodataloader)
     nColsProgressBar = 500 if _inJupyterNotebook else 85
     wWinter = params["training"].get("wWinter", 1.0)
     wSummer = params["training"].get("wSummer", 1.0)
@@ -756,11 +785,7 @@ def assessOnVal(model, geodataloader, params, async_transfer=None, zeroTgtGeo=Fa
             ncols=nColsProgressBar,
         ) as batch_bar:
 
-            glacier_iter = iter(
-                geodataloader.glaciersValGeo()
-                if wGeo > 0
-                else geodataloader.glaciersVal()
-            )
+            glacier_iter = iter(glaciersGeoVal() if wGeo > 0 else glaciersVal())
 
             # Pre-submit the first prefetch_depth glaciers to the queue
             prefetch_queue = []
@@ -805,8 +830,8 @@ def assessOnVal(model, geodataloader, params, async_transfer=None, zeroTgtGeo=Fa
 
                 if (scalingStakes != "full" or batch_idx == 0) and useStakes:
                     # When scalingStakes="full" all stakes are processed at once and this is independent from the provided glacier
-                    stakes, metadata, point_balance, precomputed_meta = (
-                        geodataloader.stakesVal(current_g)
+                    stakes, metadata, point_balance, precomputed_meta = stakesVal(
+                        current_g
                     )
                     stakes = torch.tensor(stakes.astype(np.float32)).to(
                         geodataloader.device
@@ -1068,6 +1093,7 @@ def train_geo(
     timeExec=False,
     useProfiler=False,
     multi=None,
+    geodataloaderVal=None,
 ):
     """
     Train a model with both stake measurements and geodetic data.
@@ -1081,6 +1107,9 @@ def train_geo(
         scheduler (PyTorch LR scheduler): The learning rate scheduler (optional).
         timeExec (bool): Whether to evaluate loading and inference time.
         useProfiler (bool): Whether to profile the code.
+        geodataloaderVal (GeoDataLoader): Dataloader of the validation set, when it is
+            held by a dataloader of its own rather than by the validation lists of
+            `geodataloader`; see `assessOnVal`.
     """
     Nepochs = params["training"]["Nepochs"]
     wGeo = params["training"]["wGeo"]
@@ -1484,13 +1513,18 @@ def train_geo(
             if scheduler is not None:
                 scheduler.step()
 
-            if freqVal and geodataloader.lenVal() > 0:
+            separateLoaderVal = geodataloaderVal is not None
+            hasVal = separateLoaderVal or geodataloader.lenVal() > 0
+            if freqVal and hasVal:
                 statsValEpoch = assessOnVal(
                     model,
-                    geodataloader,
+                    geodataloaderVal if separateLoaderVal else geodataloader,
                     params,
-                    async_transfer=async_transfer,
+                    # The flag was computed for the training dataloader, so the
+                    # validation one determines its own
+                    async_transfer=None if separateLoaderVal else async_transfer,
                     zeroTgtGeo=zeroTgtGeo,
+                    separateLoader=separateLoaderVal,
                 )
                 metric2tbEntry = {
                     "lossValStake": "LossStake/val",

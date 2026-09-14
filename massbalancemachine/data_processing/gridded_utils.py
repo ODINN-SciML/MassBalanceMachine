@@ -49,17 +49,10 @@ from data_processing.glacier_utils import (
 )
 from data_processing.utils.data_preprocessing import get_hash
 
-
-def years_from_time_range(start, end):
-    """Calendar years a geodetic window spans.
-
-    The year of `end` is left out when the window stops on the 1st of January,
-    since no month of that year is inside the window.
-    """
-    year_start = pd.Timestamp(start).year
-    offset = 1 if (pd.Timestamp(end).month == 1) and (pd.Timestamp(end).day == 1) else 0
-    year_end = pd.Timestamp(end).year - offset
-    return range(year_start, year_end + 1)
+# Defined in `data_processing.utils.years`, which the geodetic sources import too: they
+# have to know the years of a window to keep it inside one side of a split, and they are
+# imported by this module.
+from data_processing.utils.years import years_from_time_range
 
 
 def years_from_time_ranges(time_ranges):

@@ -22,6 +22,7 @@ from data_processing.rabatel16 import (
     keep_rabatel16_series,
     period_sigma_mwe_per_year,
     period_smb_to_window,
+    periods_from_allowed_years,
     write_dem_with_nodata,
 )
 
@@ -163,6 +164,25 @@ def test_a_glacier_of_table_1_cannot_go_missing():
 def test_a_period_cannot_end_before_it_starts():
     with pytest.raises(AssertionError):
         period_smb_to_window(_annual_smb(), 1987, 1985)
+
+
+def test_periods_stay_inside_the_years_they_are_given():
+    series = range(1984, 2015)
+    # The hydrological year s runs from October of s - 1, so a run of calendar years
+    # 1990-1999 carries the periods from 1991 on
+    assert periods_from_allowed_years(range(1990, 2000), series) == [(1991, 1999)]
+    # One period per run of consecutive years. The run 1995-1999 only carries the four
+    # hydrological years 1996-1999, so the minimum length decides whether it is kept.
+    allowed = list(range(1985, 1992)) + list(range(1995, 2000))
+    assert periods_from_allowed_years(allowed, series, min_period_years=4) == [
+        (1986, 1991),
+        (1996, 1999),
+    ]
+    assert periods_from_allowed_years(allowed, series, min_period_years=5) == [
+        (1986, 1991)
+    ]
+    # Years the series does not cover bring nothing
+    assert periods_from_allowed_years(range(1951, 1985), series) == []
 
 
 def test_rows_in_the_same_order_are_accepted_despite_spelling():

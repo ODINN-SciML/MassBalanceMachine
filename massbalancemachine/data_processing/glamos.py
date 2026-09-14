@@ -29,6 +29,7 @@ from data_processing.custom_outlines import CustomOutlineSpec, match_rgi62_by_ov
 from data_processing.product_utils import data_path
 from data_processing.Product import Product
 from data_processing.glacier_utils import get_region_shape_file
+from data_processing.utils.years import years_outside
 
 # GLAMOS covers Switzerland only, which is entirely inside RGI region 11 (Central
 # Europe), second-order region 11-01 (Alps).
@@ -183,6 +184,19 @@ def _best_window_chain(windows):
     return windows.iloc[chain]
 
 
+def window_years_outside(y0, y1, allowed_years):
+    """Years of a GLAMOS window that `allowed_years` does not hold.
+
+    A window runs from the 1st of January of `y0` to the 1st of January of `y1`, the
+    convention `geodetic_target_GLAMOS` applies, and therefore covers `y0 .. y1 - 1`.
+    """
+    return years_outside(
+        pd.Timestamp(year=int(y0), month=1, day=1),
+        pd.Timestamp(year=int(y1), month=1, day=1),
+        allowed_years,
+    )
+
+
 def select_glamos_windows(
     glamos,
     max_year: int = 2000,
@@ -191,6 +205,8 @@ def select_glamos_windows(
     min_year: int = None,
     multi_period: bool = False,
     tie_break: str = "sigma",
+    allowed_years=None,
+    max_outside_years: int = 0,
 ):
     """Pick the geodetic windows of every SGI entity.
 
@@ -221,6 +237,13 @@ def select_glamos_windows(
         tie_break: how the single window is chosen among the longest ones, "sigma"
             for the lowest sigma, "recent" for the latest one, then the lowest sigma.
             Ignored with `multi_period`.
+        allowed_years: years a window may cover, for instance the years of one side of
+            a train/validation split. A window covering anything else is dropped, up to
+            `max_outside_years` years of tolerance. Left to None every year is allowed.
+        max_outside_years: how many years of a window may fall outside `allowed_years`.
+            Keeps a glacier whose only long window crosses a boundary by a year or two
+            instead of dropping it; the cost is that the two sides of a split then
+            share those years.
 
     Returns the selected rows indexed by SGI id, sorted by start year within a
     glacier. The index is unique only without `multi_period`.
@@ -236,6 +259,14 @@ def select_glamos_windows(
     ]
     if min_year is not None:
         candidates = candidates.loc[candidates.y0 >= min_year]
+    if allowed_years is not None:
+        allowed = set(allowed_years)
+        candidates = candidates.loc[
+            [
+                len(window_years_outside(row.y0, row.y1, allowed)) <= max_outside_years
+                for row in candidates.itertuples()
+            ]
+        ]
     if not multi_period:
         keys = ["dur"] + tie_break_keys[tie_break]
         return (
@@ -259,9 +290,19 @@ def geodetic_target_GLAMOS(
     sgi_ids_to_keep=None,
     multi_period: bool = False,
     tie_break: str = "sigma",
+    allowed_years=None,
+    max_outside_years: int = 0,
+    glamos=None,
 ):
     """GLAMOS geodetic targets, one window per SGI entity or, with `multi_period`,
     a chain of non-overlapping windows per entity (see `select_glamos_windows`).
+
+    `glamos` is the volume-change table, read from disk when it is not given. Pass it
+    to call this repeatedly, for instance once per candidate of a split search.
+
+    `allowed_years` and `max_outside_years` restrict the selection to the windows that
+    stay inside a given set of years, which is how one side of a split by year gets its
+    own targets; see `select_glamos_windows`.
 
     Returns a dataframe shaped like the one `data_processing.pgo.geodetic_target_PGO`
     returns, so that both can drive the same code path in `GeoDataLoader`, with one
@@ -279,7 +320,7 @@ def geodetic_target_GLAMOS(
     `mb_calibration_from_scalar_mb` applies to a `ref_period`, which averages over
     `np.arange(y0, y1)`.
     """
-    glamos = load_glamos_volume_change()
+    glamos = load_glamos_volume_change() if glamos is None else glamos
     chosen = select_glamos_windows(
         glamos,
         max_year=max_year,
@@ -288,6 +329,8 @@ def geodetic_target_GLAMOS(
         min_year=min_year,
         multi_period=multi_period,
         tie_break=tie_break,
+        allowed_years=allowed_years,
+        max_outside_years=max_outside_years,
     )
     if sgi_ids_to_keep is not None:
         chosen = chosen.loc[chosen.index.isin(list(sgi_ids_to_keep))]
