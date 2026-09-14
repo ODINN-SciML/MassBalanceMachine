@@ -73,9 +73,73 @@ training:
         GLAMOS:
             min_year: 1950
             multi_period: true
+            allowed_years:
+                - 1951
+                - 1952
+                - 1953
+                - 1954
+                - 1955
+                - 1956
+                - 1976
+                - 1977
+                - 1978
+                - 1979
+                - 1980
+                - 1981
+                - 1982
+                - 1983
+                - 1984
+                - 1985
+                - 1986
+                - 1987
+                - 1988
+                - 1989
+                - 1990
+                - 1991
+                - 1992
+                - 1993
+                - 1994
+                - 1995
+                - 1996
+                - 1997
+                - 1998
+                - 1999
+            max_outside_years: 1
         Rabatel16:
-            start_year: 1984
-            end_year: 1999
+            # start_year: 1984
+            # end_year: 1999
+            min_period_years: 5
+            allowed_years: []
+    geodetic_source_options_val:
+        GLAMOS:
+            min_year: 1950
+            min_window_years: 10
+            allowed_years:
+                - 1957
+                - 1958
+                - 1959
+                - 1960
+                - 1961
+                - 1962
+                - 1963
+                - 1964
+                - 1965
+                - 1966
+                - 1967
+                - 1968
+                - 1969
+                - 1970
+                - 1971
+                - 1972
+                - 1973
+                - 1974
+                - 1975
+            max_outside_years: 1
+        Rabatel16:
+            # start_year: 1984
+            # end_year: 1999
+            min_period_years: 5
+            allowed_years: []
     geodetic_source_test: Hugonnet21
     geodetic_source_test_options:
     test_glaciers_geo:
@@ -171,88 +235,64 @@ training:
         - RGI60-11.03816
         - RGI60-11.03817
     train_glaciers_geo:
-        - A10g-08
         - A50d-01
         - A50i-06
+        - A50i-07
         - A50i-19
         - A54e-24
-        - A54g-03
+        - A54g-11
         - A54l-19
         - B36-26
-        - B40-07
         - B43-03
-        - B52-22
+        - B45-04
         - B52-24
+        - B52-29
         - B52-32
-        - B52-33
+        - B62-10
         - B82-14
         - B83-03
-        - E22-03
-        - E23-11
+        - G006149E45143N
         - G006226E45003N
         - G006252E45009N
         - G006274E44992N
         - G006275E44878N
+        - G006334E44865N
+        - G006339E45007N
         - G006347E44919N
+        - G006367E44861N
         - G006382E44944N
+        - G006439E44956N
         - G006745E45302N
+        - G006756E45318N
         - G006763E45344N
+        - G006780E45369N
         - G006784E45784N
         - G006874E45531N
         - G006880E45521N
         - G006881E45423N
         - G006904E45335N
+        - G006988E45515N
         - G006988E45987N
         - G006992E45913N
         - G007067E45221N
+        - G007117E45255N
+        - G007143E45363N
         - G007144E45371N
         - A10g-05
-        - A50i-07
-        - A54g-11
-        - A54i-05
-        - B45-04
-        - B52-29
-        - B62-10
-        - B63-05
-        - B64-02
+        - A10g-08
+        - B52-22
         - C14-10
-        - C93-04
-        - C93-09
-        - E23-06
-        - G006149E45143N
-        - G006334E44865N
-        - G006339E45007N
-        - G006367E44861N
-        - G006439E44956N
-        - G006756E45318N
-        - G006780E45369N
-        - G006988E45515N
-        - G007117E45255N
-        - G007143E45363N
     val_glaciers_geo:
         - A10g-05
-        - A50i-07
-        - A54g-11
-        - A54i-05
-        - B45-04
+        - A10g-08
+        - A50d-01
+        - A50i-06
+        - B36-26
+        - B52-22
+        - B52-24
         - B52-29
-        - B62-10
-        - B63-05
-        - B64-02
+        - B52-32
         - C14-10
-        - C93-04
-        - C93-09
-        - E23-06
-        - G006149E45143N
-        - G006334E44865N
-        - G006339E45007N
-        - G006367E44861N
-        - G006439E44956N
-        - G006756E45318N
-        - G006780E45369N
-        - G006988E45515N
-        - G007117E45255N
-        - G007143E45363N
     test_glaciers:
         - RGI60-11.02072
         - RGI60-11.02448
@@ -466,12 +506,32 @@ training:
         - RGI60-11.03772
     optim: ADAM
     scheduler: StepLR
-    lr: 5e-4
+    lr: 1e-4
     scheduler_step_size: 500
     Nepochs: 2000
     scalingStakes: full
     bestModelCriterion: lossVal
-    splitVal: group-rgi
+    splitVal: group-year
+    val_years:
+        - 1957
+        - 1958
+        - 1959
+        - 1960
+        - 1961
+        - 1962
+        - 1963
+        - 1964
+        - 1965
+        - 1966
+        - 1967
+        - 1968
+        - 1969
+        - 1970
+        - 1971
+        - 1972
+        - 1973
+        - 1974
+        - 1975
     splitTest: YEAR:<2000
     wGeo: 0.1
     wWinter: 1.0

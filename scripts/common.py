@@ -26,6 +26,9 @@ def parseParams(params):
     geodetic_source = params["training"].get("geodetic_source", "Hugonnet21")
     geodetic_source_test = params["training"].get("geodetic_source_test")
     geodetic_source_options = params["training"].get("geodetic_source_options", {})
+    geodetic_source_options_val = params["training"].get(
+        "geodetic_source_options_val", {}
+    )
     geodetic_source_test_options = params["training"].get(
         "geodetic_source_test_options", {}
     )
@@ -82,6 +85,7 @@ def parseParams(params):
         "source_data": source_data,
         "geodetic_source": geodetic_source,
         "geodetic_source_options": geodetic_source_options,
+        "geodetic_source_options_val": geodetic_source_options_val,
         "geodetic_source_test": geodetic_source_test,
         "geodetic_source_test_options": geodetic_source_test_options,
         "lr": lr,
@@ -111,6 +115,8 @@ def parseParams(params):
         "wWinter": params["training"].get("wWinter", 1.0),
         "wSummer": params["training"].get("wSummer", 1.0),
     }
+    if "val_years" in params["training"]:
+        trainingParams["val_years"] = params["training"]["val_years"]
     if "test_glaciers_geo" in params["training"]:
         trainingParams["test_glaciers_geo"] = params["training"].get(
             "test_glaciers_geo"
