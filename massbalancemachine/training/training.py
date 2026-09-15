@@ -201,7 +201,8 @@ def ti_intermediates_gridded(model, geo_dataloader, glacierName):
     POINT_LON, POINT_ELEVATION), it contains the downscaled temperature
     (T_downscaled), the temperature bias (T_bias), the precipitation scaling
     correction (P_scaling), the bias corrected precipitation (P_corrected) and the
-    accumulation and ablation factors (cor_acc, cor_abl).
+    accumulation and ablation factors (cor_acc, cor_abl) and the shortwave radiation
+    contribution to the monthly mass balance (R_sw).
     """
     module = model.module
     assert hasattr(
@@ -216,6 +217,8 @@ def ti_intermediates_gridded(model, geo_dataloader, glacierName):
         )
         # P_cor is a scalar when the model has no precipitation bias correction
         P_scaling = torch.sigmoid(torch.as_tensor(P_cor, device=P.device)).expand_as(P)
+        # R_sw is a scalar when the model has no shortwave radiation contribution
+        R_sw = torch.as_tensor(R_sw, device=P.device).expand_as(P)
 
         df = pd.DataFrame(
             {

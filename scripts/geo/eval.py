@@ -749,6 +749,44 @@ if len(df_X_test_subset) > 0 and not noTest:
             fig.tight_layout()
             save_inspect_fig(fig, rgi_id, "accumulation_ablation_factors_profile")
 
+            if model.module.R_sw_contrib is not None:
+                label_sw = "Shortwave radiation contribution"
+                fig = mbm.plots.monthlyProfile(
+                    df_inter,
+                    "R_sw",
+                    xlabel=f"{label_sw} (m w.e. month$^{{-1}}$)",
+                    title=f"{rgi_id}\nshortwave radiation contribution averaged over {period}",
+                )
+                save_inspect_fig(fig, rgi_id, "shortwave_contribution_profile")
+
+                fig = mbm.plots.monthlyMaps(
+                    df_inter,
+                    "R_sw",
+                    rgi_id,
+                    cfg,
+                    gdir=gdir,
+                    title=f"{rgi_id}\nshortwave radiation contribution averaged over {period}",
+                    label_cb=f"{label_sw} (m w.e. month$^{{-1}}$)",
+                )
+                save_inspect_fig(fig, rgi_id, "shortwave_contribution_maps_monthly")
+
+                # Sum the months of each hydrological year so that the map shows the
+                # annual contribution averaged over the years
+                df_sw_annual = df_inter.groupby(
+                    ["RGIId", "YEAR", "POINT_LAT", "POINT_LON"], as_index=False
+                ).R_sw.sum()
+                fig = mbm.plots.periodMap(
+                    df_sw_annual,
+                    "R_sw",
+                    rgi_id,
+                    cfg,
+                    gdir=gdir,
+                    title=f"{rgi_id}\nannual shortwave radiation contribution averaged over {period}",
+                    label_cb=f"{label_sw} (m w.e. a$^{{-1}}$)",
+                )
+                save_inspect_fig(fig, rgi_id, "shortwave_contribution_map_annual")
+                del df_sw_annual
+
             del df_inter
 
 else:

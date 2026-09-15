@@ -403,6 +403,7 @@ class TILikeModel(nn.Module):
             inp_sw_contrib = inputs[:, self.ind_inp_sw_contrib]
             alpha = 1 - 15 * F.sigmoid(self.grad_T(inp_grad_T)[:, 0])
             bias = 5 * F.tanh(self.bias_T(inp_bias_T)[:, 0])
+            cor_T_val = torch.stack([alpha, bias], dim=1)
             cor_T = elev_diff * alpha + bias
 
             # Short wave radiation contribution
