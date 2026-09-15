@@ -48,6 +48,9 @@ class TILikeModel(nn.Module):
             if "cor_terrain" in modelParams
             else None
         )
+        self.inp_sw_contrib = (
+            modelParams["sw_contrib"]["inputs"] if "sw_contrib" in modelParams else None
+        )
         # self.inp_cor_fac = [
         #     "aspect",
         #     "fal",
@@ -98,6 +101,11 @@ class TILikeModel(nn.Module):
         # self.ind_inp_cor_fac = sorted(
         #     [self.input_labels.index(inp) for inp in self.inp_cor_fac]
         # )
+        self.ind_inp_sw_contrib = (
+            sorted([self.input_labels.index(inp) for inp in self.inp_sw_contrib])
+            if self.inp_sw_contrib is not None
+            else None
+        )
         self.ind_inp_cor_acc = sorted(
             [self.input_labels.index(inp) for inp in self.inp_cor_acc]
         )
@@ -219,6 +227,26 @@ class TILikeModel(nn.Module):
             self.cor_terrain = nn.Sequential(*cor_terrain)
         else:
             self.cor_terrain = None
+        if "sw_contrib" in modelParams:
+            sw_contrib_params = modelParams["sw_contrib"]
+            R_sw_contrib = [
+                nn.Linear(len(self.inp_sw_contrib), sw_contrib_params["layers"][0])
+            ]
+            for i in range(len(sw_contrib_params["layers"]) - 1):
+                R_sw_contrib.append(nn.ReLU())
+                R_sw_contrib.append(
+                    nn.Linear(
+                        sw_contrib_params["layers"][i],
+                        sw_contrib_params["layers"][i + 1],
+                    )
+                )
+            R_sw_contrib.append(nn.ReLU())
+            R_sw_contrib.append(
+                nn.Linear(sw_contrib_params["layers"][-1], 1, bias=False)
+            )
+            self.R_sw_contrib = nn.Sequential(*R_sw_contrib)
+        else:
+            self.R_sw_contrib = None
 
         cor_acc_params = modelParams["cor_acc"]
         cor_acc = [nn.Linear(len(self.inp_cor_acc), cor_acc_params["layers"][0])]
@@ -330,7 +358,7 @@ class TILikeModel(nn.Module):
             cor_T_val = self.cor_T(inp_cor_T)
             elev_diff = inputs[:, self.ind_elev_diff]
             cor_T = elev_diff * cor_T_val[:, 0] + cor_T_val[:, 1]
-        else:
+        elif self.cor_dir is not None and self.cor_terrain is not None:
             # grad_T_val = self.grad_T(inp_grad_T)
             # bias_T_val = self.bias_T(inp_bias_T)
             # cor_T_val = torch.concatenate([grad_T_val, bias_T_val], dim=1)
@@ -369,6 +397,17 @@ class TILikeModel(nn.Module):
                 + bias
             )
 
+            R_sw = 0.0
+        else:
+            elev_diff = inputs[:, self.ind_elev_diff]
+            inp_sw_contrib = inputs[:, self.ind_inp_sw_contrib]
+            alpha = 1 - 15 * F.sigmoid(self.grad_T(inp_grad_T)[:, 0])
+            bias = 5 * F.tanh(self.bias_T(inp_bias_T)[:, 0])
+            cor_T = elev_diff * alpha + bias
+
+            # Short wave radiation contribution
+            R_sw = self.R_sw_contrib(inp_sw_contrib).view(-1)
+
         if self.bias_cor is not None:
             inp_bias_cor = inputs[:, self.ind_inp_bias_cor]
             P_cor = self.bias_cor(inp_bias_cor)[:, 0]
@@ -399,6 +438,7 @@ class TILikeModel(nn.Module):
             elev_diff_unorm,
             cor_acc,
             cor_abl,
+            R_sw,
         )
 
     def forward(self, inputs):
@@ -426,7 +466,7 @@ class TILikeModel(nn.Module):
             cor_T_val = self.cor_T(inp_cor_T)
             elev_diff = inputs[:, self.ind_elev_diff]
             cor_T = elev_diff * cor_T_val[:, 0] + cor_T_val[:, 1]
-        else:
+        elif self.cor_dir is not None and self.cor_terrain is not None:
             # grad_T_val = self.grad_T(inp_grad_T)
             # bias_T_val = self.bias_T(inp_bias_T)
             # cor_T_val = torch.concatenate([grad_T_val, bias_T_val], dim=1)
@@ -438,12 +478,12 @@ class TILikeModel(nn.Module):
             alpha = 1 - 15 * F.sigmoid(self.grad_T(inp_grad_T)[:, 0])
             # alpha = self.grad_T(inp_grad_T)[:, 0]
             bias = 5 * F.tanh(self.bias_T(inp_bias_T)[:, 0])
-            svf_unorm = Normalizer._unorm(
-                inputs[:, self.ind_svf],
-                self.normalizing_bounds["svf"][0],
-                self.normalizing_bounds["svf"][1],
-            )[:, 0]
-            ssrd = inputs[:, self.ind_ssrd][:, 0]
+            # svf_unorm = Normalizer._unorm(
+            #     inputs[:, self.ind_svf],
+            #     self.normalizing_bounds["svf"][0],
+            #     self.normalizing_bounds["svf"][1],
+            # )[:, 0]
+            # ssrd = inputs[:, self.ind_ssrd][:, 0]
             R_dir = self.cor_dir(inp_dir)[:, 0]
             R_terrain = self.cor_terrain(inp_terrain)[:, 0]
             cor_T = (
@@ -453,6 +493,17 @@ class TILikeModel(nn.Module):
                 + R_terrain
                 + bias
             )
+
+            R_sw = 0.0
+        else:
+            elev_diff = inputs[:, self.ind_elev_diff]
+            inp_sw_contrib = inputs[:, self.ind_inp_sw_contrib]
+            alpha = 1 - 15 * F.sigmoid(self.grad_T(inp_grad_T)[:, 0])
+            bias = 5 * F.tanh(self.bias_T(inp_bias_T)[:, 0])
+            cor_T = elev_diff * alpha + bias
+
+            # Short wave radiation contribution
+            R_sw = self.R_sw_contrib(inp_sw_contrib).view(-1)
 
         if self.bias_cor is not None:
             inp_bias_cor = inputs[:, self.ind_inp_bias_cor]
@@ -476,7 +527,7 @@ class TILikeModel(nn.Module):
         # Ablation factor correction
         cor_abl = self.cor_abl(inp_cor_abl).view(-1)
 
-        MB = self.beta1 * cor_acc * P_solid - self.beta2 * cor_abl * PDD
+        MB = self.beta1 * cor_acc * P_solid - self.beta2 * cor_abl * PDD + R_sw
         # TODO: changer scaling de beta2 pour correspondre aux valeurs typiques calées avec ODINN
         return MB.view(-1, 1)
 

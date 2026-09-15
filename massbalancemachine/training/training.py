@@ -211,8 +211,8 @@ def ti_intermediates_gridded(model, geo_dataloader, glacierName):
     with torch.no_grad():
         geoGrid, metadata, _, _, _ = geo_dataloader.geo(glacierName)
         geoGrid = geoGrid.to(geo_dataloader.device)
-        cor_T, cor_T_val, P, T, _, P_cor, _, _, cor_acc, cor_abl = module.get_cor_T(
-            geoGrid
+        cor_T, cor_T_val, P, T, _, P_cor, _, _, cor_acc, cor_abl, R_sw = (
+            module.get_cor_T(geoGrid)
         )
         # P_cor is a scalar when the model has no precipitation bias correction
         P_scaling = torch.sigmoid(torch.as_tensor(P_cor, device=P.device)).expand_as(P)
@@ -228,6 +228,7 @@ def ti_intermediates_gridded(model, geo_dataloader, glacierName):
                 "P_corrected": (P * P_scaling).cpu().numpy(),
                 "cor_acc": cor_acc.cpu().numpy(),
                 "cor_abl": cor_abl.cpu().numpy(),
+                "R_sw": R_sw.cpu().numpy(),
             }
         )
         # Location columns that are model inputs are not part of the metadata, so

@@ -50,19 +50,13 @@ model:
             - POINT_LON
             - POINT_ELEVATION
         layers: [32, 16, 8]
-    cor_dir:
+    sw_contrib:
         inputs:
             - aspect
             - slope
             - svf
             - ssrd
-        layers: [32, 16, 8]
-    cor_terrain:
-        inputs:
-            - slhf
-            - sshf
-            - str
-            - svf
+            - fal
         layers: [32, 16, 8]
 training:
     source_data: wgms:11
@@ -556,7 +550,7 @@ training:
         - RGI60-11.03772
     optim: ADAM
     scheduler: StepLR
-    lr: 1e-4
+    lr: 5e-4
     scheduler_step_size: 500
     Nepochs: 2000
     scalingStakes: full
@@ -583,6 +577,6 @@ training:
         - 1974
         - 1975
     splitTest: YEAR:<2000
-    wGeo: 0.1
+    wGeo: 0.5
     wWinter: 1.0
     wSummer: 1.0

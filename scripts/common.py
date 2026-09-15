@@ -57,6 +57,8 @@ def parseParams(params):
             if "cor_dir" in params["model"] and "cor_terrain" in params["model"]:
                 modelParams["cor_dir"] = params["model"]["cor_dir"]
                 modelParams["cor_terrain"] = params["model"]["cor_terrain"]
+            if "sw_contrib" in params["model"]:
+                modelParams["sw_contrib"] = params["model"]["sw_contrib"]
         else:
             ValueError("Cannot identify the type of temperature downscaling")
         if "cor_fac" in params["model"]:
