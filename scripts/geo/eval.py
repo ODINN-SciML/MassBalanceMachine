@@ -65,13 +65,6 @@ parser.add_argument(
     help="Save predictions as CSV for further analysis or comparison.",
 )
 parser.add_argument(
-    "-m",
-    "--multi",
-    type=str,
-    default=None,
-    help="Component of the multistage network to train.",
-)
-parser.add_argument(
     "--pgo",
     dest="pgo",
     default=False,
@@ -121,7 +114,6 @@ plot = args.plot
 noTest = args.noTest
 onRegion = args.onRegion
 savePred = args.savePred
-multi = args.multi
 pgo = args.pgo
 color = args.color
 maps = args.maps
@@ -277,19 +269,7 @@ additionalYears = list(set(yearsMaps).difference(geodeticYears))
 
 
 # Create model
-network = mbm.models.buildModel(cfg, params=params, multi=multi)
-
-if multi is not None:
-    network.moduleToTrain = multi
-    if multi == "geo":
-        network.activateGlacio = False
-    elif multi == "glacio":
-        network.activateGlacio = True
-    elif multi == "joint":
-        network.activateGlacio = True
-    else:
-        raise ValueError("Option multi should be set either to 'glacio' or 'geo'.")
-
+network = mbm.models.buildModel(cfg, params=params)
 model = mbm.models.CustomTorchNeuralNetRegressor(network)
 device = torch.device("cuda:0" if torch.cuda.is_available() and not cpu else "cpu")
 model = model.to(device)

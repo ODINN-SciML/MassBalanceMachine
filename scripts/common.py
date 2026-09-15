@@ -66,21 +66,6 @@ def parseParams(params):
             modelParams["cor_abl"] = params["model"]["cor_abl"]
         if "bias_cor" in params["model"]:
             modelParams["bias_cor"] = params["model"]["bias_cor"]
-    elif modelParams["type"] == "multi":
-        modelParams["glacio"] = {
-            "type": params["model"]["glacio"]["type"],
-            # "inputs": params["model"]["glacio"]["inputs"],
-            "layers": params["model"]["glacio"]["layers"],
-            "dropout": params["model"]["glacio"].get("dropout", 0.0),
-        }
-        modelParams["geo"] = {
-            "type": params["model"]["geo"]["type"],
-            "inputs": params["model"]["geo"]["inputs"],
-            "layers": params["model"]["geo"]["layers"],
-            "dropout": params["model"]["geo"].get("dropout", 0.0),
-        }
-    # if "layers_cor_geodetic" in modelParams:
-    #     modelParams["layers_cor_geodetic"] = params["model"]["layers_cor_geodetic"]
     trainingParams = {
         "source_data": source_data,
         "geodetic_source": geodetic_source,

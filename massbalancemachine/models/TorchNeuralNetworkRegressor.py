@@ -481,83 +481,7 @@ class TILikeModel(nn.Module):
         return MB.view(-1, 1)
 
 
-class GeodeticCorrectionModel(nn.Module):
-    def __init__(
-        self,
-        modelParams,
-        *args,
-        glacioModule=None,
-        geoModule=None,
-        activateGlacio=False,
-        train="geo",
-        **kwargs,
-    ):
-        super().__init__(*args, **kwargs)
-        self.glacioModule = glacioModule
-        self.geoModule = geoModule
-        assert train in ["geo", "glacio", "joint"]
-        self.moduleToTrain = train
-        self.activateGlacio = activateGlacio
-        self.input_labels = modelParams["inputs"]
-        # self.normalizing_bounds = normalizing_bounds
-        # self.inp_geo = ["ELEVATION_DIFFERENCE", "t2m", "svf"]
-        self.inp_geo = modelParams["geo"]["inputs"]
-
-        self.ind_inp_geo = sorted(
-            [self.input_labels.index(inp) for inp in self.inp_geo]
-        )
-
-        # if self.geoModule is None:
-        #     cor = [nn.Linear(len(self.inp_geo), modelParams["layers_geodetic"][0])]
-        #     for i in range(len(modelParams["layers_geodetic"]) - 1):
-        #         cor.append(nn.ReLU())
-        #         cor.append(
-        #             nn.Linear(modelParams["layers_geodetic"][i], modelParams["layers_geodetic"][i + 1])
-        #         )
-        #     cor.append(nn.ReLU())
-        #     cor.append(nn.Linear(modelParams["layers_geodetic"][-1], 2))
-        #     self.geoModule = nn.Sequential(*cor)
-
-        # self.freeze_glacio = True
-
-        # if self.freeze_glacio:
-        if self.moduleToTrain == "geo":
-            self.glacioModule.eval()
-            for p in self.glacioModule.parameters():
-                p.requires_grad = False
-        elif self.moduleToTrain == "glacio":
-            self.geoModule.eval()
-            for p in self.geoModule.parameters():
-                p.requires_grad = False
-
-    def forward(self, inputs):
-        inp_geo = inputs[:, self.ind_inp_geo]
-        geoContrib = self.geoModule(inp_geo)
-        if self.activateGlacio:
-            return self.glacioModule(inputs) + geoContrib
-        else:
-            return geoContrib
-
-    def glacioModuleOnly(self, inputs):
-        return self.glacioModule(inputs)
-
-    def train(self, mode: bool = True):
-        if self.moduleToTrain == "geo":
-            self.geoModule.train(mode)
-            self.glacioModule.eval()
-        elif self.moduleToTrain == "glacio":
-            self.geoModule.eval()
-            self.glacioModule.train(mode)
-        elif self.moduleToTrain == "joint":
-            self.geoModule.train(mode)
-            self.glacioModule.train(mode)
-
-    def eval(self):
-        self.glacioModule.eval()
-        self.geoModule.eval()
-
-
-def createModel(cfg, modelParams, nInp=None, multi=None):
+def createModel(cfg, modelParams, nInp=None):
     nInp = nInp or len(cfg.featureColumns)
     dropout = modelParams.get("dropout", 0.0)
     if modelParams["type"] == "sequential":
@@ -579,18 +503,6 @@ def createModel(cfg, modelParams, nInp=None, multi=None):
         return SequentialDownscaledModel(modelParams, cfg.bnds)
     elif modelParams["type"] == "TIlike":
         return TILikeModel(modelParams, cfg.bnds)
-    elif modelParams["type"] == "multi":
-        tmp_params_glacio = copy.deepcopy(modelParams["glacio"])
-        tmp_params_glacio["inputs"] = modelParams[
-            "inputs"
-        ]  # Copy inputs which are not defined for glacio
-        glacioModule = createModel(cfg, tmp_params_glacio)
-        geoModule = createModel(
-            cfg, modelParams["geo"], nInp=len(modelParams["geo"]["inputs"])
-        )
-        return GeodeticCorrectionModel(
-            modelParams, glacioModule=glacioModule, geoModule=geoModule, train=multi
-        )
     else:
         raise ValueError(f"Model {modelParams['type']} is not supported.")
 
@@ -606,7 +518,7 @@ def selectModel(cfg, version):
     return createModel(cfg, params["model"])
 
 
-def buildModel(cfg, version=None, params=None, multi=None):
+def buildModel(cfg, version=None, params=None):
     assert (version is None) ^ (
         params is None
     ), "Either version or params must be provided."
@@ -615,7 +527,7 @@ def buildModel(cfg, version=None, params=None, multi=None):
     else:
         if "model" in params:
             params = params["model"]
-        model = createModel(cfg, params, multi=multi)
+        model = createModel(cfg, params)
     return model
 
 

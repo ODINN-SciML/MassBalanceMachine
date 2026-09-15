@@ -56,13 +56,6 @@ parser.add_argument(
     help="Weight of the geodetic term.",
 )
 parser.add_argument(
-    "-m",
-    "--multi",
-    type=str,
-    default=None,
-    help="Component of the multistage network to train.",
-)
-parser.add_argument(
     "--gridsearch",
     dest="gridsearch",
     default=[],
@@ -78,7 +71,6 @@ suffix = args.suffix
 timeExec = args.time
 prof = args.prof
 wGeo = args.wGeo
-multi = args.multi
 
 gridsearch = args.gridsearch
 do_gridsearch = len(gridsearch) > 0
@@ -151,16 +143,6 @@ else:
 
 if wGeo is not None:  # Overwrite geodetic weight
     params["training"]["wGeo"] = wGeo
-if multi is not None:
-    if multi == "geo":
-        params["training"]["scalingStakes"] = "none"
-    elif multi == "glacio":
-        # params["training"]["wGeo"] = 0.0
-        params["training"]["scalingStakes"] = "full"
-        # TODO: remove hard-coded scalingStakes above
-    elif multi == "joint":
-        params["training"]["scalingStakes"] = "full"
-        # TODO: remove hard-coded scalingStakes above
 wGeo = params["training"]["wGeo"]
 if params["training"]["log_suffix"] == "":
     params["training"]["log_suffix"] = f"wgeo={wGeo}" if wGeo > 0 else ""
@@ -338,19 +320,7 @@ gdlVal = buildGeoDataLoader(
 )
 
 
-network = mbm.models.buildModel(cfg, params=params, multi=multi)
-
-if multi is not None:
-    network.moduleToTrain = multi
-    if multi == "geo":
-        network.activateGlacio = False
-    elif multi == "glacio":
-        network.activateGlacio = True
-    elif multi == "joint":
-        network.activateGlacio = True
-    else:
-        raise ValueError("Option multi should be set either to 'glacio' or 'geo'.")
-
+network = mbm.models.buildModel(cfg, params=params)
 model = mbm.models.CustomTorchNeuralNetRegressor(network)
 model = model.to(device)
 
@@ -359,13 +329,6 @@ if modelToLoad != "":
         os.path.join("logs", modelToLoad), model
     )
     print(f"Loaded model {bestModelPath}")
-
-# if "layers_cor_geodetic" in params["model"]:
-#     model = model.to("cpu")
-#     geodetic_cor_model = mbm.models.GeodeticCorrectionModel(params["model"], model)
-#     geodetic_cor_model = geodetic_cor_model.to(device)
-#     model = geodetic_cor_model
-#     # TODO: check freezing
 
 optimType = params["training"]["optim"]
 schedulerType = params["training"]["scheduler"]
@@ -418,7 +381,6 @@ ret = mbm.training.train_geo(
     scheduler=scheduler,
     timeExec=timeExec,
     useProfiler=prof,
-    multi=multi,
     geodataloaderVal=gdlVal,
 )
 

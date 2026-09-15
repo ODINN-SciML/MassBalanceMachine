@@ -22,7 +22,6 @@ from models.TorchNeuralNetworkRegressor import (
     aggrPredict,
     aggrMetadata,
     aggrPredictGlwd,
-    GeodeticCorrectionModel,
 )
 
 
@@ -419,7 +418,6 @@ def compute_geo_loss(
     geod_periods,
     precomputed_meta,
     scalingGeo,
-    zeroTgtGeo=False,
 ):
     # TODO: update docstring
     """
@@ -436,108 +434,6 @@ def compute_geo_loss(
 
     Returns a scalar torch value that corresponds to the geodetic loss term.
     """
-    if isinstance(model, GeodeticCorrectionModel) and zeroTgtGeo:
-        raise NotImplementedError(
-            "The average should be performed over months and not years"
-        )
-        pred_glacio = model.glacioModuleOnly(geoGrid)[:, 0]
-        pred_geo = model.forward(geoGrid)[:, 0] - pred_glacio
-
-        # Glacio part: only glacio prediction with uncertainties clipping
-        with record_function("aggregation_ID"):
-            # idAggr = metadata["ID"].values
-            # int_id, unique_id = pd.factorize(idAggr)
-            # metadata = metadata.assign(ID_int=int_id)
-
-            # Aggregate per point on the grid
-            # grouped_ids = aggrMetadata(metadata, "ID_int")
-            grouped_ids = precomputed_meta["grouped_ids"]
-
-            # TODO: check if this is annual sum or multi-annual (geodetic period) sum
-            idAggr = metadata[
-                "ID_int"
-            ].values  # TODO: could be transfered to the GPU in advance (async in the dataloader)
-            nunique = precomputed_meta["nunique_ids"]
-            predSumAnnual = torch.zeros(
-                (nunique,), device=pred_glacio.device, dtype=pred_glacio.dtype
-            )
-            aggrPredict(pred_glacio, idAggr, out=predSumAnnual)
-
-        with record_function("aggregation_GLWD_ID"):
-
-            # Aggregate glacier wide
-            metadataAggrYear = precomputed_meta["grouped_glwd_ids"]
-            idAggr = grouped_ids[
-                "GLWD_ID_int"
-            ].values  # TODO: could be transfered to the GPU in advance (async in the dataloader)
-            nunique = precomputed_meta["nunique_glwd_ids"]
-            predSumAnnualGlwd = torch.zeros(
-                (nunique,), device=pred_glacio.device, dtype=pred_glacio.dtype
-            )
-            aggrPredictGlwd(predSumAnnual, idAggr, out=predSumAnnualGlwd)
-
-        # Compute the geodetic MB for the different time windows
-        with record_function("timeWindowGeodeticLoss"):
-            lossGeo, ypred = timeWindowGeodeticLoss(
-                predSumAnnualGlwd,
-                ygeo * 0,
-                errgeo,
-                metadataAggrYear,
-                geod_periods,
-            )
-
-        lossGeo_glacioPart = (
-            lossGeo.mean()
-        )  # Compute mean of the different time window scores
-
-        # Geo part: only geo prediction without uncertainties = l2 loss
-        with record_function("aggregation_ID"):
-            # idAggr = metadata["ID"].values
-            # int_id, unique_id = pd.factorize(idAggr)
-            # metadata = metadata.assign(ID_int=int_id)
-
-            # Aggregate per point on the grid
-            # grouped_ids = aggrMetadata(metadata, "ID_int")
-            grouped_ids = precomputed_meta["grouped_ids"]
-
-            # TODO: check if this is annual sum or multi-annual (geodetic period) sum
-            idAggr = metadata[
-                "ID_int"
-            ].values  # TODO: could be transfered to the GPU in advance (async in the dataloader)
-            nunique = precomputed_meta["nunique_ids"]
-            predSumAnnual = torch.zeros(
-                (nunique,), device=pred_geo.device, dtype=pred_geo.dtype
-            )
-            aggrPredict(pred_geo, idAggr, out=predSumAnnual)
-
-        with record_function("aggregation_GLWD_ID"):
-
-            # Aggregate glacier wide
-            metadataAggrYear = precomputed_meta["grouped_glwd_ids"]
-            idAggr = grouped_ids[
-                "GLWD_ID_int"
-            ].values  # TODO: could be transfered to the GPU in advance (async in the dataloader)
-            nunique = precomputed_meta["nunique_glwd_ids"]
-            predSumAnnualGlwd = torch.zeros(
-                (nunique,), device=pred_geo.device, dtype=pred_geo.dtype
-            )
-            aggrPredictGlwd(predSumAnnual, idAggr, out=predSumAnnualGlwd)
-
-        # Compute the geodetic MB for the different time windows
-        with record_function("timeWindowGeodeticLoss"):
-            lossGeo, ypred = timeWindowGeodeticLoss(
-                predSumAnnualGlwd,
-                ygeo,
-                errgeo,
-                metadataAggrYear,
-                geod_periods,
-            )
-
-        lossGeo_geoPart = (
-            lossGeo.mean()
-        )  # Compute mean of the different time window scores
-
-        return lossGeo_glacioPart + lossGeo_geoPart
 
     # Make prediction
     with record_function("geo_forward"):
@@ -723,7 +619,6 @@ def assessOnVal(
     geodataloader,
     params,
     async_transfer=None,
-    zeroTgtGeo=False,
     separateLoader=False,
 ):
     """Loss and metrics of a model on the validation set.
@@ -936,7 +831,6 @@ def assessOnVal(
                         geod_periods,
                         precomputed_meta,
                         scalingGeo,
-                        zeroTgtGeo=zeroTgtGeo,
                     )
                     targetAllGeo.append(ygeo.detach())
                     predAllGeo.append(ypredgeo.detach())
@@ -1092,7 +986,6 @@ def train_geo(
     scheduler=None,
     timeExec=False,
     useProfiler=False,
-    multi=None,
     geodataloaderVal=None,
 ):
     """
@@ -1131,7 +1024,6 @@ def train_geo(
     if wWinter == 1.0 and wSummer == 1.0:
         weightStakes = None
     useStakes = scalingStakes != "none"
-    zeroTgtGeo = multi == "joint"
 
     # Setup logging
     run_name = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1430,7 +1322,6 @@ def train_geo(
                                 geod_periods,
                                 precomputed_meta,
                                 scalingGeo,
-                                zeroTgtGeo=zeroTgtGeo,
                             )
                             if timeExec:
                                 torch.cuda.synchronize()
@@ -1523,7 +1414,6 @@ def train_geo(
                     # The flag was computed for the training dataloader, so the
                     # validation one determines its own
                     async_transfer=None if separateLoaderVal else async_transfer,
-                    zeroTgtGeo=zeroTgtGeo,
                     separateLoader=separateLoaderVal,
                 )
                 metric2tbEntry = {
