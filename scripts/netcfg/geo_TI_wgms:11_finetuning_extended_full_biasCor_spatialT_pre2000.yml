@@ -73,6 +73,7 @@ training:
         GLAMOS:
             min_year: 1950
             multi_period: true
+            min_window_years: 10
             allowed_years:
                 - 1951
                 - 1952
@@ -109,7 +110,37 @@ training:
             # start_year: 1984
             # end_year: 1999
             min_period_years: 5
-            allowed_years: []
+            allowed_years:
+                - 1951
+                - 1952
+                - 1953
+                - 1954
+                - 1955
+                - 1956
+                - 1976
+                - 1977
+                - 1978
+                - 1979
+                - 1980
+                - 1981
+                - 1982
+                - 1983
+                - 1984
+                - 1985
+                - 1986
+                - 1987
+                - 1988
+                - 1989
+                - 1990
+                - 1991
+                - 1992
+                - 1993
+                - 1994
+                - 1995
+                - 1996
+                - 1997
+                - 1998
+                - 1999
     geodetic_source_options_val:
         GLAMOS:
             min_year: 1950
@@ -139,7 +170,26 @@ training:
             # start_year: 1984
             # end_year: 1999
             min_period_years: 5
-            allowed_years: []
+            allowed_years:
+                - 1957
+                - 1958
+                - 1959
+                - 1960
+                - 1961
+                - 1962
+                - 1963
+                - 1964
+                - 1965
+                - 1966
+                - 1967
+                - 1968
+                - 1969
+                - 1970
+                - 1971
+                - 1972
+                - 1973
+                - 1974
+                - 1975
     geodetic_source_test: Hugonnet21
     geodetic_source_test_options:
     test_glaciers_geo:
