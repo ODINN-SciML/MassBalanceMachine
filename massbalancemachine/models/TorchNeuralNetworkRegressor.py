@@ -241,9 +241,7 @@ class TILikeModel(nn.Module):
                     )
                 )
             R_sw_contrib.append(nn.ReLU())
-            R_sw_contrib.append(
-                nn.Linear(sw_contrib_params["layers"][-1], 1, bias=False)
-            )
+            R_sw_contrib.append(nn.Linear(sw_contrib_params["layers"][-1], 1))
             self.R_sw_contrib = nn.Sequential(*R_sw_contrib)
         else:
             self.R_sw_contrib = None
@@ -401,13 +399,13 @@ class TILikeModel(nn.Module):
         else:
             elev_diff = inputs[:, self.ind_elev_diff]
             inp_sw_contrib = inputs[:, self.ind_inp_sw_contrib]
-            alpha = 1 - 15 * F.sigmoid(self.grad_T(inp_grad_T)[:, 0])
+            alpha = -2 - 13 * F.sigmoid(self.grad_T(inp_grad_T)[:, 0])
             bias = 5 * F.tanh(self.bias_T(inp_bias_T)[:, 0])
             cor_T_val = torch.stack([alpha, bias], dim=1)
             cor_T = elev_diff * alpha + bias
 
             # Short wave radiation contribution
-            R_sw = self.R_sw_contrib(inp_sw_contrib).view(-1)
+            R_sw = F.sigmoid(self.R_sw_contrib(inp_sw_contrib).view(-1))
 
         if self.bias_cor is not None:
             inp_bias_cor = inputs[:, self.ind_inp_bias_cor]
@@ -418,9 +416,7 @@ class TILikeModel(nn.Module):
         P_solid = (
             P
             * F.sigmoid(P_cor)
-            * F.sigmoid(
-                (torch.tanh(self.tau_P_s) + 1.1) * 2 * (self.tau_P_c - cor_T - T)
-            )
+            * F.sigmoid((torch.tanh(self.tau_P_s) + 1) * 2 * (self.tau_P_c - cor_T - T))
         )
         curv_pdd = (torch.tanh(self.beta_pdd) + 1) * 2
         PDD = F.softplus((T + cor_T) * curv_pdd) / curv_pdd
@@ -499,12 +495,12 @@ class TILikeModel(nn.Module):
         else:
             elev_diff = inputs[:, self.ind_elev_diff]
             inp_sw_contrib = inputs[:, self.ind_inp_sw_contrib]
-            alpha = 1 - 15 * F.sigmoid(self.grad_T(inp_grad_T)[:, 0])
+            alpha = -2 - 13 * F.sigmoid(self.grad_T(inp_grad_T)[:, 0])
             bias = 5 * F.tanh(self.bias_T(inp_bias_T)[:, 0])
             cor_T = elev_diff * alpha + bias
 
             # Short wave radiation contribution
-            R_sw = self.R_sw_contrib(inp_sw_contrib).view(-1)
+            R_sw = F.sigmoid(self.R_sw_contrib(inp_sw_contrib).view(-1))
 
         if self.bias_cor is not None:
             inp_bias_cor = inputs[:, self.ind_inp_bias_cor]
@@ -515,9 +511,7 @@ class TILikeModel(nn.Module):
         P_solid = (
             P
             * F.sigmoid(P_cor)
-            * F.sigmoid(
-                (torch.tanh(self.tau_P_s) + 1.1) * 2 * (self.tau_P_c - cor_T - T)
-            )
+            * F.sigmoid((torch.tanh(self.tau_P_s) + 1) * 2 * (self.tau_P_c - cor_T - T))
         )
         curv_pdd = (torch.tanh(self.beta_pdd) + 1) * 2
         PDD = F.softplus((T + cor_T) * curv_pdd) / curv_pdd
@@ -528,7 +522,7 @@ class TILikeModel(nn.Module):
         # Ablation factor correction
         cor_abl = self.cor_abl(inp_cor_abl).view(-1)
 
-        MB = self.beta1 * cor_acc * P_solid - self.beta2 * cor_abl * PDD + R_sw
+        MB = self.beta1 * cor_acc * P_solid - self.beta2 * cor_abl * PDD - R_sw
         # TODO: changer scaling de beta2 pour correspondre aux valeurs typiques calées avec ODINN
         return MB.view(-1, 1)
 
