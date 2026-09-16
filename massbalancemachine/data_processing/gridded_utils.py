@@ -6,6 +6,7 @@ import tqdm
 import multiprocessing
 import xarray as xr
 from calendar import month_abbr
+from functools import lru_cache
 
 from oggm import utils
 
@@ -22,6 +23,7 @@ from data_processing.get_topo_data import (
     get_glacier_mask,
     masked_glacier_grid,
 )
+from data_processing.get_climate_data import climate_file_paths
 from data_processing.parallel_utils import gridded_worker_count
 from data_processing.custom_outlines import assert_spec_matches, build_custom_gdirs
 from data_processing.pgo import (
@@ -62,6 +64,26 @@ def years_from_time_ranges(time_ranges):
 
 # Month names used in the gridded products, which are generated per calendar year
 MONTH_TO_ID = {month_abbr[i].lower() + ("_" if i > 9 else ""): i for i in range(1, 13)}
+
+# Climate variables attached to every gridded product. Shared by the generation of the
+# grids and by `climate_features_of_glaciers`, which reads them back, so that the two
+# cannot drift apart.
+GRID_VOIS_CLIMATE = [
+    "t2m",
+    "tp",
+    "slhf",
+    "sshf",
+    "ssrd",
+    "fal",
+    "str",
+    "u10",
+    "v10",
+    "tp_sum",
+    "slhf_sum",
+    "sshf_sum",
+    "ssrd_sum",
+    "str_sum",
+]
 
 
 def _window_month_bounds(window):
@@ -463,22 +485,7 @@ def create_gridded_features_from_mask_per_year(args):
             )
 
             # Climate columns
-            vois_climate = [
-                "t2m",
-                "tp",
-                "slhf",
-                "sshf",
-                "ssrd",
-                "fal",
-                "str",
-                "u10",
-                "v10",
-                "tp_sum",
-                "slhf_sum",
-                "sshf_sum",
-                "ssrd_sum",
-                "str_sum",
-            ]
+            vois_climate = list(GRID_VOIS_CLIMATE)
             # Topographical columns
             voi_topographical = [
                 "aspect",
@@ -639,6 +646,296 @@ def geodetic_input_Hugonnet21(
     df_X_geod["slope"] = 180 * df_X_geod["slope"] / np.pi
 
     return df_X_geod
+
+
+def _region_id_of(rgi_id):
+    """RGI first-order region of a glacier, in both RGI naming schemes."""
+    if rgi_id.startswith("RGI2000-v7.0-G-"):
+        return int(rgi_id.split("-G-")[1].split("-")[0])
+    return int(rgi_id.split("-")[1].split(".")[0])
+
+
+def _grid_dir(glacier_id, product_source):
+    """Directory holding the per-year gridded products of one glacier."""
+    return os.path.join(
+        data_path, "grids", product_source, *glacier_id_to_folders(glacier_id)
+    )
+
+
+def _grid_year_path(glacier_id, year, product_source):
+    return os.path.abspath(
+        os.path.join(_grid_dir(glacier_id, product_source), f"{year}.parquet")
+    )
+
+
+def _require_grid(glacier_id, year, product_source):
+    """Path of a gridded product, with an error that says how to produce it.
+
+    `pd.read_parquet` would otherwise raise a bare `FileNotFoundError` on a path deep
+    in `.data`, which says nothing about the generation step that is missing.
+    """
+    file_path = _grid_year_path(glacier_id, year, product_source)
+    if not os.path.isfile(file_path):
+        raise FileNotFoundError(
+            f"No {product_source} grid for {glacier_id} in {year} ({file_path}). "
+            f"Generate it first with create_gridded_features_RGI(cfg, ['{glacier_id}'], "
+            f"years=[{year}])."
+        )
+    return file_path
+
+
+def _available_grid_years(glacier_id, product_source):
+    """Years for which a gridded product of this glacier exists on disk, sorted."""
+    directory = _grid_dir(glacier_id, product_source)
+    if not os.path.isdir(directory):
+        return []
+    years = []
+    for name in os.listdir(directory):
+        stem, ext = os.path.splitext(name)
+        if ext == ".parquet" and stem.isdigit():
+            years.append(int(stem))
+    return sorted(years)
+
+
+@lru_cache(maxsize=8)
+def _climate_grid_axes(region_id):
+    """The latitude and longitude axes of the ERA5-Land grid of one region.
+
+    Only the coordinates are read: the data variables of the regional file are close to
+    a gigabyte, and the axes are what is needed to tell which cell a point falls in.
+    """
+    climate_data, _ = climate_file_paths(region_id)
+    if not os.path.isfile(climate_data):
+        # `climate_file_paths` returns a path relative to the repository root, which
+        # only resolves when the caller runs from there.
+        from_repo = os.path.join(mbm_path, climate_data)
+        if not os.path.isfile(from_repo):
+            raise FileNotFoundError(
+                f"No ERA5 climate file for region {region_id} ({climate_data}). "
+                f"Download it with download_climate_ERA5({region_id})."
+            )
+        climate_data = from_repo
+    with xr.open_dataset(climate_data) as ds:
+        return ds["latitude"].values, ds["longitude"].values
+
+
+def _nearest_index(axis, values):
+    """Index of the nearest entry of `axis` for every value, as `sel(method='nearest')`
+    does on a monotonic coordinate."""
+    return np.abs(np.asarray(axis)[:, None] - np.asarray(values)[None, :]).argmin(
+        axis=0
+    )
+
+
+def _modal_climate_cell(region_id, pts_lat, pts_lon):
+    """The ERA5-Land cell most of these points fall in, as (latitude, longitude).
+
+    This is the cell whose climate the gridded products carry: `smooth_era5land_by_mode`
+    replaces every climate column of a glacier by its modal value over the glacier's
+    pixels, which is the value of the cell covering most of them.
+    """
+    lat_axis, lon_axis = _climate_grid_axes(region_id)
+
+    # ERA5 files come in either longitude convention, as `_process_climate_data` also
+    # has to handle when it selects the points.
+    if float(np.nanmax(lon_axis)) > 180.0:
+        pts_lon = np.mod(np.asarray(pts_lon, dtype=float), 360.0)
+
+    cells = np.stack(
+        [_nearest_index(lat_axis, pts_lat), _nearest_index(lon_axis, pts_lon)], axis=1
+    )
+    unique_cells, counts = np.unique(cells, axis=0, return_counts=True)
+    lat_idx, lon_idx = unique_cells[counts.argmax()]
+
+    lon = float(lon_axis[lon_idx])
+    return float(lat_axis[lat_idx]), ((lon + 180.0) % 360.0) - 180.0
+
+
+def climate_cells_of_glaciers(rgi_ids, product_source="Hugonnet21", year=None):
+    """The ERA5-Land cell each glacier takes its gridded climate from.
+
+    The gridded products hold one climate value per glacier and month, not one per pixel:
+    `create_gridded_features_from_mask_per_year` smooths them with
+    `smooth_era5land_by_mode`, which collapses the glacier onto the single cell covering
+    most of it. That cell follows from the glacier outline alone, so it is the same in
+    every year and is read here from one year's product.
+
+    Args:
+        rgi_ids: the glaciers to look up.
+        product_source (str): which grids to read the pixel coordinates from.
+        year (int): the year whose product to read. Left to None, the earliest year
+            available for each glacier is used.
+
+    Returns:
+        pd.DataFrame: indexed by `RGIId`, with the columns `CLIMATE_LAT`, `CLIMATE_LON`
+        (the cell centre, longitude in -180..180) and `ALTITUDE_CLIMATE` (the
+        geopotential height of the cell, as stored in the products).
+    """
+    rows = []
+    for rgi_id in rgi_ids:
+        if year is None:
+            available = _available_grid_years(rgi_id, product_source)
+            if not available:
+                raise FileNotFoundError(
+                    f"No {product_source} grid for {rgi_id} "
+                    f"({_grid_dir(rgi_id, product_source)}). Generate it first with "
+                    f"create_gridded_features_RGI(cfg, ['{rgi_id}'], years=...)."
+                )
+            grid_year = available[0]
+        else:
+            grid_year = year
+
+        file_path = _require_grid(rgi_id, grid_year, product_source)
+        df_grid = pd.read_parquet(
+            file_path, columns=["POINT_LAT", "POINT_LON", "ALTITUDE_CLIMATE"]
+        )
+
+        altitudes = df_grid.ALTITUDE_CLIMATE.unique()
+        assert len(altitudes) == 1, (
+            f"{rgi_id} carries {len(altitudes)} different ALTITUDE_CLIMATE values in "
+            f"{grid_year}, so its grid was not collapsed onto a single climate cell."
+        )
+
+        lat, lon = _modal_climate_cell(
+            _region_id_of(rgi_id),
+            df_grid.POINT_LAT.to_numpy(dtype=float),
+            df_grid.POINT_LON.to_numpy(dtype=float),
+        )
+        rows.append(
+            {
+                "RGIId": rgi_id,
+                "CLIMATE_LAT": lat,
+                "CLIMATE_LON": lon,
+                "ALTITUDE_CLIMATE": float(altitudes[0]),
+            }
+        )
+
+    return pd.DataFrame(rows).set_index("RGIId")
+
+
+def climate_features_of_glaciers(
+    rgi_ids,
+    cfg,
+    years=range(2000, 2020),
+    product_source="Hugonnet21",
+    features=None,
+    drop_duplicate_cells=True,
+    validate=False,
+):
+    """The monthly climate features of a set of glaciers, one row per climate cell.
+
+    The gridded products repeat the same climate on every pixel of a glacier, and
+    neighbouring glaciers often share an ERA5-Land cell - they are about 9 km wide, so in
+    the Alps a cell commonly covers several glaciers. Both redundancies are dropped here:
+    the result holds one row per distinct cell, year and month.
+
+    Args:
+        rgi_ids: the glaciers whose climate to extract.
+        years: the calendar years to extract. A year without a generated grid raises.
+        product_source (str): only "Hugonnet21" for now. The windowed sources take a
+            time range rather than a list of years and need their own entry point.
+        features (list of str): the climate columns to keep. Defaults to
+            `GRID_VOIS_CLIMATE`, everything the grids carry.
+        drop_duplicate_cells (bool): when False, the rows are expanded back to one per
+            glacier, year and month, glaciers sharing a cell repeating the same values.
+        validate (bool): additionally check that the climate really is constant over the
+            pixels of a glacier before collapsing them. Costs a groupby per glacier.
+
+    Returns:
+        pd.DataFrame: `RGIId`, `RGI_IDS`, `N_GLACIERS`, `CLIMATE_LAT`, `CLIMATE_LON`,
+        `ALTITUDE_CLIMATE`, `YEAR`, `MONTHS` and the feature columns, sorted by cell,
+        year and month. `YEAR` is the calendar year and `MONTHS` uses the tokens of the
+        gridded products: `jan` to `sep`, then `oct_`, `nov_`, `dec_`. `RGIId` is the
+        glacier the values were read from and `RGI_IDS` every glacier on that cell.
+    """
+    if product_source != "Hugonnet21":
+        raise NotImplementedError(
+            f"climate_features_of_glaciers does not support {product_source!r}: the "
+            "windowed sources are keyed by time range rather than by year."
+        )
+
+    features = list(GRID_VOIS_CLIMATE) if features is None else list(features)
+    years = list(years)
+    rgi_ids = list(dict.fromkeys(rgi_ids))  # keep the order, drop repeated ids
+
+    create_gridded_features_RGI(cfg, rgi_ids, years=years)
+
+    cells = climate_cells_of_glaciers(rgi_ids, product_source)
+
+    # Glaciers sharing a cell must agree on its geopotential height; if they do not, the
+    # mode picked different cells for different variables and the dedup would be wrong.
+    for (lat, lon), group in cells.groupby(["CLIMATE_LAT", "CLIMATE_LON"]):
+        if not np.allclose(group.ALTITUDE_CLIMATE, group.ALTITUDE_CLIMATE.iloc[0]):
+            raise ValueError(
+                f"Glaciers {sorted(group.index)} map to the climate cell "
+                f"({lat}, {lon}) but carry different ALTITUDE_CLIMATE values "
+                f"{sorted(group.ALTITUDE_CLIMATE.unique())}."
+            )
+
+    keys = ["YEAR", "MONTHS"]
+    per_cell = []
+    for (lat, lon), group in cells.groupby(["CLIMATE_LAT", "CLIMATE_LON"]):
+        glaciers = sorted(group.index)
+        # The representative is fixed by the sort, so the same input always reads the
+        # same grid and returns the same rows.
+        representative = glaciers[0]
+        for year in years:
+            _require_grid(representative, year, product_source)
+
+        df_grid = geodetic_input_Hugonnet21(representative, years=years)
+
+        if validate:
+            spread = df_grid.groupby(keys)[features].nunique()
+            assert (spread == 1).all().all(), (
+                f"The climate of {representative} varies over its pixels, so it cannot "
+                "be collapsed to one row per month. Columns concerned: "
+                f"{sorted(spread.columns[(spread != 1).any()])}."
+            )
+
+        df_cell = df_grid.drop_duplicates(subset=keys)[keys + features].copy()
+        df_cell["RGIId"] = representative
+        df_cell["RGI_IDS"] = [tuple(glaciers)] * len(df_cell)
+        df_cell["N_GLACIERS"] = len(glaciers)
+        df_cell["CLIMATE_LAT"] = lat
+        df_cell["CLIMATE_LON"] = lon
+        df_cell["ALTITUDE_CLIMATE"] = group.ALTITUDE_CLIMATE.iloc[0]
+        per_cell.append(df_cell)
+
+    columns = [
+        "RGIId",
+        "RGI_IDS",
+        "N_GLACIERS",
+        "CLIMATE_LAT",
+        "CLIMATE_LON",
+        "ALTITUDE_CLIMATE",
+        "YEAR",
+        "MONTHS",
+    ] + features
+    df = pd.concat(per_cell, ignore_index=True)[columns]
+
+    if not drop_duplicate_cells:
+        # Expand back to one row per glacier without re-reading anything: glaciers of a
+        # cell share its values by construction.
+        df = (
+            cells.drop(columns=["ALTITUDE_CLIMATE"])
+            .reset_index()
+            .merge(
+                df.drop(columns=["RGIId"]),
+                on=["CLIMATE_LAT", "CLIMATE_LON"],
+                how="left",
+            )[columns]
+        )
+
+    sort_by = ["CLIMATE_LAT", "CLIMATE_LON", "YEAR", "MONTHS"]
+    if not drop_duplicate_cells:
+        sort_by = ["RGIId"] + sort_by
+    df = (
+        df.assign(_month=df.MONTHS.map(MONTH_TO_ID))
+        .sort_values([c if c != "MONTHS" else "_month" for c in sort_by])
+        .drop(columns="_month")
+        .reset_index(drop=True)
+    )
+    return df
 
 
 def geodetic_target_Hugonnet21(rgi_ids, cfg):

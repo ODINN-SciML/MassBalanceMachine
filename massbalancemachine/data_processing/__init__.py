@@ -17,6 +17,9 @@ from data_processing.Product import Product
 from data_processing.product_utils import rgi_id_to_folders, glacier_id_to_folders
 from data_processing.custom_outlines import CustomOutlineSpec, build_custom_gdirs
 from data_processing.gridded_utils import (
+    GRID_VOIS_CLIMATE,
+    climate_cells_of_glaciers,
+    climate_features_of_glaciers,
     create_gridded_features_RGI,
     create_gridded_features_PGO,
     create_gridded_features_GLAMOS,
