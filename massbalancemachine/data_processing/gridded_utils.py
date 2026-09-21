@@ -136,15 +136,23 @@ def geodetic_window_weights(metadata, periods):
     return weights
 
 
-def _glacier_grid_products(grid_path, glacier_id, years):
+def _glacier_grid_products(grid_path, glacier_id, years, svf_grid_path=None):
     """The `Product`s tracking the gridded output of one glacier: one parquet per
-    year plus the sky view factor, which is year-independent."""
+    year plus the sky view factor, which is year-independent.
+
+    `svf_grid_path` is the grid tree holding the sky view factor, `grid_path` by
+    default. The grids built on climate projections take it from the ERA5 grids of
+    the same outlines instead of computing it again for every projection.
+    """
     path_glacier = os.path.join(grid_path, *glacier_id_to_folders(glacier_id))
     products = {
         year: Product(os.path.abspath(os.path.join(path_glacier, f"{year}.parquet")))
         for year in years
     }
-    products["svf"] = Product(os.path.join(path_glacier, "svf.nc"))
+    path_svf = os.path.join(
+        svf_grid_path or grid_path, *glacier_id_to_folders(glacier_id), "svf.nc"
+    )
+    products["svf"] = Product(path_svf)
     return path_glacier, products
 
 
@@ -160,6 +168,7 @@ def _gridded_features_for_glacier(
     write_dem,
     multi=True,
     num_workers=None,
+    climate=None,
 ):
     """Generate the per-year gridded products of one glacier.
 
@@ -178,18 +187,26 @@ def _gridded_features_for_glacier(
         num_workers (int): number of processes to generate the years with. Left to
             None it is derived from the memory free at this moment, see
             `parallel_utils.worker_count`.
+        climate: where the climate comes from. None for ERA5, else an object such
+            as `climate_projections.CMIP6Climate` providing `vois_climate`,
+            `prepare(region_id)` and `add_climate_features(dataset, ...)`.
     """
     # Check if sky view factor needs to be generated
     p = products["svf"]
+    path_svf = os.path.dirname(p.file_path)
     if not p.is_up_to_date():
 
         # Create DEM grid
-        write_dem(path_glacier)
+        write_dem(path_svf)
 
         # Generate sky view factor
-        generate_svf_file(path_glacier)
+        generate_svf_file(path_svf)
 
         p.gen_chk()
+
+    if climate is not None:
+        # Before the pool is created, so that the workers inherit the loaded climate
+        climate.prepare(region_id)
 
     args = [
         (
@@ -200,6 +217,8 @@ def _gridded_features_for_glacier(
             gdir,
             mask_kind,
             path_glacier,
+            p.file_path,
+            climate,
         )
         for year in years
     ]
@@ -237,6 +256,7 @@ def _create_gridded_features_custom_outlines(
     region_id,
     multi=True,
     num_workers=None,
+    climate=None,
 ):
     """Generate the gridded products of a set of glaciers described by custom
     outlines, over the geodetic windows of every glacier.
@@ -250,14 +270,19 @@ def _create_gridded_features_custom_outlines(
         region_id (int): RGI first-order region, needed to locate the climate data.
         num_workers (int): number of processes to use. Left to None it follows the
             memory free on the machine, see `parallel_utils.worker_count`.
+        climate: where the climate comes from, see `_gridded_features_for_glacier`.
+            The grids then go to `climate.grid_root(spec.name)`, and the sky view
+            factor is shared with the ERA5 grids.
     """
     glacier_ids = list(time_ranges.keys())
-    grid_path = spec.grid_root()
+    svf_grid_path = spec.grid_root()
+    grid_path = svf_grid_path if climate is None else climate.grid_root(spec.name)
     # Before anything, and in particular before the early return below: a cached grid
     # carries no record of which outlines produced it, so this is the only thing
     # standing between a request for one variant of a dataset and the grids of
     # another one that happens to use the same glacier ids.
-    assert_spec_matches(spec, grid_path, overwrite=spec.reset)
+    for folder in {grid_path, svf_grid_path}:
+        assert_spec_matches(spec, folder, overwrite=spec.reset)
 
     reprocess = False
     products = {}
@@ -267,7 +292,7 @@ def _create_gridded_features_custom_outlines(
         years = years_from_time_ranges(time_ranges[glacier_id])
         glacier_id_to_years[glacier_id] = years
         paths[glacier_id], products[glacier_id] = _glacier_grid_products(
-            grid_path, glacier_id, years
+            grid_path, glacier_id, years, svf_grid_path
         )
 
         if any([not p.is_up_to_date() for p in products[glacier_id].values()]):
@@ -306,6 +331,7 @@ def _create_gridded_features_custom_outlines(
             write_dem=lambda path, gdir=gdir: create_custom_dem_file(gdir, path),
             multi=multi,
             num_workers=num_workers,
+            climate=climate,
         )
 
 
@@ -314,6 +340,7 @@ def create_gridded_features_PGO(
     time_ranges,
     multi=True,
     num_workers=None,
+    climate=None,
 ):
     rgi_ids = list(time_ranges.keys())
     custom_outlines = prepare_PGO_outlines(
@@ -333,6 +360,7 @@ def create_gridded_features_PGO(
         region_ids.pop(),
         multi=multi,
         num_workers=num_workers,
+        climate=climate,
     )
 
 
@@ -343,6 +371,7 @@ def create_gridded_features_GLAMOS(
     dem_source: str = "SRTM",
     multi=True,
     num_workers=None,
+    climate=None,
 ):
     """Generate the gridded products of Swiss glaciers on the outlines of the
     Swiss Glacier Inventory, keyed by their SGI id.
@@ -372,6 +401,7 @@ def create_gridded_features_GLAMOS(
         SWITZERLAND_REGION_ID,
         multi=multi,
         num_workers=num_workers,
+        climate=climate,
     )
 
 
@@ -381,6 +411,7 @@ def create_gridded_features_Rabatel16(
     spec=None,
     multi=True,
     num_workers=None,
+    climate=None,
 ):
     """Generate the gridded products of French glaciers on the 1985-86 outlines used
     by Rabatel et al. (2016), keyed by their GLIMS id.
@@ -409,6 +440,7 @@ def create_gridded_features_Rabatel16(
         FRENCH_ALPS_REGION_ID,
         multi=multi,
         num_workers=num_workers,
+        climate=climate,
     )
 
 
@@ -418,12 +450,23 @@ def create_gridded_features_RGI(
     years=range(2000, 2020),
     multi=True,
     num_workers=None,
+    climate=None,
 ):
-    grid_path = os.path.join(data_path, "grids", "Hugonnet21")
+    """Generate the gridded products of glaciers on their RGI outlines.
+
+    Args:
+        climate: where the climate comes from, see `_gridded_features_for_glacier`.
+            The grids then go to `climate.grid_root("Hugonnet21")`, and the sky view
+            factor is shared with the ERA5 grids.
+    """
+    svf_grid_path = os.path.join(data_path, "grids", "Hugonnet21")
+    grid_path = svf_grid_path if climate is None else climate.grid_root("Hugonnet21")
     for rgi_id in rgi_ids:
         region_id = int(rgi_id.split("-")[1].split(".")[0])
 
-        path_rgi_id, products = _glacier_grid_products(grid_path, rgi_id, years)
+        path_rgi_id, products = _glacier_grid_products(
+            grid_path, rgi_id, years, svf_grid_path
+        )
 
         if all([p.is_up_to_date() for p in products.values()]):
             # print(f"All gridded products are already generated for {rgi_id}")
@@ -447,11 +490,12 @@ def create_gridded_features_RGI(
             ),
             multi=multi,
             num_workers=num_workers,
+            climate=climate,
         )
 
 
 def create_gridded_features_from_mask_per_year(args):
-    rgi_id, year, region_id, cfg, gdir, mask_kind, path_rgi_id = args
+    rgi_id, year, region_id, cfg, gdir, mask_kind, path_rgi_id, svf_file, climate = args
     try:
         save_path = os.path.abspath(os.path.join(path_rgi_id, f"{year}.parquet"))
         p = Product(save_path)
@@ -464,7 +508,7 @@ def create_gridded_features_from_mask_per_year(args):
             ds, glacier_indices = masked_glacier_grid(gdir, mask_kind)
 
             # Load sky view factor
-            svf = xr.open_dataset(os.path.join(path_rgi_id, "svf.nc"))
+            svf = xr.open_dataset(svf_file)
 
             # Create glacier grid
             df_grid = create_glacier_grid_RGI(
@@ -485,7 +529,9 @@ def create_gridded_features_from_mask_per_year(args):
             )
 
             # Climate columns
-            vois_climate = list(GRID_VOIS_CLIMATE)
+            vois_climate = list(
+                GRID_VOIS_CLIMATE if climate is None else climate.vois_climate
+            )
             # Topographical columns
             voi_topographical = [
                 "aspect",
@@ -508,13 +554,18 @@ def create_gridded_features_from_mask_per_year(args):
             del df_grid  # Free up memory
 
             # Add climate data
-            dataset_grid.get_climate_features(
-                change_units=True,
-                smoothing_vois={
-                    "vois_climate": vois_climate,
-                    "vois_other": ["ALTITUDE_CLIMATE"],
-                },
-            )
+            smoothing_vois = {
+                "vois_climate": vois_climate,
+                "vois_other": ["ALTITUDE_CLIMATE"],
+            }
+            if climate is None:
+                dataset_grid.get_climate_features(
+                    change_units=True, smoothing_vois=smoothing_vois
+                )
+            else:
+                climate.add_climate_features(
+                    dataset_grid, change_units=True, smoothing_vois=smoothing_vois
+                )
 
             df_grid_y = dataset_grid.data[dataset_grid.data.YEAR == year]
 
@@ -655,26 +706,32 @@ def _region_id_of(rgi_id):
     return int(rgi_id.split("-")[1].split(".")[0])
 
 
-def _grid_dir(glacier_id, product_source):
-    """Directory holding the per-year gridded products of one glacier."""
-    return os.path.join(
-        data_path, "grids", product_source, *glacier_id_to_folders(glacier_id)
-    )
+def _grid_dir(glacier_id, product_source, grid_root=None):
+    """Directory holding the per-year gridded products of one glacier.
+
+    `grid_root` is the grid tree to look in, by default the ERA5 grids of
+    `product_source`.
+    """
+    if grid_root is None:
+        grid_root = os.path.join(data_path, "grids", product_source)
+    return os.path.join(grid_root, *glacier_id_to_folders(glacier_id))
 
 
-def _grid_year_path(glacier_id, year, product_source):
+def _grid_year_path(glacier_id, year, product_source, grid_root=None):
     return os.path.abspath(
-        os.path.join(_grid_dir(glacier_id, product_source), f"{year}.parquet")
+        os.path.join(
+            _grid_dir(glacier_id, product_source, grid_root), f"{year}.parquet"
+        )
     )
 
 
-def _require_grid(glacier_id, year, product_source):
+def _require_grid(glacier_id, year, product_source, grid_root=None):
     """Path of a gridded product, with an error that says how to produce it.
 
     `pd.read_parquet` would otherwise raise a bare `FileNotFoundError` on a path deep
     in `.data`, which says nothing about the generation step that is missing.
     """
-    file_path = _grid_year_path(glacier_id, year, product_source)
+    file_path = _grid_year_path(glacier_id, year, product_source, grid_root)
     if not os.path.isfile(file_path):
         raise FileNotFoundError(
             f"No {product_source} grid for {glacier_id} in {year} ({file_path}). "
@@ -684,9 +741,9 @@ def _require_grid(glacier_id, year, product_source):
     return file_path
 
 
-def _available_grid_years(glacier_id, product_source):
+def _available_grid_years(glacier_id, product_source, grid_root=None):
     """Years for which a gridded product of this glacier exists on disk, sorted."""
-    directory = _grid_dir(glacier_id, product_source)
+    directory = _grid_dir(glacier_id, product_source, grid_root)
     if not os.path.isdir(directory):
         return []
     years = []
@@ -751,7 +808,9 @@ def _modal_climate_cell(region_id, pts_lat, pts_lon):
     return float(lat_axis[lat_idx]), ((lon + 180.0) % 360.0) - 180.0
 
 
-def climate_cells_of_glaciers(rgi_ids, product_source="Hugonnet21", year=None):
+def climate_cells_of_glaciers(
+    rgi_ids, product_source="Hugonnet21", year=None, grid_root=None, region_id=None
+):
     """The ERA5-Land cell each glacier takes its gridded climate from.
 
     The gridded products hold one climate value per glacier and month, not one per pixel:
@@ -765,6 +824,10 @@ def climate_cells_of_glaciers(rgi_ids, product_source="Hugonnet21", year=None):
         product_source (str): which grids to read the pixel coordinates from.
         year (int): the year whose product to read. Left to None, the earliest year
             available for each glacier is used.
+        grid_root (str): the grid tree to read, by default the ERA5 grids of
+            `product_source`.
+        region_id (int): RGI region of the glaciers. Left to None it is read from
+            their RGI ids, which the ids of custom outlines are not.
 
     Returns:
         pd.DataFrame: indexed by `RGIId`, with the columns `CLIMATE_LAT`, `CLIMATE_LON`
@@ -774,18 +837,18 @@ def climate_cells_of_glaciers(rgi_ids, product_source="Hugonnet21", year=None):
     rows = []
     for rgi_id in rgi_ids:
         if year is None:
-            available = _available_grid_years(rgi_id, product_source)
+            available = _available_grid_years(rgi_id, product_source, grid_root)
             if not available:
                 raise FileNotFoundError(
                     f"No {product_source} grid for {rgi_id} "
-                    f"({_grid_dir(rgi_id, product_source)}). Generate it first with "
+                    f"({_grid_dir(rgi_id, product_source, grid_root)}). Generate it first with "
                     f"create_gridded_features_RGI(cfg, ['{rgi_id}'], years=...)."
                 )
             grid_year = available[0]
         else:
             grid_year = year
 
-        file_path = _require_grid(rgi_id, grid_year, product_source)
+        file_path = _require_grid(rgi_id, grid_year, product_source, grid_root)
         df_grid = pd.read_parquet(
             file_path, columns=["POINT_LAT", "POINT_LON", "ALTITUDE_CLIMATE"]
         )
@@ -797,7 +860,7 @@ def climate_cells_of_glaciers(rgi_ids, product_source="Hugonnet21", year=None):
         )
 
         lat, lon = _modal_climate_cell(
-            _region_id_of(rgi_id),
+            _region_id_of(rgi_id) if region_id is None else region_id,
             df_grid.POINT_LAT.to_numpy(dtype=float),
             df_grid.POINT_LON.to_numpy(dtype=float),
         )
@@ -860,7 +923,40 @@ def climate_features_of_glaciers(
 
     create_gridded_features_RGI(cfg, rgi_ids, years=years)
 
-    cells = climate_cells_of_glaciers(rgi_ids, product_source)
+    return climate_features_from_grids(
+        rgi_ids,
+        years,
+        product_source,
+        features,
+        drop_duplicate_cells=drop_duplicate_cells,
+        validate=validate,
+    )
+
+
+def climate_features_from_grids(
+    glacier_ids,
+    years,
+    product_source,
+    features,
+    drop_duplicate_cells=True,
+    validate=False,
+    grid_root=None,
+    region_id=None,
+):
+    """The reading part of `climate_features_of_glaciers`, on grids that have
+    already been generated.
+
+    Args:
+        grid_root (str): the grid tree to read, by default the ERA5 grids of
+            `product_source`. The grids built on climate projections live elsewhere.
+        region_id (int): see `climate_cells_of_glaciers`.
+
+    See `climate_features_of_glaciers` for the other arguments and the result.
+    """
+    rgi_ids = list(glacier_ids)
+    cells = climate_cells_of_glaciers(
+        rgi_ids, product_source, grid_root=grid_root, region_id=region_id
+    )
 
     # Glaciers sharing a cell must agree on its geopotential height; if they do not, the
     # mode picked different cells for different variables and the dedup would be wrong.
@@ -879,10 +975,16 @@ def climate_features_of_glaciers(
         # The representative is fixed by the sort, so the same input always reads the
         # same grid and returns the same rows.
         representative = glaciers[0]
-        for year in years:
-            _require_grid(representative, year, product_source)
-
-        df_grid = geodetic_input_Hugonnet21(representative, years=years)
+        df_grid = pd.concat(
+            [
+                pd.read_parquet(
+                    _require_grid(representative, year, product_source, grid_root),
+                    columns=keys + features,
+                )
+                for year in years
+            ],
+            ignore_index=True,
+        )
 
         if validate:
             spread = df_grid.groupby(keys)[features].nunique()

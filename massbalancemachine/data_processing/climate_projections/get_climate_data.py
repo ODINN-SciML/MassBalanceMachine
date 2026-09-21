@@ -1,18 +1,114 @@
+"""
+Climate features from CMIP6 projections, bias corrected against ERA5 and put on its
+grid, so that they go through the same processing as the ERA5 features.
+"""
+
 import os
-from calendar import month_abbr
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import Optional
 import xarray as xr
-import numpy as np
 import pandas as pd
 
-import config
+from data_processing.product_utils import data_path
+from data_processing.Product import Product
+from data_processing.get_climate_data import (
+    _file_stamp,
+    _load_datasets,
+    climate_features_from_datasets,
+    climate_file_paths,
+)
 from data_processing.climate_projections.climate_data_download import (
     ensure_climate_CMIP6,
 )
-from data_processing.climate_projections.regridding import bias_corrected
+from data_processing.climate_projections.regridding import (
+    bias_corrected_climate,
+    bias_cor_suffix,
+)
 
-# from data_processing.utils.hydro_year import months_hydro_year, _rebuild_month_index
+# Climate variables attached to the gridded products built on CMIP6 projections. The
+# ERA5 ones (`gridded_utils.GRID_VOIS_CLIMATE`) also hold fal, u10 and v10, which are
+# not derived from the projections.
+CMIP6_GRID_VOIS_CLIMATE = [
+    "t2m",
+    "tp",
+    "slhf",
+    "sshf",
+    "ssrd",
+    "str",
+    "tp_sum",
+    "slhf_sum",
+    "sshf_sum",
+    "ssrd_sum",
+    "str_sum",
+]
+
+
+def path_climate_CMIP6(region, ssp, gcm, bias_correction_period):
+    """File holding the bias-corrected CMIP6 climate of a region on the ERA5 grid."""
+    if not isinstance(region, str):
+        region = f"{region:02d}"
+    return os.path.join(
+        data_path,
+        "CMIP6",
+        "climate",
+        bias_cor_suffix(bias_correction_period),
+        region,
+        ssp,
+        f"{gcm}.nc",
+    )
+
+
+def ensure_climate_features_CMIP6(region, ssp, gcm, bias_correction_period):
+    """Compute and store the bias-corrected climate of a region, if not done yet.
+
+    It is computed once rather than in every task generating gridded features: the
+    bias correction needs the whole ERA5 file of the region. The time axis is
+    converted to the month starts ERA5 uses, from the mid-month cftime dates of the
+    GCMs, whose calendar may have no leap days.
+    """
+    file_path = path_climate_CMIP6(region, ssp, gcm, bias_correction_period)
+    p = Product(file_path)
+    if p.is_up_to_date():
+        return file_path
+
+    ssps = [ssp]
+    if bias_correction_period is not None and ssp != "historical":
+        # The reference period of the bias correction lies in the historical run
+        ssps.append("historical")
+    ensure_climate_CMIP6(region, ssps=ssps, gcms=gcm)
+
+    ds = bias_corrected_climate(region, ssp, gcm, bias_correction_period)
+    ds = ds.reset_coords(drop=True).astype("float32")
+    ds = ds.assign_coords(
+        time=pd.DatetimeIndex(
+            [pd.Timestamp(t.year, t.month, 1) for t in ds.indexes["time"]]
+        )
+    )
+    ds.to_netcdf(file_path)
+    p.gen_chk()
+    return file_path
+
+
+@lru_cache(maxsize=2)
+def _load_climate_CMIP6_cached(file_path, change_units, stamp):
+    """Kept behind a cache for the same reason as the ERA5 data, see
+    `get_climate_data._load_datasets_cached`. `stamp` is only a cache key."""
+    del stamp
+    with xr.open_dataset(file_path) as ds:
+        ds = ds.load()
+    if change_units:
+        ds = ds.assign(t2m=ds["t2m"] - 273.15)
+    return ds
+
+
+def load_climate_CMIP6(
+    region, ssp, gcm, bias_correction_period, change_units: bool = False
+):
+    """The bias-corrected CMIP6 climate of a region on the ERA5 grid. Shared between
+    calls, so it must be treated as read-only."""
+    file_path = ensure_climate_features_CMIP6(region, ssp, gcm, bias_correction_period)
+    return _load_climate_CMIP6_cached(file_path, change_units, _file_stamp(file_path))
 
 
 def get_climate_features_(
@@ -26,75 +122,96 @@ def get_climate_features_(
     vois_climate: list = None,
     vois_other: list = None,
     bias_correction_period=None,
+    output_fname: str = None,
 ) -> pd.DataFrame:
+    """CMIP6 counterpart of `data_processing.get_climate_data.get_climate_features_`.
 
-    # Check that df is aligned with region
+    The climate comes from the CMIP6 run instead of ERA5, bias corrected over
+    `bias_correction_period`. Its altitude (ALTITUDE_CLIMATE) is still the ERA5
+    geopotential, since the temperature was interpolated to that elevation.
+    """
+    ds_climate = load_climate_CMIP6(
+        region, ssp, gcm, bias_correction_period, change_units
+    )
+    ds_geopotential = _load_datasets(*climate_file_paths(region), change_units)[1]
 
-    # Get bias corrected temperature
-    t2m_corrected = bias_corrected(
-        region, ssp, gcm, bias_correction_period=bias_correction_period
+    return climate_features_from_datasets(
+        df,
+        ds_climate,
+        ds_geopotential,
+        output_fname,
+        months_tail_pad,
+        months_head_pad,
+        vois_climate,
+        vois_other,
     )
 
-    # Get latitudes and longitudes from the climate dataset.
-    lat, lon = t2m_corrected.latitude, t2m_corrected.longitude
 
-    # # Convert the longitudes
-    # ds_180 = _adjust_longitude(ds_geopotential)
+@dataclass(frozen=True)
+class CMIP6Climate:
+    """Which CMIP6 projection the gridded products take their climate from.
 
-    # # Crop the geopotential height to the region of interest
-    # ds_geopotential_cropped = _crop_geopotential(ds_180, lat, lon)
+    Passed to the generation of the gridded products in place of the default ERA5
+    climate.
 
-    # # Remove duplicates
-    # ds_geopotential_cropped = ds_geopotential_cropped.drop_duplicates(dim="latitude")
-    # ds_geopotential_cropped = ds_geopotential_cropped.drop_duplicates(dim="longitude")
+    Args:
+        ssp (str): "historical", "ssp1_2_6" or "ssp5_8_5".
+        gcm (str): one of the GCMs of `ensure_climate_CMIP6`.
+        bias_correction_period (tuple of int): first and last year, inclusive, over
+            which the projection is bias corrected against ERA5. None for no
+            correction.
+    """
 
-    # # Calculate the geopotential height in meters
-    # ds_geopotential_metric = _calculate_geopotential_height(ds_geopotential_cropped)
+    ssp: str
+    gcm: str
+    bias_correction_period: Optional[tuple] = (1961, 1990)
 
-    # # Create a date range for one hydrological year
-    # df = _add_date_range(df, months_tail_pad, months_head_pad)
+    def __post_init__(self):
+        if self.bias_correction_period is not None:
+            assert (
+                len(self.bias_correction_period) == 2
+            ), f"bias_correction_period should have two elements but the provided value is {self.bias_correction_period}."
+            object.__setattr__(
+                self, "bias_correction_period", tuple(self.bias_correction_period)
+            )
 
-    # # Get the climate data for the latitudes and longitudes and date ranges as
-    # # specified
-    # df["months_in_range"] = df["range_date"].apply(
-    #     lambda rng: [d.strftime("%b").lower() for d in rng] if rng is not None else []
-    # )
+    vois_climate = CMIP6_GRID_VOIS_CLIMATE
 
-    # climate_df = _process_climate_data(ds_climate, df, months_tail_pad, months_head_pad)
+    def grid_root(self, product_source):
+        """Folder holding the per-year gridded products built on these outlines and
+        this projection."""
+        return os.path.join(
+            data_path,
+            "grids_CMIP6",
+            bias_cor_suffix(self.bias_correction_period),
+            self.ssp,
+            self.gcm,
+            product_source,
+        )
 
-    # # Get the geopotential height for the latitudes and longitudes as specified,
-    # # for the locations of the stake measurements.
-    # altitude_df = _process_altitude_data(ds_geopotential_metric, df)
+    def prepare(self, region_id):
+        """Compute the climate of the region and load it into the cache of this
+        process, so that forked workers inherit it."""
+        load_climate_CMIP6(
+            region_id,
+            self.ssp,
+            self.gcm,
+            self.bias_correction_period,
+            change_units=True,
+        )
 
-    # # Combine the climate data with the altitude climate data
-    # df = _combine_dataframes(df, climate_df, altitude_df)
-
-    # # Compute the sum of the fluxes per month from the average fluxes per day
-    # # Cf https://confluence.ecmwf.int/spaces/CKB/pages/76414402/ERA5+data+documentation#ERA5:datadocumentation-Meanrates/fluxesandaccumulations
-    # fluxes_cols = ["tp", "slhf", "str", "sshf", "ssrd"]
-    # df_cols = df.columns.values
-    # month_to_id = {(month_abbr[i].lower()): i for i in range(1, 13)}
-    # new_cols = {}
-    # for col_df in df_cols:
-    #     m = [col_df.startswith(c) for c in fluxes_cols]
-    #     if any(m):
-    #         assert np.sum(m) == 1
-    #         flux_col = np.array(fluxes_cols)[np.array(m)][0]
-    #         suffix = col_df.replace(flux_col + "_", "")
-    #         id_month = str(month_to_id[suffix.replace("_", "")])
-    #         # Incorrect because we retrieve the year of the hydrological year and not the true year associated to the measurement
-    #         days_in_month = pd.to_datetime(
-    #             df.YEAR.astype(str) + "-" + id_month + "-01"
-    #         ).dt.days_in_month
-    #         sum_col = flux_col + "_sum_" + suffix
-    #         new_cols[sum_col] = df[col_df].values * days_in_month
-    # df = pd.concat([df, pd.DataFrame(new_cols, index=df.index)], axis=1)
-
-    # # Remove climate artifacts
-    # df = smooth_era5land_by_mode(df, vois_climate, vois_other)
-
-    # # Add a new feature to the dataframe that is the height difference between the elevation
-    # # of the stake and the recorded height of the climate.
-    # df = _calculate_elevation_difference(df)
-
-    return df
+    def add_climate_features(self, dataset, change_units, smoothing_vois=None):
+        """CMIP6 counterpart of `Dataset.get_climate_features`."""
+        smoothing_vois = smoothing_vois or {}
+        dataset.data = get_climate_features_(
+            dataset.data,
+            change_units,
+            dataset.months_tail_pad,
+            dataset.months_head_pad,
+            dataset.region_id,
+            self.ssp,
+            self.gcm,
+            vois_climate=smoothing_vois.get("vois_climate"),
+            vois_other=smoothing_vois.get("vois_other"),
+            bias_correction_period=self.bias_correction_period,
+        )

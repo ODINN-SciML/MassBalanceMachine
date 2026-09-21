@@ -51,7 +51,10 @@ import os
 import numpy as np
 import xarray as xr
 
-from data_processing.climate_projections.climate_data_download import path_climate_data
+from data_processing.climate_projections.climate_data_download import (
+    path_climate_data,
+    SURFACE_FLUX_VARS,
+)
 from data_processing.get_climate_data import path_climate_data as path_climate_data_ERA5
 from data_processing.get_climate_data import _load_datasets
 
@@ -259,6 +262,13 @@ def interp_temperature_at_elevation(
     return temp_at_elevation, p_star
 
 
+def bias_cor_suffix(bias_correction_period):
+    """Folder name identifying a bias correction period, None meaning no correction."""
+    if bias_correction_period is None:
+        return "no_bias_cor"
+    return f"bias_cor_{bias_correction_period[0]}_{bias_correction_period[1]}"
+
+
 def path_gridded_temp(region, ssp, gcm, bias_cor_suffix):
     """Return path of gridded temperature for a given region (string or integer)."""
     if not isinstance(region, str):
@@ -427,7 +437,12 @@ def _crop_to_common_grid(
         tolerance=tolerance,
     )
 
-    n_nan = int(gcm_aligned.t2m.isel(time=0).isnull().sum())
+    gcm_first = gcm_aligned.isel(time=0)
+    if isinstance(gcm_first, xr.Dataset):
+        gcm_first = gcm_first.to_array().isnull().any("variable")
+    else:
+        gcm_first = gcm_first.isnull()
+    n_nan = int(gcm_first.sum())
     if n_nan > 0:
         raise ValueError(
             f"{n_nan} grid point(s) in gcm did not match any obs point "
@@ -441,6 +456,21 @@ def _crop_to_common_grid(
     )
 
     return obs_cropped, gcm_aligned
+
+
+def _select_years(ds, y0, y1, name):
+    """Select the years y0 to y1 (inclusive) of `ds`, raising if `ds` does not
+    fully cover them."""
+    years = ds["time"].dt.year
+    y_min, y_max = int(years.min()), int(years.max())
+    if y_min > y0 or y_max < y1:
+        raise ValueError(
+            f"'{name}' does not fully cover the reference period "
+            f"{y0}-{y1} (available: {y_min}-{y_max}). If this is a "
+            f"future/SSP-only GCM array, concatenate the matching "
+            f"historical run first."
+        )
+    return ds.sel(time=(years >= y0) & (years <= y1))
 
 
 def bias_correct_temperature(
@@ -483,25 +513,10 @@ def bias_correct_temperature(
     """
     y0, y1 = bias_correction_period
 
-    def _select_years(da, y0, y1):
-        years = da["time"].dt.year
-        return da.sel(time=(years >= y0) & (years <= y1))
-
     # --- crop to common grid ---------------------------------------------
     obs, gcm = _crop_to_common_grid(obs, gcm)
 
     # --- sanity checks --------------------------------------------------
-    for name, da in [("obs", obs), ("gcm", gcm)]:
-        years = da["time"].dt.year
-        y_min, y_max = int(years.min()), int(years.max())
-        if y_min > y0 or y_max < y1:
-            raise ValueError(
-                f"'{name}' does not fully cover the reference period "
-                f"{y0}-{y1} (available: {y_min}-{y_max}). If this is a "
-                f"future/SSP-only GCM array, concatenate the matching "
-                f"historical run first."
-            )
-
     if not (
         np.allclose(obs["latitude"].values, gcm["latitude"].values)
         and np.allclose(obs["longitude"].values, gcm["longitude"].values)
@@ -512,8 +527,8 @@ def bias_correct_temperature(
         )
 
     # --- monthly climatologies over the reference period ----------------
-    obs_ref = _select_years(obs, y0, y1)
-    gcm_ref = _select_years(gcm, y0, y1)
+    obs_ref = _select_years(obs, y0, y1, "obs")
+    gcm_ref = _select_years(gcm, y0, y1, "gcm")
 
     obs_clim = obs_ref.groupby("time.month").mean("time")  # (month, lat, lon)
     gcm_clim = gcm_ref.groupby("time.month").mean("time")  # (month, lat, lon)
@@ -536,11 +551,6 @@ def bias_corrected(region, ssp, gcm, bias_correction_period=None):
         bias_correction_period is None or len(bias_correction_period) == 2
     ), f"When provided bias_correction_period should have two elements but the provided value is {bias_correction_period}."
 
-    bias_cor_suffix = (
-        "no_bias_cor"
-        if bias_correction_period is None
-        else f"bias_cor_{bias_correction_period[0]}_{bias_correction_period[1]}"
-    )
     if bias_correction_period is None:
         return regridding(region, ssp, gcm)
     else:
@@ -561,3 +571,186 @@ def bias_corrected(region, ssp, gcm, bias_correction_period=None):
             bias_correction_period=bias_correction_period,
         )
         return t2m_corrected
+
+
+# ---------------------------------------------------------------------------
+# Surface fluxes and precipitation
+# ---------------------------------------------------------------------------
+
+SURFACE_VARS = ["slhf", "sshf", "ssrd", "str", "tp"]
+# Variables that keep a constant sign are bias corrected with a scaling; the
+# turbulent fluxes change sign within the year, which makes the scaling factor
+# explode or flip the sign of the series, so they get an additive correction.
+SCALING_BIAS_COR_VARS = ["ssrd", "str", "tp"]
+ADDITIVE_BIAS_COR_VARS = ["slhf", "sshf"]
+
+SECONDS_PER_DAY = 86400.0
+WATER_DENSITY = 1000.0  # kg/m^3
+
+
+def _load_era5(region):
+    """Return the ERA5 monthly averaged climate dataset of a region."""
+    local_path = path_climate_data_ERA5(region)
+    climate_data = local_path + "era5_monthly_averaged_data.nc"
+    geopotential_data = local_path + "era5_geopotential_pressure.nc"
+    return _load_datasets(climate_data, geopotential_data, False)[0]
+
+
+def load_cmip_surface_variables(region, ssp, gcm):
+    """
+    Load the CMIP6 surface fluxes and precipitation on the native GCM grid,
+    renamed and converted to the ERA5 conventions:
+
+    - names: slhf, sshf, ssrd, str, tp
+    - sign: ECMWF convention, i.e. positive downwards (CMIP6 turbulent
+      fluxes hfls/hfss are positive upwards, hence the sign flip)
+    - units: ERA5 monthly averaged data stores daily accumulations, i.e.
+      J m-2 (per day) for the fluxes and m (per day) for precipitation.
+      CMIP6 provides rates in W m-2 and kg m-2 s-1.
+    """
+    files = [
+        path_climate_data(region, ssp, gcm, var) + "data.nc"
+        for var in SURFACE_FLUX_VARS
+    ]
+    ds = xr.merge(
+        [
+            xr.open_dataset(f).drop_vars(
+                ["lat_bnds", "lon_bnds", "time_bnds"], errors="ignore"
+            )
+            for f in files
+        ]
+    )
+
+    ds_out = xr.Dataset(
+        {
+            "tp": ds["pr"] * SECONDS_PER_DAY / WATER_DENSITY,
+            "ssrd": ds["rsds"] * SECONDS_PER_DAY,
+            "str": (ds["rlds"] - ds["rlus"]) * SECONDS_PER_DAY,
+            "slhf": -ds["hfls"] * SECONDS_PER_DAY,
+            "sshf": -ds["hfss"] * SECONDS_PER_DAY,
+        }
+    )
+    for v in ["slhf", "sshf", "ssrd", "str"]:
+        ds_out[v].attrs["units"] = "J m**-2"
+    ds_out["tp"].attrs["units"] = "m"
+    return ds_out.load()
+
+
+def regridding_surface_variables(region, ssp, gcm, ds_era5=None):
+    """Nearest-neighbour regridding of the CMIP6 surface fluxes and
+    precipitation onto the ERA5 (latitude, longitude) grid."""
+    ds_cmip = load_cmip_surface_variables(region, ssp, gcm)
+    if ds_era5 is None:
+        ds_era5 = _load_era5(region)
+
+    lat_target = ds_era5[LAT_DIM_TARGET]
+    lon_target_180 = ((ds_era5[LON_DIM_TARGET] + 180) % 360) - 180
+
+    ds_regridded = ds_cmip.interp(
+        {LAT_DIM_CMIP: lat_target, LON_DIM_CMIP: lon_target_180},
+        method="nearest",
+    ).drop_vars([LAT_DIM_CMIP, LON_DIM_CMIP], errors="ignore")
+
+    # ERA5 points outside the range of the CMIP cell centres come back as NaN:
+    # drop them, as is done for the temperature
+    return ds_regridded.dropna(LAT_DIM_TARGET, how="all").dropna(
+        LON_DIM_TARGET, how="all"
+    )
+
+
+def bias_correct_scaling(
+    obs: xr.Dataset,
+    gcm: xr.Dataset,
+    bias_correction_period: tuple[int, int],
+) -> xr.Dataset:
+    """
+    Bias-correct GCM variables against an observational dataset using the
+    multiplicative scaling method, applied per grid cell and per calendar
+    month. Both inputs are first cropped to their common footprint.
+
+    hat_X(lat, lon, t) = obs_clim(lat, lon, month(t))
+                         * gcm(lat, lon, t) / gcm_clim(lat, lon, month(t))
+
+    where obs_clim / gcm_clim are monthly climatologies computed over
+    `bias_correction_period` (inclusive years). The corrected series takes
+    the units of `obs`.
+
+    The method assumes that the monthly climatologies of obs and gcm have
+    the same sign and are away from zero, which is why it is not used for
+    the turbulent fluxes (slhf, sshf). A warning is printed for every
+    variable where this does not hold.
+    """
+    y0, y1 = bias_correction_period
+
+    obs, gcm = _crop_to_common_grid(obs[list(gcm.data_vars)], gcm)
+
+    obs_clim = _select_years(obs, y0, y1, "obs").groupby("time.month").mean("time")
+    gcm_clim = _select_years(gcm, y0, y1, "gcm").groupby("time.month").mean("time")
+
+    factor = obs_clim / gcm_clim
+    for v in factor.data_vars:
+        # obs is NaN over the sea for ERA5-Land, these cells are not an issue
+        has_obs = obs_clim[v].notnull()
+        n_bad = int((has_obs & (~np.isfinite(factor[v]) | (factor[v] <= 0))).sum())
+        if n_bad > 0:
+            print(
+                f"Warning: scaling factor of '{v}' is non-finite or non-positive "
+                f"for {n_bad} / {int(has_obs.sum())} (month, latitude, longitude) "
+                f"cells (obs and gcm climatologies of opposite sign or zero)."
+            )
+
+    gcm_corrected = (gcm.groupby("time.month") * factor).drop_vars(
+        "month", errors="ignore"
+    )
+    for v in gcm_corrected.data_vars:
+        gcm_corrected[v].attrs = dict(obs[v].attrs)
+        gcm_corrected[v].attrs[
+            "bias_correction"
+        ] = f"multiplicative scaling method, reference period {y0}-{y1}"
+    return gcm_corrected
+
+
+def bias_corrected_surface_variables(region, ssp, gcm, bias_correction_period=None):
+    """Surface fluxes and precipitation (slhf, sshf, ssrd, str, tp) of a
+    CMIP6 run on the ERA5 grid, bias corrected when `bias_correction_period`
+    is provided: scaling for SCALING_BIAS_COR_VARS and additive for
+    ADDITIVE_BIAS_COR_VARS."""
+    assert (
+        bias_correction_period is None or len(bias_correction_period) == 2
+    ), f"When provided bias_correction_period should have two elements but the provided value is {bias_correction_period}."
+
+    ds_era5 = _load_era5(region)
+    if bias_correction_period is None:
+        return regridding_surface_variables(region, ssp, gcm, ds_era5)
+
+    if ssp != "historical":
+        gcm_full = combine_historical_and_projection(
+            regridding_surface_variables(region, "historical", gcm, ds_era5),
+            regridding_surface_variables(region, ssp, gcm, ds_era5),
+        )
+    else:
+        gcm_full = regridding_surface_variables(region, ssp, gcm, ds_era5)
+
+    scaled = bias_correct_scaling(
+        obs=ds_era5,
+        gcm=gcm_full[SCALING_BIAS_COR_VARS],
+        bias_correction_period=bias_correction_period,
+    )
+    shifted = bias_correct_temperature(
+        obs=ds_era5[ADDITIVE_BIAS_COR_VARS],
+        gcm=gcm_full[ADDITIVE_BIAS_COR_VARS],
+        bias_correction_period=bias_correction_period,
+    )
+    return xr.merge([scaled, shifted], join="inner", combine_attrs="drop")
+
+
+def bias_corrected_climate(region, ssp, gcm, bias_correction_period=None):
+    """All the CMIP6 climate features needed by the model (slhf, sshf, ssrd,
+    str, t2m, tp) on the ERA5 grid, bias corrected over
+    `bias_correction_period` when provided (additive for t2m, slhf and sshf,
+    scaling for ssrd, str and tp)."""
+    t2m = bias_corrected(region, ssp, gcm, bias_correction_period)
+    if isinstance(t2m, xr.DataArray):
+        t2m = t2m.to_dataset(name="t2m")
+    surface = bias_corrected_surface_variables(region, ssp, gcm, bias_correction_period)
+    return xr.merge([t2m[["t2m"]], surface], join="inner")

@@ -9,22 +9,26 @@ import itertools
 from data_processing.glacier_utils import get_region_area_bounds
 
 
+ELEV_DEP_VARS = ["air_temperature"]
+# Surface variables used to build the ERA5-like fluxes and precipitation
+SURFACE_FLUX_VARS = [
+    "precipitation",
+    "surface_downwelling_shortwave_radiation",
+    "surface_upwelling_longwave_radiation",
+    "surface_downwelling_longwave_radiation",  # need both to get an equivalent to surface_net_thermal_radiation
+    "surface_upward_latent_heat_flux",
+    "surface_upward_sensible_heat_flux",
+]
 AVAILABLE_VARS = [
     "geopotential_height",
     "eastward_near_surface_wind",
     "northward_near_surface_wind",
-    "air_temperature",
-    "surface_upward_latent_heat_flux",
-    "surface_upwelling_longwave_radiation",
-    "surface_downwelling_longwave_radiation",  # need both to get an equivalent to surface_net_thermal_radiation
-    "surface_upward_sensible_heat_flux",
-    "surface_downwelling_shortwave_radiation",
-    "precipitation",
+    *ELEV_DEP_VARS,
+    *SURFACE_FLUX_VARS,
 ]  # Not exhaustive
 DEFAULT_VARS = (
     AVAILABLE_VARS  # By default we set this but we could customize it in the future
 )
-ELEV_DEP_VARS = ["air_temperature"]
 
 
 def path_climate_data(region, ssp, gcm, var):

@@ -65,6 +65,42 @@ def get_climate_features_(
         climate_data, geopotential_data, change_units
     )
 
+    return climate_features_from_datasets(
+        df,
+        ds_climate,
+        ds_geopotential,
+        output_fname,
+        months_tail_pad,
+        months_head_pad,
+        vois_climate,
+        vois_other,
+        monthly,
+    )
+
+
+def climate_features_from_datasets(
+    df: pd.DataFrame,
+    ds_climate: xr.Dataset,
+    ds_geopotential: xr.Dataset,
+    output_fname: str,
+    months_tail_pad,
+    months_head_pad,
+    vois_climate: list = None,
+    vois_other: list = None,
+    monthly: bool = False,
+) -> pd.DataFrame:
+    """Match already loaded climate data with the locations of the stake
+    measurements, see `get_climate_features_`.
+
+    Split from it so that another climate source on the ERA5 grid, such as the
+    bias-corrected CMIP6 projections, goes through the same processing.
+
+    Args:
+        ds_climate (xr.Dataset): monthly climate on a (latitude, longitude) grid,
+            with a datetime64 time axis of month starts.
+        ds_geopotential (xr.Dataset): the ERA5 geopotential, which gives the
+            altitude of the climate cells.
+    """
     # Get latitudes and longitudes from the climate dataset.
     lat, lon = ds_climate.latitude, ds_climate.longitude
 
