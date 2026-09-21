@@ -337,7 +337,12 @@ def regridding(region, ssp, gcm):
     else:
         temp_at_elevation = xr.open_dataset(gridded_temp_file)
 
-    return temp_at_elevation
+    # The grid keeps the longitudes of the ERA5 geopotential, which wrap from 360 to
+    # 0 (358, ..., 359.9, 0, ..., 21 for the Alps). The ERA5 climate data it is
+    # compared to runs monotonically in -180..180.
+    return temp_at_elevation.assign_coords(
+        {LON_DIM_TARGET: ((temp_at_elevation[LON_DIM_TARGET] + 180) % 360) - 180}
+    ).sortby(LON_DIM_TARGET)
 
 
 def combine_historical_and_projection(
