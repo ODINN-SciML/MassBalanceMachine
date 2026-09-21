@@ -578,11 +578,13 @@ def bias_corrected(region, ssp, gcm, bias_correction_period=None):
 # ---------------------------------------------------------------------------
 
 SURFACE_VARS = ["slhf", "sshf", "ssrd", "str", "tp"]
-# Variables that keep a constant sign are bias corrected with a scaling; the
+# Precipitation and shortwave radiation are bias corrected with a scaling. The
 # turbulent fluxes change sign within the year, which makes the scaling factor
-# explode or flip the sign of the series, so they get an additive correction.
-SCALING_BIAS_COR_VARS = ["ssrd", "str", "tp"]
-ADDITIVE_BIAS_COR_VARS = ["slhf", "sshf"]
+# explode or flip the sign of the series, and a scaling of the net longwave
+# radiation amplifies its summer values far beyond the ERA5 range, so these get an
+# additive correction.
+SCALING_BIAS_COR_VARS = ["ssrd", "tp"]
+ADDITIVE_BIAS_COR_VARS = ["slhf", "sshf", "str"]
 
 SECONDS_PER_DAY = 86400.0
 WATER_DENSITY = 1000.0  # kg/m^3
@@ -747,8 +749,8 @@ def bias_corrected_surface_variables(region, ssp, gcm, bias_correction_period=No
 def bias_corrected_climate(region, ssp, gcm, bias_correction_period=None):
     """All the CMIP6 climate features needed by the model (slhf, sshf, ssrd,
     str, t2m, tp) on the ERA5 grid, bias corrected over
-    `bias_correction_period` when provided (additive for t2m, slhf and sshf,
-    scaling for ssrd, str and tp)."""
+    `bias_correction_period` when provided (additive for t2m, slhf, sshf and
+    str, scaling for ssrd and tp)."""
     t2m = bias_corrected(region, ssp, gcm, bias_correction_period)
     if isinstance(t2m, xr.DataArray):
         t2m = t2m.to_dataset(name="t2m")
