@@ -155,7 +155,7 @@ class CMIP6Climate:
     climate.
 
     Args:
-        ssp (str): "historical", "ssp1_2_6" or "ssp5_8_5".
+        ssp (str): SSP scenario, for example "historical", "ssp1_2_6" or "ssp5_8_5".
         gcm (str): one of the GCMs of `ensure_climate_CMIP6`.
         bias_correction_period (tuple of int): first and last year, inclusive, over
             which the projection is bias corrected against ERA5. None for no

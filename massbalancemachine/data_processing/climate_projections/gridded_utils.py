@@ -111,7 +111,7 @@ def climate_features_of_glaciers(
     Args:
         glacier_ids: the glaciers whose climate to extract, identified as in
             `product_source`.
-        ssp (str): "historical", "ssp1_2_6" or "ssp5_8_5".
+        ssp (str): SSP scenario, for example "historical", "ssp1_2_6" or "ssp5_8_5".
         gcm (str): the GCM, one of those of `ensure_climate_CMIP6`.
         years: the calendar years to generate and extract.
         product_source (str): the outlines the grids are built on, "Hugonnet21" for

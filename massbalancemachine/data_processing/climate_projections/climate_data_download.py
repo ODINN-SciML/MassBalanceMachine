@@ -51,7 +51,14 @@ def ensure_climate_CMIP6(region, variables=DEFAULT_VARS, ssps=[], gcms=[]):
             ensure_climate_CMIP6(region, var, ssp, gcm)
         return
 
-    assert ssps in ["historical", "ssp1_2_6", "ssp5_8_5"]
+    assert ssps in [
+        "historical",
+        "ssp1_2_6",
+        "ssp2_4_5",
+        "ssp4_6_0",
+        "ssp3_7_0",
+        "ssp5_8_5",
+    ]
     assert gcms in [
         "gfdl_esm4",
         "ukesm1_0_ll",
