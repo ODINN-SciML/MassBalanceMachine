@@ -335,7 +335,10 @@ def regridding(region, ssp, gcm):
         temp_at_elevation.to_netcdf(gridded_temp_file)
 
     else:
-        temp_at_elevation = xr.open_dataset(gridded_temp_file)
+        # A DataArray, as when it is computed above: the historical and projection runs
+        # are concatenated, and one of them can come from this file while the other has
+        # just been computed.
+        temp_at_elevation = xr.open_dataarray(gridded_temp_file)
 
     # The grid keeps the longitudes of the ERA5 geopotential, which wrap from 360 to
     # 0 (358, ..., 359.9, 0, ..., 21 for the Alps). The ERA5 climate data it is
@@ -571,7 +574,7 @@ def bias_corrected(region, ssp, gcm, bias_correction_period=None):
         geopotential_data = local_path + "era5_geopotential_pressure.nc"
         ds_climate_era5 = _load_datasets(climate_data, geopotential_data, False)[0]
         t2m_corrected = bias_correct_temperature(
-            obs=ds_climate_era5,
+            obs=ds_climate_era5["t2m"],
             gcm=gcm_full,
             bias_correction_period=bias_correction_period,
         )

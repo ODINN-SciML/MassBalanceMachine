@@ -957,16 +957,7 @@ def climate_features_from_grids(
     cells = climate_cells_of_glaciers(
         rgi_ids, product_source, grid_root=grid_root, region_id=region_id
     )
-
-    # Glaciers sharing a cell must agree on its geopotential height; if they do not, the
-    # mode picked different cells for different variables and the dedup would be wrong.
-    for (lat, lon), group in cells.groupby(["CLIMATE_LAT", "CLIMATE_LON"]):
-        if not np.allclose(group.ALTITUDE_CLIMATE, group.ALTITUDE_CLIMATE.iloc[0]):
-            raise ValueError(
-                f"Glaciers {sorted(group.index)} map to the climate cell "
-                f"({lat}, {lon}) but carry different ALTITUDE_CLIMATE values "
-                f"{sorted(group.ALTITUDE_CLIMATE.unique())}."
-            )
+    check_cell_altitudes(cells)
 
     keys = ["YEAR", "MONTHS"]
     per_cell = []
@@ -1003,6 +994,28 @@ def climate_features_from_grids(
         df_cell["ALTITUDE_CLIMATE"] = group.ALTITUDE_CLIMATE.iloc[0]
         per_cell.append(df_cell)
 
+    return finalize_cell_table(
+        pd.concat(per_cell, ignore_index=True), cells, features, drop_duplicate_cells
+    )
+
+
+def check_cell_altitudes(cells):
+    """Glaciers sharing a cell must agree on its geopotential height; if they do not,
+    the mode picked different cells for different variables and the dedup would be
+    wrong. `cells` is the result of `climate_cells_of_glaciers`."""
+    for (lat, lon), group in cells.groupby(["CLIMATE_LAT", "CLIMATE_LON"]):
+        if not np.allclose(group.ALTITUDE_CLIMATE, group.ALTITUDE_CLIMATE.iloc[0]):
+            raise ValueError(
+                f"Glaciers {sorted(group.index)} map to the climate cell "
+                f"({lat}, {lon}) but carry different ALTITUDE_CLIMATE values "
+                f"{sorted(group.ALTITUDE_CLIMATE.unique())}."
+            )
+
+
+def finalize_cell_table(df, cells, features, drop_duplicate_cells):
+    """Order the columns and rows of a table holding one row per climate cell, year and
+    month, expanding it back to one row per glacier when `drop_duplicate_cells` is
+    False. See `climate_features_of_glaciers` for the columns."""
     columns = [
         "RGIId",
         "RGI_IDS",
@@ -1012,8 +1025,8 @@ def climate_features_from_grids(
         "ALTITUDE_CLIMATE",
         "YEAR",
         "MONTHS",
-    ] + features
-    df = pd.concat(per_cell, ignore_index=True)[columns]
+    ] + list(features)
+    df = df[columns]
 
     if not drop_duplicate_cells:
         # Expand back to one row per glacier without re-reading anything: glaciers of a
