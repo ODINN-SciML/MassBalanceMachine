@@ -88,7 +88,7 @@ def parse_wgms_format(data_mb):
         columns=[
             "country",
             "glacier_name",
-            "original_id",
+            # "original_id",
             "glacier_id",
             "time_system",
             "begin_date_unc",
@@ -103,6 +103,7 @@ def parse_wgms_format(data_mb):
     new_df = new_df.rename(
         columns={
             "id": "ID",
+            "original_id": "WGMS_ID",
             "year": "YEAR",
             "balance": "POINT_BALANCE",
             "latitude": "POINT_LAT",

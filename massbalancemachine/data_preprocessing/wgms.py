@@ -72,8 +72,93 @@ def build_monthly_data(data, cfg, rgi_region=None):
         ~((data.RGIId == "RGI60-01.23646") & (data.MONTH_DIFF == 24))
     ]  # West Yakutat
 
+    # Filter out or correct measurements based on the MB values
+
+    # Basodino: likely a decimal shift for the whole glacier, dividing by 10 gives a monotonic profile indistinguishable from 2017 and 2020
+    mask_sel = (data.RGIId == "RGI60-11.01987") & (data.YEAR == 2018)
+    data.loc[mask_sel, "POINT_BALANCE"] = data[mask_sel].POINT_BALANCE / 10
+
+    # Stakes in the upper part of the glacier with a 45-year record and moderate accumulation in average but outliers in 2010
+    data = data[
+        ~(
+            (data.RGIId == "RGI60-11.00897")
+            & (data.YEAR == 2010)
+            & (
+                (data.WGMS_ID == "HJ")
+                | (data.WGMS_ID == "SJ")
+                | (data.WGMS_ID == "WJ")
+                | (data.WGMS_ID == "BE")
+                | (data.WGMS_ID == "HOI")
+                | (data.WGMS_ID == "TE")
+            )
+        )
+    ]  # Hintereisferner
+
+    # Extreme accumulation but another stake at the same elevation gives a negative MB
+    data = data[
+        ~(
+            (data.RGIId == "RGI60-11.00897")
+            & (data.YEAR == 2008)
+            & (data.WGMS_ID == "HE")
+        )
+    ]  # Hintereisferner
+
+    # Malavalle: Inconsistent value for this stake across the years, and nearby stakes give a value 10 times smaller
+    mask_sel = (
+        (data.RGIId == "RGI60-11.00597") & (data.YEAR == 2023) & (data.WGMS_ID == "P21")
+    )
+    data.loc[mask_sel, "POINT_BALANCE"] = data[mask_sel].POINT_BALANCE / 10
+
+    # Pendente: Sign flip
+    mask_sel = (
+        (data.RGIId == "RGI60-11.00603") & (data.YEAR == 2006) & (data.WGMS_ID == "P48")
+    )
+    data.loc[mask_sel, "POINT_BALANCE"] = -data[mask_sel].POINT_BALANCE
+
+    # Plaine Morte: Annual measurements miss winter+summer by ~2m w.e., while the four other stakes of 2011 close exactly, probably a multi-year read
+    data = data[
+        ~(
+            (data.RGIId == "RGI60-11.02072")
+            & (data.YEAR == 2011)
+            & (
+                (data.WGMS_ID == "plm1-09")
+                | (data.WGMS_ID == "plm2-09")
+                | (data.WGMS_ID == "plm3-10")
+                | (data.WGMS_ID == "plm4-10")
+            )
+        )
+    ]
+
+    # Correct metadata
+
+    # Measurements labelled as annual but should be winter
+    mask_sel = (
+        (data.RGIId == "RGI60-11.03166")
+        & ((data.YEAR == 2024) | (data.YEAR == 2025))
+        & (data.PERIOD == "annual")
+        & (data.MONTH_DIFF == 8)
+    )
+    data.loc[mask_sel, "PERIOD"] = "winter"  # Grand Etret
+
+    # End window is inconsistent given the stake value, and the nearby stakes of the same year
+    mask_sel = (
+        (data.RGIId == "RGI60-11.00804")
+        & (data.YEAR == 2025)
+        & (data.WGMS_ID == "2408")
+        & (data.PERIOD == "annual")
+    )
+    data.loc[mask_sel, "TO_DATE_DT"] = "2025-09-19"
+    data.loc[mask_sel, "MONTH_DIFF"] = 12  # Silvretta
+
+    # End window is inconsistent given the stake value, and the nearby stakes of the same year
+    mask_sel = (data.RGIId == "RGI60-11.00006") & (data.YEAR == 2024)
+    data.loc[mask_sel, "PERIOD"] = "summer"  # Hallstätter
+
     # Discard points before 1950 since ERA5 Land does not cover this period
     data = data[data.YEAR > 1950]
+
+    # User does not need this
+    data = data.drop(columns=["WGMS_ID"])
 
     region_name = get_region_name(rgi_region)
     dataset = Dataset(cfg, data=data, region_name=region_name, region_id=rgi_region)
