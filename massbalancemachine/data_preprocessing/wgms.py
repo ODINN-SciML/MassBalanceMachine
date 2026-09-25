@@ -148,11 +148,53 @@ def build_monthly_data(data, cfg, rgi_region=None):
         & (data.PERIOD == "annual")
     )
     data.loc[mask_sel, "TO_DATE_DT"] = "2025-09-19"
+    data.loc[mask_sel, "TO_DATE"] = "20250919"
     data.loc[mask_sel, "MONTH_DIFF"] = 12  # Silvretta
 
     # End window is inconsistent given the stake value, and the nearby stakes of the same year
     mask_sel = (data.RGIId == "RGI60-11.00006") & (data.YEAR == 2024)
     data.loc[mask_sel, "PERIOD"] = "summer"  # Hallstätter
+
+    # Start date is a year early
+    mask_sel = (
+        (data.RGIId == "RGI60-11.01450")
+        & (data.WGMS_ID == "al-1024")
+        & (data.FROM_DATE == "20231115")
+    )
+    data.loc[mask_sel, "FROM_DATE_DT"] = "2024-11-15"
+    data.loc[mask_sel, "FROM_DATE"] = "20241115"  # Aletsch
+
+    # Elevation is too low
+    mask_sel = (
+        (data.RGIId == "RGI60-11.00597")
+        & (data.WGMS_ID == "P04")
+        & (data.POINT_ELEVATION == 1812)
+    )
+    data.loc[mask_sel, "POINT_ELEVATION"] = (
+        data[mask_sel].POINT_ELEVATION + 1000
+    )  # Malavalle
+
+    # Elevation is too low
+    mask_sel = (data.RGIId == "RGI60-11.00833") & (data.YEAR == 1960)
+    data.loc[mask_sel, "POINT_ELEVATION"] = (
+        data[mask_sel].POINT_ELEVATION + 500
+    )  # Silvretta
+
+    # Elevation is too low
+    mask_sel = (
+        (data.RGIId == "RGI60-11.00647")
+        & (data.WGMS_ID == "22/10")
+        & (data.YEAR == 2012)
+    )
+    data.loc[mask_sel, "POINT_ELEVATION"] = 2828  # Ries Occidentale
+
+    # Coordinates correspond to another glacier
+    mask_sel = (
+        (data.RGIId == "RGI60-11.02674")
+        & (data.YEAR == 2023)
+        & (data.WGMS_ID == "s2-001")
+    )
+    data = data[~mask_sel]
 
     # Discard points before 1950 since ERA5 Land does not cover this period
     data = data[data.YEAR > 1950]
