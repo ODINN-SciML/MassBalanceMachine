@@ -129,6 +129,47 @@ def build_monthly_data(data, cfg, rgi_region=None):
         )
     ]
 
+    # Filter out duplicates years
+    mask_sel = (
+        (data.RGIId == "RGI60-11.02704")
+        & ((data.YEAR == 1960) | (data.YEAR == 1961))
+        & (data.PERIOD == "annual")
+    )
+    data = data[~mask_sel]  # Allalin
+    mask_sel = (
+        (data.RGIId == "RGI60-11.02746")
+        & ((data.YEAR == 1960) | (data.YEAR == 1961))
+        & (data.PERIOD == "annual")
+    )
+    data = data[~mask_sel]  # Schwarzberg
+    mask_sel = (
+        (data.RGIId == "RGI60-11.00719")
+        & ((data.YEAR == 2016) | (data.YEAR == 2017))
+        & (data.PERIOD == "annual")
+    )
+    data = data[~mask_sel]  # Vernagtferner
+    mask_sel = (
+        (data.RGIId == "RGI60-11.02679")
+        & ((data.YEAR == 1960) | (data.YEAR == 1961))
+        & (data.PERIOD == "annual")
+    )
+    data = data[~mask_sel]  # Hohlaub
+    mask_sel = (
+        (data.RGIId == "RGI60-11.02674")
+        & (data.YEAR.between(1960, 1962))
+        & (data.PERIOD == "annual")
+    )
+    data = data[~mask_sel]  # Kessjen-E
+
+    # Filter out duplicate values across the elevation per year
+    # This results in no winter balance-elevation gradient
+    mask_sel = (
+        (data.RGIId == "RGI60-11.00918")
+        & (data.YEAR.between(1970, 1984))
+        & (data.PERIOD == "winter")
+    )
+    data = data[~mask_sel]  # Limmern
+
     # Correct metadata
 
     # Measurements labelled as annual but should be winter
