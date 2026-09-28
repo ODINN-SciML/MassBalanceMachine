@@ -729,6 +729,27 @@ if len(df_X_test_subset) > 0 and not noTest:
             )
             save_inspect_fig(fig, rgi_id, "precipitation_scaling_profile")
 
+            if model.module.bias_cor is not None:
+                label_pcor = "Precipitation correction $P_{cor}$ (-)"
+                fig = mbm.plots.monthlyProfile(
+                    df_inter,
+                    "P_cor",
+                    xlabel=label_pcor,
+                    title=f"{rgi_id}\nprecipitation correction averaged over {period}",
+                )
+                save_inspect_fig(fig, rgi_id, "precipitation_correction_profile")
+
+                fig = mbm.plots.monthlyMaps(
+                    df_inter,
+                    "P_cor",
+                    rgi_id,
+                    cfg,
+                    gdir=gdir,
+                    title=f"{rgi_id}\nprecipitation correction averaged over {period}",
+                    label_cb=label_pcor,
+                )
+                save_inspect_fig(fig, rgi_id, "precipitation_correction_maps_monthly")
+
             fig = mbm.plots.monthlyProfile(
                 df_inter,
                 "P_corrected",

@@ -199,8 +199,8 @@ def ti_intermediates_gridded(model, geo_dataloader, glacierName):
     Returns a pd.DataFrame with one row per grid point and month of the geodetic
     period. Besides the location and time columns (RGIId, YEAR, MONTHS, POINT_LAT,
     POINT_LON, POINT_ELEVATION), it contains the downscaled temperature
-    (T_downscaled), the temperature bias (T_bias), the precipitation scaling
-    correction (P_scaling), the bias corrected precipitation (P_corrected) and the
+    (T_downscaled), the temperature bias (T_bias), the precipitation correction scaling factor
+    (scaling), the bias corrected precipitation (P_corrected) and the
     accumulation and ablation factors (cor_acc, cor_abl) and the shortwave radiation
     contribution to the monthly mass balance (R_sw).
     """
@@ -212,11 +212,11 @@ def ti_intermediates_gridded(model, geo_dataloader, glacierName):
     with torch.no_grad():
         geoGrid, metadata, _, _, _ = geo_dataloader.geo(glacierName)
         geoGrid = geoGrid.to(geo_dataloader.device)
-        cor_T, cor_T_val, P, T, _, P_cor, _, _, cor_acc, cor_abl, R_sw = (
+        cor_T, cor_T_val, P, T, _, scaling, _, _, cor_acc, cor_abl, R_sw = (
             module.get_cor_T(geoGrid)
         )
         # P_cor is a scalar when the model has no precipitation bias correction
-        P_scaling = torch.sigmoid(torch.as_tensor(P_cor, device=P.device)).expand_as(P)
+        P_scaling = torch.as_tensor(P_scaling, device=P.device).expand_as(P)
         # R_sw is a scalar when the model has no shortwave radiation contribution
         R_sw = torch.as_tensor(R_sw, device=P.device).expand_as(P)
 
