@@ -33,6 +33,7 @@ from data_processing.gridded_utils import (
     geodetic_target_region_Hugonnet21,
     generate_grid_multi_years,
     load_grid_multi_years,
+    per_glacier_rates_Hugonnet21,
 )
 from data_processing.pgo import geodetic_target_PGO
 from data_processing.glamos import (
