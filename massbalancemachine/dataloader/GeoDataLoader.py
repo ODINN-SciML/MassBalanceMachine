@@ -415,13 +415,13 @@ class GeoDataLoader:
                         rgi_ids.remove(g)
                 self.years = list(range(2000, 2020)) + self.additionalYears
                 create_gridded_features_RGI(self.cfg, rgi_ids, years=self.years)
-                geo_target_data = geodetic_target_Hugonnet21(rgi_ids, self.cfg)
+                geo_target_data = geodetic_target_Hugonnet21(rgi_ids)
             elif "region-" in self.geoGlaciers:
                 s = self.geoGlaciers.split("-")
                 region_id = int(s[1])
                 thres_area = float(s[2])
                 geo_target_data = geodetic_target_region_Hugonnet21(
-                    region_id, self.cfg, thres_area
+                    region_id, thres_area
                 )
                 rgi_ids = list(geo_target_data.keys())
                 for g in self.ignoreGlaciers:

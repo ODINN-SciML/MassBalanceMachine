@@ -7,8 +7,7 @@ import multiprocessing
 import xarray as xr
 from calendar import month_abbr
 from functools import lru_cache
-
-from oggm import utils
+import urllib
 
 from data_processing.Dataset import Dataset
 from data_processing.Product import Product
@@ -1053,72 +1052,41 @@ def finalize_cell_table(df, cells, features, drop_duplicate_cells):
     return df
 
 
-def geodetic_target_Hugonnet21(rgi_ids, cfg):
-    period_range = 20
-    mbdf = utils.get_geodetic_mb_dataframe()
+def per_glacier_rates_Hugonnet21():
+    filename = "hugonnet_2021_ds_rgi60_pergla_rates_10_20_worldwide.csv"
+    url = f"https://cluster.klima.uni-bremen.de/~oggm/geodetic_ref_mb/{filename}"
+    path = os.path.join(data_path, "Hugonnet21", filename)
+    if not os.path.exists(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        urllib.request.urlretrieve(url, path + ".part")
+        os.replace(path + ".part", path)
+    return pd.read_csv(path)
+
+
+def geodetic_target_Hugonnet21(rgi_ids):
+    mbdf = per_glacier_rates_Hugonnet21()
     geo_target_data = {}
     for rgi_id in rgi_ids:
-        glacier_geo_mb_data = mbdf.loc[rgi_id]
+        glacier_geo_mb_data = mbdf[mbdf.rgiid == rgi_id]
         data = glacier_geo_mb_data[
             glacier_geo_mb_data.period == "2000-01-01_2020-01-01"
         ]
         assert len(data) == 1
         data = data.iloc[0]
 
-        # 1. Convert to mass equivalent
-        # density_ice = 916.7  # kg/m³
-        density_water = 1000  # kg/m³
         area = data.area  # glacier area m²
-        # print(f"{area=}")
-        dmdtda = data.dmdtda  # m.w.e. / year
-        # print(f"{dmdtda=}")
-        V_water = dmdtda * area * period_range  # m³ of water equivalent
-        # print(f"{V_water=}")
-        m = V_water * density_water  # kg
-        # print(m)
-
-        # # 2. Retrieve the cell area of the geodetic grid
-        # cell_area = glacier_cell_area(rgi_id, "", cfg)
-
-        # 3. Convert to point-wise meter water equivalent (m.w.e.)
-        # cumulative_pmb = V_water / cell_area # cumulative m.w.e.
-        # mean_pmb = cumulative_pmb / period_range # mean m.w.e. / year
-        cumulative_pmb = V_water / area  # cumulative m.w.e.
-        mean_pmb = cumulative_pmb / period_range  # mean m.w.e. / year
-
-        # 4. Do the same for the error
-        # err_dmdtda = data.err_dmdtda
-        # err_V_water = err_dmdtda * area * period_range
-        # err_cumulative_pmb = err_V_water / cell_area
-        # err_pmb = err_cumulative_pmb / period_range
         err_pmb = data.err_dmdtda
+        mean_mb = data.dmdtda
+        assert mean_mb is not None and err_pmb is not None
 
-        geo_target_data[rgi_id] = {"mean": mean_pmb, "err": err_pmb, "area": area}
+        geo_target_data[rgi_id] = {"mean": mean_mb, "err": err_pmb, "area": area}
 
     return geo_target_data
 
-    # # 3. Convert to meter snow equivalent (m.s.e.)
-    # V_ice = m / density_ice # m³ of snow equivalent
-    # cumulative_pmb = V_ice / cell_area # cumulative m.s.e.
-    # mean_pmb = cumulative_pmb / period_range # mean m.s.e.
 
-    # return mean_pmb
-
-    # annual_pred = ...
-    # cell_area = abs( np.diff(nds.x).mean() * np.diff(nds.y).mean() )
-    # total_area = (nds.hugonnet_dhdt*0+1).sum().data*cell_area
-    # print(f"{total_area=}")
-    # sum_dhdt = nds.hugonnet_dhdt.sum().data * cell_area # m.s.e. * m² / year
-    # print(f"{sum_dhdt=}")
-    # V_ice = sum_dhdt * 20 # m³ of snow equivalent
-    # print(f"{V_ice=}")
-    # mass_change = V_ice * density_ice # kg
-    # print(f"{mass_change=}")
-
-
-def geodetic_target_region_Hugonnet21(region_id, cfg, thres_area=None):
-    mbdf = utils.get_geodetic_mb_dataframe()
-    ind = mbdf.index.str.contains("RGI60-%02d." % region_id)
+def geodetic_target_region_Hugonnet21(region_id, thres_area=None):
+    mbdf = per_glacier_rates_Hugonnet21()
+    ind = mbdf.rgiid.str.contains("RGI60-%02d." % region_id)
     reg_mbdf = mbdf[ind]
     reg_mbdf = reg_mbdf[reg_mbdf.period == "2000-01-01_2020-01-01"]
     reg_mbdf = reg_mbdf[
@@ -1128,7 +1096,7 @@ def geodetic_target_region_Hugonnet21(region_id, cfg, thres_area=None):
         reg_mbdf = reg_mbdf[reg_mbdf.area > thres_area]
     rgi_ids = reg_mbdf.index.values
 
-    return geodetic_target_Hugonnet21(rgi_ids, cfg)
+    return geodetic_target_Hugonnet21(rgi_ids)
 
 
 GEODETIC_INPUT_FN = {

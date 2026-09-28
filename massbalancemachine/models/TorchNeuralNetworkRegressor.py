@@ -414,9 +414,6 @@ class TILikeModel(nn.Module):
 
         if self.bias_cor is not None:
             inp_bias_cor = inputs[:, self.ind_inp_bias_cor]
-            # P_cor = self.bias_cor(inp_bias_cor)[:, 0]
-
-            # P_cor = (1 + (elev_diff_unorm/100) * 0.2 * F.sigmoid(self.bias_cor(inp_bias_cor)[:, 0]))
             P_cor = (
                 1
                 + (elev_diff_unorm / 100)
@@ -426,10 +423,8 @@ class TILikeModel(nn.Module):
             ) * (F.sigmoid(self.bias_cor(inp_bias_cor)[:, 0]) * 2)
         else:
             P_cor = 1.0
-        # P_solid = F.softplus(P + P_cor, beta=1/0.01) * F.sigmoid(
         P_solid = (
             P
-            # * F.sigmoid(P_cor) * 2
             * P_cor
             * F.sigmoid((torch.tanh(self.tau_P_s) + 1) * 2 * (self.tau_P_c - cor_T - T))
         )
@@ -524,9 +519,6 @@ class TILikeModel(nn.Module):
 
         if self.bias_cor is not None:
             inp_bias_cor = inputs[:, self.ind_inp_bias_cor]
-            # P_cor = self.bias_cor(inp_bias_cor)[:, 0]
-
-            # P_cor = (1 + (elev_diff_unorm/100) * 0.2 * F.sigmoid(self.bias_cor(inp_bias_cor)[:, 0]))
             P_cor = (
                 1
                 + (elev_diff_unorm / 100)
@@ -536,10 +528,8 @@ class TILikeModel(nn.Module):
             ) * (F.sigmoid(self.bias_cor(inp_bias_cor)[:, 0]) * 2)
         else:
             P_cor = 1.0
-        # P_solid = F.softplus(P + P_cor, beta=1/0.01) * F.sigmoid(
         P_solid = (
             P
-            # * F.sigmoid(P_cor) * 2
             * P_cor
             * F.sigmoid((torch.tanh(self.tau_P_s) + 1) * 2 * (self.tau_P_c - cor_T - T))
         )
