@@ -24,6 +24,12 @@ chosen by the user, with the uncertainty of 0.3 m w.e. per year that Rabatel et 
 (2016) give over 1983-2014 carried over to that period; see
 `geodetic_target_Rabatel16`.
 
+Rabatel et al. (2016) convert volume changes to water equivalent with an ice density
+of 900 kg m-3, while this workflow uses 850 kg m-3. The balances returned by
+`load_rabatel16_smb` and the uncertainties of `period_sigma_mwe_per_year` are
+therefore multiplied by `ICE_DENSITY_FACTOR` = 850 / 900. The published values kept as
+constants below (Table 1, uncertainties) stay in the convention of the paper.
+
 Glaciers are identified by their **GLIMS id** ("G006985E45951N"), the only attribute
 of the shapefile that is both filled and unique: the WGI code is shared by
 neighbouring glaciers and sometimes missing. As for GLAMOS, the gridded products of
@@ -79,6 +85,14 @@ ALPGM_FILES = {
     # the same glaciers in the same order, with their coordinates
     "glaciers": "GLIMS/GLIMS_temporal_32_1950.csv",
 }
+
+# Ice density Rabatel et al. (2016) use to convert volume changes to water equivalent,
+# and the one of this workflow: a balance of the paper, thickness change times
+# RABATEL16_ICE_DENSITY / 1000, is expressed in the convention of the workflow once
+# multiplied by ICE_DENSITY_FACTOR
+RABATEL16_ICE_DENSITY = 900.0
+ICE_DENSITY = 850.0
+ICE_DENSITY_FACTOR = ICE_DENSITY / RABATEL16_ICE_DENSITY
 
 # Uncertainty Rabatel et al. (2016) give for the mean annual balance over their study
 # period, "1983-2014" (caption of Table 1): the hydrological years from 1983-84 to
@@ -325,8 +339,12 @@ def load_rabatel16_smb():
     its 0.6 km² neighbour Selle 2, while its coordinates, name and area are those of
     Selle 1.
 
+    The series are selected on the published values, which is the convention of
+    Table 1, and only then converted to an ice density of `ICE_DENSITY`.
+
     Returns a dataframe with columns GLIMS_ID, name (the ALPGM spelling), year (the
-    hydrological year, which ends in September of that year) and smb, in m w.e.
+    hydrological year, which ends in September of that year) and smb, in m w.e. with
+    an ice density of `ICE_DENSITY`.
     """
     smb = pd.read_csv(alpgm_file("smb"), sep=";", encoding="latin-1")
     glaciers = pd.read_csv(alpgm_file("glaciers"), sep=";", encoding="latin-1")
@@ -353,6 +371,7 @@ def load_rabatel16_smb():
     )
     smb = smb.dropna(subset=["smb"]).astype({"year": int, "smb": float})
     smb = keep_rabatel16_series(smb)
+    smb = smb.assign(smb=smb.smb * ICE_DENSITY_FACTOR)
     return smb.sort_values(["GLIMS_ID", "year"]).reset_index(drop=True)
 
 
@@ -428,12 +447,17 @@ def period_sigma_mwe_per_year(n_years: int):
     The shared part dominates, so the uncertainty hardly depends on the length of the
     period: 0.302 over 16 years, 0.309 over 5, 0.351 for a single year, and 0.3 over the
     reference period itself.
+
+    Like the balances, the result is converted to an ice density of `ICE_DENSITY` by
+    `ICE_DENSITY_FACTOR`, giving 0.283 over the reference period and 0.285 over 16
+    years.
     """
     assert n_years > 0, f"A period of {n_years} years has no mass balance."
     n_reference = REFERENCE_PERIOD[1] - REFERENCE_PERIOD[0] + 1
     sigma_year_squared = ANNUAL_SIGMA_MWE**2 - GEODETIC_MEAN_SIGMA_MWE_PER_YEAR**2
     return float(
-        np.sqrt(
+        ICE_DENSITY_FACTOR
+        * np.sqrt(
             REFERENCE_SIGMA_MWE_PER_YEAR**2
             + sigma_year_squared * (1 / n_years - 1 / n_reference)
         )
@@ -539,9 +563,12 @@ def geodetic_target_Rabatel16(
         FROM_DATE, TO_DATE    1st of October of start_year - 1, of end_year
         cumulative_mwe        sum of the annual balances over the period, m w.e.
         mwe_per_year          that sum divided by the number of years, m w.e. per year
-        sigma_mwe_per_year    its uncertainty, m w.e. per year: 0.3 over 1984-2014 and
-                              slightly more over a shorter period, see
+        sigma_mwe_per_year    its uncertainty, m w.e. per year: 0.283 over 1984-2014
+                              and slightly more over a shorter period, see
                               `period_sigma_mwe_per_year`
+
+    Balances and uncertainties use an ice density of `ICE_DENSITY`, not the 900 kg m-3
+    of the paper, see `ICE_DENSITY_FACTOR`.
 
     With `allowed_years` the period is not given but derived: the series is summed over
     every period that fits inside those years, one row per period and per glacier, which

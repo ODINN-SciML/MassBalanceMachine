@@ -18,6 +18,7 @@ from data_processing.gridded_utils import (
 from data_processing.oggm_utils import check_elevation_raster
 from data_processing.rabatel16 import (
     DEM_NODATA,
+    ICE_DENSITY_FACTOR,
     assert_rows_describe_same_glaciers,
     keep_rabatel16_series,
     period_sigma_mwe_per_year,
@@ -125,16 +126,19 @@ def test_glaciers_missing_a_year_of_the_period_are_left_out():
 
 
 def test_uncertainty_is_carried_from_the_reference_period():
-    # the published value over the reference period, 1983-84 to 2013-14
-    assert period_sigma_mwe_per_year(31) == pytest.approx(0.3)
+    # the published value over the reference period, 1983-84 to 2013-14, converted
+    # from the ice density of the paper to the one of the workflow
+    assert ICE_DENSITY_FACTOR == pytest.approx(850 / 900)
+    assert period_sigma_mwe_per_year(31) == pytest.approx(0.3 * 850 / 900)
     # only the year-to-year part of the annual error, sqrt(0.22² - 0.12²), averages
     # out: fewer years add a little of it on top of the shared part
     sigma_year_squared = 0.22**2 - 0.12**2
     for n in (1, 5, 16):
         expected = np.sqrt(0.3**2 + sigma_year_squared * (1 / n - 1 / 31))
-        assert period_sigma_mwe_per_year(n) == pytest.approx(expected)
-    assert period_sigma_mwe_per_year(16) == pytest.approx(0.3017, abs=1e-4)
-    assert period_sigma_mwe_per_year(40) < 0.3 < period_sigma_mwe_per_year(30)
+        assert period_sigma_mwe_per_year(n) == pytest.approx(expected * 850 / 900)
+    assert period_sigma_mwe_per_year(16) == pytest.approx(0.2849, abs=1e-4)
+    assert period_sigma_mwe_per_year(40) < period_sigma_mwe_per_year(31)
+    assert period_sigma_mwe_per_year(31) < period_sigma_mwe_per_year(30)
 
 
 def test_only_series_reproducing_table_1_are_kept():
