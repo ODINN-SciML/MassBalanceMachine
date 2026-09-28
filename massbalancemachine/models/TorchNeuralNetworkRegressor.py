@@ -117,6 +117,7 @@ class TILikeModel(nn.Module):
         init_tau_P_s = 1.5
         init_tau_P_c = 1.0
         init_beta_pdd = 1.0
+        init_lapse_rate_P_cor = 0.1
         self.tau_P_s = torch.nn.Parameter(
             torch.arctanh((torch.ones(1) * init_tau_P_s / 2) - 1.1)
         )
@@ -127,6 +128,10 @@ class TILikeModel(nn.Module):
         self.tau_P_s.requires_grad = True
         self.tau_P_c.requires_grad = True
         self.beta_pdd.requires_grad = True
+        self.lapse_rate_P_cor = torch.nn.Parameter(
+            torch.arctanh((torch.ones(1) * (init_lapse_rate_P_cor / 0.2) * 2) - 1)
+        )  # 0.2*(tanh(x)+1)/2
+        self.lapse_rate_P_cor.requires_grad = True
 
         if "bias_cor" in modelParams:
             self.inp_bias_cor = modelParams["bias_cor"]["inputs"]
@@ -409,13 +414,23 @@ class TILikeModel(nn.Module):
 
         if self.bias_cor is not None:
             inp_bias_cor = inputs[:, self.ind_inp_bias_cor]
-            P_cor = self.bias_cor(inp_bias_cor)[:, 0]
+            # P_cor = self.bias_cor(inp_bias_cor)[:, 0]
+
+            # P_cor = (1 + (elev_diff_unorm/100) * 0.2 * F.sigmoid(self.bias_cor(inp_bias_cor)[:, 0]))
+            P_cor = (
+                1
+                + (elev_diff_unorm / 100)
+                * 0.2
+                * (torch.tanh(self.lapse_rate_P_cor) + 1)
+                / 2
+            ) * (F.sigmoid(self.bias_cor(inp_bias_cor)[:, 0]) * 2)
         else:
-            P_cor = 0.0
+            P_cor = 1.0
         # P_solid = F.softplus(P + P_cor, beta=1/0.01) * F.sigmoid(
         P_solid = (
             P
-            * F.sigmoid(P_cor)
+            # * F.sigmoid(P_cor) * 2
+            * P_cor
             * F.sigmoid((torch.tanh(self.tau_P_s) + 1) * 2 * (self.tau_P_c - cor_T - T))
         )
         curv_pdd = (torch.tanh(self.beta_pdd) + 1) * 2
@@ -449,6 +464,11 @@ class TILikeModel(nn.Module):
             self.normalizing_bounds["t2m"][0],
             self.normalizing_bounds["t2m"][1],
         )  # in Celsius degrees
+        elev_diff_unorm = Normalizer._unorm(
+            inputs[:, self.ind_elev_diff],
+            self.normalizing_bounds["ELEVATION_DIFFERENCE"][0],
+            self.normalizing_bounds["ELEVATION_DIFFERENCE"][1],
+        )
         if self.cor_T is not None:
             inp_cor_T = inputs[:, self.ind_inp_cor_T]
         else:
@@ -504,13 +524,23 @@ class TILikeModel(nn.Module):
 
         if self.bias_cor is not None:
             inp_bias_cor = inputs[:, self.ind_inp_bias_cor]
-            P_cor = self.bias_cor(inp_bias_cor)[:, 0]
+            # P_cor = self.bias_cor(inp_bias_cor)[:, 0]
+
+            # P_cor = (1 + (elev_diff_unorm/100) * 0.2 * F.sigmoid(self.bias_cor(inp_bias_cor)[:, 0]))
+            P_cor = (
+                1
+                + (elev_diff_unorm / 100)
+                * 0.2
+                * (torch.tanh(self.lapse_rate_P_cor) + 1)
+                / 2
+            ) * (F.sigmoid(self.bias_cor(inp_bias_cor)[:, 0]) * 2)
         else:
-            P_cor = 0.0
+            P_cor = 1.0
         # P_solid = F.softplus(P + P_cor, beta=1/0.01) * F.sigmoid(
         P_solid = (
             P
-            * F.sigmoid(P_cor)
+            # * F.sigmoid(P_cor) * 2
+            * P_cor
             * F.sigmoid((torch.tanh(self.tau_P_s) + 1) * 2 * (self.tau_P_c - cor_T - T))
         )
         curv_pdd = (torch.tanh(self.beta_pdd) + 1) * 2

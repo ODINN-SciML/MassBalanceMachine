@@ -212,7 +212,7 @@ def ti_intermediates_gridded(model, geo_dataloader, glacierName):
     with torch.no_grad():
         geoGrid, metadata, _, _, _ = geo_dataloader.geo(glacierName)
         geoGrid = geoGrid.to(geo_dataloader.device)
-        cor_T, cor_T_val, P, T, _, scaling, _, _, cor_acc, cor_abl, R_sw = (
+        cor_T, cor_T_val, P, T, _, P_scaling, _, _, cor_acc, cor_abl, R_sw = (
             module.get_cor_T(geoGrid)
         )
         # P_cor is a scalar when the model has no precipitation bias correction

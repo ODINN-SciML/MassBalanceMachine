@@ -279,6 +279,9 @@ def path_gridded_temp(region, ssp, gcm, bias_cor_suffix):
 def regridding(region, ssp, gcm):
     gridded_temp_file = path_gridded_temp(region, ssp, gcm, "no_bias_cor")
     if not os.path.isfile(gridded_temp_file):
+        print(
+            f"Projecting CMIP6 data of region {region} onto the ERA5 grid for {ssp} and GCM {gcm}."
+        )
         os.makedirs(os.path.dirname(gridded_temp_file), exist_ok=True)
 
         # CMIP data

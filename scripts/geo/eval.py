@@ -733,7 +733,7 @@ if len(df_X_test_subset) > 0 and not noTest:
                 label_pcor = "Precipitation correction $P_{cor}$ (-)"
                 fig = mbm.plots.monthlyProfile(
                     df_inter,
-                    "P_cor",
+                    "P_scaling",
                     xlabel=label_pcor,
                     title=f"{rgi_id}\nprecipitation correction averaged over {period}",
                 )
@@ -741,7 +741,7 @@ if len(df_X_test_subset) > 0 and not noTest:
 
                 fig = mbm.plots.monthlyMaps(
                     df_inter,
-                    "P_cor",
+                    "P_scaling",
                     rgi_id,
                     cfg,
                     gdir=gdir,
