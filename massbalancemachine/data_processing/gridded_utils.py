@@ -496,7 +496,7 @@ def create_gridded_features_Fischer11(
 def create_gridded_features_Hagg12(
     cfg,
     time_ranges,
-    dem_source: str = "NASADEM",
+    dem_source: str = "COPDEM30",
     multi=True,
     num_workers=None,
     climate=None,
@@ -506,7 +506,8 @@ def create_gridded_features_Hagg12(
 
     Every period is gridded on the same outlines, those of the last survey of the paper
     (2009/10), since no older one is available; see `data_processing.hagg12`.
-    `dem_source` defaults to NASADEM, 30 m, for these glaciers of 0.05 to 0.35 km².
+    `dem_source` defaults to the Copernicus GLO-30 DEM, 30 m, for these glaciers of
+    0.05 to 0.35 km², see `data_processing.hagg12.hagg12_outline_spec`.
 
     Args:
         time_ranges: {glacier code: [(start_date, end_date), ...]}, the geodetic periods

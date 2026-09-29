@@ -312,12 +312,15 @@ def load_hagg12_outlines(glacier_ids_to_keep=None):
     return outlines[["HAGG12_ID", "name", "area_rgi", "geometry"]].to_crs("EPSG:4326")
 
 
-def hagg12_outline_spec(dem_source: str = "NASADEM", **overrides):
+def hagg12_outline_spec(dem_source: str = "COPDEM30", **overrides):
     """Description of the Bavarian outlines for the generic custom-outline machinery.
 
-    The DEM defaults to NASADEM, which samples the same February 2000 surface as the
-    SRTM DEM GLAMOS and Fischer11 are gridded on, at 30 m rather than the 90 m of
-    OGGM's SRTM: Südlicher Schneeferner is 0.05 km², about six cells of 90 m.
+    The DEM defaults to the Copernicus GLO-30 DEM, 30 m, rather than the 90 m SRTM
+    GLAMOS and Fischer11 are gridded on: Südlicher Schneeferner is 0.05 km², about six
+    cells of 90 m. Its acquisitions, 2011-2015, are also the closest to the date of the
+    outlines, 2009/10. NASADEM, the 30 m DEM of February 2000, cannot be used: OGGM
+    1.6.3 downloads it from the USGS data pool (e4ftl01.cr.usgs.gov), which no longer
+    serves it, and reads the 404 as a tile without land.
     """
     spec = dict(
         name="Hagg12",
