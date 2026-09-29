@@ -1154,7 +1154,7 @@ def per_glacier_rates_Hugonnet21():
         os.makedirs(os.path.dirname(path), exist_ok=True)
         urllib.request.urlretrieve(url, path + ".part")
         os.replace(path + ".part", path)
-    return pd.read_csv(path).set_index("rgiid")
+    return pd.read_csv(path)  # .set_index("rgiid")
 
 
 def geodetic_target_Hugonnet21(rgi_ids):
