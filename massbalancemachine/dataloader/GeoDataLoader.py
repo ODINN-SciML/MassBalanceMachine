@@ -24,6 +24,7 @@ from data_processing.gridded_utils import (
     create_gridded_features_GLAMOS,
     create_gridded_features_Rabatel16,
     create_gridded_features_Fischer11,
+    create_gridded_features_Hagg12,
     geodetic_input_Hugonnet21,
     geodetic_target_Hugonnet21,
     geodetic_target_region_Hugonnet21,
@@ -46,6 +47,7 @@ from data_processing.fischer11 import (
     geodetic_target_Fischer11,
     table_RGI62_to_Fischer11,
 )
+from data_processing.hagg12 import geodetic_target_Hagg12, table_RGI62_to_Hagg12
 from models.TorchNeuralNetworkRegressor import aggrMetadata
 
 
@@ -54,13 +56,13 @@ def isNativeGlacierId(glacierName: str, geodeticSource: str) -> bool:
     `geodeticSource`, and therefore needs no translation from an RGI 6.2 id.
 
     PGO glaciers are named by their RGI v7 id, GLAMOS ones by their SGI id
-    ("B36-26"), Rabatel16 ones by their GLIMS id ("G006985E45951N") and Fischer11
-    ones by their Austrian inventory number ("2125"), which for the last three is
-    anything that is not an RGI id.
+    ("B36-26"), Rabatel16 ones by their GLIMS id ("G006985E45951N"), Fischer11
+    ones by their Austrian inventory number ("2125") and Hagg12 ones by a code of
+    their own ("NSF"), which for the last four is anything that is not an RGI id.
     """
     if geodeticSource == "PGO":
         return glacierName.startswith("RGI2000-v7.0-G-")
-    if geodeticSource in ("GLAMOS", "Rabatel16", "Fischer11"):
+    if geodeticSource in ("GLAMOS", "Rabatel16", "Fischer11", "Hagg12"):
         return not glacierName.startswith("RGI")
     return True
 
@@ -92,6 +94,8 @@ def buildGlacierMapping(glacierList, geodeticSource: str):
         table_df = table_RGI62_to_Rabatel16(region_id=region_id)
     elif geodeticSource == "Fischer11":
         table_df = table_RGI62_to_Fischer11(region_id=region_id)
+    elif geodeticSource == "Hagg12":
+        table_df = table_RGI62_to_Hagg12(region_id=region_id)
     else:
         raise ValueError(f"No glacier id mapping available for {geodeticSource}.")
 
@@ -114,7 +118,7 @@ def buildGlacierMappingMultiSource(glacierList, glacierIdsPerSource):
     Unlike `buildGlacierMapping`, the list may mix identifier schemes, e.g. SGI ids
     ("B36-26"), GLIMS ids ("G006985E45951N") and RGI 6.2 ids. A glacier already
     expressed in the identifiers of a source is attributed to the source whose target
-    holds it: GLAMOS, Rabatel16 and Fischer11 ids all count as native to each source, so only
+    holds it: GLAMOS, Rabatel16, Fischer11 and Hagg12 ids all count as native to each source, so only
     the target tells them apart. RGI 6.2 ids go through the crosswalk of every source.
 
     Args:
@@ -179,6 +183,8 @@ def windowedSourceTarget(source: str, options: dict):
         return geodetic_target_Fischer11(**options), functools.partial(
             create_gridded_features_Fischer11, epoch=epoch
         )
+    if source == "Hagg12":
+        return geodetic_target_Hagg12(**options), create_gridded_features_Hagg12
     raise ValueError(f"Unknown windowed geodetic source {source}.")
 
 
@@ -522,7 +528,9 @@ class GeoDataLoader:
         summed over (see `data_processing.rabatel16.geodetic_target_Rabatel16`).
         Fischer11 takes `epoch`, the Austrian inventory its periods and grids are built
         on, along with `max_year` and `min_year` (see
-        `data_processing.fischer11.geodetic_target_Fischer11`).
+        `data_processing.fischer11.geodetic_target_Fischer11`). Hagg12 takes the same
+        `max_year`, `min_year` and `min_period_years` (see
+        `data_processing.hagg12.geodetic_target_Hagg12`).
 
         Several windowed sources can be combined, e.g. `geodeticSource=["GLAMOS",
         "Rabatel16"]` with `geodeticSourceOptions={"GLAMOS": {...}, "Rabatel16":

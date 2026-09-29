@@ -48,6 +48,11 @@ from data_processing.fischer11 import (
     AUSTRIA_REGION_ID,
     FIRST_EPOCH as FISCHER11_FIRST_EPOCH,
 )
+from data_processing.hagg12 import (
+    hagg12_outline_spec,
+    load_hagg12_outlines,
+    BAVARIA_REGION_ID,
+)
 from data_processing.glacier_utils import (
     create_glacier_grid_RGI,
     create_dem_file_RGI,
@@ -488,6 +493,42 @@ def create_gridded_features_Fischer11(
     )
 
 
+def create_gridded_features_Hagg12(
+    cfg,
+    time_ranges,
+    dem_source: str = "NASADEM",
+    multi=True,
+    num_workers=None,
+    climate=None,
+):
+    """Generate the gridded products of the Bavarian glaciers of Hagg et al. (2012) on
+    their RGI 6.2 outlines, keyed by their glacier code ("NSF").
+
+    Every period is gridded on the same outlines, those of the last survey of the paper
+    (2009/10), since no older one is available; see `data_processing.hagg12`.
+    `dem_source` defaults to NASADEM, 30 m, for these glaciers of 0.05 to 0.35 km².
+
+    Args:
+        time_ranges: {glacier code: [(start_date, end_date), ...]}, the geodetic periods
+            of every glacier.
+        num_workers (int): number of processes to use. Left to None it follows the
+            memory free on the machine, see `parallel_utils.worker_count`.
+    """
+    glacier_ids = list(time_ranges.keys())
+    outlines = load_hagg12_outlines(glacier_ids_to_keep=glacier_ids)
+
+    _create_gridded_features_custom_outlines(
+        cfg,
+        time_ranges,
+        outlines,
+        hagg12_outline_spec(dem_source=dem_source),
+        BAVARIA_REGION_ID,
+        multi=multi,
+        num_workers=num_workers,
+        climate=climate,
+    )
+
+
 def create_gridded_features_RGI(
     cfg,
     rgi_ids,
@@ -704,6 +745,10 @@ def geodetic_input_Rabatel16(glims_id, time_range):
 
 def geodetic_input_Fischer11(gi_id, time_range):
     return _geodetic_input_windowed(gi_id, time_range, "Fischer11")
+
+
+def geodetic_input_Hagg12(glacier_id, time_range):
+    return _geodetic_input_windowed(glacier_id, time_range, "Hagg12")
 
 
 def geodetic_input_Hugonnet21(
@@ -1154,12 +1199,13 @@ GEODETIC_INPUT_FN = {
     "GLAMOS": geodetic_input_GLAMOS,
     "Rabatel16": geodetic_input_Rabatel16,
     "Fischer11": geodetic_input_Fischer11,
+    "Hagg12": geodetic_input_Hagg12,
 }
 
 # Sources whose geodetic target covers an arbitrary date window rather than a whole
 # number of calendar years. `years` is then a list of (start, end) tuples, one per
 # geodetic window of the glacier.
-WINDOWED_SOURCES = {"PGO", "GLAMOS", "Rabatel16", "Fischer11"}
+WINDOWED_SOURCES = {"PGO", "GLAMOS", "Rabatel16", "Fischer11", "Hagg12"}
 
 
 def _check_product_source(product_source):

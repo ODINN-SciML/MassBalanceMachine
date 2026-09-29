@@ -55,7 +55,7 @@ from data_processing.custom_outlines import CustomOutlineSpec, match_rgi62_by_ov
 from data_processing.product_utils import data_path
 from data_processing.Product import Product
 from data_processing.glacier_utils import get_region_shape_file
-from data_processing.utils.years import years_outside
+from data_processing.utils.periods import select_dem_periods
 
 # Austria is entirely inside RGI region 11 (Central Europe), second-order region
 # 11-01 (Alps).
@@ -219,65 +219,34 @@ def geodetic_target_Fischer11(
         sigma_mwe_per_year    its uncertainty, see `period_sigma_mwe_per_year`
         outline_epoch         the inventory the period is gridded on
 
-    By default a glacier carries every eligible period; they follow each other, the
-    DEM that ends one starting the next, and never overlap. Without `multi_period` a
-    single period is kept per glacier, chosen as GLAMOS chooses its window (see
-    `glamos.select_glamos_windows`): **the longest one, ties broken on the lowest
-    sigma**, or on the most recent period with `tie_break="recent"`.
+    The periods are selected by `utils.periods.select_dem_periods`, which documents
+    the other arguments: every eligible period by default, or with `multi_period`
+    off the longest one of each glacier, ties going to the lowest sigma.
 
     Args:
         epoch: keep the periods gridded on this inventory, 1969 or 1998 (see
             `outline_epoch_of_period`), since the grids of one run are built on a
             single inventory. None keeps them all, for inspection.
-        max_year: every period must end at or before the DEM of this year.
-        min_year: every period must start at or after the DEM of this year. Set it
-            to the first year of the climate forcing.
         min_period_years: shortest period to keep. The DEM term of the uncertainty
             already weighs down short periods, so none is dropped by default.
-        glacier_ids_to_keep: inventory numbers to restrict the target to.
-        allowed_years: calendar years a period may touch, for instance the years of
-            one side of a train/validation split, up to `max_outside_years` years of
-            tolerance. A period is fixed by its DEMs and cannot be cut, as for GLAMOS.
-        multi_period: keep every eligible period of a glacier rather than one.
-        tie_break: how the single period is chosen among the longest ones, "sigma"
-            or "recent". Ignored with `multi_period`.
     """
-    tie_break_keys = {
-        "sigma": ["sigma_mwe_per_year"],
-        "recent": ["y1", "sigma_mwe_per_year"],
-    }
-    assert (
-        tie_break in tie_break_keys
-    ), f"tie_break must be one of {sorted(tie_break_keys)}, not {tie_break!r}."
     assert (
         epoch is None or epoch in GI_RELEASES
     ), f"No Austrian inventory of epoch {epoch}, only {sorted(GI_RELEASES)}."
     df = fischer11_periods()
-    keep = df.n_years >= min_period_years
     if epoch is not None:
-        keep &= df.outline_epoch == epoch
-    if max_year is not None:
-        keep &= df.y1 <= max_year
-    if min_year is not None:
-        keep &= df.y0 >= min_year
-    if glacier_ids_to_keep is not None:
-        keep &= df.RGIId.isin([str(g) for g in glacier_ids_to_keep])
-    if allowed_years is not None:
-        allowed = set(allowed_years)
-        keep &= pd.Series(
-            [
-                len(years_outside(r.FROM_DATE, r.TO_DATE, allowed)) <= max_outside_years
-                for r in df.itertuples()
-            ],
-            index=df.index,
-        )
-    df = df[keep]
-    if not multi_period:
-        keys = ["n_years"] + tie_break_keys[tie_break]
-        df = df.sort_values(
-            keys, ascending=[k == "sigma_mwe_per_year" for k in keys]
-        ).drop_duplicates("RGIId")
-    return df.sort_values(["RGIId", "FROM_DATE"]).reset_index(drop=True)
+        df = df[df.outline_epoch == epoch]
+    return select_dem_periods(
+        df,
+        max_year=max_year,
+        min_year=min_year,
+        min_period_years=min_period_years,
+        glacier_ids_to_keep=glacier_ids_to_keep,
+        allowed_years=allowed_years,
+        max_outside_years=max_outside_years,
+        multi_period=multi_period,
+        tie_break=tie_break,
+    )
 
 
 def fischer11_folder():
