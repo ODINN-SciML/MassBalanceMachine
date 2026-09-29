@@ -42,6 +42,13 @@ SGI_CRS = 2056
 
 GLAMOS_CSV_URL = "https://doi.glamos.ch/data/volumechange/volumechange.csv"
 
+# Archive, shapefile and SGI-id column of each inventory epoch that can be downloaded.
+# Every release names them differently.
+SGI_RELEASES = {
+    1973: ("inventory_sgi1973_r1976", "SGI_1973.shp", "SGI"),
+    2016: ("inventory_sgi2016_r2020", "SGI_2016_glaciers.shp", "sgi-id"),
+}
+
 
 def glamos_folder():
     """Directory holding the cached GLAMOS inputs, always the same place so that a
@@ -61,10 +68,16 @@ def glamos_volume_change_file(download: bool = True):
 
 def sgi_shapefile(epoch: int = 1973, download: bool = True):
     """Path to the SGI shapefile of one inventory epoch, downloading it if
-    necessary. GLAMOS publishes 1850, 1931, 1973, 2010 and 2016."""
-    url = f"https://doi.glamos.ch/data/inventory/inventory_sgi{epoch}_r1976.zip"
-    folder = os.path.join(glamos_folder(), f"inventory_sgi{epoch}_r1976")
-    path = os.path.join(folder, f"SGI_{epoch}.shp")
+    necessary. GLAMOS publishes 1850, 1931, 1973, 2010 and 2016; the epochs of
+    `SGI_RELEASES` are the ones that can be downloaded here."""
+    assert epoch in SGI_RELEASES, (
+        f"No download is known for the SGI {epoch} inventory, only for "
+        f"{sorted(SGI_RELEASES)}."
+    )
+    archive, shapefile, _ = SGI_RELEASES[epoch]
+    url = f"https://doi.glamos.ch/data/inventory/{archive}.zip"
+    folder = os.path.join(glamos_folder(), archive)
+    path = os.path.join(folder, shapefile)
     if not os.path.exists(path) and download:
         os.makedirs(glamos_folder(), exist_ok=True)
         zpath = os.path.join(glamos_folder(), os.path.basename(url))
@@ -113,6 +126,7 @@ def load_sgi_outlines(epoch: int = 1973, sgi_ids_to_keep=None):
     `custom_outlines.build_custom_gdirs`.
     """
     sgi = gpd.read_file(sgi_shapefile(epoch)).set_crs(SGI_CRS, allow_override=True)
+    sgi = sgi.rename(columns={SGI_RELEASES[epoch][2]: "SGI"})
     sgi = sgi.dissolve("SGI").reset_index()[["SGI", "geometry"]]
     sgi["area_sgi"] = sgi.area / 1e6
     if sgi_ids_to_keep is not None:
