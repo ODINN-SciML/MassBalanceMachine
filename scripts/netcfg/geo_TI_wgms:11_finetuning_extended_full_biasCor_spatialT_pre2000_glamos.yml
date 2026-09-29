@@ -1,0 +1,359 @@
+model:
+    type: TIlike
+    inputs:
+        - ELEVATION_DIFFERENCE
+        - aspect
+        - fal
+        - slhf
+        - slope
+        - sshf
+        - ssrd
+        - str
+        - t2m
+        - tp_sum
+        - svf
+        - u10
+        - v10
+        - POINT_LAT
+        - POINT_LON
+        - POINT_ELEVATION
+    grad_T:
+        inputs:
+            - t2m
+            - slhf
+            - sshf
+            - ssrd
+            - str
+        layers: [32, 16, 16]
+    bias_T:
+        inputs:
+            - POINT_LAT
+            - POINT_LON
+        layers: [32, 16, 8]
+    cor_acc:
+        inputs:
+            - u10
+            - v10
+            - slope
+            - aspect
+        layers: [32, 16, 8]
+    cor_abl:
+        inputs:
+            - fal
+            - slhf
+            - sshf
+            - ssrd
+            - str
+        layers: [32, 16, 8]
+    bias_cor:
+        inputs:
+            - POINT_LAT
+            - POINT_LON
+        layers: [32, 16, 8]
+    sw_contrib:
+        inputs:
+            - aspect
+            - slope
+            - svf
+            - ssrd
+            - fal
+            - ELEVATION_DIFFERENCE
+        layers: [32, 16, 8]
+training:
+    source_data: wgms:11
+    geodetic_source:
+        - GLAMOS
+    geodetic_source_options:
+        GLAMOS:
+            min_year: 1950
+            multi_period: true
+            min_window_years: 10
+            allowed_years:
+                - 1951
+                - 1952
+                - 1953
+                - 1954
+                - 1955
+                - 1977
+                - 1978
+                - 1979
+                - 1980
+                - 1981
+                - 1982
+                - 1983
+                - 1984
+                - 1985
+                - 1986
+                - 1987
+                - 1988
+                - 1989
+                - 1990
+                - 1991
+                - 1992
+                - 1993
+                - 1994
+                - 1995
+                - 1996
+                - 1997
+                - 1998
+                - 1999
+            max_outside_years: 1
+    geodetic_source_options_val:
+        GLAMOS:
+            min_year: 1950
+            min_window_years: 10
+            allowed_years:
+                - 1956
+                - 1957
+                - 1958
+                - 1959
+                - 1960
+                - 1961
+                - 1962
+                - 1963
+                - 1964
+                - 1965
+                - 1966
+                - 1967
+                - 1968
+                - 1969
+                - 1970
+                - 1971
+                - 1972
+                - 1973
+                - 1974
+                - 1975
+                - 1976
+            max_outside_years: 1
+    geodetic_source_test: Hugonnet21
+    geodetic_source_test_options:
+    test_glaciers_geo:
+        - RGI60-11.00638
+        - RGI60-11.00804
+        - RGI60-11.00817
+        - RGI60-11.00819
+        - RGI60-11.00825
+        - RGI60-11.00843
+        - RGI60-11.00848
+        - RGI60-11.00878
+        - RGI60-11.00892
+        - RGI60-11.00901
+        - RGI60-11.00908
+        - RGI60-11.00915
+        - RGI60-11.00916
+        - RGI60-11.00918
+        - RGI60-11.00968
+        - RGI60-11.01198
+        - RGI60-11.01208
+        - RGI60-11.01238
+        - RGI60-11.01328
+        - RGI60-11.01346
+        - RGI60-11.01384
+        - RGI60-11.01450
+        - RGI60-11.01467
+        - RGI60-11.01488
+        - RGI60-11.01512
+        - RGI60-11.01519
+        - RGI60-11.01664
+        - RGI60-11.01768
+        - RGI60-11.01876
+        - RGI60-11.01987
+        - RGI60-11.02593
+        - RGI60-11.02679
+        - RGI60-11.02704
+        - RGI60-11.02746
+        - RGI60-11.02766
+        - RGI60-11.02774
+        - RGI60-11.02780
+        - RGI60-11.02788
+        - RGI60-11.02806
+    train_glaciers_geo:
+        - A50d-01
+        - A50i-06
+        - A50i-07
+        - A50i-19
+        - A54e-24
+        - A54g-11
+        - A54l-19
+        - B36-26
+        - B43-03
+        - B45-04
+        - B52-24
+        - B52-29
+        - B52-32
+        - B62-10
+        - B82-14
+        - B83-03
+        - A10g-05
+        - A10g-08
+        - B52-22
+        - C14-10
+    val_glaciers_geo:
+        - A10g-05
+        - A10g-08
+        - A50d-01
+        - A50i-06
+        - B36-26
+        - B52-22
+        - B52-24
+        - B52-29
+        - B52-32
+        - C14-10
+    test_glaciers:
+        - RGI60-11.02072
+        - RGI60-11.02448
+        - RGI60-11.01280
+        - RGI60-11.01946
+        - RGI60-11.00638
+        - RGI60-11.01238
+        - RGI60-11.01198
+        - RGI60-11.01367
+        - RGI60-11.02679
+        - RGI60-11.02540
+        - RGI60-11.01450
+        - RGI60-11.02674
+        - RGI60-11.02024
+        - RGI60-11.01509
+        - RGI60-11.02801
+        - RGI60-11.02787
+        - RGI60-11.02740
+        - RGI60-11.02775
+        - RGI60-11.01776
+        - RGI60-11.01806
+        - RGI60-11.03166
+        - RGI60-11.02648
+        - RGI60-11.00597
+        - RGI60-11.01834
+        - RGI60-11.01704
+        - RGI60-11.03135
+        - RGI60-11.00603
+        - RGI60-11.00647
+        - RGI60-11.01662
+        - RGI60-11.02746
+        - RGI60-11.02244
+        - RGI60-11.01376
+        - RGI60-11.00804
+        - RGI60-11.00833
+        - RGI60-11.02249
+        - RGI60-11.01930
+        - RGI60-11.02600
+        - RGI60-11.00289
+        - RGI60-11.00787
+        - RGI60-11.00781
+        - RGI60-11.00719
+        - RGI60-11.00116
+        - RGI60-11.00300
+        - RGI60-11.00251
+        - RGI60-11.00897
+        - RGI60-11.02704
+        - RGI60-11.02770
+        - RGI60-11.01987
+        - RGI60-11.02745
+        - RGI60-11.02692
+        - RGI60-11.02764
+        - RGI60-11.00190
+        - RGI60-11.00135
+        - RGI60-11.00746
+        - RGI60-11.00267
+        - RGI60-11.00006
+        - RGI60-11.00002
+        - RGI60-11.01876
+        - RGI60-11.02766
+        - RGI60-11.01962
+        - RGI60-11.02773
+        - RGI60-11.00817
+        - RGI60-11.00843
+        - RGI60-11.00878
+        - RGI60-11.00819
+        - RGI60-11.02624
+        - RGI60-11.02774
+    train_glaciers:
+        - RGI60-11.00638
+        - RGI60-11.00817
+        - RGI60-11.00819
+        - RGI60-11.00825
+        - RGI60-11.00843
+        - RGI60-11.00878
+        - RGI60-11.00892
+        - RGI60-11.00901
+        - RGI60-11.00908
+        - RGI60-11.00915
+        - RGI60-11.00916
+        - RGI60-11.00918
+        - RGI60-11.00968
+        - RGI60-11.01198
+        - RGI60-11.01208
+        - RGI60-11.01238
+        - RGI60-11.01328
+        - RGI60-11.01346
+        - RGI60-11.01384
+        - RGI60-11.01450
+        - RGI60-11.01467
+        - RGI60-11.01488
+        - RGI60-11.01512
+        - RGI60-11.01519
+        - RGI60-11.01664
+        - RGI60-11.01768
+        - RGI60-11.01876
+        - RGI60-11.02593
+        - RGI60-11.02679
+        - RGI60-11.02704
+        - RGI60-11.02746
+        - RGI60-11.02766
+        - RGI60-11.02774
+        - RGI60-11.02788
+        - RGI60-11.02806
+        - RGI60-11.00804
+        - RGI60-11.00848
+        - RGI60-11.01987
+        - RGI60-11.02780
+    val_glaciers:
+        - RGI60-11.00638
+        - RGI60-11.00804
+        - RGI60-11.00848
+        - RGI60-11.00915
+        - RGI60-11.00918
+        - RGI60-11.00968
+        - RGI60-11.01450
+        - RGI60-11.01664
+        - RGI60-11.01768
+        - RGI60-11.01987
+        - RGI60-11.02679
+        - RGI60-11.02704
+        - RGI60-11.02746
+        - RGI60-11.02780
+        - RGI60-11.02788
+    optim: ADAM
+    scheduler: StepLR
+    lr: 5e-4
+    scheduler_step_size: 500
+    Nepochs: 2000
+    scalingStakes: full
+    bestModelCriterion: lossVal
+    splitVal: group-year
+    val_years:
+        - 1956
+        - 1957
+        - 1958
+        - 1959
+        - 1960
+        - 1961
+        - 1962
+        - 1963
+        - 1964
+        - 1965
+        - 1966
+        - 1967
+        - 1968
+        - 1969
+        - 1970
+        - 1971
+        - 1972
+        - 1973
+        - 1974
+        - 1975
+        - 1976
+    splitTest: YEAR:<2000
+    wGeo: 0.5
+    wWinter: 1.0
+    wSummer: 1.0
