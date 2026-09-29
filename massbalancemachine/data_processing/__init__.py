@@ -25,10 +25,12 @@ from data_processing.gridded_utils import (
     create_gridded_features_PGO,
     create_gridded_features_GLAMOS,
     create_gridded_features_Rabatel16,
+    create_gridded_features_Fischer11,
     geodetic_input_Hugonnet21,
     geodetic_input_PGO,
     geodetic_input_GLAMOS,
     geodetic_input_Rabatel16,
+    geodetic_input_Fischer11,
     geodetic_target_Hugonnet21,
     geodetic_target_region_Hugonnet21,
     generate_grid_multi_years,
@@ -50,4 +52,11 @@ from data_processing.rabatel16 import (
     rabatel16_dem_file,
     rabatel16_outline_spec,
     table_RGI62_to_Rabatel16,
+)
+from data_processing.fischer11 import (
+    fischer11_outline_spec,
+    fischer11_periods,
+    geodetic_target_Fischer11,
+    load_gi_outlines,
+    table_RGI62_to_Fischer11,
 )
