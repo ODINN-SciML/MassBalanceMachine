@@ -1189,7 +1189,7 @@ def geodetic_target_region_Hugonnet21(region_id, thres_area=None):
     ]  # Remove data which has been corrected
     if thres_area is not None:
         reg_mbdf = reg_mbdf[reg_mbdf.area > thres_area]
-    rgi_ids = reg_mbdf.index.values
+    rgi_ids = reg_mbdf.rgiid.values
 
     return geodetic_target_Hugonnet21(rgi_ids)
 
