@@ -323,17 +323,7 @@ class GeoDataLoader:
             self.glacierListValGeo = self.glaciersValWithGeo  # TODO: change this
             self.glacierListAllGeo = self.glaciersAllWithGeo  # TODO: change this
 
-        if not noGeo and len(self.glaciersWithGeo) == 1:
-            if self.geodeticSource == "Hugonnet21" or self.isWindowed:
-                raise NotImplementedError()
-            # # Preload geodetic data into memory if there is only one glacier
-            # self.df_X_geod = create_geodetic_input(
-            #     self.cfg,
-            #     self.glaciersWithGeo[0],
-            #     self.periods_per_glacier,
-            #     to_seasonal=False,
-            # )
-        elif not noGeo:
+        if not noGeo:
             if self.preloadGeodetic:
                 if self.geodeticSource == "Hugonnet21":
                     print("Preloading Hugonnet21 geodetic grids")
@@ -395,16 +385,11 @@ class GeoDataLoader:
                     raise ValueError(f"Unknown geodetic source {self.geodeticSource}.")
 
         if not noGeo and self.df_X_geod is not None:
-            if len(self.glaciersWithGeo) == 1:
-                self.precomputed_meta = {
-                    self.glaciersWithGeo[0]: self._metadata_groups(self.df_X_geod)
-                }
-            else:
-                self.precomputed_meta = {}
-                for rgi_id in self.glaciersWithGeo + self.glaciersValWithGeo:
-                    self.precomputed_meta[rgi_id] = self._metadata_groups(
-                        self.df_X_geod[rgi_id]
-                    )
+            self.precomputed_meta = {}
+            for rgi_id in self.glaciersWithGeo + self.glaciersValWithGeo:
+                self.precomputed_meta[rgi_id] = self._metadata_groups(
+                    self.df_X_geod[rgi_id]
+                )
         else:
             self.precomputed_meta = None
 
@@ -999,10 +984,7 @@ class GeoDataLoader:
             #         self.cfg, glacierName, self.periods_per_glacier, to_seasonal=False
             #     )
         else:
-            if self.preloadGeodetic:
-                df_X_geod = self.df_X_geod[glacierName]
-            else:
-                df_X_geod = self.df_X_geod
+            df_X_geod = self.df_X_geod[glacierName]
             if self.precomputed_meta is not None:
                 precomputed_meta = self.precomputed_meta[glacierName]
             else:
