@@ -602,7 +602,13 @@ def assessOnTest(log_dir, model, geodataloader_test, params, light=False, color=
         # Geodetic prediction
         geoPred, geoTarget, geoErr, _ = eval_geodetic(model, geodataloader_test)
         fig = predVSTruthGlacierWide(
-            geoTarget, geoPred, geoErr, title="Glacier wide MB on test", color=color
+            geoTarget,
+            geoPred,
+            geoErr,
+            title="Glacier wide MB on test",
+            color=color,
+            ax_xlim=(-4, 3),
+            ax_ylim=(-4, 3),
         )
         plt.savefig(os.path.join(log_dir, "geodetic_test.png"))
         plt.close(fig)

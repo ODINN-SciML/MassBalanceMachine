@@ -49,6 +49,7 @@ model:
         inputs:
             - POINT_LAT
             - POINT_LON
+            - POINT_ELEVATION
         layers: [32, 16, 8]
     sw_contrib:
         inputs:
