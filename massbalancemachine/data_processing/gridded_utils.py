@@ -53,6 +53,10 @@ from data_processing.hagg12 import (
     load_hagg12_outlines,
     BAVARIA_REGION_ID,
 )
+from data_processing.maurer19 import (
+    maurer19_outline_spec,
+    load_maurer19_outlines,
+)
 from data_processing.glacier_utils import (
     create_glacier_grid_RGI,
     create_dem_file_RGI,
@@ -530,6 +534,45 @@ def create_gridded_features_Hagg12(
     )
 
 
+def create_gridded_features_Maurer19(
+    cfg,
+    time_ranges,
+    dem_source: str = "SRTM",
+    multi=True,
+    num_workers=None,
+    climate=None,
+):
+    """Generate the gridded products of the Himalayan glaciers of Maurer et al. (2019)
+    on their 1975 outlines, keyed by their RGI 5.0 id ("RGI50-15.02201").
+
+    The glaciers span RGI regions 13 to 15, and the climate is prepared region by
+    region, so the grids are generated once per region, all in the same `Maurer19`
+    tree. `dem_source` defaults to SRTM, see
+    `data_processing.maurer19.maurer19_outline_spec`.
+
+    Args:
+        time_ranges: {RGI 5.0 id: [(start_date, end_date), ...]}, the geodetic periods
+            of every glacier.
+        num_workers (int): number of processes to use. Left to None it follows the
+            memory free on the machine, see `parallel_utils.worker_count`.
+    """
+    glacier_ids = list(time_ranges.keys())
+    outlines = load_maurer19_outlines(glacier_ids_to_keep=glacier_ids)
+    spec = maurer19_outline_spec(dem_source=dem_source)
+    for region_id in sorted({_region_id_of(g) for g in glacier_ids}):
+        in_region = [g for g in glacier_ids if _region_id_of(g) == region_id]
+        _create_gridded_features_custom_outlines(
+            cfg,
+            {g: time_ranges[g] for g in in_region},
+            outlines[outlines.MAURER19_ID.isin(in_region)],
+            spec,
+            region_id,
+            multi=multi,
+            num_workers=num_workers,
+            climate=climate,
+        )
+
+
 def create_gridded_features_RGI(
     cfg,
     rgi_ids,
@@ -750,6 +793,10 @@ def geodetic_input_Fischer11(gi_id, time_range):
 
 def geodetic_input_Hagg12(glacier_id, time_range):
     return _geodetic_input_windowed(glacier_id, time_range, "Hagg12")
+
+
+def geodetic_input_Maurer19(rgi50_id, time_range):
+    return _geodetic_input_windowed(rgi50_id, time_range, "Maurer19")
 
 
 def geodetic_input_Hugonnet21(
@@ -1201,12 +1248,13 @@ GEODETIC_INPUT_FN = {
     "Rabatel16": geodetic_input_Rabatel16,
     "Fischer11": geodetic_input_Fischer11,
     "Hagg12": geodetic_input_Hagg12,
+    "Maurer19": geodetic_input_Maurer19,
 }
 
 # Sources whose geodetic target covers an arbitrary date window rather than a whole
 # number of calendar years. `years` is then a list of (start, end) tuples, one per
 # geodetic window of the glacier.
-WINDOWED_SOURCES = {"PGO", "GLAMOS", "Rabatel16", "Fischer11", "Hagg12"}
+WINDOWED_SOURCES = {"PGO", "GLAMOS", "Rabatel16", "Fischer11", "Hagg12", "Maurer19"}
 
 
 def _check_product_source(product_source):

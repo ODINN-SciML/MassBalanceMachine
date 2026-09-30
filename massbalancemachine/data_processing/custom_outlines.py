@@ -48,7 +48,9 @@ class CustomOutlineSpec:
             than a synthetic RGI-looking one.
         o1_region, o2_region: RGI first- and second-order region codes. OGGM needs
             them to locate region-wide datasets, and they are not inferred from the
-            geometry.
+            geometry. None reads them glacier by glacier from the `o1_region` and
+            `o2_region` columns of the outlines, for a dataset spanning several
+            regions such as `data_processing.maurer19`.
         src_date: date of the outlines, "YYYY-MM-DD HH:MM:SS". OGGM only reads the
             year, and uses it as the date the glacier geometry refers to.
         bgndate: same date in the RGI's own "YYYYMMDD" form. Defaults to OGGM's
@@ -70,8 +72,8 @@ class CustomOutlineSpec:
 
     name: str
     id_column: str = "RGIId"
-    o1_region: str = "11"
-    o2_region: str = "01"
+    o1_region: Optional[str] = "11"
+    o2_region: Optional[str] = "01"
     src_date: str = "2019-01-01 00:00:00"
     bgndate: str = "20009999"
     dem_source: str = "COPDEM30"
@@ -282,12 +284,20 @@ def build_custom_gdirs(outlines: gpd.GeoDataFrame, spec: CustomOutlineSpec):
     # Cook dataframe into an RGI-compatible GeoDataFrame. `cook_rgidf` mints its own
     # RGI-looking ids; assigning the dataset's own id over them is what makes
     # `gdir.rgi_id` the native identifier.
+    assign_column_values = {id_column: id_column}
+    for field, rgi_column in (("o1_region", "O1Region"), ("o2_region", "O2Region")):
+        if getattr(spec, field) is None:
+            assert (
+                field in outlines.columns
+            ), f"The spec leaves {field} to the outlines, which have no column {field!r}."
+            assign_column_values[field] = rgi_column
     rgidf = oggm.utils.cook_rgidf(
         outlines,
-        o1_region=spec.o1_region,
-        o2_region=spec.o2_region,
+        # Only used in the RGI-looking ids overwritten below when left to the outlines
+        o1_region=spec.o1_region or "00",
+        o2_region=spec.o2_region or "01",
         bgndate=spec.bgndate,
-        assign_column_values={id_column: id_column},
+        assign_column_values=assign_column_values,
     )
     rgidf["utm_zone"] = utm_crs.utm_zone
 
