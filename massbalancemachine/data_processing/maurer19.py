@@ -55,6 +55,14 @@ The paper converts volume changes to water equivalent with a density of
 a balance is the one of the product, which already holds a 10 % area uncertainty and
 a density uncertainty of 60 kg m-3.
 
+**Lake-terminating glaciers.** About a seventh of the glaciers ended in a proglacial
+lake, where they also lose ice by calving and thermal undercutting, which a
+temperature-index model does not represent. They are identified with the inventory of
+lake-terminating glaciers of High Mountain Asia of Luo and Liu (2025),
+doi:10.5281/zenodo.17369580, and can be left out of the target with
+`geodetic_target_Maurer19(exclude_lake_terminating=True)`, see
+`lake_terminating_maurer19`.
+
 A 1975-2000 period runs from the first of the month of the earliest Hexagon DEM of
 the glacier to `END_DATE`, the 1st of January 2000, see `hexagon_start_date`. A
 2000-2016 period runs over the years of its ASTER DEMs, from the 1st of January 2000
@@ -65,6 +73,7 @@ import glob
 import os
 import re
 import shutil
+import urllib.request
 
 import earthaccess
 import geopandas as gpd
@@ -102,6 +111,20 @@ OUTLINE_MASKS = {1975: "glacierStartMask", 2000: "glacierEndMask"}
 END_DATE = pd.Timestamp("2000-01-01")
 # Hexagon acquisitions end in 1980; any later year of `demYears` is an ASTER one
 LAST_HEXAGON_YEAR = 1980
+
+# Inventory of lake-terminating glaciers of High Mountain Asia, 1990 and 2022 (Luo and
+# Liu, 2025, CC-BY 4.0). A glacier of its 1990 layer is "Type 1" when it still ends in
+# its lake in 2022, "Type 3" when it has lost contact with it by then, and "Type 2"
+# when it only reaches a lake after 1990.
+LTG_DOI = "10.5281/zenodo.17369580"
+LTG_URL = "https://zenodo.org/api/records/17369580/files/HMA_LTG.gpkg/content"
+LTG_GLACIER_LAYER = "glacier_1990"
+# The glaciers ending in a lake over the 1975-2000 period, as far as 1990 tells, and
+# all the types of the inventory, those reaching a lake after 1990 included: the
+# default of `geodetic_target_Maurer19`, since the calibrated glaciers are also
+# evaluated over 2000-2016
+LAKE_TERMINATING_1990 = ("Type 1", "Type 3")
+LAKE_TERMINATING_ALL = ("Type 1", "Type 2", "Type 3")
 
 # Density of the paper, the one of this workflow: no conversion is needed
 ICE_DENSITY = 850.0
@@ -418,6 +441,8 @@ def geodetic_target_Maurer19(
     table=None,
     verbose: bool = True,
     period: str = PERIOD,
+    exclude_lake_terminating: bool = False,
+    lake_terminating_types=LAKE_TERMINATING_ALL,
 ):
     """Geodetic targets of Maurer et al. (2019) over 1975-2000, one row per glacier,
     or over 2000-2016 with `period="2000-2016"`, for evaluation.
@@ -447,6 +472,12 @@ def geodetic_target_Maurer19(
         verbose: report the glaciers left out for lack of an outline.
         period: one of `PERIODS`. The outlines of both epochs come from the
             1975-2000 netCDF, so `require_1975_outline` applies to both.
+        exclude_lake_terminating: leave out the glaciers ending in a proglacial lake,
+            see `lake_terminating_maurer19`.
+        lake_terminating_types: the types of the inventory left out, by default all
+            of them (`LAKE_TERMINATING_ALL`), the glaciers reaching a lake after 1990
+            ("Type 2") included. `LAKE_TERMINATING_1990` only leaves out those in
+            contact with their lake in 1990.
     """
     df = maurer19_periods(table, period)
     if min_coverage is not None:
@@ -463,6 +494,16 @@ def geodetic_target_Maurer19(
                 f"{sorted(df.RGIId[~has_outline])}"
             )
         df = df[has_outline]
+    if exclude_lake_terminating:
+        flagged = lake_terminating_maurer19()
+        flagged = set(flagged.RGIId[flagged.ltg_type.isin(lake_terminating_types)])
+        lake = df.RGIId.isin(flagged)
+        if verbose:
+            print(
+                f"Maurer19: {lake.sum()} lake-terminating glacier(s) "
+                f"({', '.join(lake_terminating_types)}) are left out."
+            )
+        df = df[~lake]
     return select_dem_periods(
         df,
         max_year=max_year,
@@ -611,6 +652,80 @@ def maurer19_outline_spec(
     )
     spec.update(overrides)
     return CustomOutlineSpec(**spec)
+
+
+def ltg_file():
+    """Path to the inventory of lake-terminating glaciers of Luo and Liu (2025),
+    downloaded to `.data/Maurer19/HMA_LTG` on first use."""
+    path = os.path.join(maurer19_folder(), "HMA_LTG", "HMA_LTG.gpkg")
+    if not os.path.exists(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        print(f"downloading {LTG_URL}")
+        # Through a temporary name, so that an interrupted download is not mistaken
+        # for the inventory on the next run
+        urllib.request.urlretrieve(LTG_URL, path + ".part")
+        os.replace(path + ".part", path)
+    return path
+
+
+def lake_terminating_maurer19(min_frac_ltg: float = 0.5, min_frac_maurer: float = 0.25):
+    """The glaciers of Maurer et al. (2019) that the inventory of Luo and Liu (2025)
+    lists as lake-terminating, with their type.
+
+    A glacier of the 1990 layer of the inventory is matched to the 1975 outline it
+    overlaps most, if at least `min_frac_ltg` of it lies inside and it covers at least
+    `min_frac_maurer` of that outline, so that a small tributary ending in a lake does
+    not flag a large glacier. Of the 645 glaciers with a 1975 outline, 85 match a
+    glacier ending in a lake in 1990 (65 of "Type 1", 20 of "Type 3") and 25 one that
+    only reaches a lake after 1990 ("Type 2"). The inventory starts in 1990, while
+    proglacial lakes were growing: some of these glaciers did not end in a lake yet in
+    1975.
+
+    The result is cached in `.data/Maurer19/HMA_LTG`.
+
+    Returns a dataframe with one row per matched glacier: RGIId (the RGI 5.0 id),
+    ltg_type ("Type 1", "Type 2" or "Type 3"), ltg_rgi_id (the RGI 7.0 glacier
+    complex of the inventory), frac_ltg and frac_maurer, the overlap over the area of
+    the inventory glacier and of the 1975 outline.
+    """
+    path = os.path.join(
+        maurer19_folder(),
+        "HMA_LTG",
+        f"lake_terminating_maurer19_{min_frac_ltg}_{min_frac_maurer}.csv",
+    )
+    p = Product(path)
+    if p.is_up_to_date():
+        return pd.read_csv(path)
+
+    outlines = load_maurer19_outlines().to_crs(HIMALAYA_CRS)
+    outlines["area_maurer"] = outlines.area
+    ltg = gpd.read_file(ltg_file(), layer=LTG_GLACIER_LAYER)
+    ltg["geometry"] = shapely.force_2d(ltg.geometry.values)
+    ltg = ltg.to_crs(HIMALAYA_CRS)
+    ltg["area_ltg"] = ltg.area
+    inter = gpd.overlay(
+        outlines[["MAURER19_ID", "area_maurer", "geometry"]],
+        ltg[["Type", "rgi_id", "area_ltg", "geometry"]],
+        how="intersection",
+        keep_geom_type=True,
+    )
+    inter["overlap"] = inter.area
+    inter["frac_ltg"] = inter.overlap / inter.area_ltg
+    inter["frac_maurer"] = inter.overlap / inter.area_maurer
+    matches = (
+        inter[(inter.frac_ltg >= min_frac_ltg) & (inter.frac_maurer >= min_frac_maurer)]
+        .sort_values("overlap", ascending=False)
+        .drop_duplicates("MAURER19_ID")
+        .rename(
+            columns={"MAURER19_ID": "RGIId", "Type": "ltg_type", "rgi_id": "ltg_rgi_id"}
+        )
+    )
+    matches = pd.DataFrame(
+        matches[["RGIId", "ltg_type", "ltg_rgi_id", "frac_ltg", "frac_maurer"]]
+    ).sort_values("RGIId")
+    matches.to_csv(path, index=False)
+    p.gen_chk()
+    return matches.reset_index(drop=True)
 
 
 def table_RGI62_to_Maurer19(region_id=15, min_frac_rgi: float = 0.5):

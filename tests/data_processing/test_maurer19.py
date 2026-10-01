@@ -126,6 +126,29 @@ def test_glaciers_without_a_1975_outline_are_left_out(monkeypatch):
     assert list(target.RGIId) == ["RGI50-14.00001", "RGI50-15.00003"]
 
 
+def test_lake_terminating_glaciers_are_left_out(monkeypatch):
+    import data_processing.maurer19 as maurer19
+
+    flagged = pd.DataFrame(
+        {
+            "RGIId": ["RGI50-14.00001", "RGI50-15.00003"],
+            "ltg_type": ["Type 1", "Type 2"],
+        }
+    )
+    monkeypatch.setattr(maurer19, "lake_terminating_maurer19", lambda: flagged)
+    kwargs = dict(table=_table(), require_1975_outline=False)
+    assert len(geodetic_target_Maurer19(**kwargs)) == 3
+    # Every type by default, the glaciers reaching a lake after 1990 included
+    target = geodetic_target_Maurer19(exclude_lake_terminating=True, **kwargs)
+    assert list(target.RGIId) == ["RGI50-15.00002"]
+    target = geodetic_target_Maurer19(
+        exclude_lake_terminating=True,
+        lake_terminating_types=("Type 1", "Type 3"),
+        **kwargs,
+    )
+    assert list(target.RGIId) == ["RGI50-15.00002", "RGI50-15.00003"]
+
+
 def test_gridded_file_name():
     assert (
         gridded_file_name("RGI50-15.02201")
