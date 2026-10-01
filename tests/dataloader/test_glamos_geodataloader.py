@@ -34,7 +34,7 @@ from data_processing.gridded_utils import (
     prepared_metadata_dir,
     years_from_time_range,
 )
-from data_processing.product_utils import data_path, glacier_id_to_folders
+from data_processing.product_utils import get_data_path, glacier_id_to_folders
 
 # The glacier the assertions are about: Pizolgletscher, the smallest SGI entity with
 # a usable window, and one that maps to a single RGI id.
@@ -58,21 +58,21 @@ TARGET_OPTIONS = dict(min_year=1985, max_year=2000, min_window_years=10)
 # The only three trees this test is allowed to delete from. Everything else under
 # `.data/` belongs to another source or is a download that a test must not throw away.
 PURGEABLE_ROOTS = (
-    os.path.join(data_path, "grids", "GLAMOS"),
-    os.path.join(data_path, "grids_multiyears", "GLAMOS"),
-    os.path.join(data_path, "oggm", "GLAMOS"),
+    os.path.join(get_data_path(), "grids", "GLAMOS"),
+    os.path.join(get_data_path(), "grids_multiyears", "GLAMOS"),
+    os.path.join(get_data_path(), "oggm", "GLAMOS"),
 )
 
 # Trees that must come out of the test exactly as they went in.
 PROTECTED_TREES = (
-    os.path.join(data_path, "GLAMOS"),  # the downloaded GLAMOS inputs
-    os.path.join(data_path, "grids", "PGO"),
-    os.path.join(data_path, "grids", "Hugonnet21"),
-    os.path.join(data_path, "grids_multiyears", "PGO"),
-    os.path.join(data_path, "grids_multiyears", "Hugonnet21"),
-    os.path.join(data_path, "oggm", "PGO"),
-    os.path.join(data_path, "ERA5"),
-    os.path.join(data_path, "stakes"),
+    os.path.join(get_data_path(), "GLAMOS"),  # the downloaded GLAMOS inputs
+    os.path.join(get_data_path(), "grids", "PGO"),
+    os.path.join(get_data_path(), "grids", "Hugonnet21"),
+    os.path.join(get_data_path(), "grids_multiyears", "PGO"),
+    os.path.join(get_data_path(), "grids_multiyears", "Hugonnet21"),
+    os.path.join(get_data_path(), "oggm", "PGO"),
+    os.path.join(get_data_path(), "ERA5"),
+    os.path.join(get_data_path(), "stakes"),
 )
 
 
@@ -109,7 +109,7 @@ def _glacier_product_paths(sgi_id, time_range, feature_columns):
         ),
     ]
     # the OGGM glacier directory, wherever OGGM chose to nest it
-    per_glacier = os.path.join(data_path, "oggm", "GLAMOS", "per_glacier")
+    per_glacier = os.path.join(get_data_path(), "oggm", "GLAMOS", "per_glacier")
     for dirpath, dirnames, _ in os.walk(per_glacier):
         for d in dirnames:
             if d == sgi_id:
@@ -179,9 +179,13 @@ def test_purge_refuses_to_delete_anything_but_glamos_products():
         with pytest.raises(AssertionError):
             _assert_purgeable(root)
     # ... but one glacier's products below it are
-    _assert_purgeable(os.path.join(data_path, "grids", "GLAMOS", "A50d", "A50d-01"))
     _assert_purgeable(
-        os.path.join(data_path, "oggm", "GLAMOS", "per_glacier", "A50d", "A50d-01")
+        os.path.join(get_data_path(), "grids", "GLAMOS", "A50d", "A50d-01")
+    )
+    _assert_purgeable(
+        os.path.join(
+            get_data_path(), "oggm", "GLAMOS", "per_glacier", "A50d", "A50d-01"
+        )
     )
 
 

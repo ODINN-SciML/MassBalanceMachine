@@ -11,7 +11,7 @@ from data_processing.Dataset import Dataset
 from data_processing.get_topo_data import get_glacier_mask
 from data_processing.glacier_utils import create_dem_file_RGI, generate_svf_file
 from data_processing.Product import Product
-from data_processing.product_utils import rgi_id_to_folders, data_path
+from data_processing.product_utils import rgi_id_to_folders, get_data_path
 from .data import load_aws_monthly_precipitation
 
 
@@ -89,7 +89,7 @@ def _interpolate_aws_svf(monthly_precipitation, ds, gdir, svf):
 
 def _load_or_create_aws_svf(rgi_id, cfg):
     """Create or load cached DEM/SVF files for an AWS glacier."""
-    grid_path = os.path.join(data_path, "grids", "Hugonnet21")
+    grid_path = os.path.join(get_data_path(), "grids", "Hugonnet21")
     path_rgi_id = os.path.join(grid_path, *rgi_id_to_folders(rgi_id))
     svf_file = os.path.join(path_rgi_id, "svf.nc")
     p_svf = Product(svf_file)
@@ -184,7 +184,7 @@ def monthly_features(
     if not isinstance(aws_codes, list):
         aws_codes = [aws_codes]
 
-    processed_path = os.path.join(data_path, "AWS", "EEAR-Clim_processed")
+    processed_path = os.path.join(get_data_path(), "AWS", "EEAR-Clim_processed")
 
     for code in aws_codes:
         feat_path = os.path.join(processed_path, f"{code}.parquet")

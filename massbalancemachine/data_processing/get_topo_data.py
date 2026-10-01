@@ -18,7 +18,7 @@ import numpy as np
 import pyproj
 
 from data_processing.Product import Product
-from data_processing.product_utils import rgi_id_to_folders, data_path
+from data_processing.product_utils import rgi_id_to_folders, get_data_path
 from data_processing.glacier_utils import create_dem_file_RGI, generate_svf_file
 from data_processing.oggm_utils import (
     _initialize_oggm_config,
@@ -284,7 +284,7 @@ def _load_gridded_svf(
 ) -> list:
     """Load sky view factor data for each glacier directory."""
     grouped_rgi_ids = set(grouped_stakes.groups.keys())
-    grid_path = os.path.join(data_path, "grids", "Hugonnet21")
+    grid_path = os.path.join(get_data_path(), "grids", "Hugonnet21")
     loaded_svf = []
     for gdir in glacier_directories:
         if gdir.rgi_id in grouped_rgi_ids:

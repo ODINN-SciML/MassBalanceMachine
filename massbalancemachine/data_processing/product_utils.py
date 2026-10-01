@@ -2,7 +2,28 @@ import os
 import re
 
 mbm_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
-data_path = os.path.join(mbm_path, ".data")
+
+# The `.data/` tree of the repository is the default. An installation that is not a
+# checkout of the repository, for example one installed with pip from git, has no
+# `.data/` next to it and points the package at an existing tree with `set_data_path`
+# before anything reads or writes data.
+_data_path = os.path.join(mbm_path, ".data")
+
+
+def get_data_path():
+    """Root of the tree in which every dataset and derived product is stored.
+
+    It is read at call time, so that `set_data_path` reaches every module."""
+    return _data_path
+
+
+def set_data_path(path):
+    """Use `path` as the root of the data tree for the rest of the session.
+
+    Call it once, right after importing the package and before any data is accessed.
+    """
+    global _data_path
+    _data_path = os.path.abspath(os.path.expanduser(path))
 
 
 def region_id_folders(region_id, rgi_version: str):

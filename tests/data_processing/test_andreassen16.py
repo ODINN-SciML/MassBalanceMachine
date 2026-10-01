@@ -18,7 +18,7 @@ from data_processing.andreassen16 import (
     load_andreassen16_outlines,
     table_RGI62_to_Andreassen16,
 )
-from data_processing.product_utils import data_path
+from data_processing.product_utils import get_data_path
 
 
 def test_every_glacier_of_the_paper_has_periods():
@@ -75,7 +75,7 @@ def test_single_period_and_filters():
 
 
 WGMS_CHANGE = os.path.join(
-    data_path, "WGMS", "DOI-WGMS-FoG-2026-02-10", "data", "change.csv"
+    get_data_path(), "WGMS", "DOI-WGMS-FoG-2026-02-10", "data", "change.csv"
 )
 # glacier code: WGMS id of the glacier
 WGMS_IDS = {

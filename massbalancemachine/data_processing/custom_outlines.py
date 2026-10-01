@@ -31,7 +31,7 @@ from data_processing.oggm_utils import (
     _initialize_oggm_config,
     _initialize_custom_glacier_directories,
 )
-from data_processing.product_utils import data_path
+from data_processing.product_utils import get_data_path
 
 
 @dataclass
@@ -84,11 +84,11 @@ class CustomOutlineSpec:
     def resolved_working_dir(self) -> str:
         if self.working_dir is not None:
             return self.working_dir
-        return os.path.join(data_path, "oggm", self.name)
+        return os.path.join(get_data_path(), "oggm", self.name)
 
     def grid_root(self) -> str:
         """Folder holding the per-year gridded products of this dataset."""
-        return os.path.join(data_path, "grids", self.name)
+        return os.path.join(get_data_path(), "grids", self.name)
 
     def fingerprint(self) -> dict:
         """The fields that change what the glacier directories and the grids
@@ -117,7 +117,7 @@ def portable_path(path: str) -> str:
     recognised by its `.data` component and brought to the same relative form.
     """
     resolved = os.path.abspath(path)
-    root = os.path.abspath(data_path)
+    root = os.path.abspath(get_data_path())
     if os.path.commonpath([resolved, root]) == root:
         return os.path.relpath(resolved, root)
     parts = os.path.normpath(path).split(os.sep)

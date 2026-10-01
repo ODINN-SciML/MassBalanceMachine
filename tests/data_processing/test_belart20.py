@@ -21,7 +21,7 @@ from data_processing.belart20 import (
     load_belart20_outlines,
     table_RGI62_to_Belart20,
 )
-from data_processing.product_utils import data_path
+from data_processing.product_utils import get_data_path
 from data_processing.utils.periods import first_of_nearest_month
 
 
@@ -80,7 +80,7 @@ def test_single_period_and_filters():
 
 
 WGMS_CHANGE = os.path.join(
-    data_path, "WGMS", "DOI-WGMS-FoG-2026-02-10", "data", "change.csv"
+    get_data_path(), "WGMS", "DOI-WGMS-FoG-2026-02-10", "data", "change.csv"
 )
 # glacier code: WGMS id of the glacier
 WGMS_IDS = {

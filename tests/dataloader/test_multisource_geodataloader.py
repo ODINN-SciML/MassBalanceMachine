@@ -15,7 +15,7 @@ import pytest
 
 import massbalancemachine as mbm
 from data_processing.glamos import geodetic_target_GLAMOS
-from data_processing.product_utils import data_path, glacier_id_to_folders
+from data_processing.product_utils import get_data_path, glacier_id_to_folders
 from data_processing.rabatel16 import (
     geodetic_target_Rabatel16,
     rabatel16_outlines_file,
@@ -83,7 +83,11 @@ def _skip_without_cached_grids():
         ("Rabatel16", GLIMS_ID_VAL),
     ]:
         svf = os.path.join(
-            data_path, "grids", source, *glacier_id_to_folders(glacier_id), "svf.nc"
+            get_data_path(),
+            "grids",
+            source,
+            *glacier_id_to_folders(glacier_id),
+            "svf.nc",
         )
         if not os.path.isfile(svf):
             pytest.skip(f"no cached {source} grid for {glacier_id} at {svf}")

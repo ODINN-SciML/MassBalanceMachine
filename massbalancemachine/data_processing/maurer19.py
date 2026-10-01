@@ -86,7 +86,7 @@ from oggm.utils import get_rgi_dir
 from rasterio.transform import from_origin
 
 from data_processing.custom_outlines import CustomOutlineSpec, match_rgi62_by_overlap
-from data_processing.product_utils import data_path
+from data_processing.product_utils import get_data_path
 from data_processing.Product import Product
 from data_processing.glacier_utils import get_region_shape_file
 from data_processing.utils.periods import select_dem_periods
@@ -153,7 +153,7 @@ AVG_COLUMN_ALIASES = {"percentcov": "pctCov"}
 def maurer19_folder():
     """Directory holding the downloaded products, always the same place so that a
     later run finds what an earlier one downloaded."""
-    return os.path.join(data_path, "Maurer19")
+    return os.path.join(get_data_path(), "Maurer19")
 
 
 def _earthdata_login():
@@ -752,7 +752,7 @@ def table_RGI62_to_Maurer19(region_id=15, min_frac_rgi: float = 0.5):
     region_id = f"{int(region_id):02d}"
     save_path = os.path.abspath(
         os.path.join(
-            data_path, "grids", "Maurer19", f"RGI62_to_Maurer19_{region_id}.csv"
+            get_data_path(), "grids", "Maurer19", f"RGI62_to_Maurer19_{region_id}.csv"
         )
     )
     p = Product(save_path)

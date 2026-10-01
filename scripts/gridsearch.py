@@ -1,5 +1,7 @@
 import itertools
 
+from massbalancemachine.cli.common import recursive_update
+
 
 def flatten_dict(d, parent_key="", sep="."):
     result = {}
@@ -16,20 +18,6 @@ def flatten_dict(d, parent_key="", sep="."):
             else:
                 result[new_key] = value
     return result
-
-
-def recursive_update(target, source):
-    for key in source:
-        if key not in target.keys():
-            print(f"Creating key {key} as it does not exist in target")
-            if isinstance(source[key], dict):
-                target[key] = {}
-            else:
-                target[key] = None
-        if isinstance(target[key], dict):
-            recursive_update(target[key], source[key])
-        else:
-            target[key] = source[key]
 
 
 def recursive_update_from_flat(target, source, sep="."):

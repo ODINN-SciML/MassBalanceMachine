@@ -14,8 +14,7 @@ from data_processing.Product import Product
 from data_processing.product_utils import (
     rgi_id_to_folders,
     glacier_id_to_folders,
-    mbm_path,
-    data_path,
+    get_data_path,
 )
 from data_processing.get_topo_data import (
     glacier_cell_area,
@@ -672,7 +671,7 @@ def create_gridded_features_RGI(
             The grids then go to `climate.grid_root("Hugonnet21")`, and the sky view
             factor is shared with the ERA5 grids.
     """
-    svf_grid_path = os.path.join(data_path, "grids", "Hugonnet21")
+    svf_grid_path = os.path.join(get_data_path(), "grids", "Hugonnet21")
     grid_path = svf_grid_path if climate is None else climate.grid_root("Hugonnet21")
     for rgi_id in rgi_ids:
         region_id = int(rgi_id.split("-")[1].split(".")[0])
@@ -821,7 +820,7 @@ def _geodetic_input_windowed(glacier_id, time_range, product_source):
     weighted into both by `geodetic_window_weights`. With a single window this
     clips the first and the last year to the months the window actually covers.
     """
-    grid_path = os.path.join(data_path, "grids", product_source)
+    grid_path = os.path.join(get_data_path(), "grids", product_source)
     bounds = [_window_month_bounds(window) for window in time_range]
     years = years_from_time_ranges(time_range)
 
@@ -895,7 +894,7 @@ def geodetic_input_Hugonnet21(
     rgi_id,
     years=range(2000, 2020),
 ):
-    grid_path = os.path.join(data_path, "grids", "Hugonnet21")
+    grid_path = os.path.join(get_data_path(), "grids", "Hugonnet21")
 
     df_X_geod = pd.DataFrame()
     maxId = -1
@@ -946,7 +945,7 @@ def _grid_dir(glacier_id, product_source, grid_root=None):
     `product_source`.
     """
     if grid_root is None:
-        grid_root = os.path.join(data_path, "grids", product_source)
+        grid_root = os.path.join(get_data_path(), "grids", product_source)
     return os.path.join(grid_root, *glacier_id_to_folders(glacier_id))
 
 
@@ -996,15 +995,10 @@ def _climate_grid_axes(region_id):
     """
     climate_data, _ = climate_file_paths(region_id)
     if not os.path.isfile(climate_data):
-        # `climate_file_paths` returns a path relative to the repository root, which
-        # only resolves when the caller runs from there.
-        from_repo = os.path.join(mbm_path, climate_data)
-        if not os.path.isfile(from_repo):
-            raise FileNotFoundError(
-                f"No ERA5 climate file for region {region_id} ({climate_data}). "
-                f"Download it with download_climate_ERA5({region_id})."
-            )
-        climate_data = from_repo
+        raise FileNotFoundError(
+            f"No ERA5 climate file for region {region_id} ({climate_data}). "
+            f"Download it with download_climate_ERA5({region_id})."
+        )
     with xr.open_dataset(climate_data) as ds:
         return ds["latitude"].values, ds["longitude"].values
 
@@ -1289,7 +1283,7 @@ def finalize_cell_table(df, cells, features, drop_duplicate_cells):
 def per_glacier_rates_Hugonnet21():
     filename = "hugonnet_2021_ds_rgi60_pergla_rates_10_20_worldwide.csv"
     url = f"https://cluster.klima.uni-bremen.de/~oggm/geodetic_ref_mb/{filename}"
-    path = os.path.join(data_path, "Hugonnet21", filename)
+    path = os.path.join(get_data_path(), "Hugonnet21", filename)
     if not os.path.exists(path):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         urllib.request.urlretrieve(url, path + ".part")
@@ -1401,7 +1395,7 @@ def _period_key(years):
 def prepared_grid_dir_multi_years(rgi_id, years, product_source):
     _check_product_source(product_source)
     return os.path.join(
-        data_path,
+        get_data_path(),
         "grids_multiyears",
         product_source,
         _period_key(years),

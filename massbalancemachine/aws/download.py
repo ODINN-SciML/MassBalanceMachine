@@ -2,7 +2,7 @@ from pathlib import Path
 import os
 import zipfile
 
-from data_processing.product_utils import data_path
+from data_processing.product_utils import get_data_path
 
 _code_to_folder = {
     "FVG": "ARPA_FVG",
@@ -29,17 +29,20 @@ _code_to_folder = {
 }
 _override_zip = {"ZAMG": "Geosphere"}
 
-eear_dir = os.path.join(data_path, "AWS", "EEAR-Clim")
+
+def eear_dir():
+    """The folder holding the EEAR-Clim station data."""
+    return os.path.join(get_data_path(), "AWS", "EEAR-Clim")
 
 
 def _ensure_dataset():
     extract = False
     download = False
     for e in _code_to_folder.values():
-        if not Path(os.path.join(eear_dir, e)).is_dir():
+        if not Path(os.path.join(eear_dir(), e)).is_dir():
             extract = True
         ee = _override_zip.get(e, e)
-        if not os.path.isfile(os.path.join(eear_dir, f"{ee}.zip")):
+        if not os.path.isfile(os.path.join(eear_dir(), f"{ee}.zip")):
             download = True
 
     if extract:
@@ -49,18 +52,18 @@ def _ensure_dataset():
 
             zenodo_get.download(
                 record_or_doi="10.5281/zenodo.10951609",
-                output_dir=eear_dir,
+                output_dir=eear_dir(),
             )
 
         zipfiles = [
             f
-            for f in os.listdir(eear_dir)
-            if os.path.isfile(os.path.join(eear_dir, f)) and f.endswith(".zip")
+            for f in os.listdir(eear_dir())
+            if os.path.isfile(os.path.join(eear_dir(), f)) and f.endswith(".zip")
         ]
         for f in zipfiles:
             if f == "scripts.zip":
                 continue
-            zip_path = os.path.join(eear_dir, f)
+            zip_path = os.path.join(eear_dir(), f)
             print(f"Unzipping {f}")
             with zipfile.ZipFile(zip_path, "r") as zip_ref:
-                zip_ref.extractall(eear_dir)
+                zip_ref.extractall(eear_dir())

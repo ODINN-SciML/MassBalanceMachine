@@ -10,6 +10,11 @@ from collections.abc import Mapping, Sequence
 import math
 
 import massbalancemachine as mbm
+from massbalancemachine.cli.common import (
+    geodetic_table,
+    geodetic_windows,
+    default_glacier_name,
+)
 
 
 def parseParams(params):
@@ -128,139 +133,3 @@ def loadParams(modelType):
             print(exc)
     parsedParams = parseParams(params)
     return parsedParams
-
-
-def geodetic_table(geoTarget, geoErr, geoPred, gdl):
-    """Geodetic targets and predictions returned by `mbm.training.eval_geodetic`, as
-    a dataframe with one row per geodetic window of every glacier. The columns start
-    and end are the bounds of the window."""
-    rows = []
-    for g in geoTarget:
-        for (start, end), target, err, pred in zip(
-            gdl.geodetic_periods(g), geoTarget[g], geoErr[g], geoPred[g]
-        ):
-            rows.append(
-                {
-                    "RGIId": g,
-                    "start": start,
-                    "end": end,
-                    "target": target,
-                    "err": err,
-                    "pred": pred,
-                }
-            )
-    return pd.DataFrame(rows)
-
-
-def geodetic_windows(df_geo, with_target=True, default_period=None):
-    """Geodetic windows of every glacier in the format `mbm.plots.cumulatedMassChange`
-    expects, from a table built by `geodetic_table`.
-
-    Args:
-        df_geo (pd.DataFrame): table with one row per geodetic window.
-        with_target (bool): include the observed rates and their uncertainty.
-            Without them only the bounds are given, which restricts the plot to the
-            geodetic windows.
-        default_period (tuple): bounds used when the table has no start and end
-            columns, which is the case of the tables saved when a glacier could only
-            have one geodetic window.
-    """
-    geo = {}
-    for g, df in df_geo.groupby("RGIId", sort=False):
-        if "start" in df.columns:
-            entry = {"start": df.start.tolist(), "end": df.end.tolist()}
-        else:
-            entry = {
-                "start": [default_period[0]] * len(df),
-                "end": [default_period[1]] * len(df),
-            }
-        if with_target:
-            entry["mean"] = df.target.to_numpy()
-            entry["err"] = df.err.to_numpy()
-        geo[g] = entry
-    return geo
-
-
-def default_glacier_name(rgi_id):
-    return {
-        # # Norway
-        # RGI60-08.00038;  # Nigardsbreen
-        # RGI60-08.00087;  # Jostedalsbreen
-        # RGI60-08.00147;  # Folgefonna
-        # RGI60-08.00203;  # Hardangerjøkulen
-        # Italy
-        "RGI60-11.00695": "Glatschiu dil segnas",
-        "RGI60-11.03005": "Miage",
-        "RGI60-11.03001": "Brenva",
-        "RGI60-11.01473": "Laaser Ferner",
-        "RGI60-11.00597": "Übeltalferner",
-        "RGI60-11.01776": "Langenferner/Vedretta Lunga",
-        "RGI60-11.03166": "Grand Etret",
-        "RGI60-11.00647": "Gigante Occidentale (Ries Ovest) / Westl. Rieser",
-        # France, Mont Blanc
-        "RGI60-11.03643": "Mer de Glace/Geant",
-        "RGI60-11.03638": "Argentière",
-        "RGI60-11.03646": "Bossons",
-        "RGI60-11.03647": "Taconnaz",
-        "RGI60-11.03296": "Tricot",
-        "RGI60-11.03438": "Tete Rousse",
-        "RGI60-11.03648": "Bionnassay",
-        "RGI60-11.03601": "Armancette",
-        "RGI60-11.03650": "Covagnet",
-        "RGI60-11.03276": "Miage 1",
-        "RGI60-11.03388": "Miage 2",
-        "RGI60-11.03579": "Miage 3",
-        "RGI60-11.03649": "Miage 4",
-        "RGI60-11.03651": "Tré-la-Tête",
-        "RGI60-11.03339": "Glaciers",
-        # France, Belledonne
-        "RGI60-11.03674": "Saint Sorlin",
-        # France, Ecrins
-        "RGI60-11.03677": "Meije",
-        "RGI60-11.03684": "Blanc",
-        # France, Pyrénées
-        "RGI60-11.03232": "Ossoue",
-        "RGI60-11.03208": "Aneto",
-        # Austria
-        "RGI60-11.00897": "Hintereisferner",
-        "RGI60-11.00787": "Kesselwandferner",
-        "RGI60-11.00781": "Jamtalferner",
-        "RGI60-11.00116": "Venedigerkees",
-        "RGI60-11.00251": "Kleinfleisskees",
-        "RGI60-11.00289": "Goldbergkees",
-        "RGI60-11.00006": "Schladminger",
-        # Switzerland
-        "RGI60-11.01270": "Grindelwald",
-        "RGI60-11.01450": "Aletsch",
-        "RGI60-11.01733": "Hangend",
-        "RGI60-11.01328": "Unteraar",
-        "RGI60-11.01238": "Rhone",
-        "RGI60-11.02249": "Tsanfleuron",
-        "RGI60-11.01702": "Kander",
-        "RGI60-11.00872": "Hüfifirn",
-        "RGI60-11.02774": "Giétro",
-        "RGI60-11.01876": "Gries",
-        "RGI60-11.02746": "Schwarzberg",
-        "RGI60-11.02810": "Arolla",
-        "RGI60-11.02775": "Orny",
-        "RGI60-11.02507": "Brunegg",
-        "RGI60-11.00804": "Silvretta",
-        "RGI60-11.00752": "Vorab",
-        "RGI60-11.02787": "Mont Collon",
-        "RGI60-11.01267": "Porchabella",
-        "RGI60-11.02634": "Prafleuri",
-        "RGI60-11.01946": "Morteratsch",
-        "RGI60-11.00878": "Claridenfirn I",
-        "RGI60-11.00843": "Claridenfirn II",
-        "RGI60-11.00819": "Claridenfirn III",
-        "RGI60-11.01962": "Corvatsch",
-        "RGI60-11.02740": "Trient",
-        "RGI60-11.01367": "St. Annafirn",
-        "RGI60-11.02745": "Allalin",
-        "RGI60-11.01280": "Glatscher da Plattas",
-        "RGI60-11.02679": "Hohlaubgletscher",
-        "RGI60-11.02773": "Findelen",
-        "RGI60-11.02448": "Plan Névé",
-        "RGI60-11.02282": "Vadrec dal Castel Nord",
-        "RGI60-11.02624": "Feegletscher",
-    }.get(rgi_id)

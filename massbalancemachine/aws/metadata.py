@@ -27,7 +27,7 @@ def parse_aws_metadata(metadata_path: str | os.PathLike | None = None) -> pd.Dat
     """
     if metadata_path is None:
         _ensure_dataset()
-        metadata_path = os.path.join(eear_dir, "Metadata", "Metadata")
+        metadata_path = os.path.join(eear_dir(), "Metadata", "Metadata")
 
     metadata_path = Path(metadata_path)
     if metadata_path.is_dir():

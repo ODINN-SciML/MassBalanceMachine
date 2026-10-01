@@ -26,7 +26,7 @@ import pandas as pd
 import geopandas as gpd
 
 from data_processing.custom_outlines import CustomOutlineSpec, match_rgi62_by_overlap
-from data_processing.product_utils import data_path
+from data_processing.product_utils import get_data_path
 from data_processing.Product import Product
 from data_processing.glacier_utils import get_region_shape_file
 from data_processing.utils.years import years_outside
@@ -53,7 +53,7 @@ SGI_RELEASES = {
 def glamos_folder():
     """Directory holding the cached GLAMOS inputs, always the same place so that a
     later run finds what an earlier one downloaded."""
-    return os.path.join(data_path, "GLAMOS")
+    return os.path.join(get_data_path(), "GLAMOS")
 
 
 def glamos_volume_change_file(download: bool = True):
@@ -391,7 +391,10 @@ def table_RGI62_to_GLAMOS(
         region_id = f"{region_id:02d}"
     save_path = os.path.abspath(
         os.path.join(
-            data_path, "grids", "GLAMOS", f"RGI62_to_GLAMOS_sgi{epoch}_{region_id}.csv"
+            get_data_path(),
+            "grids",
+            "GLAMOS",
+            f"RGI62_to_GLAMOS_sgi{epoch}_{region_id}.csv",
         )
     )
     p = Product(save_path)

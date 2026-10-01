@@ -52,7 +52,7 @@ import geopandas as gpd
 import pandas as pd
 
 from data_processing.custom_outlines import CustomOutlineSpec, match_rgi62_by_overlap
-from data_processing.product_utils import data_path
+from data_processing.product_utils import get_data_path
 from data_processing.Product import Product
 from data_processing.glacier_utils import get_region_shape_file
 from data_processing.utils.periods import select_dem_periods
@@ -252,7 +252,7 @@ def geodetic_target_Fischer11(
 def fischer11_folder():
     """Directory holding the downloaded inventories, always the same place so that a
     later run finds what an earlier one downloaded."""
-    return os.path.join(data_path, "Fischer11")
+    return os.path.join(get_data_path(), "Fischer11")
 
 
 def gi_folder(epoch: int = FIRST_EPOCH, download: bool = True):
@@ -389,7 +389,7 @@ def table_RGI62_to_Fischer11(
         region_id = f"{region_id:02d}"
     save_path = os.path.abspath(
         os.path.join(
-            data_path,
+            get_data_path(),
             "grids",
             "Fischer11",
             f"RGI62_to_Fischer11_gi{epoch}_{region_id}.csv",

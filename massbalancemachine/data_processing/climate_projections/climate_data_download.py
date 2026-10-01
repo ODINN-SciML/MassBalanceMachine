@@ -7,7 +7,7 @@ import xarray as xr
 import itertools
 
 from data_processing.glacier_utils import get_region_area_bounds
-
+from data_processing.product_utils import get_data_path
 
 ELEV_DEP_VARS = ["air_temperature"]
 # Surface variables used to build the ERA5-like fluxes and precipitation
@@ -35,7 +35,7 @@ def path_climate_data(region, ssp, gcm, var):
     """Return path of data for a given region (string or integer)."""
     if not isinstance(region, str):
         region = f"{region:02d}"
-    return f".data/CMIP6/{region}/{ssp}/{gcm}/{var}/"
+    return os.path.join(get_data_path(), "CMIP6", region, ssp, gcm, var) + "/"
 
 
 def ensure_climate_CMIP6(region, variables=DEFAULT_VARS, ssps=[], gcms=[]):

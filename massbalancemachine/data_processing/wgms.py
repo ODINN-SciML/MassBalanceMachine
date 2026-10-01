@@ -9,7 +9,7 @@ import xarray as xr
 import oggm
 from data_processing.Dataset import Dataset
 from data_processing.Product import Product
-from data_processing.product_utils import rgi_id_to_folders, mbm_path, data_path
+from data_processing.product_utils import rgi_id_to_folders, get_data_path
 from data_processing.oggm_utils import _initialize_oggm_config
 from data_processing.get_topo_data import (
     glacier_cell_area,
@@ -27,25 +27,32 @@ from data_processing.parallel_utils import gridded_worker_count
 wgms_zip_file = "DOI-WGMS-FoG-2026-02-10.zip"
 
 wgms_source_data_link = f"https://wgms.ch/downloads/{wgms_zip_file}"
-local_path_wgms = f"{data_path}/WGMS/{wgms_zip_file}"
 
-wgms_folder = f"{data_path}/WGMS/{wgms_zip_file.replace('.zip', '')}"
+
+def local_path_wgms():
+    """The downloaded WGMS archive."""
+    return f"{get_data_path()}/WGMS/{wgms_zip_file}"
+
+
+def wgms_folder():
+    """The folder the WGMS archive is extracted to."""
+    return f"{get_data_path()}/WGMS/{wgms_zip_file.replace('.zip', '')}"
 
 
 def _clean_extracted_wgms():
-    if os.path.isdir(wgms_folder):
-        shutil.rmtree(wgms_folder)
+    if os.path.isdir(wgms_folder()):
+        shutil.rmtree(wgms_folder())
 
 
 def check_and_download_wgms():
-    os.makedirs(f"{data_path}/WGMS/", exist_ok=True)
-    if not os.path.isdir(wgms_folder):
-        if not os.path.isfile(local_path_wgms):
+    os.makedirs(f"{get_data_path()}/WGMS/", exist_ok=True)
+    if not os.path.isdir(wgms_folder()):
+        if not os.path.isfile(local_path_wgms()):
             print("Downloading data from WGMS website")
-            urllib.request.urlretrieve(wgms_source_data_link, local_path_wgms)
+            urllib.request.urlretrieve(wgms_source_data_link, local_path_wgms())
         print("Unzipping WGMS archive")
-        with zipfile.ZipFile(local_path_wgms, "r") as zip_ref:
-            zip_ref.extractall(wgms_folder)
+        with zipfile.ZipFile(local_path_wgms(), "r") as zip_ref:
+            zip_ref.extractall(wgms_folder())
 
 
 def load_wgms_data():
@@ -57,8 +64,8 @@ def load_wgms_data():
     """
     check_and_download_wgms()
 
-    point_mb_file = f"{wgms_folder}/data/mass_balance_point.csv"
-    glacier_file = f"{wgms_folder}/data/glacier.csv"
+    point_mb_file = f"{wgms_folder()}/data/mass_balance_point.csv"
+    glacier_file = f"{wgms_folder()}/data/glacier.csv"
 
     data_mb = pd.read_csv(point_mb_file)
     data_glacier = pd.read_csv(glacier_file)
@@ -165,8 +172,8 @@ def _prepare_glacier_wide_mb(rgi_ids):
     # 2. Read glacier wide data from WGMS
     check_and_download_wgms()
 
-    mb_file = f"{wgms_folder}/data/mass_balance.csv"
-    glacier_file = f"{wgms_folder}/data/glacier.csv"
+    mb_file = f"{wgms_folder()}/data/mass_balance.csv"
+    glacier_file = f"{wgms_folder()}/data/glacier.csv"
 
     data_mb = pd.read_csv(mb_file)
     data_glacier = pd.read_csv(glacier_file)
@@ -237,7 +244,7 @@ def load_glacier_wide_annual_mb(rgi_ids, cfg, multi=True, num_workers=None):
             `parallel_utils.worker_count`.
     """
 
-    grid_path = os.path.join(data_path, "grids", "WGMS")
+    grid_path = os.path.join(get_data_path(), "grids", "WGMS")
     path_rgi_ids = {
         rgi_id: os.path.join(grid_path, *rgi_id_to_folders(rgi_id))
         for rgi_id in rgi_ids

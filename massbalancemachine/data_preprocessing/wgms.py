@@ -8,15 +8,17 @@ from data_processing.utils import get_rgi
 from data_processing.wgms import wgms_folder
 from data_processing.glacier_utils import get_region_name
 
-processed_stakes_folder = os.path.join(wgms_folder, "processed")
+
+def processed_stakes_folder():
+    return os.path.join(wgms_folder(), "processed")
 
 
 def processed_features_stakes_path(rgi_region):
     if rgi_region is None:
-        return os.path.join(processed_stakes_folder, "all.csv")
+        return os.path.join(processed_stakes_folder(), "all.csv")
     else:
         assert isinstance(rgi_region, int)
-        return os.path.join(processed_stakes_folder, f"region_{rgi_region}.csv")
+        return os.path.join(processed_stakes_folder(), f"region_{rgi_region}.csv")
 
 
 def build_monthly_data(data, cfg, rgi_region=None):
@@ -281,5 +283,5 @@ def build_monthly_data(data, cfg, rgi_region=None):
         vois_climate=vois_climate, vois_topographical=voi_topographical
     )
 
-    os.makedirs(processed_stakes_folder, exist_ok=True)
+    os.makedirs(processed_stakes_folder(), exist_ok=True)
     dataset.data.to_csv(processed_features_stakes_path(rgi_region), index=False)

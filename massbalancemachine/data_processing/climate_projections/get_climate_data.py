@@ -10,7 +10,7 @@ from typing import Optional
 import xarray as xr
 import pandas as pd
 
-from data_processing.product_utils import data_path
+from data_processing.product_utils import get_data_path
 from data_processing.Product import Product
 from data_processing.get_climate_data import (
     _file_stamp,
@@ -49,7 +49,7 @@ def path_climate_CMIP6(region, ssp, gcm, bias_correction_period):
     if not isinstance(region, str):
         region = f"{region:02d}"
     return os.path.join(
-        data_path,
+        get_data_path(),
         "CMIP6",
         "climate",
         bias_cor_suffix(bias_correction_period),
@@ -181,7 +181,7 @@ class CMIP6Climate:
         """Folder holding the per-year gridded products built on these outlines and
         this projection."""
         return os.path.join(
-            data_path,
+            get_data_path(),
             "grids_CMIP6",
             bias_cor_suffix(self.bias_correction_period),
             self.ssp,

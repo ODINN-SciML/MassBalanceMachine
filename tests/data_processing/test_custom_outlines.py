@@ -23,7 +23,7 @@ from data_processing.custom_outlines import (
     portable_path,
 )
 from data_processing.oggm_utils import check_elevation_raster
-from data_processing.product_utils import data_path
+from data_processing.product_utils import get_data_path
 
 UTM32N = "EPSG:32632"
 
@@ -114,7 +114,7 @@ def test_elevation_raster_refuses_a_rendered_image(tmp_path):
 
 
 def test_portable_path_is_relative_to_the_data_folder():
-    inside = os.path.join(data_path, "Rabatel16", "dem.tif")
+    inside = os.path.join(get_data_path(), "Rabatel16", "dem.tif")
     assert portable_path(inside) == os.path.join("Rabatel16", "dem.tif")
     # The same file in a `.data` tree generated on another machine
     assert portable_path(
@@ -126,7 +126,7 @@ def test_portable_path_is_relative_to_the_data_folder():
 
 def test_stored_spec_is_portable_across_machines(tmp_path):
     spec = CustomOutlineSpec(
-        name="Test", dem_file=os.path.join(data_path, "Test", "dem.tif")
+        name="Test", dem_file=os.path.join(get_data_path(), "Test", "dem.tif")
     )
     assert_spec_matches(spec, str(tmp_path))
     with open(tmp_path / SPEC_FILE) as f:
@@ -140,7 +140,7 @@ def test_stored_spec_is_portable_across_machines(tmp_path):
 
     # ... but another DEM is still refused
     other = CustomOutlineSpec(
-        name="Test", dem_file=os.path.join(data_path, "Test", "other_dem.tif")
+        name="Test", dem_file=os.path.join(get_data_path(), "Test", "other_dem.tif")
     )
     with pytest.raises(ValueError, match="dem_file"):
         assert_spec_matches(other, str(tmp_path))

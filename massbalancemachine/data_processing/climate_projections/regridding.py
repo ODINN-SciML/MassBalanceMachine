@@ -57,6 +57,7 @@ from data_processing.climate_projections.climate_data_download import (
 )
 from data_processing.get_climate_data import path_climate_data as path_climate_data_ERA5
 from data_processing.get_climate_data import _load_datasets
+from data_processing.product_utils import get_data_path
 
 # ---- 1. Adjust these to your actual variable / coordinate names ----------
 GEOPOT_TARGET_VAR = "z"  # variable name in ds_geopotential (m^2/s^2)
@@ -273,7 +274,15 @@ def path_gridded_temp(region, ssp, gcm, bias_cor_suffix):
     """Return path of gridded temperature for a given region (string or integer)."""
     if not isinstance(region, str):
         region = f"{region:02d}"
-    return f".data/CMIP6/gridded_temp/{bias_cor_suffix}/{region}/{ssp}/{gcm}.nc"
+    return os.path.join(
+        get_data_path(),
+        "CMIP6",
+        "gridded_temp",
+        bias_cor_suffix,
+        region,
+        ssp,
+        f"{gcm}.nc",
+    )
 
 
 def regridding(region, ssp, gcm):

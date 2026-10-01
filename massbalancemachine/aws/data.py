@@ -36,7 +36,7 @@ def load_aws_data(
 
     if data_dir is None:
         _ensure_dataset()
-        data_dir = Path(eear_dir)
+        data_dir = Path(eear_dir())
     else:
         data_dir = Path(data_dir)
     if not data_dir.is_dir():

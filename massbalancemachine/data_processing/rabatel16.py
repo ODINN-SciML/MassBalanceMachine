@@ -56,7 +56,7 @@ import rasterio
 from scipy.ndimage import binary_dilation
 
 from data_processing.custom_outlines import CustomOutlineSpec, match_rgi62_by_overlap
-from data_processing.product_utils import data_path
+from data_processing.product_utils import get_data_path
 from data_processing.Product import Product
 from data_processing.glacier_utils import get_region_shape_file
 from data_processing.utils.years import contiguous_year_runs
@@ -171,7 +171,7 @@ def rabatel16_raw_dem_file():
 def rabatel16_data_folder():
     """Directory holding what is derived from the raw Rabatel16 files, always the same
     place so that a later run finds what an earlier one wrote."""
-    return os.path.join(data_path, "Rabatel16")
+    return os.path.join(get_data_path(), "Rabatel16")
 
 
 def write_dem_with_nodata(
@@ -652,7 +652,7 @@ def table_RGI62_to_Rabatel16(
         region_id = f"{region_id:02d}"
     save_path = os.path.abspath(
         os.path.join(
-            data_path, "grids", "Rabatel16", f"RGI62_to_Rabatel16_{region_id}.csv"
+            get_data_path(), "grids", "Rabatel16", f"RGI62_to_Rabatel16_{region_id}.csv"
         )
     )
     p = Product(save_path)

@@ -947,7 +947,10 @@ def plot_pred_vs_obs(log_dir, target, pred, scores):
     plt.close(fig)
 
 
-def loadBestModel(log_dir, model):
+def bestModelFile(log_dir):
+    """Checkpoint of `log_dir` with the best validation score, and that score.
+
+    This is the checkpoint `loadBestModel` loads."""
     files = glob.glob(os.path.join(log_dir, "model_epoch*.pt"))
     best = None
     bestVal = None
@@ -982,10 +985,13 @@ def loadBestModel(log_dir, model):
         val = float(val)
     if best is None:
         raise Exception("No model found.")
-    model.load_state_dict(
-        torch.load(files[best], weights_only=True, map_location="cpu")
-    )
     return files[best], bestVal
+
+
+def loadBestModel(log_dir, model):
+    bestFile, bestVal = bestModelFile(log_dir)
+    model.load_state_dict(torch.load(bestFile, weights_only=True, map_location="cpu"))
+    return bestFile, bestVal
 
 
 def train_geo(

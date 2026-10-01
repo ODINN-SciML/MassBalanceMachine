@@ -24,24 +24,12 @@ import git
 from data_processing.utils.hydro_year import build_head_tail_pads_from_monthly_df
 from data_processing.utils.data_preprocessing import get_hash
 from data_processing.Product import Product
+from data_processing.product_utils import get_data_path
 from dataloader.DataLoader import DataLoader, set_dataloader_splits
 import data_preprocessing.iceland
 import data_preprocessing.wgms
 import data_processing.wgms
 import config
-
-###
-from regions.RGI_11_Switzerland.scripts.dataset.data_loader import (
-    process_or_load_data,
-    get_stakes_data,
-)
-from regions.RGI_11_Switzerland.scripts.config_CH import (
-    path_PMB_GLAMOS_csv,
-    path_ERA5_raw,
-    path_pcsr,
-)
-
-###
 
 _default_test_glaciers_switzerland = [
     "tortin",
@@ -328,6 +316,18 @@ class SourceManagerSwitzerland(SourceManager):
         super().__init__(cfg, params, *args, **kwargs)
 
     def load_stakes_data(self):
+        # The Swiss pipeline lives in the `regions/` tree of the repository, which is
+        # not part of the installed package: it is only available from a checkout.
+        from regions.RGI_11_Switzerland.scripts.dataset.data_loader import (
+            process_or_load_data,
+            get_stakes_data,
+        )
+        from regions.RGI_11_Switzerland.scripts.config_CH import (
+            path_PMB_GLAMOS_csv,
+            path_ERA5_raw,
+            path_pcsr,
+        )
+
         # TODO: determine this flag based on existing files
         ###########
         csvFileName = "CH_wgms_dataset_monthly_NN_nongeo.csv"
@@ -400,13 +400,13 @@ class SourceManagerIceland(SourceManager):
                 )
             )
         else:
-            p = Product(data_preprocessing.iceland.processed_features_stakes_path)
+            p = Product(data_preprocessing.iceland.processed_features_stakes_path())
             if not p.is_up_to_date():
                 data = data_preprocessing.iceland.raw_data()
                 data_preprocessing.iceland.build_monthly_data(data, self.cfg)
                 p.gen_chk()
             data = pd.read_csv(
-                data_preprocessing.iceland.processed_features_stakes_path
+                data_preprocessing.iceland.processed_features_stakes_path()
             )
             _format_data_credit(
                 "https://icelandicglaciers.is/#/page/map",
@@ -484,7 +484,7 @@ class SourceManagerNorway(SourceManager):
 
         url_monthly_dataset_train = "https://raw.githubusercontent.com/khsjursen/ML_MB_Norway/refs/heads/main/src/Data/2023-08-28_stake_mb_norway_cleaned_ids_latlon_wattributes_climate_svf_monthly.csv"
         url_monthly_dataset_test = "https://raw.githubusercontent.com/khsjursen/ML_MB_Norway/refs/heads/main/src/Data/2023-08-28_stake_mb_norway_cleaned_ids_latlon_wattributes_climate_test_svf.csv"
-        folder_csv = os.path.abspath(os.path.join(mbm_path, ".data/stakes/norway/"))
+        folder_csv = os.path.join(get_data_path(), "stakes", "norway")
         self.path_csv_train = os.path.abspath(
             os.path.join(
                 folder_csv,

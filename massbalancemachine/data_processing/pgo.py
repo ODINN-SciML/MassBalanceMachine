@@ -8,7 +8,7 @@ import numpy as np
 from data_processing.custom_outlines import CustomOutlineSpec, build_custom_gdirs
 from data_processing.product_utils import (
     region_id_folders,
-    data_path,
+    get_data_path,
 )
 from data_processing.Product import Product
 from data_processing.glacier_utils import get_region_shape_file
@@ -381,7 +381,7 @@ def _find_corresponding_custom_id_in_rgi(rgi_gdf, custom_gdf):
 def table_RGI62_to_PGO(region_id):
     if not isinstance(region_id, str):
         region_id = f"{region_id:02d}"
-    grid_path = os.path.join(data_path, "grids", "PGO")
+    grid_path = os.path.join(get_data_path(), "grids", "PGO")
     region_folder = region_id_folders(region_id, "7")
     path_region_folder = os.path.join(grid_path, region_folder)
     save_path = os.path.abspath(os.path.join(path_region_folder, f"RGI62_to_PGO.csv"))

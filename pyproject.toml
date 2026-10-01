@@ -10,6 +10,9 @@ packages = [
     { include = "./massbalancemachine/"},
 ]
 
+[tool.poetry.scripts]
+mbm-eval = "massbalancemachine.cli.evaluate:main"
+
 [tool.poetry.dependencies]
 python = ">=3.11,<3.13"
 numpy = "1.26.0"
@@ -62,6 +65,7 @@ setuptools = "81"
 tensorboard = "^2.19.0"
 zenodo-get = "^3.1.0"
 psutil = "^7.2.2"
+gitpython = "^3.1.43"
 dask = "^2026.8.0"
 
 [tool.poetry.group.docs]
