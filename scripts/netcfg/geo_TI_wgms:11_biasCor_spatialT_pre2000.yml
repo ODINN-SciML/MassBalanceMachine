@@ -35,7 +35,6 @@ model:
             - u10
             - v10
             - slope
-            - aspect
         layers: [32, 16, 8]
     cor_abl:
         inputs:
