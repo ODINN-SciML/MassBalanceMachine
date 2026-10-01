@@ -7,10 +7,13 @@ across the Himalayas over the past 40 years, Sci. Adv., 5, eaav7266,
 doi:10.1126/sciadv.aav7266, 2019.
 
 The paper gives the geodetic balance of about 650 glaciers larger than 3 km², from
-Spiti Lahaul to Bhutan (75°E to 93°E), over 1975-2000 and 2000-2016. Only the first
-period is used here. Its DEMs are KH-9 Hexagon ones, acquired between 1973 and 1976
-for the most part and in winter, differenced with the ASTER trend of 2000-2016
-sampled at the start of 2000 (Materials and Methods, "Trend fitting").
+Spiti Lahaul to Bhutan (75°E to 93°E), over 1975-2000 and 2000-2016. The first period
+is the target of this source. Its DEMs are KH-9 Hexagon ones, acquired between 1973
+and 1976 for the most part and in winter, differenced with the ASTER trend of
+2000-2016 sampled at the start of 2000 (Materials and Methods, "Trend fitting"). The
+second period, 1040 glaciers including all of the first, is a linear trend fitted
+through the ASTER DEMs of 2000 to 2017 and is read with `period="2000-2016"`, for
+evaluation.
 
 **Data.** Both products are archived at NSIDC by the authors and need a NASA
 Earthdata login, read from `~/.netrc` by `earthaccess`:
@@ -26,9 +29,12 @@ They are downloaded to `.data/Maurer19`, see `download_maurer19_avg` and
 `download_maurer19_gridded`.
 
 **Geometry.** The authors edited the RGI 5.0 outlines to the glacier extent of 1975,
-2000 and 2016. The 1975 outline is published as the `glacierStartMask` grid of the
-1975-2000 netCDF, 30 m in EPSG:4326, and the grids of this source are built on it,
-polygonized by `load_maurer19_outlines`. The paper divides the volume change by the
+2000 and 2016. The 1975 and 2000 outlines are published as the `glacierStartMask` and
+`glacierEndMask` grids of the 1975-2000 netCDF, 30 m in EPSG:4326, and the grids of
+this source are built on the 1975 one, polygonized by `load_maurer19_outlines`. The
+2000 outline is the one the 2000-2016 netCDF starts from too, rasterized on another
+grid (areas within 0.2 %), and serves to evaluate that period
+(`load_maurer19_outlines(epoch=2000)`). The paper divides the volume change by the
 mean of the 1975 and 2000 areas, excluding slopes above 45°; that mean area is
 recovered as the volume change over the mean thickness change
 (`area_mean_km2` of `maurer19_periods`), to compare with the area of the 1975
@@ -49,8 +55,10 @@ The paper converts volume changes to water equivalent with a density of
 a balance is the one of the product, which already holds a 10 % area uncertainty and
 a density uncertainty of 60 kg m-3.
 
-A period runs from the first of the month of the earliest Hexagon DEM of the glacier
-to `END_DATE`, the 1st of January 2000, see `hexagon_start_date`.
+A 1975-2000 period runs from the first of the month of the earliest Hexagon DEM of
+the glacier to `END_DATE`, the 1st of January 2000, see `hexagon_start_date`. A
+2000-2016 period runs over the years of its ASTER DEMs, from the 1st of January 2000
+to the 1st of January 2017 for every glacier, see `aster_period_dates`.
 """
 
 import glob
@@ -78,14 +86,18 @@ from data_processing.utils.periods import select_dem_periods
 # ids: South Asia East and West, and Central Asia for the glaciers on the Tibetan side
 MAURER19_REGION_IDS = (13, 14, 15)
 
-# NSIDC products and the period used here
+# NSIDC products, the period of the target and the later one used for evaluation
 AVG_SHORT_NAME = "HMA_GlacierAvg_dH"
 GRIDDED_SHORT_NAME = "HMA_Glacier_dH"
 NSIDC_VERSION = "1"
 PERIOD = "1975-2000"
+LATE_PERIOD = "2000-2016"
+PERIODS = (PERIOD, LATE_PERIOD)
 
-# Year of the outlines, for OGGM
+# Year of the outlines of the target, for OGGM, and the mask of the 1975-2000 netCDF
+# holding the outline of each epoch
 OUTLINES_YEAR = 1975
+OUTLINE_MASKS = {1975: "glacierStartMask", 2000: "glacierEndMask"}
 # The ASTER trend of 2000-2016 is sampled at the start of 2000
 END_DATE = pd.Timestamp("2000-01-01")
 # Hexagon acquisitions end in 1980; any later year of `demYears` is an ASTER one
@@ -111,6 +123,8 @@ AVG_COLUMNS = [
     "pctCov",
     "demYears",
 ]
+# Spelled differently by the shapefile of one period: "percentCov" in 2000-2016
+AVG_COLUMN_ALIASES = {"percentcov": "pctCov"}
 
 
 def maurer19_folder():
@@ -154,11 +168,12 @@ def maurer19_gridded_folder():
     return os.path.join(maurer19_folder(), GRIDDED_SHORT_NAME)
 
 
-def download_maurer19_avg():
-    """Path to the shapefile of the averaged product for `PERIOD`, downloading the
-    granule of that period if necessary."""
+def download_maurer19_avg(period: str = PERIOD):
+    """Path to the shapefile of the averaged product for `period`, one of `PERIODS`,
+    downloading the granule of that period if necessary."""
+    assert period in PERIODS, f"Maurer19 has no period {period}, only {PERIODS}."
     folder = maurer19_avg_folder()
-    pattern = os.path.join(folder, f"*{PERIOD}*.shp")
+    pattern = os.path.join(folder, f"*{period}*.shp")
     if not glob.glob(pattern):
         _earthdata_login()
         granules = earthaccess.search_data(
@@ -168,14 +183,14 @@ def download_maurer19_avg():
             link
             for g in granules
             for link in g.data_links()
-            if PERIOD in os.path.basename(link)
+            if period in os.path.basename(link)
         ]
-        assert links, f"NSIDC holds no {AVG_SHORT_NAME} file of {PERIOD}."
+        assert links, f"NSIDC holds no {AVG_SHORT_NAME} file of {period}."
         _download_links(links, folder)
     shapefiles = glob.glob(pattern)
     assert (
         len(shapefiles) == 1
-    ), f"Expected one shapefile of {PERIOD}, not {shapefiles}."
+    ), f"Expected one shapefile of {period}, not {shapefiles}."
     return shapefiles[0]
 
 
@@ -186,7 +201,8 @@ def gridded_file_name(glacier_id: str):
 
 
 def gridded_catalog():
-    """{file name: download link} of every netCDF of the gridded product for `PERIOD`.
+    """{file name: download link} of every netCDF of the gridded product for `PERIOD`,
+    which holds the outlines of both 1975 and 2000.
 
     The product has no 1975-2000 file for a few glaciers of the averaged one (4 of
     649), which have no 1975 outline, see `geodetic_target_Maurer19`. The list is
@@ -272,20 +288,41 @@ def hexagon_start_date(years):
     return pd.Timestamp(year=year, month=1, day=1) + pd.DateOffset(months=month)
 
 
-def load_maurer19_table():
-    """The averaged product of `PERIOD`, one row per glacier.
+def aster_period_dates(years):
+    """Start and end of a 2000-2016 period whose ASTER DEMs span `years`: the first of
+    the month of the first and of the last year, the 1st of January for whole years
+    ([2000, 2017] for every glacier of the product)."""
+    assert len(years) >= 2, f"A trend needs two DEM years, not {years}."
+
+    def first_of_month(y):
+        year = int(np.floor(y))
+        return pd.Timestamp(year=year, month=1, day=1) + pd.DateOffset(
+            months=int(np.round((y - year) * 12))
+        )
+
+    return first_of_month(min(years)), first_of_month(max(years))
+
+
+def load_maurer19_table(period: str = PERIOD):
+    """The averaged product of `period`, one row per glacier.
 
     Columns: RGIId (the RGI 5.0 id), mwe_per_year (`geoMassBal`, m w.e. per year),
     sigma_mwe_per_year (`geoMassB_1`), pctCov (percentage of the glacier with data),
     pctDeb (percentage covered in debris), dem_years (the years of `demYears`) and
-    area_mean_km2, the mean of the 1975 and 2000 areas the balance refers to. That
+    area_mean_km2, the mean of the areas at both ends of the period the balance
+    refers to (1975 and 2000, or 2000 and 2016). That
     area is the volume change over the mean thickness change, which the product
     rounds to 0.01 m per year: it is 2 % off for a thinning of 0.25 m per year, and
     NaN where the thinning rounds to zero.
+
+    Rows without a balance are left out: the 2000-2016 shapefile holds one, every
+    field the text "'NaN'".
     """
-    avg = gpd.read_file(download_maurer19_avg())
+    avg = gpd.read_file(download_maurer19_avg(period))
+    balance = pd.to_numeric(avg.geoMassBal.str.strip("'\""), errors="coerce")
+    avg = avg[balance.notna()]
     # The shapefile spells some columns differently from the user guide ("volChj")
-    canonical = {c.lower(): c for c in AVG_COLUMNS}
+    canonical = {c.lower(): c for c in AVG_COLUMNS} | AVG_COLUMN_ALIASES
     avg = avg.rename(columns=lambda c: canonical.get(c.lower(), c))
     missing = set(AVG_COLUMNS).difference(avg.columns)
     assert (
@@ -320,7 +357,7 @@ def load_maurer19_table():
     return df.sort_values("RGIId").reset_index(drop=True)
 
 
-def maurer19_periods(table=None):
+def maurer19_periods(table=None, period: str = PERIOD):
     """The period of every glacier with its dates, rate and uncertainty, one row per
     glacier.
 
@@ -331,16 +368,23 @@ def maurer19_periods(table=None):
 
     Args:
         table: the averaged product, read by `load_maurer19_table` when not given.
+        period: 1975-2000 (`hexagon_start_date` to `END_DATE`), or 2000-2016
+            (`aster_period_dates`).
     """
-    df = load_maurer19_table() if table is None else table.copy()
-    df["FROM_DATE"] = df.dem_years.map(hexagon_start_date)
-    df["TO_DATE"] = END_DATE
+    df = load_maurer19_table(period) if table is None else table.copy()
+    if period == PERIOD:
+        df["FROM_DATE"] = df.dem_years.map(hexagon_start_date)
+        df["TO_DATE"] = END_DATE
+    else:
+        dates = df.dem_years.map(aster_period_dates)
+        df["FROM_DATE"] = pd.to_datetime(dates.str[0])
+        df["TO_DATE"] = pd.to_datetime(dates.str[1])
     months = (df.TO_DATE.dt.year - df.FROM_DATE.dt.year) * 12 + (
         df.TO_DATE.dt.month - df.FROM_DATE.dt.month
     )
     df["n_years"] = months / 12
     df["y0"] = df.FROM_DATE.dt.year
-    df["y1"] = END_DATE.year
+    df["y1"] = df.TO_DATE.dt.year
     df["cumulative_mwe"] = df.mwe_per_year * df.n_years
     df["name"] = df.RGIId
     return df[
@@ -373,8 +417,10 @@ def geodetic_target_Maurer19(
     require_1975_outline: bool = True,
     table=None,
     verbose: bool = True,
+    period: str = PERIOD,
 ):
-    """Geodetic targets of Maurer et al. (2019) over 1975-2000, one row per glacier.
+    """Geodetic targets of Maurer et al. (2019) over 1975-2000, one row per glacier,
+    or over 2000-2016 with `period="2000-2016"`, for evaluation.
 
     Returns a dataframe shaped like the one `data_processing.glamos.geodetic_target_GLAMOS`
     returns, so that both drive the same code path in `GeoDataLoader`:
@@ -399,16 +445,22 @@ def geodetic_target_Maurer19(
             their period, see `has_1975_outline`.
         table: the averaged product, read by `load_maurer19_table` when not given.
         verbose: report the glaciers left out for lack of an outline.
+        period: one of `PERIODS`. The outlines of both epochs come from the
+            1975-2000 netCDF, so `require_1975_outline` applies to both.
     """
-    df = maurer19_periods(table)
+    df = maurer19_periods(table, period)
     if min_coverage is not None:
         df = df[df.pctCov >= min_coverage]
+    if glacier_ids_to_keep is not None:
+        # Before the outline check, so that it only reports the glaciers asked for
+        df = df[df.RGIId.isin([str(g) for g in glacier_ids_to_keep])]
     if require_1975_outline:
         has_outline = has_1975_outline(df.RGIId)
         if verbose and not has_outline.all():
             print(
-                f"Maurer19: {(~has_outline).sum()} glacier(s) without a 1975 outline in "
-                f"{GRIDDED_SHORT_NAME} are left out: {sorted(df.RGIId[~has_outline])}"
+                f"Maurer19: {(~has_outline).sum()} glacier(s) without a {PERIOD} netCDF "
+                f"in {GRIDDED_SHORT_NAME}, and so without outlines, are left out: "
+                f"{sorted(df.RGIId[~has_outline])}"
             )
         df = df[has_outline]
     return select_dem_periods(
@@ -488,19 +540,25 @@ def _second_order_regions(outlines: gpd.GeoDataFrame):
     return [c.split("-")[1] for c in codes]
 
 
-def load_maurer19_outlines(glacier_ids_to_keep=None):
-    """The 1975 outlines of the glaciers of the averaged product, one entity per RGI
-    5.0 id, polygonized from the `glacierStartMask` of the gridded product.
+def load_maurer19_outlines(glacier_ids_to_keep=None, epoch: int = OUTLINES_YEAR):
+    """The outlines of `epoch`, 1975 or 2000, of the glaciers of the averaged product,
+    one entity per RGI 5.0 id, polygonized from the `glacierStartMask` or the
+    `glacierEndMask` of the 1975-2000 netCDF (`OUTLINE_MASKS`).
 
     The returned frame is in EPSG:4326 with the RGI 5.0 id in a column named
     "MAURER19_ID", ready for `custom_outlines.build_custom_gdirs`, along with the RGI
     first- and second-order regions of the glacier ("15", "01") and the area of the
-    1975 outline in km².
+    outline in km², `area_1975_km2` or `area_2000_km2`.
 
     Args:
         glacier_ids_to_keep: the glaciers to return. Only their netCDF are downloaded.
             None returns every glacier the gridded product holds an outline for.
+        epoch: 1975, the outlines of the target, or 2000, those of the start of the
+            2000-2016 period.
     """
+    assert (
+        epoch in OUTLINE_MASKS
+    ), f"Maurer19 has no outline of {epoch}, only {sorted(OUTLINE_MASKS)}."
     glacier_ids = list(load_maurer19_table().RGIId)
     if glacier_ids_to_keep is None:
         glacier_ids = [
@@ -513,7 +571,7 @@ def load_maurer19_outlines(glacier_ids_to_keep=None):
     paths = download_maurer19_gridded(glacier_ids)
     outlines = gpd.GeoDataFrame(
         {"MAURER19_ID": glacier_ids},
-        geometry=[mask_to_polygon(paths[g]) for g in glacier_ids],
+        geometry=[mask_to_polygon(paths[g], OUTLINE_MASKS[epoch]) for g in glacier_ids],
         crs="EPSG:4326",
     )
     outlines["o1_region"] = outlines.MAURER19_ID.str.slice(6, 8)
@@ -521,29 +579,34 @@ def load_maurer19_outlines(glacier_ids_to_keep=None):
         outlines.o1_region.astype(int).isin(MAURER19_REGION_IDS).all()
     ), f"Maurer19 glaciers outside the regions {MAURER19_REGION_IDS}."
     outlines["o2_region"] = _second_order_regions(outlines)
-    outlines["area_1975_km2"] = outlines.geometry.to_crs(HIMALAYA_CRS).area / 1e6
-    return outlines[
-        ["MAURER19_ID", "o1_region", "o2_region", "area_1975_km2", "geometry"]
-    ]
+    area = f"area_{epoch}_km2"
+    outlines[area] = outlines.geometry.to_crs(HIMALAYA_CRS).area / 1e6
+    return outlines[["MAURER19_ID", "o1_region", "o2_region", area, "geometry"]]
 
 
-def maurer19_outline_spec(dem_source: str = "SRTM", **overrides):
-    """Description of the 1975 outlines for the generic custom-outline machinery.
+def maurer19_outline_spec(
+    dem_source: str = "SRTM", epoch: int = OUTLINES_YEAR, **overrides
+):
+    """Description of the outlines of `epoch` for the generic custom-outline machinery.
 
     The DEM defaults to SRTM: its February 2000 acquisition is the surface every DEM
     of the paper is co-registered to, and the one Fischer11 and GLAMOS are gridded
     on. No DEM of 1975 is published with the paper.
 
     The regions are left to the `o1_region` and `o2_region` columns of the outlines,
-    since the glaciers span three RGI regions.
+    since the glaciers span three RGI regions. The outlines of 2000 are named
+    "Maurer19_2000", so that their products do not mix with those of 1975.
     """
+    assert (
+        epoch in OUTLINE_MASKS
+    ), f"Maurer19 has no outline of {epoch}, only {sorted(OUTLINE_MASKS)}."
     spec = dict(
-        name="Maurer19",
+        name="Maurer19" if epoch == OUTLINES_YEAR else f"Maurer19_{epoch}",
         id_column="MAURER19_ID",
         o1_region=None,
         o2_region=None,
-        src_date=f"{OUTLINES_YEAR}-01-01 00:00:00",
-        bgndate=f"{OUTLINES_YEAR}0101",
+        src_date=f"{epoch}-01-01 00:00:00",
+        bgndate=f"{epoch}0101",
         dem_source=dem_source,
     )
     spec.update(overrides)

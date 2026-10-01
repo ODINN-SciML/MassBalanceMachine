@@ -16,6 +16,8 @@ from shapely.geometry import Point
 
 from data_processing.maurer19 import (
     END_DATE,
+    aster_period_dates,
+    maurer19_outline_spec,
     geodetic_target_Maurer19,
     gridded_file_name,
     hexagon_start_date,
@@ -64,6 +66,28 @@ def test_periods_run_to_2000_with_their_length_in_months():
     assert row.cumulative_mwe == pytest.approx(-0.3 * 24.5)
     assert (periods.y1 == 2000).all()
     assert periods.index.is_unique
+
+
+def test_late_period_runs_over_the_aster_years():
+    assert aster_period_dates([2000.0, 2017.0]) == (
+        pd.Timestamp("2000-01-01"),
+        pd.Timestamp("2017-01-01"),
+    )
+    table = _table().assign(dem_years=[[2000.0, 2017.0]] * 3)
+    periods = maurer19_periods(table, period="2000-2016")
+    assert (periods.FROM_DATE == pd.Timestamp("2000-01-01")).all()
+    assert (periods.TO_DATE == pd.Timestamp("2017-01-01")).all()
+    assert (periods.y1 == 2017).all() and (periods.n_years == 17).all()
+    with pytest.raises(AssertionError):
+        aster_period_dates([2000.0])
+
+
+def test_outline_spec_of_2000_is_kept_apart():
+    assert maurer19_outline_spec().name == "Maurer19"
+    spec = maurer19_outline_spec(epoch=2000)
+    assert spec.name == "Maurer19_2000" and spec.bgndate == "20000101"
+    with pytest.raises(AssertionError):
+        maurer19_outline_spec(epoch=2016)
 
 
 def test_target_filters():
