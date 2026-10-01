@@ -1,6 +1,6 @@
 """Selection of geodetic periods fixed by the dates of their DEMs, shared by the sources
 that publish a table of such periods (`data_processing.fischer11`,
-`data_processing.hagg12`).
+`data_processing.hagg12`, `data_processing.belart20`).
 
 Like `utils.years`, it imports nothing from `data_processing`, so that the sources can
 use it while being imported by `data_processing.gridded_utils`.
@@ -80,3 +80,56 @@ def select_dem_periods(
             keys, ascending=[k == "sigma_mwe_per_year" for k in keys]
         ).drop_duplicates("RGIId")
     return df.sort_values(["RGIId", "FROM_DATE"]).reset_index(drop=True)
+
+
+def first_of_nearest_month(date) -> pd.Timestamp:
+    """The first of the month nearest to `date`: the first of its own month up to the
+    15th, the first of the next month after it. "1960-08-13" gives 1960-08-01 and
+    "1960-08-24" gives 1960-09-01."""
+    date = pd.Timestamp(date)
+    first = date.replace(day=1)
+    return first if date.day <= 15 else first + pd.DateOffset(months=1)
+
+
+def best_period_chain(periods: pd.DataFrame) -> pd.DataFrame:
+    """Rows of the best set of non-overlapping periods of one glacier.
+
+    A source whose periods are nested (1960-1980, 1960-1994 and 1980-1994 on the same
+    glacier) cannot hand them all to the loss: they are built on the same DEMs, so the
+    same change would count several times with strongly correlated errors. Two periods
+    may share a date (one ends on the 1st of September 1980, the next starts on it).
+
+    Among all the sets of non-overlapping periods, the one kept has **the most
+    periods**, then the **longest total duration**, then the **lowest sum of sigma^2**,
+    as `glamos._best_window_chain` does for the GLAMOS windows, but on the dates
+    FROM_DATE and TO_DATE rather than on years.
+
+    The search is the classic weighted interval scheduling dynamic program over the
+    periods sorted by end date; a glacier has at most a few dozen periods.
+    """
+    periods = periods.sort_values(["TO_DATE", "FROM_DATE"])
+    start = periods.FROM_DATE.to_numpy()
+    end = periods.TO_DATE.to_numpy()
+    dur = periods.n_years.to_numpy()
+    sigma2 = periods.sigma_mwe_per_year.fillna(float("inf")).to_numpy() ** 2
+
+    # best[i] is the best chain whose last period is i, scored as a tuple compared
+    # lexicographically: (number of periods, total duration, -sum of sigma^2)
+    best = []
+    for i in range(len(periods)):
+        score, chain = (1, dur[i], -sigma2[i]), [i]
+        for j in range(i):
+            if end[j] <= start[i]:
+                prev_score, prev_chain = best[j]
+                candidate = (
+                    prev_score[0] + 1,
+                    prev_score[1] + dur[i],
+                    prev_score[2] - sigma2[i],
+                )
+                if candidate > score:
+                    score, chain = candidate, prev_chain + [i]
+        best.append((score, chain))
+    if not best:
+        return periods
+    _, chain = max(best, key=lambda b: b[0])
+    return periods.iloc[chain]

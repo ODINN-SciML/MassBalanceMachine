@@ -57,6 +57,11 @@ from data_processing.maurer19 import (
     maurer19_outline_spec,
     load_maurer19_outlines,
 )
+from data_processing.belart20 import (
+    belart20_outline_spec,
+    load_belart20_outlines,
+    ICELAND_REGION_ID,
+)
 from data_processing.glacier_utils import (
     create_glacier_grid_RGI,
     create_dem_file_RGI,
@@ -573,6 +578,43 @@ def create_gridded_features_Maurer19(
         )
 
 
+def create_gridded_features_Belart20(
+    cfg,
+    time_ranges,
+    dem_source: str = "COPDEM30",
+    multi=True,
+    num_workers=None,
+    climate=None,
+):
+    """Generate the gridded products of the Icelandic glaciers of Belart et al. (2020)
+    on their RGI 6.2 outlines, keyed by their glacier code ("ORA").
+
+    Every period is gridded on the same outlines, dated 1999-2004, since the outlines
+    of the paper are not published; see `data_processing.belart20`. `dem_source`
+    defaults to the Copernicus GLO-30 DEM, see
+    `data_processing.belart20.belart20_outline_spec`.
+
+    Args:
+        time_ranges: {glacier code: [(start_date, end_date), ...]}, the geodetic periods
+            of every glacier.
+        num_workers (int): number of processes to use. Left to None it follows the
+            memory free on the machine, see `parallel_utils.worker_count`.
+    """
+    glacier_ids = list(time_ranges.keys())
+    outlines = load_belart20_outlines(glacier_ids_to_keep=glacier_ids)
+
+    _create_gridded_features_custom_outlines(
+        cfg,
+        time_ranges,
+        outlines,
+        belart20_outline_spec(dem_source=dem_source),
+        ICELAND_REGION_ID,
+        multi=multi,
+        num_workers=num_workers,
+        climate=climate,
+    )
+
+
 def create_gridded_features_RGI(
     cfg,
     rgi_ids,
@@ -797,6 +839,10 @@ def geodetic_input_Hagg12(glacier_id, time_range):
 
 def geodetic_input_Maurer19(rgi50_id, time_range):
     return _geodetic_input_windowed(rgi50_id, time_range, "Maurer19")
+
+
+def geodetic_input_Belart20(glacier_id, time_range):
+    return _geodetic_input_windowed(glacier_id, time_range, "Belart20")
 
 
 def geodetic_input_Hugonnet21(
@@ -1249,12 +1295,21 @@ GEODETIC_INPUT_FN = {
     "Fischer11": geodetic_input_Fischer11,
     "Hagg12": geodetic_input_Hagg12,
     "Maurer19": geodetic_input_Maurer19,
+    "Belart20": geodetic_input_Belart20,
 }
 
 # Sources whose geodetic target covers an arbitrary date window rather than a whole
 # number of calendar years. `years` is then a list of (start, end) tuples, one per
 # geodetic window of the glacier.
-WINDOWED_SOURCES = {"PGO", "GLAMOS", "Rabatel16", "Fischer11", "Hagg12", "Maurer19"}
+WINDOWED_SOURCES = {
+    "PGO",
+    "GLAMOS",
+    "Rabatel16",
+    "Fischer11",
+    "Hagg12",
+    "Maurer19",
+    "Belart20",
+}
 
 
 def _check_product_source(product_source):

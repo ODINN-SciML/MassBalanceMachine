@@ -28,6 +28,7 @@ from data_processing.gridded_utils import (
     create_gridded_features_Fischer11,
     create_gridded_features_Hagg12,
     create_gridded_features_Maurer19,
+    create_gridded_features_Belart20,
     geodetic_input_Hugonnet21,
     geodetic_input_PGO,
     geodetic_input_GLAMOS,
@@ -35,6 +36,7 @@ from data_processing.gridded_utils import (
     geodetic_input_Fischer11,
     geodetic_input_Hagg12,
     geodetic_input_Maurer19,
+    geodetic_input_Belart20,
     geodetic_target_Hugonnet21,
     geodetic_target_region_Hugonnet21,
     generate_grid_multi_years,
@@ -81,4 +83,11 @@ from data_processing.maurer19 import (
     maurer19_outline_spec,
     maurer19_periods,
     table_RGI62_to_Maurer19,
+)
+from data_processing.belart20 import (
+    belart20_outline_spec,
+    belart20_periods,
+    geodetic_target_Belart20,
+    load_belart20_outlines,
+    table_RGI62_to_Belart20,
 )
