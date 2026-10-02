@@ -13,10 +13,18 @@ build:
     python: "3.11"
   jobs:
     post_create_environment:
-      - pip install poetry
+      - pip install poetry poetry-plugin-export
       - poetry config virtualenvs.create false
     post_install:
-      - VIRTUAL_ENV=$READTHEDOCS_VIRTUALENV_PATH poetry install --with docs --without viz,advanced
+      # Install the CPU build of torch: the default Linux wheel pulls several GB of CUDA
+      # libraries that the documentation does not need. `poetry install` would replace it
+      # with the CUDA build, so the dependencies are exported and installed with pip.
+      - poetry lock
+      - poetry export --with docs --without-hashes -o requirements-docs.txt
+      - grep -E '^torch==' requirements-docs.txt | cut -d' ' -f1 | xargs python -m pip install --index-url https://download.pytorch.org/whl/cpu
+      - grep -vE '^(torch|triton|nvidia-[^=]+)==' requirements-docs.txt > requirements-docs-cpu.txt
+      - python -m pip install -r requirements-docs-cpu.txt
+      - python -m pip install --no-deps .
 
 
 # Build documentation in the "docs/" directory with Sphinx
