@@ -5,7 +5,9 @@ import geopandas as gpd
 
 from data_processing.Dataset import Dataset
 from data_processing.utils import get_rgi
-from data_processing.wgms import wgms_folder
+from data_processing.wgms import wgms_folder, load_processed_wgms
+from data_processing.Product import Product
+import config
 from data_processing.glacier_utils import get_region_name
 
 
@@ -19,6 +21,39 @@ def processed_features_stakes_path(rgi_region):
     else:
         assert isinstance(rgi_region, int)
         return os.path.join(processed_stakes_folder(), f"region_{rgi_region}.csv")
+
+
+def default_monthly_config():
+    """Configuration the WGMS monthly stake table is built with, that of the WGMS
+    sources of the training and evaluation scripts."""
+    return config.Config(
+        metaData=[
+            "RGIId",
+            "ID",
+            "N_MONTHS",
+            "MONTHS",
+            "PERIOD",
+            "YEAR",
+            "POINT_ELEVATION",
+        ],
+        notMetaDataNotFeatures=["POINT_BALANCE", "svf"],
+    )
+
+
+def load_monthly_data(rgi_region, cfg=None):
+    """The monthly stake table of an RGI region, one row per month of every
+    measurement, built from the WGMS database on first use and read from the data tree
+    afterwards. `cfg` defaults to `default_monthly_config()`."""
+    path = processed_features_stakes_path(rgi_region)
+    product = Product(path)
+    if not product.is_up_to_date():
+        build_monthly_data(
+            load_processed_wgms(rgi_region=rgi_region),
+            default_monthly_config() if cfg is None else cfg,
+            rgi_region,
+        )
+        product.gen_chk()
+    return pd.read_csv(path)
 
 
 def build_monthly_data(data, cfg, rgi_region=None):

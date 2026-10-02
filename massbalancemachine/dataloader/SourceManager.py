@@ -636,15 +636,7 @@ class SourceManagerWGMS(SourceManager):
     def load_stakes_data(self):
         # TODO: for the moment the arguments are the RGIId but we should manage this properly in the future
 
-        path_preprocessed = data_preprocessing.wgms.processed_features_stakes_path(
-            self.rgi_region
-        )
-        p = Product(path_preprocessed)
-        if not p.is_up_to_date():
-            data = data_processing.wgms.load_processed_wgms(rgi_region=self.rgi_region)
-            data_preprocessing.wgms.build_monthly_data(data, self.cfg, self.rgi_region)
-            p.gen_chk()
-        data = pd.read_csv(path_preprocessed)
+        data = data_preprocessing.wgms.load_monthly_data(self.rgi_region, self.cfg)
         _format_data_credit(
             "WGMS (2026): Fluctuations of Glaciers (FoG) Database. World Glacier Monitoring Service (WGMS), Zurich, Switzerland. https://doi.org/10.5904/wgms-fog-2026-02-10",
             "Open access under the requirement of correct citation",

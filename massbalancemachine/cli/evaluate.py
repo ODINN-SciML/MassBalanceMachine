@@ -117,6 +117,13 @@ def main(argv=None):
         help="Only run the inspection of the glaciers given with --inspect, without evaluating the model.",
     )
     parser.add_argument(
+        "--geodeticTestOnly",
+        dest="geodeticTestOnly",
+        default=False,
+        action="store_true",
+        help="Only compute the glacier-wide predictions on the geodetic test set and save them in <log_dir>/gridded_geodetic_test.parquet, without evaluating anything else.",
+    )
+    parser.add_argument(
         "--dataPath",
         dest="dataPath",
         type=str,
@@ -145,6 +152,7 @@ def main(argv=None):
     inspectGlaciers = args.inspect
     overwrite = args.overwrite
     inspectOnly = args.inspectOnly
+    geodeticTestOnly = args.geodeticTestOnly
     if os.path.isdir(modelFolder):
         pathFolder = modelFolder
     else:
@@ -155,6 +163,12 @@ def main(argv=None):
     assert (
         not inspectOnly or len(inspectGlaciers) > 0
     ), "Option inspectOnly requires the glaciers to inspect, given with option inspect."
+    assert not (
+        inspectOnly and geodeticTestOnly
+    ), "Options inspectOnly and geodeticTestOnly cannot be combined."
+    assert not (
+        geodeticTestOnly and noTest
+    ), "Options geodeticTestOnly and noTest cannot be combined."
 
     if len(maps) > 0:
         assert (
@@ -621,6 +635,9 @@ def main(argv=None):
         del df_gridded_annual, df_gridded_monthly
         assert False
 
+    assert (
+        not geodeticTestOnly or len(df_X_test_subset) > 0
+    ), "The model has no test set."
     test_glacierNames = {}
     if len(df_X_test_subset) > 0 and not noTest:
         if sourceData == "switzerland":
@@ -657,6 +674,19 @@ def main(argv=None):
             geodeticSourceOptions=params["training"].get("geodetic_source_test_options")
             or params["training"].get("geodetic_source_options"),
         )
+        if geodeticTestOnly:
+            # Glacier-wide predictions only, without the gridded ones
+            with torch.no_grad():
+                geoPred, geoTarget, geoErr, _ = mbm.training.eval_geodetic(
+                    model, test_gdl
+                )
+            geodetic_table(geoTarget, geoErr, geoPred, test_gdl).to_parquet(
+                f"{pathFolder}/gridded_geodetic_test.parquet",
+                engine="pyarrow",
+                compression="snappy",
+            )
+            print(f"Saved {pathFolder}/gridded_geodetic_test.parquet")
+            return
         grouped_ids = model.evaluate_group_pred(test_gdl)
         scores = mbm.metrics.seasonal_scores(
             grouped_ids, target_col="target", pred_col="pred"
