@@ -13,8 +13,7 @@ build:
     python: "3.11"
   jobs:
     post_create_environment:
-      - pip install poetry poetry-plugin-export
-      - poetry config virtualenvs.create false
+      - pip install uv
     post_install:
       # Installs the CPU build of torch, see the script
       - bash docs/install_rtd_requirements.sh
