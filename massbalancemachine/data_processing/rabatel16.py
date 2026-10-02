@@ -86,7 +86,7 @@ DEM_NODATA = -9999.0
 # in once with `hf auth login`.
 HUB_REPO_ID = "MassBalanceMachine/Input-datasets"
 HUB_FOLDER = "Rabatel16"
-HUB_REVISION = "main"
+HUB_REVISION = "ca0965071cca447ff5c65165cbff0afb29f7ddf0"
 # The 1985-86 outlines of the glaciers of the ALPGM table, and the IGN DEM with its
 # missing values declared, cropped around them
 OUTLINES_FILE = "Glacier_1985-86_FR.gpkg"
