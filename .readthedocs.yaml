@@ -21,7 +21,7 @@ build:
       # with the CUDA build, so the dependencies are exported and installed with pip.
       - poetry lock
       - poetry export --with docs --without-hashes -o requirements-docs.txt
-      - grep -E '^torch==' requirements-docs.txt | cut -d' ' -f1 | xargs python -m pip install --index-url https://download.pytorch.org/whl/cpu
+      - grep -oE '^torch==[^;[:space:]]+' requirements-docs.txt | xargs python -m pip install --index-url https://download.pytorch.org/whl/cpu
       - grep -vE '^(torch|triton|nvidia-[^=]+)==' requirements-docs.txt > requirements-docs-cpu.txt
       - python -m pip install -r requirements-docs-cpu.txt
       - python -m pip install --no-deps .
