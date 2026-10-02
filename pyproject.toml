@@ -30,6 +30,7 @@ scikit-learn = "^1.5.1"
 pyproj = "^3.6.1"
 rasterio = "^1.3.10"
 geopandas = "^1.0.1"
+pyogrio = "^0.13.0"
 rioxarray = "^0.17.0"
 seaborn = "^0.13.2"
 tables = "^3.9.2"
@@ -66,6 +67,7 @@ tensorboard = "^2.19.0"
 zenodo-get = "^3.1.0"
 psutil = "^7.2.2"
 gitpython = "^3.1.43"
+huggingface-hub = "^1.10.2"
 dask = "^2026.8.0"
 
 [tool.poetry.group.docs]
@@ -118,12 +120,6 @@ pykeops = "^2.3"
 optuna = "^4.8.0"
 plotly = "^6.7.0"
 optuna-dashboard = "^0.20.0"
-
-[tool.poetry.group.publish]
-optional = true
-
-[tool.poetry.group.publish.dependencies]
-huggingface-hub = "^1.10.2"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

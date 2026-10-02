@@ -36,23 +36,30 @@ neighbouring glaciers and sometimes missing. As for GLAMOS, the gridded products
 this source therefore carry `RGIId == "G006985E45951N"`, and the crosswalk built by
 `table_RGI62_to_Rabatel16` is many RGI ids to one GLIMS entity.
 
-The raw outlines and DEM are not published, so unlike GLAMOS they are not downloaded
-and live outside of `.data/`, see `Rabatel16_folder`. What is derived from them, such
-as the DEM with its missing values declared (`rabatel16_dem_file`), is written under
-`.data/Rabatel16`, and the ALPGM tables are downloaded to `.data/Rabatel16/ALPGM`.
+The raw outlines and DEM are not published. What this workflow needs of them - the
+outlines of the glaciers of the ALPGM table and the DEM with its missing values declared
+(`write_dem_with_nodata`), cropped around them - is written once from the raw files by
+`write_rabatel16_hub_files` and kept in the folder `HUB_FOLDER` of the Hugging Face
+dataset repository `HUB_REPO_ID`, from which `rabatel16_outlines_file` and
+`rabatel16_dem_file` download it to `.data/Rabatel16`. The ALPGM tables are downloaded to `.data/Rabatel16/ALPGM`.
 """
 
 import difflib
 import os
 import re
-import socket
+import tempfile
 import unicodedata
 import urllib.request
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+import pyogrio
 import rasterio
+import rasterio.windows
+import shapely.geometry
+from huggingface_hub import hf_hub_download
+from huggingface_hub.errors import HfHubHTTPError
 from scipy.ndimage import binary_dilation
 
 from data_processing.custom_outlines import CustomOutlineSpec, match_rgi62_by_overlap
@@ -72,6 +79,22 @@ OUTLINES_YEAR = 1985
 # Missing value of the DEM written to `.data/Rabatel16`: the one the raw PCIDSK layer
 # declares without using it, and the one OGGM assumes for a raster that declares none
 DEM_NODATA = -9999.0
+
+# Hugging Face dataset repository of the input datasets of MassBalanceMachine, and its
+# folder holding the files `write_rabatel16_hub_files` writes, pinned to one revision
+# so that every machine downloads the same files. Should the repository be private, log
+# in once with `hf auth login`.
+HUB_REPO_ID = "MassBalanceMachine/Input-datasets"
+HUB_FOLDER = "Rabatel16"
+HUB_REVISION = "main"
+# The 1985-86 outlines of the glaciers of the ALPGM table, and the IGN DEM with its
+# missing values declared, cropped around them
+OUTLINES_FILE = "Glacier_1985-86_FR.gpkg"
+DEM_FILE = "MNT_IGN_Alpes_50m_UTM_80s.tif"
+# Raw files, as their owner distributes them, inside the folder given to
+# `write_rabatel16_hub_files`
+RAW_OUTLINES_FILE = os.path.join("Glacier_1985-86_FR", "GLIMS_glaciers_1985.shp")
+RAW_DEM_FILE = "MNT_IGN_Alpes_50m_UTM_80s.pix"
 
 # The ALPGM repository is pinned to one commit, so that every machine downloads the
 # same tables.
@@ -143,35 +166,52 @@ RABATEL16_TABLE1_MEAN_MB = {
 TABLE1_TOLERANCE_MWE_PER_YEAR = 0.01
 
 
-def Rabatel16_folder():
-    hostname = socket.gethostname()
-    # We don't want to publish these files for the moment :)
-    if hostname == "ige-osugb1-p48":
-        return "/home/gossarda/Téléchargements/geodetic_Rabatel16/"
-    elif "bigfoot" in hostname:
-        return "/home/gossarda/geodetic_Rabatel16/"
-    elif hostname == "63bceb1ea564":
-        return "/workspace/geodetic_Rabatel16/"
-    elif hostname == "ige-calcul1" or hostname == "ige-calcul3":
-        return "/home/gossarda/geodetic_Rabatel16/"
-    else:
-        raise ValueError(f"Unknown host {hostname}")
-
-
-def rabatel16_outlines_file():
-    return os.path.join(
-        Rabatel16_folder(), "Glacier_1985-86_FR", "GLIMS_glaciers_1985.shp"
-    )
-
-
-def rabatel16_raw_dem_file():
-    return os.path.join(Rabatel16_folder(), "MNT_IGN_Alpes_50m_UTM_80s.pix")
-
-
 def rabatel16_data_folder():
-    """Directory holding what is derived from the raw Rabatel16 files, always the same
+    """Directory holding the Rabatel16 files of the Hugging Face dataset, always the same
     place so that a later run finds what an earlier one wrote."""
     return os.path.join(get_data_path(), "Rabatel16")
+
+
+def hub_file(filename: str, download: bool = True):
+    """Path to one of the files of `HUB_FOLDER` of `HUB_REPO_ID` in `.data/Rabatel16`,
+    downloading it if necessary."""
+    path = os.path.join(rabatel16_data_folder(), filename)
+    p = Product(path)
+    if download and not p.is_up_to_date():
+        print(f"downloading {HUB_FOLDER}/{filename} from {HUB_REPO_ID}@{HUB_REVISION}")
+        try:
+            # The data tree mirrors the repository: <HUB_FOLDER>/<filename> lands in
+            # .data/Rabatel16
+            downloaded = hf_hub_download(
+                HUB_REPO_ID,
+                filename,
+                subfolder=HUB_FOLDER,
+                repo_type="dataset",
+                revision=HUB_REVISION,
+                local_dir=get_data_path(),
+            )
+        except HfHubHTTPError as e:
+            raise RuntimeError(
+                f"Could not download {HUB_FOLDER}/{filename} from the Hugging Face "
+                f"dataset {HUB_REPO_ID}@{HUB_REVISION}. If the repository is private, "
+                "ask its owner for access, then log in with `hf auth login`."
+            ) from e
+        assert os.path.samefile(
+            downloaded, path
+        ), f"{filename} was downloaded to {downloaded}, not to {path}."
+        p.gen_chk()
+    return path
+
+
+def rabatel16_outlines_file(download: bool = True):
+    """Path to the 1985-86 outlines of the glaciers of the ALPGM table."""
+    return hub_file(OUTLINES_FILE, download=download)
+
+
+def rabatel16_dem_file(prepare: bool = True):
+    """Path to the IGN DEM with its missing values declared, cropped around the
+    glaciers of the ALPGM table, downloading it if `prepare`."""
+    return hub_file(DEM_FILE, download=prepare)
 
 
 def write_dem_with_nodata(
@@ -222,19 +262,6 @@ def write_dem_with_nodata(
     dem[missing] = DEM_NODATA
     with rasterio.open(dst_path, "w", **profile) as dst:
         dst.write(dem, 1)
-
-
-def rabatel16_dem_file(prepare: bool = True):
-    """Path to the IGN DEM with its missing values declared, writing it from the raw
-    DEM if necessary, see `write_dem_with_nodata`."""
-    path = os.path.join(rabatel16_data_folder(), "MNT_IGN_Alpes_50m_UTM_80s.tif")
-    if prepare:
-        p = Product(path)
-        if not p.is_up_to_date():
-            print(f"writing {path} from {rabatel16_raw_dem_file()}")
-            write_dem_with_nodata(rabatel16_raw_dem_file(), path)
-            p.gen_chk()
-    return path
 
 
 def load_rabatel16_outlines(glacier_ids_to_keep=None):
@@ -328,6 +355,30 @@ def assert_rows_describe_same_glaciers(names, other_names):
         )
 
 
+def alpgm_glims_ids(glaciers: pd.DataFrame, outlines: gpd.GeoDataFrame):
+    """GLIMS id of the 1985 outline holding the coordinates of each glacier of the ALPGM
+    glacier table, in the order of the table.
+
+    Args:
+        glaciers: the ALPGM glacier table, see `ALPGM_FILES`.
+        outlines: 1985-86 outlines carrying a "GLIMS_ID" column.
+    """
+    points = gpd.GeoDataFrame(
+        {"row": range(len(glaciers))},
+        geometry=gpd.points_from_xy(glaciers.x_coord, glaciers.y_coord),
+        crs="EPSG:4326",
+    )
+    inside = gpd.sjoin(points, outlines.to_crs(points.crs), predicate="within")
+    counts = inside.row.value_counts().reindex(points.row, fill_value=0)
+    assert (counts == 1).all(), (
+        "Every ALPGM glacier must lie inside exactly one 1985 outline, not "
+        f"{dict(zip(glaciers.Glacier[counts != 1], counts[counts != 1]))}."
+    )
+    glims_ids = inside.set_index("row").GLIMS_ID.sort_index()
+    assert glims_ids.is_unique, "Two ALPGM glaciers lie inside the same 1985 outline."
+    return glims_ids
+
+
 def load_rabatel16_smb():
     """The annual glacier-wide mass balances of Rabatel et al. (2016) redistributed by
     ALPGM, in long form, without the GLACIOCLIM series ALPGM merges them with (see
@@ -350,20 +401,7 @@ def load_rabatel16_smb():
     glaciers = pd.read_csv(alpgm_file("glaciers"), sep=";", encoding="latin-1")
     assert_rows_describe_same_glaciers(list(smb.Glacier), list(glaciers.Glacier))
 
-    outlines = load_rabatel16_outlines()
-    points = gpd.GeoDataFrame(
-        {"row": range(len(glaciers))},
-        geometry=gpd.points_from_xy(glaciers.x_coord, glaciers.y_coord),
-        crs="EPSG:4326",
-    )
-    inside = gpd.sjoin(points, outlines, predicate="within")
-    counts = inside.row.value_counts().reindex(points.row, fill_value=0)
-    assert (counts == 1).all(), (
-        "Every ALPGM glacier must lie inside exactly one 1985 outline, not "
-        f"{dict(zip(glaciers.Glacier[counts != 1], counts[counts != 1]))}."
-    )
-    glims_ids = inside.set_index("row").GLIMS_ID.sort_index()
-    assert glims_ids.is_unique, "Two ALPGM glaciers lie inside the same 1985 outline."
+    glims_ids = alpgm_glims_ids(glaciers, load_rabatel16_outlines())
 
     smb = smb.assign(GLIMS_ID=glims_ids.to_numpy(), name=smb.Glacier.str.strip())
     smb = smb.drop(columns="Glacier").melt(
@@ -670,3 +708,150 @@ def table_RGI62_to_Rabatel16(
     matches.to_csv(save_path, index=False)
     p.gen_chk()
     return matches
+
+
+def oggm_grid_margin(area_km2, border: int, dx_params: dict):
+    """Distance in metres between a glacier outline and the edge of the grid OGGM
+    defines around it, for the `square` resolution of OGGM (`gis.glacier_grid_params`)
+    and `border` cells.
+
+    Args:
+        area_km2: area of the glacier.
+        dx_params: the `d1`, `d2` and `dmax` parameters of OGGM.
+    """
+    dx = np.rint(dx_params["d1"] * np.sqrt(area_km2) + dx_params["d2"])
+    return float(np.clip(dx, dx_params["d2"], dx_params["dmax"]) * border)
+
+
+def _whole_cells(window):
+    """The smallest window of whole cells holding `window`."""
+    c0, r0 = np.floor(window.col_off), np.floor(window.row_off)
+    c1 = np.ceil(window.col_off + window.width)
+    r1 = np.ceil(window.row_off + window.height)
+    return rasterio.windows.Window(int(c0), int(r0), int(c1 - c0), int(r1 - r0))
+
+
+def _oggm_grid_box(geometry, border: int, dx_params: dict):
+    """The extent of the grid OGGM defines around a glacier (`gis.glacier_grid_params`),
+    as a polygon in the transverse Mercator projection centred on the glacier OGGM draws
+    it in. `geometry` is in EPSG:4326.
+
+    The resolution is that of the convex hull of the glacier, which is the geometry and
+    the area `custom_outlines.build_custom_gdirs` gives OGGM, and is at least that of the
+    glacier itself, which OGGM uses for the RGI.
+    """
+    hull = gpd.GeoSeries([geometry.convex_hull], crs="EPSG:4326")
+    local = (
+        f"+proj=tmerc +lat_0=0 +lon_0={geometry.centroid.x} +k=0.9996 +x_0=0 +y_0=0 "
+        "+datum=WGS84 +units=m"
+    )
+    hull = hull.to_crs(local)
+    margin = oggm_grid_margin(hull.area.iloc[0] / 1e6, border, dx_params)
+    x0, y0, x1, y1 = hull.total_bounds
+    box = shapely.geometry.box(x0 - margin, y0 - margin, x1 + margin, y1 + margin)
+    # Densified, so that its edges stay straight in the projection of the DEM
+    return gpd.GeoSeries([box.segmentize(margin / 20)], crs=local)
+
+
+def crop_dem_around_outlines(
+    src_path: str,
+    dst_path: str,
+    outlines: gpd.GeoDataFrame,
+    border: int = 80,
+    pad_cells: int = 20,
+):
+    """Copy the part of a DEM the OGGM grids of `outlines` can read, every other cell
+    being declared missing.
+
+    Each glacier keeps the grid OGGM defines around it for `border` cells
+    (`_oggm_grid_box`; 80 is the default of OGGM and the largest border of its
+    pre-processed directories, MassBalanceMachine uses 10), and `pad_cells` cells of the
+    DEM further for the cubic resampling of OGGM. The copy covers the bounding box of those rectangles on the
+    grid of the source DEM, so the cells it keeps hold the values of the source and a
+    glacier directory built on it reads the same elevations as on the source.
+    """
+    from oggm import cfg as oggm_cfg
+
+    oggm_cfg.initialize_minimal()
+    dx_params = {k: oggm_cfg.PARAMS[k] for k in ("d1", "d2", "dmax")}
+    assert (
+        oggm_cfg.PARAMS["grid_dx_method"] == "square"
+    ), "The margin assumes the `square` grid resolution of OGGM."
+
+    with rasterio.open(src_path) as src:
+        res = max(abs(src.res[0]), abs(src.res[1]))
+        boxes = [
+            _oggm_grid_box(geometry, border, dx_params).to_crs(src.crs).total_bounds
+            + np.array([-1, -1, 1, 1]) * pad_cells * res
+            for geometry in outlines.dissolve("GLIMS_ID").to_crs("EPSG:4326").geometry
+        ]
+        full = rasterio.windows.Window(0, 0, src.width, src.height)
+        windows = [
+            _whole_cells(
+                rasterio.windows.from_bounds(*b, transform=src.transform)
+            ).intersection(full)
+            for b in boxes
+        ]
+        window = rasterio.windows.union(*windows)
+        dem = src.read(1, window=window)
+        keep = np.zeros(dem.shape, dtype=bool)
+        for w in windows:
+            r0, c0 = int(w.row_off - window.row_off), int(w.col_off - window.col_off)
+            keep[r0 : r0 + int(w.height), c0 : c0 + int(w.width)] = True
+        dem[~keep] = src.nodata
+        profile = src.profile
+        profile.update(
+            width=int(window.width),
+            height=int(window.height),
+            transform=src.window_transform(window),
+        )
+    with rasterio.open(dst_path, "w", **profile) as dst:
+        dst.write(dem, 1)
+
+
+def write_rabatel16_hub_files(
+    raw_folder: str, out_folder: str, border: int = 80, pad_cells: int = 20
+):
+    """Write the files of `HUB_REPO_ID` from the raw outlines and DEM.
+
+    The outlines are those of the glaciers of the ALPGM table (`alpgm_glims_ids`), which
+    `load_rabatel16_smb` needs to identify every glacier of the table, a superset of the
+    glaciers carrying a target. The DEM is the raw IGN DEM with its missing values
+    declared (`write_dem_with_nodata`), cropped around those outlines
+    (`crop_dem_around_outlines`).
+
+    Args:
+        raw_folder: folder holding `RAW_OUTLINES_FILE` and `RAW_DEM_FILE`.
+        out_folder: folder to write `OUTLINES_FILE` and `DEM_FILE` to.
+        border, pad_cells: see `crop_dem_around_outlines`.
+
+    Returns the paths of the two files.
+    """
+    os.makedirs(out_folder, exist_ok=True)
+    raw = gpd.read_file(os.path.join(raw_folder, RAW_OUTLINES_FILE))
+    assert (
+        raw.GLIMS_ID.is_unique
+    ), "The raw outlines hold several rows for one GLIMS id."
+    glaciers = pd.read_csv(alpgm_file("glaciers"), sep=";", encoding="latin-1")
+    ids = set(alpgm_glims_ids(glaciers, raw))
+    # Only what `load_rabatel16_outlines` reads, in the projection of the raw file
+    outlines = raw.loc[
+        raw.GLIMS_ID.isin(ids), ["GLIMS_ID", "Glacier_2", "Massif", "date", "geometry"]
+    ]
+    outlines_path = os.path.join(out_folder, OUTLINES_FILE)
+    if os.path.exists(outlines_path):
+        os.remove(outlines_path)  # GDAL would add a layer to it
+    # GDAL stamps the time of writing in a GeoPackage: a fixed one keeps the file the
+    # same from one run to the next, so that it is uploaded again only if it changed
+    pyogrio.set_gdal_config_options({"OGR_CURRENT_DATE": "2000-01-01T00:00:00.000Z"})
+    try:
+        outlines.to_file(outlines_path, driver="GPKG", engine="pyogrio")
+    finally:
+        pyogrio.set_gdal_config_options({"OGR_CURRENT_DATE": None})
+
+    dem_path = os.path.join(out_folder, DEM_FILE)
+    with tempfile.TemporaryDirectory() as tmp:
+        full = os.path.join(tmp, DEM_FILE)
+        write_dem_with_nodata(os.path.join(raw_folder, RAW_DEM_FILE), full)
+        crop_dem_around_outlines(full, dem_path, outlines, border, pad_cells)
+    return outlines_path, dem_path

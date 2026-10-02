@@ -91,12 +91,9 @@ def _skip_without_cached_grids():
         )
         if not os.path.isfile(svf):
             pytest.skip(f"no cached {source} grid for {glacier_id} at {svf}")
-    try:
-        outlines = rabatel16_outlines_file()
-    except ValueError as e:  # unknown host
-        pytest.skip(f"the raw Rabatel16 files are not available here: {e}")
+    outlines = rabatel16_outlines_file(download=False)
     if not os.path.isfile(outlines):
-        pytest.skip(f"the raw Rabatel16 outlines are not at {outlines}")
+        pytest.skip(f"the Rabatel16 outlines are not downloaded to {outlines}")
 
 
 def test_mapping_attributes_native_ids_to_the_source_holding_them():

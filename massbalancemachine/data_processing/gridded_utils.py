@@ -452,7 +452,7 @@ def create_gridded_features_Rabatel16(
     outlines = load_rabatel16_outlines(glacier_ids_to_keep=glims_ids)
     spec = spec or rabatel16_outline_spec()
     if spec.dem_file == rabatel16_dem_file(prepare=False):
-        # The IGN DEM OGGM reads is derived from the raw one, and written only once
+        # The cropped IGN DEM is downloaded once from the Hugging Face dataset
         rabatel16_dem_file()
 
     _create_gridded_features_custom_outlines(
