@@ -26,6 +26,7 @@ import pandas as pd
 import pytest
 
 import massbalancemachine as mbm
+from data_processing.climate_data_download import path_climate_data
 from data_processing.glacier_utils import is_usable_rvt_venv, rvt_venv_path
 from data_processing.glamos import geodetic_target_GLAMOS, glamos_outline_spec
 from data_processing.gridded_utils import (
@@ -197,6 +198,13 @@ def test_geodataloader_on_glamos_outlines():
             f"{rvt_venv_path()} is not built (it needs libgdal), so the gridded "
             "features cannot be generated from scratch"
         )
+    era5 = path_climate_data(11)
+    for fname in ("era5_monthly_averaged_data.nc", "era5_geopotential_pressure.nc"):
+        if not os.path.isfile(era5 + fname):
+            pytest.skip(
+                f"the ERA5 forcing is not cached at {era5}, and downloading it needs "
+                "Copernicus CDS credentials"
+            )
 
     cfg = mbm.Config(
         metaData=["RGIId", "POINT_ID", "ID", "N_MONTHS", "MONTHS", "PERIOD"]
