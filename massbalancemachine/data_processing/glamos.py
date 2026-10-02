@@ -88,13 +88,49 @@ def sgi_shapefile(epoch: int = 1973, download: bool = True):
     return path
 
 
+# Survey date assumed when GLAMOS only gives the year: the end of the ablation season,
+# when almost every survey with a known date was flown (July to October)
+UNKNOWN_SURVEY_MONTH_DAY = (10, 1)
+# ... and when it gives the month but not the day
+UNKNOWN_SURVEY_DAY = 15
+
+
+def survey_timestamp(date):
+    """Survey date of the GLAMOS table, `yyyymmdd`, as a timestamp. An unknown month
+    (`yyyy9999`, `yyyy00..`) is taken as `UNKNOWN_SURVEY_MONTH_DAY`, an unknown day
+    (`yyyymm99`, `yyyymm00`) as `UNKNOWN_SURVEY_DAY`."""
+    d = str(int(date))
+    year, month, day = int(d[:4]), int(d[4:6]), int(d[6:8])
+    if not 1 <= month <= 12:
+        month, day = UNKNOWN_SURVEY_MONTH_DAY
+    elif not 1 <= day <= pd.Timestamp(year=year, month=month, day=1).days_in_month:
+        day = UNKNOWN_SURVEY_DAY
+    return pd.Timestamp(year=year, month=month, day=day)
+
+
+def nearest_new_year(date):
+    """Year of the 1st of January closest to `date`."""
+    return date.year + int(date.month > 6)
+
+
 def load_glamos_volume_change(path: str = None):
     """Read the GLAMOS volume-change table.
 
     Line 7 of the file is a units row with an empty SGI-ID and is dropped. Dates are
-    `yyyymmdd`, but about 17 % of the pre-2000 ones encode an unknown day as
-    `yyyy9999`, which `pd.to_datetime` cannot parse; only the year is used here, so
-    it is read off the string directly.
+    `yyyymmdd`, but many pre-2000 ones encode an unknown day as `yyyy9999`; see
+    `survey_timestamp` for the date assumed then.
+
+    Each window gets:
+
+        survey_start, survey_end   the survey dates, as timestamps
+        year_start, year_end       their years
+        y0, y1                     the 1st of January closest to each survey: the
+                                   window covers the calendar years y0 .. y1 - 1
+        dur                        y1 - y0, its length in calendar years
+
+    A late-summer survey closes the mass-balance year, so a window from August 1979 to
+    August 1998 covers the calendar years 1980 .. 1998 (y0 = 1980, y1 = 1999), not the
+    years of the surveys.
     """
     df = pd.read_csv(path or glamos_volume_change_file(), skiprows=6)
     df = df[df["SGI-ID"].notna()].copy()
@@ -110,8 +146,11 @@ def load_glamos_volume_change(path: str = None):
         "rho_dv",
     ]:
         df[c] = pd.to_numeric(df[c], errors="coerce")
-    for src, dst in [("date_start", "y0"), ("date_end", "y1")]:
-        df[dst] = df[src].astype("int64").astype(str).str[:4].astype(int)
+    for src, end in [("date_start", "start"), ("date_end", "end")]:
+        df[f"survey_{end}"] = df[src].map(survey_timestamp)
+        df[f"year_{end}"] = df[f"survey_{end}"].dt.year
+    df["y0"] = df.survey_start.map(nearest_new_year)
+    df["y1"] = df.survey_end.map(nearest_new_year)
     df["dur"] = df.y1 - df.y0
     df["A_mean"] = (df.A_start + df.A_end) / 2
     return df
@@ -162,9 +201,9 @@ def glamos_outline_spec(epoch: int = 1973, dem_source: str = "SRTM", **overrides
 def _best_window_chain(windows):
     """Rows of the best set of non-overlapping windows of one glacier.
 
-    Two windows may share a survey year (one ends in 1967, the next starts in 1967):
-    with the 1st-of-January convention of `geodetic_target_GLAMOS` they do not cover a
-    common month. Among all such sets the one kept has **the most windows**, then the
+    Two windows may share a survey (one ends in 1967, the next starts from the same
+    flight): with the calendar bounds `y0` and `y1` of `load_glamos_volume_change` they
+    do not cover a common year. Among all such sets the one kept has **the most windows**, then the
     **longest total duration**, then the **lowest sum of sigma^2**. Nested windows are
     never combined, since they are built on the same DEMs and their errors are
     strongly correlated.
@@ -201,8 +240,8 @@ def _best_window_chain(windows):
 def window_years_outside(y0, y1, allowed_years):
     """Years of a GLAMOS window that `allowed_years` does not hold.
 
-    A window runs from the 1st of January of `y0` to the 1st of January of `y1`, the
-    convention `geodetic_target_GLAMOS` applies, and therefore covers `y0 .. y1 - 1`.
+    `y0` and `y1` are the calendar bounds of `load_glamos_volume_change`: the window
+    covers `y0 .. y1 - 1`.
     """
     return years_outside(
         pd.Timestamp(year=int(y0), month=1, day=1),
@@ -238,14 +277,14 @@ def select_glamos_windows(
     than only its mean.
 
     Args:
-        max_year: every window must end at or before this year. This is what makes a
-            study pre-2000, and what keeps the calibration out of the period a later
-            evaluation uses.
+        max_year: the last survey of every window must be in or before this year. This
+            is what makes a study pre-2000. A survey in the summer of `max_year` closes
+            the mass-balance year `max_year`, so such a window covers that year.
         min_window_years: shorter windows carry too much survey-date noise.
         min_covered: minimum percentage of the glacier the DEM difference covers.
-        min_year: earliest year a window may start at. Set it to the first year of
-            the climate forcing, otherwise the windows built on 1850s-1930s maps are
-            selected and cannot be modelled.
+        min_year: earliest year the first survey of a window may be in. Set it to the
+            first year of the climate forcing, otherwise the windows built on
+            1850s-1930s maps are selected and cannot be modelled.
         multi_period: keep several non-overlapping windows per glacier instead of the
             longest one.
         tie_break: how the single window is chosen among the longest ones, "sigma"
@@ -267,12 +306,12 @@ def select_glamos_windows(
         tie_break in tie_break_keys
     ), f"tie_break must be one of {sorted(tie_break_keys)}, not {tie_break!r}."
     candidates = glamos.loc[
-        (glamos.y1 <= max_year)
+        (glamos.year_end <= max_year)
         & (glamos.dur >= min_window_years)
         & (glamos.covered >= min_covered)
     ]
     if min_year is not None:
-        candidates = candidates.loc[candidates.y0 >= min_year]
+        candidates = candidates.loc[candidates.year_start >= min_year]
     if allowed_years is not None:
         allowed = set(allowed_years)
         candidates = candidates.loc[
@@ -323,16 +362,15 @@ def geodetic_target_GLAMOS(
     row per window:
 
         RGIId                 the SGI entity id, e.g. "B36-26"
-        FROM_DATE, TO_DATE    start and end of the geodetic window
+        FROM_DATE, TO_DATE    the survey dates, see `survey_timestamp` for those
+                              GLAMOS only gives the year of
         mwe_per_year          Bgeod, m w.e. per year
         sigma_mwe_per_year    its 1-sigma uncertainty, m w.e. per year
 
     GLAMOS already reports a rate in m w.e. per year, so unlike the PGO table no unit
-    conversion is applied here. Only the year of a survey date is known reliably (see
-    `load_glamos_volume_change`), so the window is taken to run from the 1st of
-    January of `y0` to the 1st of January of `y1` - the same convention OGGM's
-    `mb_calibration_from_scalar_mb` applies to a `ref_period`, which averages over
-    `np.arange(y0, y1)`.
+    conversion is applied here. A model that integrates whole calendar years covers
+    `y0 .. y1 - 1`, the 1st of January closest to each survey (see
+    `load_glamos_volume_change`).
     """
     glamos = load_glamos_volume_change() if glamos is None else glamos
     chosen = select_glamos_windows(
@@ -350,8 +388,8 @@ def geodetic_target_GLAMOS(
         chosen = chosen.loc[chosen.index.isin(list(sgi_ids_to_keep))]
 
     df = chosen.reset_index().rename(columns={"SGI-ID": "RGIId"})
-    df["FROM_DATE"] = pd.to_datetime(df.y0.astype(str) + "-01-01")
-    df["TO_DATE"] = pd.to_datetime(df.y1.astype(str) + "-01-01")
+    df["FROM_DATE"] = df.survey_start
+    df["TO_DATE"] = df.survey_end
     df["mwe_per_year"] = df.Bgeod
     df["sigma_mwe_per_year"] = df.sigma
     return df

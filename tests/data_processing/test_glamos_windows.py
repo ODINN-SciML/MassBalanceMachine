@@ -9,7 +9,12 @@ this needs the GLAMOS table: the candidate windows are synthetic.
 import pandas as pd
 import pytest
 
-from data_processing.glamos import select_glamos_windows, window_years_outside
+from data_processing.glamos import (
+    nearest_new_year,
+    select_glamos_windows,
+    survey_timestamp,
+    window_years_outside,
+)
 from data_processing.utils.years import (
     contiguous_year_runs,
     years_from_time_range,
@@ -18,11 +23,34 @@ from data_processing.utils.years import (
 
 
 def _windows(rows):
-    """Candidate windows in the shape `load_glamos_volume_change` returns."""
+    """Candidate windows in the shape `load_glamos_volume_change` returns, surveyed at
+    the end of summer, the year before their calendar bounds."""
     df = pd.DataFrame(rows, columns=["SGI-ID", "y0", "y1", "sigma"])
+    df["year_start"] = df.y0 - 1
+    df["year_end"] = df.y1 - 1
     df["dur"] = df.y1 - df.y0
     df["covered"] = 100.0
     return df
+
+
+def test_survey_dates_and_the_calendar_years_they_bound():
+    assert survey_timestamp(19790815) == pd.Timestamp("1979-08-15")
+    # unknown month: end of summer; unknown day: middle of the month
+    assert survey_timestamp(19829999) == pd.Timestamp("1982-10-01")
+    assert survey_timestamp(19830900) == pd.Timestamp("1983-09-15")
+    assert survey_timestamp(19830999) == pd.Timestamp("1983-09-15")
+    # A window from August 1979 to August 1998 covers the calendar years 1980-1998
+    assert nearest_new_year(survey_timestamp(19790815)) == 1980
+    assert nearest_new_year(survey_timestamp(19980831)) == 1999
+    assert nearest_new_year(pd.Timestamp("1986-01-01")) == 1986
+
+
+def test_max_year_applies_to_the_last_survey():
+    # Surveyed in the summer of 2000: kept with max_year=2000, and covering 2000
+    windows = _windows([("A", 1987, 2001, 0.1)])
+    chosen = select_glamos_windows(windows, max_year=2000, min_window_years=10)
+    assert list(chosen.index) == ["A"]
+    assert select_glamos_windows(windows, max_year=1999, min_window_years=10).empty
 
 
 def test_contiguous_year_runs():
