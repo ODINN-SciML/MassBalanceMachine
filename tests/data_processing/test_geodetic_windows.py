@@ -28,8 +28,13 @@ from training.training import timeWindowGeodeticLoss
 
 
 def _glamos_table(windows):
-    """A GLAMOS-like table from (sgi_id, y0, y1, sigma) tuples."""
+    """A GLAMOS-like table from (sgi_id, y0, y1, sigma) tuples. As in
+    `load_glamos_volume_change`, `y0` and `y1` are the calendar bounds; the surveys
+    are taken in the late summer before them, in `year_start = y0 - 1` and
+    `year_end = y1 - 1`."""
     df = pd.DataFrame(windows, columns=["SGI-ID", "y0", "y1", "sigma"])
+    df["year_start"] = df.y0 - 1
+    df["year_end"] = df.y1 - 1
     df["dur"] = df.y1 - df.y0
     df["covered"] = 100.0
     return df
