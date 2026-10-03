@@ -3,6 +3,7 @@ import shutil
 import urllib.request
 import zipfile
 import pandas as pd
+import pyproj
 import tqdm
 import multiprocessing
 import xarray as xr
@@ -81,6 +82,27 @@ def load_wgms_data():
     return data_mb
 
 
+def _coordinates_from_utm_remarks(data_mb):
+    """
+    Fill the missing latitude and longitude of the points whose remarks give UTM
+    coordinates as "UTM North, Zone <zone>: <northing> / <easting>" (Mera glacier).
+    """
+    utm = data_mb["remarks"].str.extract(r"UTM North, Zone (\d+): ([\d.]+) / ([\d.]+)")
+    mask = data_mb["latitude"].isna() & data_mb["longitude"].isna() & utm[0].notna()
+    data_mb = data_mb.copy()
+    for zone in utm.loc[mask, 0].unique():
+        sel = mask & (utm[0] == zone)
+        transformer = pyproj.Transformer.from_crs(
+            f"EPSG:326{int(zone):02d}", "EPSG:4326", always_xy=True
+        )
+        lon, lat = transformer.transform(
+            utm.loc[sel, 2].astype(float).values, utm.loc[sel, 1].astype(float).values
+        )
+        data_mb.loc[sel, "longitude"] = lon
+        data_mb.loc[sel, "latitude"] = lat
+    return data_mb
+
+
 def parse_wgms_format(data_mb):
     """
     Converts the WGMS point balance DataFrame to a dataframe ready to be used by MBM Data preparation notebook.
@@ -90,6 +112,8 @@ def parse_wgms_format(data_mb):
     Returns:
         pd.DataFrame
     """
+
+    data_mb = _coordinates_from_utm_remarks(data_mb)
 
     new_df = data_mb.drop(
         columns=[

@@ -62,6 +62,29 @@ def build_monthly_data(data, cfg, rgi_region=None):
         rgi_region is not None
     ), "For the moment only one single RGI region can be used at a time with the WGMS data."
 
+    # Correct coordinates before they are used to assign the RGIId, hence the selection by stake name and position
+
+    # RGI60-15
+    # Rikha Samba: latitude of S1/S2/S3/S5 shifted by ~-0.0063° (~700 m south) in 2018-2021 compared to 2012-2017 and 2024 at the same elevation, which puts S2/S3 off the glacier and S1 on a neighbouring glacier
+    mask_sel = (
+        data.WGMS_ID.isin(
+            ["S1_2017", "S1_2018", "S1_2019", "S2_2016", "S2_2017", "S2_2018"]
+            + ["S3_2016", "S3_2017", "S3_2018", "S5_2015", "S5_2017"]
+        )
+        & data.YEAR.isin([2018, 2019, 2021])
+        & data.POINT_LAT.between(28.79, 28.84)
+        & data.POINT_LON.between(83.48, 83.51)
+    )
+    data.loc[mask_sel, "POINT_LAT"] = data[mask_sel].POINT_LAT + 0.0063
+
+    # Yala 2025 S6_1124: latitude 28.3847 is 15 km north of the glacier, all the other positions of S6 are at 28.2346
+    mask_sel = (
+        (data.WGMS_ID == "S6_1124")
+        & (data.YEAR == 2025)
+        & data.POINT_LON.between(85.61, 85.63)
+    )
+    data.loc[mask_sel, "POINT_LAT"] = 28.2347
+
     data = get_rgi(data=data, region=rgi_region)
 
     # Drop measurements where no RGIId was found
@@ -108,6 +131,14 @@ def build_monthly_data(data, cfg, rgi_region=None):
     data = data[
         ~((data.RGIId == "RGI60-01.23646") & (data.MONTH_DIFF == 24))
     ]  # West Yakutat
+    # RGI60-15: two-year totals, the records of the same campaigns with MONTH_DIFF == 25 are already filtered out above
+    data = data[
+        ~((data.RGIId == "RGI60-15.03448") & (data.MONTH_DIFF == 24))
+    ]  # Trambau
+    data = data[
+        ~((data.RGIId == "RGI60-15.04847") & (data.MONTH_DIFF == 24))
+    ]  # Rikha Samba
+    data = data[~((data.RGIId == "RGI60-15.03954") & (data.MONTH_DIFF == 24))]  # Yala
 
     # Filter out or correct measurements based on the MB values
 
@@ -166,6 +197,39 @@ def build_monthly_data(data, cfg, rgi_region=None):
         )
     ]
 
+    # Rikha Samba 2024 S5_2023: +1.83 at 5731 m between -2.32 (5652 m) and -1.40 (5748 m), likely a sign flip
+    mask_sel = (
+        (data.RGIId == "RGI60-15.04847")
+        & (data.YEAR == 2024)
+        & (data.WGMS_ID == "S5_2023")
+    )
+    data.loc[mask_sel, "POINT_BALANCE"] = -data[mask_sel].POINT_BALANCE
+
+    # Rikha Samba 2024 S8_2015: value calculated from the 2017-2024 measurements, not measured over its time window
+    mask_sel = (
+        (data.RGIId == "RGI60-15.04847")
+        & (data.YEAR == 2024)
+        & (data.WGMS_ID == "S8_2015")
+    )
+    data = data[~mask_sel]
+
+    # Yala 2024 S4_1122: stake not found in autumn 2023, the 157-day window starting in June is inconsistent with a value equal to that of the nearby full-year stakes
+    mask_sel = (
+        (data.RGIId == "RGI60-15.03954")
+        & (data.YEAR == 2024)
+        & (data.WGMS_ID == "S4_1122")
+    )
+    data = data[~mask_sel]
+
+    # Yala 2015 S6_itp: labelled summer but covers summer 2014 and the whole of 2015 (571 days)
+    mask_sel = (
+        (data.RGIId == "RGI60-15.03954")
+        & (data.YEAR == 2015)
+        & ((data.WGMS_ID == "S6_itp_2") | (data.WGMS_ID == "S6_itp_3"))
+        & (data.PERIOD == "summer")
+    )
+    data = data[~mask_sel]
+
     # Filter out duplicates years
     mask_sel = (
         (data.RGIId == "RGI60-11.02704")
@@ -217,6 +281,11 @@ def build_monthly_data(data, cfg, rgi_region=None):
         & (data.MONTH_DIFF == 8)
     )
     data.loc[mask_sel, "PERIOD"] = "winter"  # Grand Etret
+
+    # Measurements labelled as index, the remarks give the period: summer for the May-November 2016 records, annual otherwise
+    mask_sel = (data.RGIId == "RGI60-15.03448") & (data.PERIOD == "index")
+    data.loc[mask_sel & (data.MONTH_DIFF <= 6), "PERIOD"] = "summer"  # Trambau
+    data.loc[mask_sel & (data.MONTH_DIFF > 6), "PERIOD"] = "annual"  # Trambau
 
     # End window is inconsistent given the stake value, and the nearby stakes of the same year
     mask_sel = (
