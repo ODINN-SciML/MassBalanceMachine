@@ -8,6 +8,8 @@ Date Created: 21/07/2024
 """
 
 import os
+from functools import lru_cache
+
 import config
 
 import xarray as xr
@@ -16,7 +18,7 @@ import numpy as np
 import pyproj
 
 from data_processing.Product import Product
-from data_processing.product_utils import rgi_id_to_folders, data_path
+from data_processing.product_utils import rgi_id_to_folders, get_data_path
 from data_processing.glacier_utils import create_dem_file_RGI, generate_svf_file
 from data_processing.oggm_utils import (
     _initialize_oggm_config,
@@ -132,8 +134,112 @@ def glacier_cell_area(rgi_id: str, custom_working_dir: str, cfg: config.Config):
     return cell_area
 
 
-def get_glacier_mask(rgi_id: str, custom_working_dir: str, cfg: config.Config):
-    """Given a `rgi_id` gets glacier xarray from OGGM and masks it over the glacier outline."""
+def _open_gridded_data(gridded_data_path: str) -> xr.Dataset:
+    with xr.open_dataset(gridded_data_path) as ds:
+        return ds.load()
+
+
+def _mask_custom(ds: xr.Dataset) -> tuple:
+    """Mask the fields of a glacier directory built from custom outlines.
+
+    Such a directory only carries what `tasks.gridded_attributes` produces, so
+    there is no ice thickness, no velocity and no elevation change to mask.
+    """
+    glacier_mask = np.where(
+        ds["glacier_mask"].values == 0, np.nan, ds["glacier_mask"].values
+    )
+
+    # Create glacier mask
+    ds = ds.assign(masked_slope=glacier_mask * ds["slope"])
+    ds = ds.assign(masked_elev=glacier_mask * ds["topo"])
+    ds = ds.assign(masked_aspect=glacier_mask * ds["aspect"])
+
+    glacier_indices = np.where(ds["glacier_mask"].values == 1)
+    return ds, glacier_indices
+
+
+def _mask_rgi(ds: xr.Dataset, mask: bool) -> tuple:
+    """Mask the fields of a pre-processed RGI glacier directory."""
+    glacier_mask = np.where(
+        ds["glacier_mask"].values == 0, np.nan, ds["glacier_mask"].values
+    )
+    field_mask = glacier_mask if mask else 1.0
+
+    ds = ds.assign(masked_slope=field_mask * ds["slope"])
+    ds = ds.assign(masked_elev=field_mask * ds["topo"])
+    ds = ds.assign(masked_aspect=field_mask * ds["aspect"])
+    ds = ds.assign(masked_dis=field_mask * ds["dis_from_border"])
+    ds = ds.assign(masked_hug=field_mask * ds["hugonnet_dhdt"])
+    ds = ds.assign(masked_cit=field_mask * ds["consensus_ice_thickness"])
+    if "millan_ice_thickness" in ds:
+        ds = ds.assign(masked_mit=field_mask * ds["millan_ice_thickness"])
+    if "millan_v" in ds:
+        # Some glaciers do not have velocity data
+        ds = ds.assign(masked_miv=field_mask * ds["millan_v"])
+        ds = ds.assign(masked_mivx=field_mask * ds["millan_vx"])
+        ds = ds.assign(masked_mivy=field_mask * ds["millan_vy"])
+
+    if mask:
+        glacier_indices = np.where(ds["glacier_mask"].values == 1)
+    else:
+        glacier_indices = np.where(
+            np.isfinite(ds["aspect"].values) & np.isfinite(ds["slope"].values)
+        )
+    return ds, glacier_indices
+
+
+MASK_BUILDERS = {"custom": _mask_custom, "RGI": _mask_rgi}
+
+
+@lru_cache(maxsize=2)
+def _masked_glacier_grid_cached(
+    gridded_data_path: str, kind: str, mask: bool, stamp: tuple
+) -> tuple:
+    """`stamp` is only part of the cache key, so that a rebuilt glacier directory
+    is read again instead of being served from a stale entry."""
+    del stamp
+    ds = _open_gridded_data(gridded_data_path)
+    if kind == "custom":
+        return _mask_custom(ds)
+    return _mask_rgi(ds, mask)
+
+
+def masked_glacier_grid(gdir, kind: str, mask: bool = True) -> tuple:
+    """Masked grid of a glacier, cached per process.
+
+    Same result as `get_custom_glacier_mask` / `get_glacier_mask`, but taking an
+    already-resolved glacier directory and remembering the last grids it was asked
+    for. It exists for the workers generating gridded features: they process one
+    glacier over many years, and would otherwise re-read and re-mask the same
+    netCDF for each of them - or, worse, receive it pickled with every task.
+
+    The returned dataset is shared between callers, so it must not be modified.
+
+    Args:
+        gdir: the OGGM glacier directory.
+        kind: "custom" for a directory built from custom outlines, "RGI" for a
+            pre-processed RGI one, which carries more fields to mask.
+        mask: keep only the cells inside the outline. "custom" ignores it.
+    """
+    assert kind in MASK_BUILDERS, f"Unknown glacier grid kind {kind!r}."
+    path = gdir.get_filepath("gridded_data")
+    stat = os.stat(path)
+    return _masked_glacier_grid_cached(
+        path, kind, mask, (stat.st_mtime_ns, stat.st_size)
+    )
+
+
+def get_custom_glacier_mask(gdir):
+    return _mask_custom(_open_gridded_data(gdir.get_filepath("gridded_data")))
+
+
+def get_glacier_mask(
+    rgi_id: str,
+    custom_working_dir: str,
+    cfg: config.Config,
+    mask: bool = True,
+):
+    """Given a `rgi_id`, load an OGGM grid, optionally masking fields outside the glacier outline."""
 
     # Initialize the OGGM Config
     _initialize_oggm_config(custom_working_dir)
@@ -148,28 +254,9 @@ def get_glacier_mask(rgi_id: str, custom_working_dir: str, cfg: config.Config):
     for gdir in gdirs:
         if gdir.rgi_id == rgi_id:
             break
-    with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
-        ds = ds.load()
-    glacier_mask = np.where(
-        ds["glacier_mask"].values == 0, np.nan, ds["glacier_mask"].values
+    ds, glacier_indices = _mask_rgi(
+        _open_gridded_data(gdir.get_filepath("gridded_data")), mask
     )
-
-    # Create glacier mask
-    ds = ds.assign(masked_slope=glacier_mask * ds["slope"])
-    ds = ds.assign(masked_elev=glacier_mask * ds["topo"])
-    ds = ds.assign(masked_aspect=glacier_mask * ds["aspect"])
-    ds = ds.assign(masked_dis=glacier_mask * ds["dis_from_border"])
-    ds = ds.assign(masked_hug=glacier_mask * ds["hugonnet_dhdt"])
-    ds = ds.assign(masked_cit=glacier_mask * ds["consensus_ice_thickness"])
-    if "millan_ice_thickness" in ds:
-        ds = ds.assign(masked_mit=glacier_mask * ds["millan_ice_thickness"])
-    if "millan_v" in ds:
-        # Some glaciers do not have velocity data
-        ds = ds.assign(masked_miv=glacier_mask * ds["millan_v"])
-        ds = ds.assign(masked_mivx=glacier_mask * ds["millan_vx"])
-        ds = ds.assign(masked_mivy=glacier_mask * ds["millan_vy"])
-
-    glacier_indices = np.where(ds["glacier_mask"].values == 1)
     return ds, glacier_indices, gdir
 
 
@@ -197,7 +284,7 @@ def _load_gridded_svf(
 ) -> list:
     """Load sky view factor data for each glacier directory."""
     grouped_rgi_ids = set(grouped_stakes.groups.keys())
-    grid_path = os.path.join(data_path, "grids")
+    grid_path = os.path.join(get_data_path(), "grids", "Hugonnet21")
     loaded_svf = []
     for gdir in glacier_directories:
         if gdir.rgi_id in grouped_rgi_ids:

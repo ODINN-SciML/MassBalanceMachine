@@ -93,11 +93,7 @@ elif sourceData == "norway":
         cfg, params, test_split_on=keyGlacier
     )
 elif "wgms" in sourceData:
-    _split = sourceData.split(":")
-    if len(_split) > 1:
-        rgi_region = int(_split[1])
-    else:
-        rgi_region = None
+    rgi_region = mbm.dataloader.wgms_rgi_regions(sourceData)
     datasetManager = mbm.dataloader.SourceManagerWGMS(
         cfg, params, test_split_on="RGIId", rgi_region=rgi_region
     )

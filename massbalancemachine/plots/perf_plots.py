@@ -214,6 +214,8 @@ def predVSTruthPerGlacier(
 
     for i, test_gl in enumerate(custom_order):
         df_gl = grouped_ids[grouped_ids[order_key] == test_gl]
+        if df_gl.shape[0] == 0:
+            continue
 
         ax = axs.flatten()[i]
 
@@ -291,10 +293,14 @@ def predVSTruthGlacierWide(
     geoErr,
     ax=None,
     title="Glacier wide MB",
-    ax_xlim=(-1.5, 1.0),
-    ax_ylim=(-1.5, 1.0),
+    ax_xlim=None,  # (-2.5, 1.0),
+    ax_ylim=None,  # (-2.5, 1.0),
     color="orange",
     legend=False,
+    alpha=None,
+    elinewidth=None,
+    markersize=None,
+    label_fontsize=15,
 ):
 
     if ax is None:
@@ -302,12 +308,24 @@ def predVSTruthGlacierWide(
     else:
         fig = None
 
+    # A glacier holds one value per geodetic window, so it can have several points
     for g in geoPred.keys():
         ax.errorbar(
-            geoTarget[g], geoPred[g], xerr=2 * geoErr[g], label=g, fmt="o", color=color
+            geoTarget[g],
+            geoPred[g],
+            xerr=2 * np.asarray(geoErr[g]),
+            label=g,
+            fmt="o",
+            color=color,
+            elinewidth=elinewidth,
+            markersize=markersize,
+            alpha=alpha,
         )
         if legend:
-            plt.text(geoTarget[g] + 0.02, geoPred[g] + 0.02, g, fontsize=10)
+            for target, pred in zip(
+                np.atleast_1d(geoTarget[g]), np.atleast_1d(geoPred[g])
+            ):
+                plt.text(target + 0.02, pred + 0.02, g, fontsize=10)
 
     # Diagonal line
     pt = (0, 0)
@@ -327,8 +345,8 @@ def predVSTruthGlacierWide(
     xlabel = "Observed mean SMB / year [m w.e.]"
     ylabel = "Predicted mean SMB / year [m w.e.]"
 
-    ax.set_xlabel(xlabel, fontsize=20)
-    ax.set_ylabel(ylabel, fontsize=20)
+    ax.set_xlabel(xlabel, fontsize=label_fontsize)
+    ax.set_ylabel(ylabel, fontsize=label_fontsize)
 
     plt.tight_layout()
 

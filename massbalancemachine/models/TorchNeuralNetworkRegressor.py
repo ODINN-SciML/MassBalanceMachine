@@ -1,12 +1,616 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
 import pandas as pd
 import yaml
+import copy
+
+from data_processing.Dataset import Normalizer
 
 
-def createModel(cfg, modelParams):
-    nInp = len(cfg.featureColumns)
+class TILikeModel(nn.Module):
+    def __init__(self, modelParams, normalizing_bounds, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.input_labels = modelParams["inputs"]
+        self.normalizing_bounds = normalizing_bounds
+        self.ind_precip = self.input_labels.index("tp_sum")
+        self.ind_temp = self.input_labels.index("t2m")
+        self.ind_elev_diff = self.input_labels.index("ELEVATION_DIFFERENCE")
+        # self.inputs = [
+        #     "ELEVATION_DIFFERENCE",
+        #     "aspect",
+        #     "fal", # forcast albedo
+        #     "slhf", # surface latent heat flux
+        #     "slope",
+        #     "sshf", # surface sensible heat flux
+        #     "ssrd", # surface solar radiation downwards
+        #     "str", # surface net thermal radiation
+        #     "t2m", # 2m temperature
+        #     "tp", # total precipitation
+        #     "svf", # sky view factor
+        # ]
+        # self.inp_cor_T = ["t2m", "slhf", "sshf", "ssrd", "str"]
+        self.inp_cor_T = (
+            modelParams["cor_T"]["inputs"] if "cor_T" in modelParams else None
+        )
+        self.inp_grad_T = (
+            modelParams["grad_T"]["inputs"] if "grad_T" in modelParams else None
+        )
+        self.inp_bias_T = (
+            modelParams["bias_T"]["inputs"] if "bias_T" in modelParams else None
+        )
+        self.inp_dir = (
+            modelParams["cor_dir"]["inputs"] if "cor_dir" in modelParams else None
+        )
+        self.inp_terrain = (
+            modelParams["cor_terrain"]["inputs"]
+            if "cor_terrain" in modelParams
+            else None
+        )
+        self.inp_sw_contrib = (
+            modelParams["sw_contrib"]["inputs"] if "sw_contrib" in modelParams else None
+        )
+        # self.inp_cor_fac = [
+        #     "aspect",
+        #     "fal",
+        #     "slhf",
+        #     "slope",
+        #     "sshf",
+        #     "ssrd",
+        #     "str",
+        #     "svf",
+        # ]
+        # self.inp_cor_fac = [
+        #     "fal",
+        #     "slhf",
+        #     "sshf",
+        #     "ssrd",
+        #     "str",
+        # ]
+        self.inp_cor_acc = modelParams["cor_acc"]["inputs"]
+        self.inp_cor_abl = modelParams["cor_abl"]["inputs"]
+        self.ind_inp_cor_T = (
+            sorted([self.input_labels.index(inp) for inp in self.inp_cor_T])
+            if self.inp_cor_T is not None
+            else None
+        )
+        self.ind_inp_grad_T = (
+            sorted([self.input_labels.index(inp) for inp in self.inp_grad_T])
+            if self.inp_grad_T is not None
+            else None
+        )
+        self.ind_inp_bias_T = (
+            sorted([self.input_labels.index(inp) for inp in self.inp_bias_T])
+            if self.inp_bias_T is not None
+            else None
+        )
+        self.ind_inp_dir = (
+            sorted([self.input_labels.index(inp) for inp in self.inp_dir])
+            if self.inp_dir is not None
+            else None
+        )
+        self.ind_inp_terrain = (
+            sorted([self.input_labels.index(inp) for inp in self.inp_terrain])
+            if self.inp_terrain is not None
+            else None
+        )
+        if self.inp_dir is not None:
+            self.ind_svf = sorted([self.input_labels.index(inp) for inp in ["svf"]])
+            self.ind_ssrd = sorted([self.input_labels.index(inp) for inp in ["ssrd"]])
+        # self.ind_inp_cor_fac = sorted(
+        #     [self.input_labels.index(inp) for inp in self.inp_cor_fac]
+        # )
+        self.ind_inp_sw_contrib = (
+            sorted([self.input_labels.index(inp) for inp in self.inp_sw_contrib])
+            if self.inp_sw_contrib is not None
+            else None
+        )
+        self.ind_inp_cor_acc = sorted(
+            [self.input_labels.index(inp) for inp in self.inp_cor_acc]
+        )
+        self.ind_inp_cor_abl = sorted(
+            [self.input_labels.index(inp) for inp in self.inp_cor_abl]
+        )
+        self.beta1 = 10.0
+        self.beta2 = 0.0049
+        init_tau_P_s = 1.5
+        init_tau_P_c = 1.0
+        init_beta_pdd = 1.0
+        init_lapse_rate_P_cor = 0.1
+        self.tau_P_s = torch.nn.Parameter(
+            torch.arctanh((torch.ones(1) * init_tau_P_s / 2) - 1.1)
+        )
+        self.tau_P_c = torch.nn.Parameter(torch.ones(1) * init_tau_P_c)
+        self.beta_pdd = torch.nn.Parameter(
+            torch.arctanh((torch.ones(1) * init_beta_pdd / 2) - 1)
+        )
+        self.tau_P_s.requires_grad = True
+        self.tau_P_c.requires_grad = True
+        self.beta_pdd.requires_grad = True
+        self.lapse_rate_P_cor = torch.nn.Parameter(
+            torch.arctanh((torch.ones(1) * (init_lapse_rate_P_cor / 0.2) * 2) - 1)
+        )  # 0.2*(tanh(x)+1)/2
+        self.lapse_rate_P_cor.requires_grad = True
+
+        # Range of the precipitation correction, P_cor = p_min + (p_max - p_min) * sigmoid,
+        # the sigmoid being a product of two with `bias_cor_elev`
+        bias_cor_bnds = modelParams.get("bias_cor", {})
+        self.p_min = float(bias_cor_bnds.get("p_min", 0.0))
+        self.p_max = float(bias_cor_bnds.get("p_max", 2.0))
+        assert (
+            0.0 <= self.p_min < self.p_max
+        ), f"The precipitation correction range must satisfy 0 <= p_min < p_max, got [{self.p_min}, {self.p_max}]."
+        # Range of the temperature bias, bias = b_max * tanh
+        self.b_max = float(modelParams.get("bias_T", {}).get("b_max", 5.0))
+        assert self.b_max > 0, f"b_max must be positive, got {self.b_max}."
+
+        if "bias_cor" in modelParams:
+            self.inp_bias_cor = modelParams["bias_cor"]["inputs"]
+            self.ind_inp_bias_cor = sorted(
+                [self.input_labels.index(inp) for inp in self.inp_bias_cor]
+            )
+
+            bias_cor_params = modelParams["bias_cor"]
+            bias_cor = [nn.Linear(len(self.inp_bias_cor), bias_cor_params["layers"][0])]
+            for i in range(len(bias_cor_params["layers"]) - 1):
+                bias_cor.append(nn.ReLU())
+                bias_cor.append(
+                    nn.Linear(
+                        bias_cor_params["layers"][i], bias_cor_params["layers"][i + 1]
+                    )
+                )
+            bias_cor.append(nn.ReLU())
+            bias_cor.append(nn.Linear(bias_cor_params["layers"][-1], 1))
+            self.bias_cor = nn.Sequential(*bias_cor)
+        else:
+            self.inp_bias_cor = None
+            self.bias_cor = None
+
+        # Optional elevation factor of the precipitation correction, which then reads
+        # sigmoid(bias_cor(...)) * sigmoid(bias_cor_elev(...)): with bias_cor on the
+        # location only, the correction is separable in space and elevation
+        if "bias_cor_elev" in modelParams:
+            assert (
+                self.bias_cor is not None
+            ), "bias_cor_elev is a factor of bias_cor, which the model does not define."
+            self.inp_bias_cor_elev = modelParams["bias_cor_elev"]["inputs"]
+            self.ind_inp_bias_cor_elev = sorted(
+                [self.input_labels.index(inp) for inp in self.inp_bias_cor_elev]
+            )
+
+            bias_cor_elev_params = modelParams["bias_cor_elev"]
+            bias_cor_elev = [
+                nn.Linear(
+                    len(self.inp_bias_cor_elev), bias_cor_elev_params["layers"][0]
+                )
+            ]
+            for i in range(len(bias_cor_elev_params["layers"]) - 1):
+                bias_cor_elev.append(nn.ReLU())
+                bias_cor_elev.append(
+                    nn.Linear(
+                        bias_cor_elev_params["layers"][i],
+                        bias_cor_elev_params["layers"][i + 1],
+                    )
+                )
+            bias_cor_elev.append(nn.ReLU())
+            bias_cor_elev.append(nn.Linear(bias_cor_elev_params["layers"][-1], 1))
+            self.bias_cor_elev = nn.Sequential(*bias_cor_elev)
+        else:
+            self.inp_bias_cor_elev = None
+            self.bias_cor_elev = None
+
+        if "cor_T" in modelParams:
+            cor_T_params = modelParams["cor_T"]
+            cor_T = [nn.Linear(len(self.inp_cor_T), cor_T_params["layers"][0])]
+            for i in range(len(cor_T_params["layers"]) - 1):
+                cor_T.append(nn.ReLU())
+                cor_T.append(
+                    nn.Linear(cor_T_params["layers"][i], cor_T_params["layers"][i + 1])
+                )
+            cor_T.append(nn.ReLU())
+            cor_T.append(nn.Linear(cor_T_params["layers"][-1], 2))
+            self.cor_T = nn.Sequential(*cor_T)
+        else:
+            self.cor_T = None
+        if "grad_T" in modelParams:
+            grad_T_params = modelParams["grad_T"]
+            grad_T = [nn.Linear(len(self.inp_grad_T), grad_T_params["layers"][0])]
+            for i in range(len(grad_T_params["layers"]) - 1):
+                grad_T.append(nn.ReLU())
+                grad_T.append(
+                    nn.Linear(
+                        grad_T_params["layers"][i], grad_T_params["layers"][i + 1]
+                    )
+                )
+            grad_T.append(nn.ReLU())
+            grad_T.append(nn.Linear(grad_T_params["layers"][-1], 1))
+            self.grad_T = nn.Sequential(*grad_T)
+        else:
+            self.grad_T = None
+        if "bias_T" in modelParams:
+            bias_T_params = modelParams["bias_T"]
+            bias_T = [nn.Linear(len(self.inp_bias_T), bias_T_params["layers"][0])]
+            for i in range(len(bias_T_params["layers"]) - 1):
+                bias_T.append(nn.ReLU())
+                bias_T.append(
+                    nn.Linear(
+                        bias_T_params["layers"][i], bias_T_params["layers"][i + 1]
+                    )
+                )
+            bias_T.append(nn.ReLU())
+            bias_T.append(nn.Linear(bias_T_params["layers"][-1], 1))
+            self.bias_T = nn.Sequential(*bias_T)
+        else:
+            self.bias_T = None
+        if "cor_dir" in modelParams:
+            cor_dir_params = modelParams["cor_dir"]
+            cor_dir = [nn.Linear(len(self.inp_dir), cor_dir_params["layers"][0])]
+            for i in range(len(cor_dir_params["layers"]) - 1):
+                cor_dir.append(nn.ReLU())
+                cor_dir.append(
+                    nn.Linear(
+                        cor_dir_params["layers"][i], cor_dir_params["layers"][i + 1]
+                    )
+                )
+            cor_dir.append(nn.ReLU())
+            cor_dir.append(nn.Linear(cor_dir_params["layers"][-1], 1, bias=False))
+            self.cor_dir = nn.Sequential(*cor_dir)
+        else:
+            self.cor_dir = None
+        if "cor_terrain" in modelParams:
+            cor_terrain_params = modelParams["cor_terrain"]
+            cor_terrain = [
+                nn.Linear(len(self.inp_terrain), cor_terrain_params["layers"][0])
+            ]
+            for i in range(len(cor_terrain_params["layers"]) - 1):
+                cor_terrain.append(nn.ReLU())
+                cor_terrain.append(
+                    nn.Linear(
+                        cor_terrain_params["layers"][i],
+                        cor_terrain_params["layers"][i + 1],
+                    )
+                )
+            cor_terrain.append(nn.ReLU())
+            cor_terrain.append(
+                nn.Linear(cor_terrain_params["layers"][-1], 1, bias=False)
+            )
+            self.cor_terrain = nn.Sequential(*cor_terrain)
+        else:
+            self.cor_terrain = None
+        if "sw_contrib" in modelParams:
+            sw_contrib_params = modelParams["sw_contrib"]
+            R_sw_contrib = [
+                nn.Linear(len(self.inp_sw_contrib), sw_contrib_params["layers"][0])
+            ]
+            for i in range(len(sw_contrib_params["layers"]) - 1):
+                R_sw_contrib.append(nn.ReLU())
+                R_sw_contrib.append(
+                    nn.Linear(
+                        sw_contrib_params["layers"][i],
+                        sw_contrib_params["layers"][i + 1],
+                    )
+                )
+            R_sw_contrib.append(nn.ReLU())
+            R_sw_contrib.append(nn.Linear(sw_contrib_params["layers"][-1], 1))
+            self.R_sw_contrib = nn.Sequential(*R_sw_contrib)
+        else:
+            self.R_sw_contrib = None
+
+        cor_acc_params = modelParams["cor_acc"]
+        cor_acc = [nn.Linear(len(self.inp_cor_acc), cor_acc_params["layers"][0])]
+        for i in range(len(cor_acc_params["layers"]) - 1):
+            cor_acc.append(nn.ReLU())
+            cor_acc.append(
+                nn.Linear(cor_acc_params["layers"][i], cor_acc_params["layers"][i + 1])
+            )
+        cor_acc.append(nn.ReLU())
+        cor_acc.append(nn.Linear(cor_acc_params["layers"][-1], 1))
+        cor_acc.append(nn.Softplus())
+        self.cor_acc = nn.Sequential(*cor_acc)
+
+        cor_abl_params = modelParams["cor_abl"]
+        cor_abl = [nn.Linear(len(self.inp_cor_abl), cor_abl_params["layers"][0])]
+        for i in range(len(cor_abl_params["layers"]) - 1):
+            cor_abl.append(nn.ReLU())
+            cor_abl.append(
+                nn.Linear(cor_abl_params["layers"][i], cor_abl_params["layers"][i + 1])
+            )
+        cor_abl.append(nn.ReLU())
+        cor_abl.append(nn.Linear(cor_abl_params["layers"][-1], 1))
+        cor_abl.append(nn.Softplus())
+        self.cor_abl = nn.Sequential(*cor_abl)
+
+    def _net_from_df(self, net, columns, df, name):
+        """Raw output of `net` on the unnormalized `columns` of df."""
+        if net is None:
+            raise RuntimeError(f"This model does not define a {name} network.")
+        missing_columns = [column for column in columns if column not in df]
+        if missing_columns:
+            raise ValueError(f"Missing {name} columns: {missing_columns}")
+
+        # In the order of the model inputs, as the forward pass takes them
+        columns = sorted(columns, key=self.input_labels.index)
+        parameter = next(net.parameters())
+        inputs = torch.as_tensor(
+            df[columns].to_numpy(dtype=np.float32),
+            device=parameter.device,
+            dtype=parameter.dtype,
+        )
+        for column_index, column in enumerate(columns):
+            lower_bound, upper_bound = self.normalizing_bounds[column]
+            inputs[:, column_index] = Normalizer._norm(
+                inputs[:, column_index], lower_bound, upper_bound
+            )
+        return net(inputs)[:, 0]
+
+    def _P_cor(self, inputs):
+        """Precipitation correction of the normalized model inputs."""
+        factor = F.sigmoid(self.bias_cor(inputs[:, self.ind_inp_bias_cor])[:, 0])
+        if self.bias_cor_elev is not None:
+            factor = factor * F.sigmoid(
+                self.bias_cor_elev(inputs[:, self.ind_inp_bias_cor_elev])[:, 0]
+            )
+        return self.p_min + (self.p_max - self.p_min) * factor
+
+    @property
+    def inp_P_cor(self):
+        """Inputs the precipitation correction depends on."""
+        if self.bias_cor is None:
+            return None
+        return list(dict.fromkeys(self.inp_bias_cor + (self.inp_bias_cor_elev or [])))
+
+    def predict_bias_cor_from_df(self, df):
+        """Predict the precipitation correction for a set of points in a DataFrame.
+
+        The input columns are expected to contain unnormalized values. The
+        returned tensor has one value per row of df, the precipitation correction
+        ``P_cor`` of the forward pass, within [p_min, p_max].
+        """
+        factor = F.sigmoid(
+            self._net_from_df(
+                self.bias_cor, self.inp_bias_cor, df, "precipitation correction"
+            )
+        )
+        if self.bias_cor_elev is not None:
+            factor = factor * F.sigmoid(
+                self._net_from_df(
+                    self.bias_cor_elev,
+                    self.inp_bias_cor_elev,
+                    df,
+                    "precipitation correction elevation factor",
+                )
+            )
+        return self.p_min + (self.p_max - self.p_min) * factor
+
+    def predict_temp_bias_from_df(self, df):
+        """Predict the temperature bias for a set of points in a DataFrame.
+
+        The input columns are expected to contain unnormalized values. The
+        returned tensor has one value per row of df, the temperature bias of the
+        forward pass in °C, within [-b_max, b_max].
+        """
+        raw = self._net_from_df(self.bias_T, self.inp_bias_T, df, "temperature bias")
+        return self.b_max * F.tanh(raw)
+
+    def get_cor_T(self, inputs):
+        P = Normalizer._unorm(
+            inputs[:, self.ind_precip],
+            self.normalizing_bounds["tp_sum"][0],
+            self.normalizing_bounds["tp_sum"][1],
+        )
+        T = Normalizer._unorm(
+            inputs[:, self.ind_temp],
+            self.normalizing_bounds["t2m"][0],
+            self.normalizing_bounds["t2m"][1],
+        )  # in Celsius degrees
+        elev_diff_unorm = Normalizer._unorm(
+            inputs[:, self.ind_elev_diff],
+            self.normalizing_bounds["ELEVATION_DIFFERENCE"][0],
+            self.normalizing_bounds["ELEVATION_DIFFERENCE"][1],
+        )
+        if self.cor_T is not None:
+            inp_cor_T = inputs[:, self.ind_inp_cor_T]
+        else:
+            inp_grad_T = inputs[:, self.ind_inp_grad_T]
+            inp_bias_T = inputs[:, self.ind_inp_bias_T]
+        inp_cor_acc = inputs[:, self.ind_inp_cor_acc]
+        inp_cor_abl = inputs[:, self.ind_inp_cor_abl]
+
+        if self.cor_T is not None:
+            # Temperature correction for precipitation and PDD
+            # Acts as a shift of the temperature
+            cor_T_val = self.cor_T(inp_cor_T)
+            elev_diff = inputs[:, self.ind_elev_diff]
+            cor_T = elev_diff * cor_T_val[:, 0] + cor_T_val[:, 1]
+        elif self.cor_dir is not None and self.cor_terrain is not None:
+            # grad_T_val = self.grad_T(inp_grad_T)
+            # bias_T_val = self.bias_T(inp_bias_T)
+            # cor_T_val = torch.concatenate([grad_T_val, bias_T_val], dim=1)
+            elev_diff = inputs[:, self.ind_elev_diff]
+            # cor_T = elev_diff * cor_T_val[:, 0] + cor_T_val[:, 1]
+
+            inp_dir = inputs[:, self.ind_inp_dir]
+            inp_terrain = inputs[:, self.ind_inp_terrain]
+            alpha = 1 - 15 * F.sigmoid(self.grad_T(inp_grad_T)[:, 0])
+            # alpha = self.grad_T(inp_grad_T)[:, 0]
+            bias = self.b_max * F.tanh(self.bias_T(inp_bias_T)[:, 0])
+            svf_unorm = Normalizer._unorm(
+                inputs[:, self.ind_svf],
+                self.normalizing_bounds["svf"][0],
+                self.normalizing_bounds["svf"][1],
+            )[:, 0]
+            ssrd = inputs[:, self.ind_ssrd][:, 0]
+            R_dir = self.cor_dir(inp_dir)[:, 0]
+            R_terrain = self.cor_terrain(inp_terrain)[:, 0]
+            cor_T_val = torch.concatenate(
+                [
+                    alpha[:, None],
+                    bias[:, None],
+                    ssrd[:, None],
+                    svf_unorm[:, None],
+                    R_dir[:, None],
+                    R_terrain[:, None],
+                ],
+                dim=1,
+            )
+            cor_T = (
+                # elev_diff * alpha + ssrd * (1 - svf_unorm) * R_dir + R_terrain + bias
+                elev_diff * alpha
+                + R_dir
+                + R_terrain
+                + bias
+            )
+
+            R_sw = 0.0
+        else:
+            elev_diff = inputs[:, self.ind_elev_diff]
+            inp_sw_contrib = inputs[:, self.ind_inp_sw_contrib]
+            alpha = -2 - 13 * F.sigmoid(self.grad_T(inp_grad_T)[:, 0])
+            bias = self.b_max * F.tanh(self.bias_T(inp_bias_T)[:, 0])
+            cor_T_val = torch.stack([alpha, bias], dim=1)
+            cor_T = elev_diff * alpha + bias
+
+            # Short wave radiation contribution
+            R_sw = F.sigmoid(self.R_sw_contrib(inp_sw_contrib).view(-1))
+
+        if self.bias_cor is not None:
+            # P_cor = (
+            #     1
+            #     + (elev_diff_unorm / 100)
+            #     * 0.2
+            #     * (torch.tanh(self.lapse_rate_P_cor) + 1)
+            #     / 2
+            # ) * (F.sigmoid(self.bias_cor(inp_bias_cor)[:, 0]) * 2)
+            P_cor = self._P_cor(inputs)
+        else:
+            P_cor = 1.0
+        P_solid = (
+            P
+            * P_cor
+            * F.sigmoid((torch.tanh(self.tau_P_s) + 1) * 2 * (self.tau_P_c - cor_T - T))
+        )
+        curv_pdd = (torch.tanh(self.beta_pdd) + 1) * 2
+        PDD = F.softplus((T + cor_T) * curv_pdd) / curv_pdd
+
+        cor_acc = F.sigmoid(self.cor_acc(inp_cor_acc).view(-1))
+        cor_abl = self.cor_abl(inp_cor_abl).view(-1)
+
+        return (
+            cor_T,
+            cor_T_val,
+            P,
+            T,
+            P_solid,
+            P_cor,
+            PDD,
+            elev_diff_unorm,
+            cor_acc,
+            cor_abl,
+            R_sw,
+        )
+
+    def forward(self, inputs):
+        P = Normalizer._unorm(
+            inputs[:, self.ind_precip],
+            self.normalizing_bounds["tp_sum"][0],
+            self.normalizing_bounds["tp_sum"][1],
+        )
+        T = Normalizer._unorm(
+            inputs[:, self.ind_temp],
+            self.normalizing_bounds["t2m"][0],
+            self.normalizing_bounds["t2m"][1],
+        )  # in Celsius degrees
+        elev_diff_unorm = Normalizer._unorm(
+            inputs[:, self.ind_elev_diff],
+            self.normalizing_bounds["ELEVATION_DIFFERENCE"][0],
+            self.normalizing_bounds["ELEVATION_DIFFERENCE"][1],
+        )
+        if self.cor_T is not None:
+            inp_cor_T = inputs[:, self.ind_inp_cor_T]
+        else:
+            inp_grad_T = inputs[:, self.ind_inp_grad_T]
+            inp_bias_T = inputs[:, self.ind_inp_bias_T]
+        inp_cor_acc = inputs[:, self.ind_inp_cor_acc]
+        inp_cor_abl = inputs[:, self.ind_inp_cor_abl]
+
+        if self.cor_T is not None:
+            # Temperature correction for precipitation and PDD
+            # Acts as a shift of the temperature
+            cor_T_val = self.cor_T(inp_cor_T)
+            elev_diff = inputs[:, self.ind_elev_diff]
+            cor_T = elev_diff * cor_T_val[:, 0] + cor_T_val[:, 1]
+        elif self.cor_dir is not None and self.cor_terrain is not None:
+            # grad_T_val = self.grad_T(inp_grad_T)
+            # bias_T_val = self.bias_T(inp_bias_T)
+            # cor_T_val = torch.concatenate([grad_T_val, bias_T_val], dim=1)
+            elev_diff = inputs[:, self.ind_elev_diff]
+            # cor_T = elev_diff * cor_T_val[:, 0] + cor_T_val[:, 1]
+
+            inp_dir = inputs[:, self.ind_inp_dir]
+            inp_terrain = inputs[:, self.ind_inp_terrain]
+            alpha = 1 - 15 * F.sigmoid(self.grad_T(inp_grad_T)[:, 0])
+            # alpha = self.grad_T(inp_grad_T)[:, 0]
+            bias = self.b_max * F.tanh(self.bias_T(inp_bias_T)[:, 0])
+            # svf_unorm = Normalizer._unorm(
+            #     inputs[:, self.ind_svf],
+            #     self.normalizing_bounds["svf"][0],
+            #     self.normalizing_bounds["svf"][1],
+            # )[:, 0]
+            # ssrd = inputs[:, self.ind_ssrd][:, 0]
+            R_dir = self.cor_dir(inp_dir)[:, 0]
+            R_terrain = self.cor_terrain(inp_terrain)[:, 0]
+            cor_T = (
+                # elev_diff * alpha + ssrd * (1 - svf_unorm) * R_dir + R_terrain + bias
+                elev_diff * alpha
+                + R_dir
+                + R_terrain
+                + bias
+            )
+
+            R_sw = 0.0
+        else:
+            elev_diff = inputs[:, self.ind_elev_diff]
+            inp_sw_contrib = inputs[:, self.ind_inp_sw_contrib]
+            alpha = -2 - 13 * F.sigmoid(self.grad_T(inp_grad_T)[:, 0])
+            bias = self.b_max * F.tanh(self.bias_T(inp_bias_T)[:, 0])
+            cor_T = elev_diff * alpha + bias
+
+            # Short wave radiation contribution
+            R_sw = F.sigmoid(self.R_sw_contrib(inp_sw_contrib).view(-1))
+
+        if self.bias_cor is not None:
+            # P_cor = (
+            #     1
+            #     + (elev_diff_unorm / 100)
+            #     * 0.2
+            #     * (torch.tanh(self.lapse_rate_P_cor) + 1)
+            #     / 2
+            # ) * (F.sigmoid(self.bias_cor(inp_bias_cor)[:, 0]) * 2)
+            P_cor = self._P_cor(inputs)
+        else:
+            P_cor = 1.0
+        P_solid = (
+            P
+            * P_cor
+            * F.sigmoid((torch.tanh(self.tau_P_s) + 1) * 2 * (self.tau_P_c - cor_T - T))
+        )
+        curv_pdd = (torch.tanh(self.beta_pdd) + 1) * 2
+        PDD = F.softplus((T + cor_T) * curv_pdd) / curv_pdd
+
+        # Accumulation factor correction
+        cor_acc = F.sigmoid(self.cor_acc(inp_cor_acc).view(-1))
+
+        # Ablation factor correction
+        cor_abl = self.cor_abl(inp_cor_abl).view(-1)
+
+        MB = self.beta1 * cor_acc * P_solid - self.beta2 * cor_abl * PDD - R_sw
+        # TODO: changer scaling de beta2 pour correspondre aux valeurs typiques calées avec ODINN
+        return MB.view(-1, 1)
+
+
+def createModel(cfg, modelParams, nInp=None):
+    nInp = nInp or len(cfg.featureColumns)
     dropout = modelParams.get("dropout", 0.0)
     if modelParams["type"] == "sequential":
         assert len(modelParams["layers"]) > 0
@@ -22,6 +626,11 @@ def createModel(cfg, modelParams):
         l.append(nn.Linear(modelParams["layers"][-1], 1))
         network = nn.Sequential(*l)
         return network
+    if modelParams["type"] == "sequential_downscaled":
+        assert len(modelParams["layers"]) > 0
+        return SequentialDownscaledModel(modelParams, cfg.bnds)
+    elif modelParams["type"] == "TIlike":
+        return TILikeModel(modelParams, cfg.bnds)
     else:
         raise ValueError(f"Model {modelParams['type']} is not supported.")
 
@@ -50,9 +659,9 @@ def buildModel(cfg, version=None, params=None):
     return model
 
 
-def aggrMetadataId(metadata, groupByCol):
+def aggrMetadata(metadata, groupByCol):
     """
-    Aggregates metadata temporally by taking the first value encountered in each
+    Aggregates metadata by taking the first value encountered in each
     aggregated group. These values are supposed to be unique per group.
 
     Args:
@@ -65,6 +674,8 @@ def aggrMetadataId(metadata, groupByCol):
     aggMap = {"YEAR": "first", "ID": "first", "RGIId": "first"}
     if "GLWD_ID" in metadataKeys:
         aggMap["GLWD_ID"] = "first"
+    if "GLWD_M_ID" in metadataKeys:
+        aggMap["GLWD_M_ID"] = "first"
     if "POINT_LAT" in metadataKeys:
         aggMap["POINT_LAT"] = "first"
     if "POINT_LON" in metadataKeys:
@@ -73,8 +684,10 @@ def aggrMetadataId(metadata, groupByCol):
         aggMap["PERIOD"] = "first"
     if "POINT_ELEVATION" in metadataKeys:
         aggMap["POINT_ELEVATION"] = "first"
-    metadataAggrId = metadata.groupby(groupByCol).agg(aggMap)
-    return metadataAggrId
+    if "ELEVATION_DIFFERENCE" in metadataKeys:
+        aggMap["ELEVATION_DIFFERENCE"] = "first"
+    metadataAggr = metadata.groupby(groupByCol).agg(aggMap)
+    return metadataAggr
 
 
 def aggrPredict(pred, idAggr, reduce="sum", out=None):
@@ -99,29 +712,15 @@ def aggrPredict(pred, idAggr, reduce="sum", out=None):
     )
     if out is None:
         out = torch.zeros(
-            (len(np.unique(idAggr)),), device=pred.device, dtype=pred.dtype
+            (len(torch.unique(idAggrTorch)),), device=pred.device, dtype=pred.dtype
         )
     # predSumAnnual = out.scatter_reduce(0, idAggrTorch, pred, reduce=reduce)
-    predSumAnnual = out.scatter_reduce_(0, idAggrTorch, pred, reduce=reduce)
+    # include_self=False: the initial value of `out` must not count as a sample,
+    # otherwise a mean over N values is computed as sum / (N + 1)
+    predSumAnnual = out.scatter_reduce_(
+        0, idAggrTorch, pred, reduce=reduce, include_self=False
+    )
     return predSumAnnual  # This shares memory with out
-
-
-def aggrMetadataGlwdId(metadata, groupByCol):
-    """
-    Performs the glacier wide aggregation of the metadata by taking the first
-    value encountered in each aggregated group. These values are supposed to be
-    unique per group.
-
-    Args:
-        metadata (pd.DataFrame): Input metadata to aggregate.
-        groupByCol (str): The column to use for aggregation.
-
-    Returns an aggregated pd.DataFrame.
-    """
-    metadataAggrYear = metadata.groupby(groupByCol).agg(
-        YEAR=("YEAR", "first")  # Assumes YEAR is unique per GEOD_ID
-    )  # .set_index('YEAR')
-    return metadataAggrYear
 
 
 def aggrPredictGlwd(pred, idAggr, out=None):
@@ -147,9 +746,12 @@ def aggrPredictGlwd(pred, idAggr, out=None):
         out = torch.zeros(
             (len(np.unique(idAggr)),), device=pred.device, dtype=pred.dtype
         )
+    # Aggregations of glacier wide values are always averaged. include_self=False: the
+    # initial value of `out` must not count as a sample, otherwise the mean over N
+    # values is computed as sum / (N + 1)
     predSumAnnualGlwd = out.scatter_reduce_(
-        0, idAggrTorch, pred, reduce="mean"
-    )  # Aggregations of glacier wide values are always averaged
+        0, idAggrTorch, pred, reduce="mean", include_self=False
+    )
     return predSumAnnualGlwd  # This shares memory with out
 
 
@@ -190,8 +792,7 @@ class CustomTorchNeuralNetRegressor(nn.Module):
             stakeMethod = geodataloader.stakesVal if val else geodataloader.stakes
             for g in iterator():
                 # Get input features, metadata and ground truth
-                stakes, metadata, point_balance = stakeMethod(g)
-                idAggr = metadata["ID"].values
+                stakes, metadata, point_balance, precomputed_meta = stakeMethod(g)
 
                 # Make prediction
                 stakesTorch = torch.tensor(stakes.astype(np.float32)).to(
@@ -203,11 +804,16 @@ class CustomTorchNeuralNetRegressor(nn.Module):
                 groundTruthTorch = torch.tensor(point_balance.astype(np.float32)).to(
                     geodataloader.device
                 )
-                int_id, unique_id = pd.factorize(idAggr)
-                trueMean = aggrPredict(groundTruthTorch, int_id, reduce="mean")
-                predSum = aggrPredict(pred, int_id)
-                metadata = metadata.assign(ID_int=int_id)
-                grouped_ids_glacier = aggrMetadataId(metadata, "ID_int")
+                int_id = torch.tensor(precomputed_meta["int_id"].astype(np.int64)).to(
+                    geodataloader.device
+                )
+                nunique = precomputed_meta["nunique_ids"]
+                trueMean = torch.zeros((nunique,), device=pred.device, dtype=pred.dtype)
+                predSum = torch.zeros((nunique,), device=pred.device, dtype=pred.dtype)
+                aggrPredict(groundTruthTorch, int_id, reduce="mean", out=trueMean)
+                aggrPredict(pred, int_id, out=predSum)
+                metadata = metadata.assign(ID_int=precomputed_meta["int_id"])
+                grouped_ids_glacier = aggrMetadata(metadata, "ID_int")
 
                 # Create grouped prediction DataFrame
                 assert grouped_ids_glacier.index.name == "ID_int"
@@ -228,6 +834,9 @@ class CustomTorchNeuralNetRegressor(nn.Module):
                 grouped_ids = pd.concat(
                     [grouped_ids, grouped_ids_glacier], ignore_index=True
                 )
+
+                if geodataloader.allStakesPerIter:
+                    break
 
         if grouped_ids.shape[0] > 0:
             # ID_int does not make sense since it is used only to perform the aggregation with PyTorch, the variable to use is ID instead

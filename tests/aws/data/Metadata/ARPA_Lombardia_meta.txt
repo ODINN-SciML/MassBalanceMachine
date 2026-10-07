@@ -1,0 +1,2 @@
+Code,Name,Longitude,Latitude,Elevation,T,TMIN,TMAX,P,Date_Start,Date_End
+LOM0154,Lanzada Passo Marinelli,9.915,46.35,3032,x,x,x,x,20121013,20201231

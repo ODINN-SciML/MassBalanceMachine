@@ -1,24 +1,662 @@
 import os
+import json
 import pandas as pd
+import numpy as np
 import tqdm
 import multiprocessing
 import xarray as xr
-
-from oggm import utils
+from calendar import month_abbr
+from functools import lru_cache
+import urllib
 
 from data_processing.Dataset import Dataset
 from data_processing.Product import Product
-from data_processing.product_utils import rgi_id_to_folders, mbm_path, data_path
+from data_processing.product_utils import (
+    rgi_id_to_folders,
+    glacier_id_to_folders,
+    get_data_path,
+)
 from data_processing.get_topo_data import (
     glacier_cell_area,
     get_glacier_mask,
+    masked_glacier_grid,
+)
+from data_processing.get_climate_data import climate_file_paths
+from data_processing.parallel_utils import gridded_worker_count
+from data_processing.custom_outlines import assert_spec_matches, build_custom_gdirs
+from data_processing.pgo import (
+    prepare_PGO_outlines,
+    pgo_outline_spec,
+    outlines_path,
+    csv_correspondence_file,
+)
+from data_processing.glamos import (
+    glamos_outline_spec,
+    load_sgi_outlines,
+    SWITZERLAND_REGION_ID,
+)
+from data_processing.rabatel16 import (
+    rabatel16_outline_spec,
+    rabatel16_dem_file,
+    load_rabatel16_outlines,
+    FRENCH_ALPS_REGION_ID,
+)
+from data_processing.fischer11 import (
+    fischer11_outline_spec,
+    load_gi_outlines,
+    AUSTRIA_REGION_ID,
+    FIRST_EPOCH as FISCHER11_FIRST_EPOCH,
+)
+from data_processing.hagg12 import (
+    hagg12_outline_spec,
+    load_hagg12_outlines,
+    BAVARIA_REGION_ID,
+)
+from data_processing.maurer19 import (
+    OUTLINES_YEAR as MAURER19_OUTLINES_YEAR,
+    maurer19_outline_spec,
+    load_maurer19_outlines,
+)
+from data_processing.belart20 import (
+    belart20_outline_spec,
+    load_belart20_outlines,
+    ICELAND_REGION_ID,
+)
+from data_processing.andreassen16 import (
+    andreassen16_outline_spec,
+    load_andreassen16_outlines,
+    NORWAY_REGION_ID,
 )
 from data_processing.glacier_utils import (
     create_glacier_grid_RGI,
     create_dem_file_RGI,
+    create_custom_dem_file,
     generate_svf_file,
 )
 from data_processing.utils.data_preprocessing import get_hash
+
+# Defined in `data_processing.utils.years`, which the geodetic sources import too: they
+# have to know the years of a window to keep it inside one side of a split, and they are
+# imported by this module.
+from data_processing.utils.years import years_from_time_range
+
+
+def years_from_time_ranges(time_ranges):
+    """Calendar years covered by at least one of several geodetic windows, sorted."""
+    return sorted(set().union(*(years_from_time_range(s, e) for s, e in time_ranges)))
+
+
+# Month names used in the gridded products, which are generated per calendar year
+MONTH_TO_ID = {month_abbr[i].lower() + ("_" if i > 9 else ""): i for i in range(1, 13)}
+
+# Climate variables attached to every gridded product. Shared by the generation of the
+# grids and by `climate_features_of_glaciers`, which reads them back, so that the two
+# cannot drift apart.
+GRID_VOIS_CLIMATE = [
+    "t2m",
+    "tp",
+    "slhf",
+    "sshf",
+    "ssrd",
+    "fal",
+    "str",
+    "u10",
+    "v10",
+    "tp_sum",
+    "slhf_sum",
+    "sshf_sum",
+    "ssrd_sum",
+    "str_sum",
+]
+
+
+def _window_month_bounds(window):
+    """First month and one past the last month of a geodetic window, both counted in
+    months since year 0.
+
+    A window is either a pair of dates, whose day is ignored as everywhere else in
+    the geodetic pipeline, or a pair of calendar years such as the (2000, 2020) of
+    Hugonnet21, which runs from January of the first to December of the year before
+    the second.
+    """
+    start, end = window
+    if isinstance(start, (int, np.integer)):
+        return start * 12, end * 12
+    start, end = pd.Timestamp(start), pd.Timestamp(end)
+    return start.year * 12 + start.month - 1, end.year * 12 + end.month - 1
+
+
+def geodetic_window_weights(metadata, periods):
+    """Matrix turning the glacier-wide monthly predictions into the mean annual mass
+    balance of every geodetic window.
+
+    Args:
+        metadata (pd.DataFrame): metadata of a geodetic grid, with the YEAR, MONTHS
+            and GLWD_M_ID_int columns.
+        periods (list of tuple): the geodetic windows of the glacier, see
+            `_window_month_bounds`.
+
+    Returns a float32 array of shape (number of windows, number of GLWD_M_ID_int)
+    whose entry (k, m) is 12 / (number of months of window k) if month m lies in
+    window k, and 0 otherwise. Column m is the month whose GLWD_M_ID_int is m, which
+    is the order the monthly predictions are aggregated in, so the product of this
+    matrix with the monthly glacier-wide predictions is the rate of every window.
+    """
+    months = metadata.groupby("GLWD_M_ID_int").agg({"YEAR": "first", "MONTHS": "first"})
+    assert (months.index.to_numpy() == np.arange(len(months))).all()
+    month_index = (
+        months.YEAR.to_numpy().astype(np.int64) * 12
+        + months.MONTHS.map(MONTH_TO_ID).to_numpy()
+        - 1
+    )
+    weights = np.zeros((len(periods), len(months)), dtype=np.float32)
+    for k, window in enumerate(periods):
+        lo, hi = _window_month_bounds(window)
+        inside = (month_index >= lo) & (month_index < hi)
+        assert (
+            inside.sum() == hi - lo
+        ), f"The geodetic grid has {inside.sum()} months inside the window {window}, which spans {hi - lo} months."
+        weights[k, inside] = 12 / (hi - lo)
+    return weights
+
+
+def _glacier_grid_products(grid_path, glacier_id, years, svf_grid_path=None):
+    """The `Product`s tracking the gridded output of one glacier: one parquet per
+    year plus the sky view factor, which is year-independent.
+
+    `svf_grid_path` is the grid tree holding the sky view factor, `grid_path` by
+    default. The grids built on climate projections take it from the ERA5 grids of
+    the same outlines instead of computing it again for every projection.
+    """
+    path_glacier = os.path.join(grid_path, *glacier_id_to_folders(glacier_id))
+    products = {
+        year: Product(os.path.abspath(os.path.join(path_glacier, f"{year}.parquet")))
+        for year in years
+    }
+    path_svf = os.path.join(
+        svf_grid_path or grid_path, *glacier_id_to_folders(glacier_id), "svf.nc"
+    )
+    products["svf"] = Product(path_svf)
+    return path_glacier, products
+
+
+def _gridded_features_for_glacier(
+    cfg,
+    glacier_id,
+    gdir,
+    mask_kind,
+    years,
+    region_id,
+    path_glacier,
+    products,
+    write_dem,
+    multi=True,
+    num_workers=None,
+    climate=None,
+):
+    """Generate the per-year gridded products of one glacier.
+
+    Shared by every grid source; what differs between them - where the outlines
+    come from, how the glacier directory and its mask are built, and how the DEM is
+    written out - is decided by the caller and passed in.
+
+    Args:
+        mask_kind (str): "custom" or "RGI", telling the workers which fields the
+            glacier directory carries. The grid itself is not passed to them: each
+            reads it once from the glacier directory and keeps it, which is both
+            cheaper than pickling it with every task and lighter in memory.
+        write_dem (callable): writes `dem.nc` into `path_glacier`, from which the
+            sky view factor is derived. `create_dem_file_RGI` for the RGI grids,
+            `create_custom_dem_file` for grids built on custom outlines.
+        num_workers (int): number of processes to generate the years with. Left to
+            None it is derived from the memory free at this moment, see
+            `parallel_utils.worker_count`.
+        climate: where the climate comes from. None for ERA5, else an object such
+            as `climate_projections.CMIP6Climate` providing `vois_climate`,
+            `prepare(region_id)` and `add_climate_features(dataset, ...)`.
+    """
+    # Check if sky view factor needs to be generated
+    p = products["svf"]
+    path_svf = os.path.dirname(p.file_path)
+    if not p.is_up_to_date():
+
+        # Create DEM grid
+        write_dem(path_svf)
+
+        # Generate sky view factor
+        generate_svf_file(path_svf)
+
+        p.gen_chk()
+
+    if climate is not None:
+        # Before the pool is created, so that the workers inherit the loaded climate
+        climate.prepare(region_id)
+
+    args = [
+        (
+            glacier_id,
+            year,
+            region_id,
+            cfg,
+            gdir,
+            mask_kind,
+            path_glacier,
+            p.file_path,
+            climate,
+        )
+        for year in years
+    ]
+
+    with tqdm.tqdm(total=len(args)) as pbar:
+        if multi:
+            n_workers = gridded_worker_count(
+                region_id,
+                requested=num_workers,
+                max_workers=min(len(args), os.cpu_count() or 4),
+            )
+            # Create a pool of workers
+            with multiprocessing.Pool(processes=n_workers) as pool:
+                for year in pool.imap_unordered(
+                    create_gridded_features_from_mask_per_year, args
+                ):
+                    pbar.update(1)  # Update progress bar
+                    pbar.set_description(
+                        "%s: Generating gridded data for %i" % (glacier_id, year)
+                    )  # Update description
+        else:
+            for arg in args:
+                year = create_gridded_features_from_mask_per_year(arg)
+                pbar.update(1)  # Update progress bar
+                pbar.set_description(
+                    "%s: Generating gridded data for %i" % (glacier_id, year)
+                )  # Update description
+
+
+def _create_gridded_features_custom_outlines(
+    cfg,
+    time_ranges,
+    outlines,
+    spec,
+    region_id,
+    multi=True,
+    num_workers=None,
+    climate=None,
+):
+    """Generate the gridded products of a set of glaciers described by custom
+    outlines, over the geodetic windows of every glacier.
+
+    Args:
+        time_ranges: {glacier_id: [(start_date, end_date), ...]}. The years to
+            generate are those covered by at least one window, so a glacier is only
+            gridded over the periods its geodetic targets actually cover.
+        outlines (gpd.GeoDataFrame): the outlines of those glaciers.
+        spec (CustomOutlineSpec): description of the outline dataset.
+        region_id (int): RGI first-order region, needed to locate the climate data.
+        num_workers (int): number of processes to use. Left to None it follows the
+            memory free on the machine, see `parallel_utils.worker_count`.
+        climate: where the climate comes from, see `_gridded_features_for_glacier`.
+            The grids then go to `climate.grid_root(spec.name)`, and the sky view
+            factor is shared with the ERA5 grids.
+    """
+    glacier_ids = list(time_ranges.keys())
+    svf_grid_path = spec.grid_root()
+    grid_path = svf_grid_path if climate is None else climate.grid_root(spec.name)
+    # Before anything, and in particular before the early return below: a cached grid
+    # carries no record of which outlines produced it, so this is the only thing
+    # standing between a request for one variant of a dataset and the grids of
+    # another one that happens to use the same glacier ids.
+    for folder in {grid_path, svf_grid_path}:
+        assert_spec_matches(spec, folder, overwrite=spec.reset)
+
+    reprocess = False
+    products = {}
+    paths = {}
+    glacier_id_to_years = {}
+    for glacier_id in glacier_ids:
+        years = years_from_time_ranges(time_ranges[glacier_id])
+        glacier_id_to_years[glacier_id] = years
+        paths[glacier_id], products[glacier_id] = _glacier_grid_products(
+            grid_path, glacier_id, years, svf_grid_path
+        )
+
+        if any([not p.is_up_to_date() for p in products[glacier_id].values()]):
+            reprocess = True
+
+    if reprocess:
+        gdirs, _ = build_custom_gdirs(outlines, spec)
+    else:
+        return
+
+    ids_gdirs = [gdir.rgi_id for gdir in gdirs]
+    assert all(
+        [glacier_id in ids_gdirs for glacier_id in glacier_ids]
+    ), "Not all keys in time_ranges have an associated glacier directory. There is probably a bug in the processing somewhere."
+
+    gdirs.sort(key=lambda gdir: gdir.rgi_id)
+    for gdir in gdirs:
+        glacier_id = gdir.rgi_id
+        if glacier_id not in products:
+            # The outlines can cover more glaciers than the ones asked for
+            continue
+
+        if all([p.is_up_to_date() for p in products[glacier_id].values()]):
+            print(f"All gridded products are already generated for {glacier_id}")
+            continue
+
+        _gridded_features_for_glacier(
+            cfg,
+            glacier_id,
+            gdir,
+            "custom",
+            glacier_id_to_years[glacier_id],
+            region_id,
+            paths[glacier_id],
+            products[glacier_id],
+            write_dem=lambda path, gdir=gdir: create_custom_dem_file(gdir, path),
+            multi=multi,
+            num_workers=num_workers,
+            climate=climate,
+        )
+
+
+def create_gridded_features_PGO(
+    cfg,
+    time_ranges,
+    multi=True,
+    num_workers=None,
+    climate=None,
+):
+    rgi_ids = list(time_ranges.keys())
+    custom_outlines = prepare_PGO_outlines(
+        outlines_path(), csv_correspondence_file(), rgi_ids_to_keep=rgi_ids
+    )
+    # PGO ids are RGI v7 ids, e.g. "RGI2000-v7.0-G-11-00147"
+    region_ids = {int(rgi_id.split("-")[3]) for rgi_id in rgi_ids}
+    assert (
+        len(region_ids) == 1
+    ), f"The PGO glaciers to process span several RGI regions: {sorted(region_ids)}."
+
+    _create_gridded_features_custom_outlines(
+        cfg,
+        time_ranges,
+        custom_outlines,
+        pgo_outline_spec(),
+        region_ids.pop(),
+        multi=multi,
+        num_workers=num_workers,
+        climate=climate,
+    )
+
+
+def create_gridded_features_GLAMOS(
+    cfg,
+    time_ranges,
+    epoch: int = 1973,
+    dem_source: str = "SRTM",
+    multi=True,
+    num_workers=None,
+    climate=None,
+):
+    """Generate the gridded products of Swiss glaciers on the outlines of the
+    Swiss Glacier Inventory, keyed by their SGI id.
+
+    A GLAMOS geodetic mass balance is referenced to the glacier area of its own
+    epoch, so the grids are built on the SGI inventory contemporary with the
+    calibration windows rather than on the RGI outlines. `dem_source` defaults to
+    SRTM, whose February 2000 acquisition matches the NASADEM shipped with the RGI
+    directories, so the two geometries see the same ice surface and only the
+    outline differs.
+
+    Args:
+        time_ranges: {sgi_id: [(start_date, end_date), ...]}, the geodetic windows
+            of every SGI entity.
+        epoch (int): the SGI inventory epoch to take the outlines from.
+        num_workers (int): number of processes to use. Left to None it follows the
+            memory free on the machine, see `parallel_utils.worker_count`.
+    """
+    sgi_ids = list(time_ranges.keys())
+    outlines = load_sgi_outlines(epoch=epoch, sgi_ids_to_keep=sgi_ids)
+
+    _create_gridded_features_custom_outlines(
+        cfg,
+        time_ranges,
+        outlines,
+        glamos_outline_spec(epoch=epoch, dem_source=dem_source),
+        SWITZERLAND_REGION_ID,
+        multi=multi,
+        num_workers=num_workers,
+        climate=climate,
+    )
+
+
+def create_gridded_features_Rabatel16(
+    cfg,
+    time_ranges,
+    spec=None,
+    multi=True,
+    num_workers=None,
+    climate=None,
+):
+    """Generate the gridded products of French glaciers on the 1985-86 outlines used
+    by Rabatel et al. (2016), keyed by their GLIMS id.
+
+    Args:
+        time_ranges: {glims_id: [(start_date, end_date), ...]}, the geodetic windows
+            of every glacier.
+        spec (CustomOutlineSpec): description of the outlines, by default
+            `rabatel16_outline_spec()`, which builds the grids on the IGN DEM of the
+            late 1970s.
+        num_workers (int): number of processes to use. Left to None it follows the
+            memory free on the machine, see `parallel_utils.worker_count`.
+    """
+    glims_ids = list(time_ranges.keys())
+    outlines = load_rabatel16_outlines(glacier_ids_to_keep=glims_ids)
+    spec = spec or rabatel16_outline_spec()
+    if spec.dem_file == rabatel16_dem_file(prepare=False):
+        # The cropped IGN DEM is downloaded once from the Hugging Face dataset
+        rabatel16_dem_file()
+
+    _create_gridded_features_custom_outlines(
+        cfg,
+        time_ranges,
+        outlines,
+        spec,
+        FRENCH_ALPS_REGION_ID,
+        multi=multi,
+        num_workers=num_workers,
+        climate=climate,
+    )
+
+
+def create_gridded_features_Fischer11(
+    cfg,
+    time_ranges,
+    epoch: int = FISCHER11_FIRST_EPOCH,
+    dem_source: str = "SRTM",
+    multi=True,
+    num_workers=None,
+    climate=None,
+):
+    """Generate the gridded products of Austrian glaciers on the outlines of one
+    Austrian Glacier Inventory, keyed by their inventory number.
+
+    Fischer (2011) refers a balance to the area at the first DEM of its period, so
+    the grids are built on the inventory of that epoch, see
+    `data_processing.fischer11.outline_epoch_of_period`. `dem_source` defaults to
+    SRTM, as for GLAMOS.
+
+    Args:
+        time_ranges: {inventory number: [(start_date, end_date), ...]}, the geodetic
+            periods of every glacier, all gridded on the inventory of `epoch`.
+        epoch (int): the inventory to take the outlines from, 1969 or 1998.
+        num_workers (int): number of processes to use. Left to None it follows the
+            memory free on the machine, see `parallel_utils.worker_count`.
+    """
+    glacier_ids = list(time_ranges.keys())
+    outlines = load_gi_outlines(epoch=epoch, glacier_ids_to_keep=glacier_ids)
+
+    _create_gridded_features_custom_outlines(
+        cfg,
+        time_ranges,
+        outlines,
+        fischer11_outline_spec(epoch=epoch, dem_source=dem_source),
+        AUSTRIA_REGION_ID,
+        multi=multi,
+        num_workers=num_workers,
+        climate=climate,
+    )
+
+
+def create_gridded_features_Hagg12(
+    cfg,
+    time_ranges,
+    dem_source: str = "COPDEM30",
+    multi=True,
+    num_workers=None,
+    climate=None,
+):
+    """Generate the gridded products of the Bavarian glaciers of Hagg et al. (2012) on
+    their RGI 6.2 outlines, keyed by their glacier code ("NSF").
+
+    Every period is gridded on the same outlines, those of the last survey of the paper
+    (2009/10), since no older one is available; see `data_processing.hagg12`.
+    `dem_source` defaults to the Copernicus GLO-30 DEM, 30 m, for these glaciers of
+    0.05 to 0.35 km², see `data_processing.hagg12.hagg12_outline_spec`.
+
+    Args:
+        time_ranges: {glacier code: [(start_date, end_date), ...]}, the geodetic periods
+            of every glacier.
+        num_workers (int): number of processes to use. Left to None it follows the
+            memory free on the machine, see `parallel_utils.worker_count`.
+    """
+    glacier_ids = list(time_ranges.keys())
+    outlines = load_hagg12_outlines(glacier_ids_to_keep=glacier_ids)
+
+    _create_gridded_features_custom_outlines(
+        cfg,
+        time_ranges,
+        outlines,
+        hagg12_outline_spec(dem_source=dem_source),
+        BAVARIA_REGION_ID,
+        multi=multi,
+        num_workers=num_workers,
+        climate=climate,
+    )
+
+
+def create_gridded_features_Maurer19(
+    cfg,
+    time_ranges,
+    epoch: int = MAURER19_OUTLINES_YEAR,
+    dem_source: str = "SRTM",
+    multi=True,
+    num_workers=None,
+    climate=None,
+):
+    """Generate the gridded products of the Himalayan glaciers of Maurer et al. (2019)
+    on their 1975 outlines, keyed by their RGI 5.0 id ("RGI50-15.02201").
+
+    The glaciers span RGI regions 13 to 15, and the climate is prepared region by
+    region, so the grids are generated once per region, all in the same `Maurer19`
+    tree. With `epoch=2000` they are generated on the outlines of 2000, the start of the
+    2000-2016 period, in the `Maurer19_2000` tree. `dem_source` defaults to SRTM, see
+    `data_processing.maurer19.maurer19_outline_spec`.
+
+    Args:
+        time_ranges: {RGI 5.0 id: [(start_date, end_date), ...]}, the geodetic periods
+            of every glacier.
+        num_workers (int): number of processes to use. Left to None it follows the
+            memory free on the machine, see `parallel_utils.worker_count`.
+    """
+    glacier_ids = list(time_ranges.keys())
+    outlines = load_maurer19_outlines(glacier_ids_to_keep=glacier_ids, epoch=epoch)
+    spec = maurer19_outline_spec(dem_source=dem_source, epoch=epoch)
+    for region_id in sorted({_region_id_of(g) for g in glacier_ids}):
+        in_region = [g for g in glacier_ids if _region_id_of(g) == region_id]
+        _create_gridded_features_custom_outlines(
+            cfg,
+            {g: time_ranges[g] for g in in_region},
+            outlines[outlines.MAURER19_ID.isin(in_region)],
+            spec,
+            region_id,
+            multi=multi,
+            num_workers=num_workers,
+            climate=climate,
+        )
+
+
+def create_gridded_features_Belart20(
+    cfg,
+    time_ranges,
+    dem_source: str = "COPDEM30",
+    multi=True,
+    num_workers=None,
+    climate=None,
+):
+    """Generate the gridded products of the Icelandic glaciers of Belart et al. (2020)
+    on their RGI 6.2 outlines, keyed by their glacier code ("ORA").
+
+    Every period is gridded on the same outlines, dated 1999-2004, since the outlines
+    of the paper are not published; see `data_processing.belart20`. `dem_source`
+    defaults to the Copernicus GLO-30 DEM, see
+    `data_processing.belart20.belart20_outline_spec`.
+
+    Args:
+        time_ranges: {glacier code: [(start_date, end_date), ...]}, the geodetic periods
+            of every glacier.
+        num_workers (int): number of processes to use. Left to None it follows the
+            memory free on the machine, see `parallel_utils.worker_count`.
+    """
+    glacier_ids = list(time_ranges.keys())
+    outlines = load_belart20_outlines(glacier_ids_to_keep=glacier_ids)
+
+    _create_gridded_features_custom_outlines(
+        cfg,
+        time_ranges,
+        outlines,
+        belart20_outline_spec(dem_source=dem_source),
+        ICELAND_REGION_ID,
+        multi=multi,
+        num_workers=num_workers,
+        climate=climate,
+    )
+
+
+def create_gridded_features_Andreassen16(
+    cfg,
+    time_ranges,
+    dem_source: str = "COPDEM30",
+    multi=True,
+    num_workers=None,
+    climate=None,
+):
+    """Generate the gridded products of the Norwegian glaciers of Andreassen et al.
+    (2016) on their RGI 6.2 outlines, keyed by their glacier code ("NIG").
+
+    Every period is gridded on the same outlines, dated 1999-2006, since the basins
+    of the paper are not published; see `data_processing.andreassen16`. `dem_source`
+    defaults to the Copernicus GLO-30 DEM, see
+    `data_processing.andreassen16.andreassen16_outline_spec`.
+
+    Args:
+        time_ranges: {glacier code: [(start_date, end_date), ...]}, the geodetic periods
+            of every glacier.
+        num_workers (int): number of processes to use. Left to None it follows the
+            memory free on the machine, see `parallel_utils.worker_count`.
+    """
+    glacier_ids = list(time_ranges.keys())
+    outlines = load_andreassen16_outlines(glacier_ids_to_keep=glacier_ids)
+
+    _create_gridded_features_custom_outlines(
+        cfg,
+        time_ranges,
+        outlines,
+        andreassen16_outline_spec(dem_source=dem_source),
+        NORWAY_REGION_ID,
+        multi=multi,
+        num_workers=num_workers,
+        climate=climate,
+    )
 
 
 def create_gridded_features_RGI(
@@ -26,94 +664,76 @@ def create_gridded_features_RGI(
     rgi_ids,
     years=range(2000, 2020),
     multi=True,
+    num_workers=None,
+    climate=None,
 ):
-    grid_path = os.path.join(data_path, "grids")
+    """Generate the gridded products of glaciers on their RGI outlines.
+
+    Args:
+        climate: where the climate comes from, see `_gridded_features_for_glacier`.
+            The grids then go to `climate.grid_root("Hugonnet21")`, and the sky view
+            factor is shared with the ERA5 grids.
+    """
+    svf_grid_path = os.path.join(get_data_path(), "grids", "Hugonnet21")
+    grid_path = svf_grid_path if climate is None else climate.grid_root("Hugonnet21")
     for rgi_id in rgi_ids:
         region_id = int(rgi_id.split("-")[1].split(".")[0])
 
-        products = {}
-        path_rgi_id = os.path.join(grid_path, *rgi_id_to_folders(rgi_id))
-        for year in years:
-            save_path = os.path.abspath(os.path.join(path_rgi_id, f"{year}.parquet"))
-            products[year] = Product(save_path)
-
-        # Add clear sky radiation product
-        svf_file = os.path.join(path_rgi_id, "svf.nc")
-        products["svf"] = Product(svf_file)
+        path_rgi_id, products = _glacier_grid_products(
+            grid_path, rgi_id, years, svf_grid_path
+        )
 
         if all([p.is_up_to_date() for p in products.values()]):
             # print(f"All gridded products are already generated for {rgi_id}")
             continue
 
-        # Check if sky view factor needs to be generated
-        p = products["svf"]
-        if not p.is_up_to_date():
+        # Get the glacier directory from OGGM. The grid it holds is read by the
+        # workers themselves, so it is dropped here.
+        _, _, gdir = get_glacier_mask(rgi_id, "", cfg)
 
-            # Create DEM grid
-            create_dem_file_RGI(cfg, rgi_id, path_rgi_id)
-
-            # Generate sky view factor
-            generate_svf_file(path_rgi_id)
-
-            p.gen_chk()
-
-        # Get glacier mask from OGGM
-        ds, glacier_indices, gdir = get_glacier_mask(rgi_id, "", cfg)
-
-        with tqdm.tqdm(total=len(years)) as pbar:
-            if multi:
-                # Create a pool of workers
-                with multiprocessing.Pool(processes=7) as pool:
-                    for year in pool.imap_unordered(
-                        create_gridded_features_from_mask_per_year,
-                        [
-                            (
-                                rgi_id,
-                                year,
-                                region_id,
-                                cfg,
-                                ds,
-                                glacier_indices,
-                                gdir,
-                                path_rgi_id,
-                            )
-                            for year in years
-                        ],
-                    ):
-                        pbar.update(1)  # Update progress bar
-                        pbar.set_description(
-                            "%s: Generating gridded data for %i" % (rgi_id, year)
-                        )  # Update description
-            else:
-                for year in years:
-                    create_gridded_features_from_mask_per_year(
-                        (
-                            rgi_id,
-                            year,
-                            region_id,
-                            cfg,
-                            ds,
-                            glacier_indices,
-                            gdir,
-                            path_rgi_id,
-                        )
-                    )
+        _gridded_features_for_glacier(
+            cfg,
+            rgi_id,
+            gdir,
+            "RGI",
+            years,
+            region_id,
+            path_rgi_id,
+            products,
+            write_dem=lambda path, rgi_id=rgi_id: create_dem_file_RGI(
+                cfg, rgi_id, path
+            ),
+            multi=multi,
+            num_workers=num_workers,
+            climate=climate,
+        )
 
 
 def create_gridded_features_from_mask_per_year(args):
-    rgi_id, year, region_id, cfg, ds, glacier_indices, gdir, path_rgi_id = args
+    rgi_id, year, region_id, cfg, gdir, mask_kind, path_rgi_id, svf_file, climate = args
     try:
         save_path = os.path.abspath(os.path.join(path_rgi_id, f"{year}.parquet"))
         p = Product(save_path)
 
         if not p.is_up_to_date():
 
+            # The masked grid of the glacier, read from its directory rather than
+            # received with the task: consecutive years of one glacier hit the
+            # cache, so it is read once per worker instead of once per year.
+            ds, glacier_indices = masked_glacier_grid(gdir, mask_kind)
+
             # Load sky view factor
-            svf = xr.open_dataset(os.path.join(path_rgi_id, "svf.nc"))
+            svf = xr.open_dataset(svf_file)
 
             # Create glacier grid
             df_grid = create_glacier_grid_RGI(
-                ds, [year], glacier_indices, gdir, rgi_id, ds_svf=svf
+                ds,
+                [year],
+                glacier_indices,
+                gdir,
+                rgi_id,
+                ds_svf=svf,
+                calendar_year=True,
             )
 
             dataset_grid = Dataset(
@@ -124,17 +744,9 @@ def create_gridded_features_from_mask_per_year(args):
             )
 
             # Climate columns
-            vois_climate = [
-                "t2m",
-                "tp",
-                "slhf",
-                "sshf",
-                "ssrd",
-                "fal",
-                "str",
-                "u10",
-                "v10",
-            ]
+            vois_climate = list(
+                GRID_VOIS_CLIMATE if climate is None else climate.vois_climate
+            )
             # Topographical columns
             voi_topographical = [
                 "aspect",
@@ -145,19 +757,30 @@ def create_gridded_features_from_mask_per_year(args):
                 "topo",
                 "svf",
             ]
+            # Some glaciers do not have velocity data
+            # Or depending on the product we want to generate, we do not necessarily have all variables available
+            # For example with PGO, the glacier grid does not come from an official RGI
+            if "hugonnet_dhdt" not in df_grid.columns:
+                voi_topographical.remove("hugonnet_dhdt")
+            if "consensus_ice_thickness" not in df_grid.columns:
+                voi_topographical.remove("consensus_ice_thickness")
             if "millan_v" not in df_grid.columns:
-                # Some glaciers do not have velocity data
                 voi_topographical.remove("millan_v")
             del df_grid  # Free up memory
 
             # Add climate data
-            dataset_grid.get_climate_features(
-                change_units=True,
-                smoothing_vois={
-                    "vois_climate": vois_climate,
-                    "vois_other": ["ALTITUDE_CLIMATE"],
-                },
-            )
+            smoothing_vois = {
+                "vois_climate": vois_climate,
+                "vois_other": ["ALTITUDE_CLIMATE"],
+            }
+            if climate is None:
+                dataset_grid.get_climate_features(
+                    change_units=True, smoothing_vois=smoothing_vois
+                )
+            else:
+                climate.add_climate_features(
+                    dataset_grid, change_units=True, smoothing_vois=smoothing_vois
+                )
 
             df_grid_y = dataset_grid.data[dataset_grid.data.YEAR == year]
 
@@ -189,27 +812,40 @@ def create_gridded_features_from_mask_per_year(args):
     return year
 
 
-def geodetic_input(
-    rgi_id,
-    years=range(2000, 2020),
-):
-    grid_path = os.path.join(data_path, "grids")
+def _geodetic_input_windowed(glacier_id, time_range, product_source):
+    """Assemble the per-year gridded products of one glacier over its geodetic
+    windows.
+
+    Used by every source whose target covers an arbitrary date range rather than a
+    whole number of calendar years. `time_range` is the list of (start_date,
+    end_date) windows of the glacier. The grid holds every month that lies in at
+    least one window, once: a month shared by two windows is predicted once and
+    weighted into both by `geodetic_window_weights`. With a single window this
+    clips the first and the last year to the months the window actually covers.
+    """
+    grid_path = os.path.join(get_data_path(), "grids", product_source)
+    bounds = [_window_month_bounds(window) for window in time_range]
+    years = years_from_time_ranges(time_range)
 
     df_X_geod = pd.DataFrame()
     maxId = -1
     for year in years:
         file_path = os.path.abspath(
-            os.path.join(grid_path, *rgi_id_to_folders(rgi_id), f"{year}.parquet")
+            os.path.join(
+                grid_path, *glacier_id_to_folders(glacier_id), f"{year}.parquet"
+            )
         )
         df_grid = pd.read_parquet(file_path)
+        month_index = year * 12 + df_grid.MONTHS.map(MONTH_TO_ID).to_numpy() - 1
+        in_a_window = np.zeros(len(df_grid), dtype=bool)
+        for lo, hi in bounds:
+            in_a_window |= (month_index >= lo) & (month_index < hi)
+        df_grid = df_grid[in_a_window]
 
         # Remap ID so that one ID covers only one year
         df_grid["ID"] = df_grid["ID"] + maxId + 1
 
-        df_grid["GLWD_ID"] = df_grid.apply(
-            lambda x: get_hash(f"{rgi_id}_{year}"),
-            axis=1,
-        ).astype(str)
+        df_grid["GLWD_M_ID"] = f"{glacier_id}_{year}_" + df_grid.MONTHS
 
         # Append to the final dataframe
         df_X_geod = pd.concat([df_X_geod, df_grid], ignore_index=True)
@@ -217,75 +853,514 @@ def geodetic_input(
         # Update the ID counter
         maxId = df_X_geod.ID.max()
 
+    df_X_geod["GLWD_ID"] = f"{glacier_id}"
+
+    df_X_geod["aspect"] = 180 * df_X_geod["aspect"] / np.pi
+    df_X_geod["slope"] = 180 * df_X_geod["slope"] / np.pi
+
     return df_X_geod
 
 
-def geodetic_target(rgi_ids, cfg):
-    period_range = 20
-    mbdf = utils.get_geodetic_mb_dataframe()
+def geodetic_input_PGO(rgi_id, time_range):
+    return _geodetic_input_windowed(rgi_id, time_range, "PGO")
+
+
+def geodetic_input_GLAMOS(sgi_id, time_range):
+    return _geodetic_input_windowed(sgi_id, time_range, "GLAMOS")
+
+
+def geodetic_input_Rabatel16(glims_id, time_range):
+    return _geodetic_input_windowed(glims_id, time_range, "Rabatel16")
+
+
+def geodetic_input_Fischer11(gi_id, time_range):
+    return _geodetic_input_windowed(gi_id, time_range, "Fischer11")
+
+
+def geodetic_input_Hagg12(glacier_id, time_range):
+    return _geodetic_input_windowed(glacier_id, time_range, "Hagg12")
+
+
+def geodetic_input_Maurer19(rgi50_id, time_range):
+    return _geodetic_input_windowed(rgi50_id, time_range, "Maurer19")
+
+
+def geodetic_input_Maurer19_2000(rgi50_id, time_range):
+    return _geodetic_input_windowed(rgi50_id, time_range, "Maurer19_2000")
+
+
+def geodetic_input_Belart20(glacier_id, time_range):
+    return _geodetic_input_windowed(glacier_id, time_range, "Belart20")
+
+
+def geodetic_input_Andreassen16(glacier_id, time_range):
+    return _geodetic_input_windowed(glacier_id, time_range, "Andreassen16")
+
+
+def geodetic_input_Hugonnet21(
+    rgi_id,
+    years=range(2000, 2020),
+):
+    grid_path = os.path.join(get_data_path(), "grids", "Hugonnet21")
+
+    df_X_geod = pd.DataFrame()
+    maxId = -1
+    for year in years:
+        file_path = os.path.abspath(
+            os.path.join(grid_path, *glacier_id_to_folders(rgi_id), f"{year}.parquet")
+        )
+        df_grid = pd.read_parquet(file_path)
+
+        # Remap ID so that one ID covers only one year
+        df_grid["ID"] = df_grid["ID"] + maxId + 1
+
+        # df_grid["GLWD_M_ID"] = df_grid.apply(
+        #     lambda x: get_hash(f"{rgi_id}_{year}_{x.MONTHS}"),
+        #     axis=1,
+        # ).astype(str)
+        df_grid["GLWD_M_ID"] = f"{rgi_id}_{year}_" + df_grid.MONTHS
+
+        # Append to the final dataframe
+        df_X_geod = pd.concat([df_X_geod, df_grid], ignore_index=True)
+
+        # Update the ID counter
+        maxId = df_X_geod.ID.max()
+
+    # df_X_geod["GLWD_ID"] = df_X_geod.apply(
+    #     lambda x: get_hash(f"{rgi_id}"),
+    #     axis=1,
+    # ).astype(str)
+    df_X_geod["GLWD_ID"] = f"{rgi_id}"
+
+    df_X_geod["aspect"] = 180 * df_X_geod["aspect"] / np.pi
+    df_X_geod["slope"] = 180 * df_X_geod["slope"] / np.pi
+
+    return df_X_geod
+
+
+def _region_id_of(rgi_id):
+    """RGI first-order region of a glacier, in both RGI naming schemes."""
+    if rgi_id.startswith("RGI2000-v7.0-G-"):
+        return int(rgi_id.split("-G-")[1].split("-")[0])
+    return int(rgi_id.split("-")[1].split(".")[0])
+
+
+def _grid_dir(glacier_id, product_source, grid_root=None):
+    """Directory holding the per-year gridded products of one glacier.
+
+    `grid_root` is the grid tree to look in, by default the ERA5 grids of
+    `product_source`.
+    """
+    if grid_root is None:
+        grid_root = os.path.join(get_data_path(), "grids", product_source)
+    return os.path.join(grid_root, *glacier_id_to_folders(glacier_id))
+
+
+def _grid_year_path(glacier_id, year, product_source, grid_root=None):
+    return os.path.abspath(
+        os.path.join(
+            _grid_dir(glacier_id, product_source, grid_root), f"{year}.parquet"
+        )
+    )
+
+
+def _require_grid(glacier_id, year, product_source, grid_root=None):
+    """Path of a gridded product, with an error that says how to produce it.
+
+    `pd.read_parquet` would otherwise raise a bare `FileNotFoundError` on a path deep
+    in `.data`, which says nothing about the generation step that is missing.
+    """
+    file_path = _grid_year_path(glacier_id, year, product_source, grid_root)
+    if not os.path.isfile(file_path):
+        raise FileNotFoundError(
+            f"No {product_source} grid for {glacier_id} in {year} ({file_path}). "
+            f"Generate it first with create_gridded_features_RGI(cfg, ['{glacier_id}'], "
+            f"years=[{year}])."
+        )
+    return file_path
+
+
+def _available_grid_years(glacier_id, product_source, grid_root=None):
+    """Years for which a gridded product of this glacier exists on disk, sorted."""
+    directory = _grid_dir(glacier_id, product_source, grid_root)
+    if not os.path.isdir(directory):
+        return []
+    years = []
+    for name in os.listdir(directory):
+        stem, ext = os.path.splitext(name)
+        if ext == ".parquet" and stem.isdigit():
+            years.append(int(stem))
+    return sorted(years)
+
+
+def geodetic_glacier_locations(glacier_ids, sources):
+    """Location of the glaciers of a geodetic product, from their gridded products.
+
+    The glaciers are given by the ids of their source (SGI ids for GLAMOS, RGI 5.0
+    ids for Maurer19, ...), which no single inventory locates. Each glacier is placed
+    at the mean of the points of the first year gridded for it, in the first of
+    `sources` that has a grid for it.
+
+    Args:
+        glacier_ids (list of str): Glaciers, by the ids of their source.
+        sources (list of str): Geodetic sources the glaciers can come from.
+
+    Returns a pd.DataFrame with columns GLACIER_ID, SOURCE, POINT_LAT, POINT_LON.
+    Glaciers without a grid in any of `sources` are left out.
+    """
+    rows = []
+    for glacier_id in glacier_ids:
+        for source in sources:
+            years = _available_grid_years(glacier_id, source)
+            if len(years) == 0:
+                continue
+            points = pd.read_parquet(
+                _grid_year_path(glacier_id, years[0], source),
+                columns=["POINT_LAT", "POINT_LON"],
+            )
+            rows.append(
+                {
+                    "GLACIER_ID": glacier_id,
+                    "SOURCE": source,
+                    "POINT_LAT": points.POINT_LAT.mean(),
+                    "POINT_LON": points.POINT_LON.mean(),
+                }
+            )
+            break
+    return pd.DataFrame(
+        rows, columns=["GLACIER_ID", "SOURCE", "POINT_LAT", "POINT_LON"]
+    )
+
+
+@lru_cache(maxsize=8)
+def _climate_grid_axes(region_id):
+    """The latitude and longitude axes of the ERA5-Land grid of one region.
+
+    Only the coordinates are read: the data variables of the regional file are close to
+    a gigabyte, and the axes are what is needed to tell which cell a point falls in.
+    """
+    climate_data, _ = climate_file_paths(region_id)
+    if not os.path.isfile(climate_data):
+        raise FileNotFoundError(
+            f"No ERA5 climate file for region {region_id} ({climate_data}). "
+            f"Download it with download_climate_ERA5({region_id})."
+        )
+    with xr.open_dataset(climate_data) as ds:
+        return ds["latitude"].values, ds["longitude"].values
+
+
+def _nearest_index(axis, values):
+    """Index of the nearest entry of `axis` for every value, as `sel(method='nearest')`
+    does on a monotonic coordinate."""
+    return np.abs(np.asarray(axis)[:, None] - np.asarray(values)[None, :]).argmin(
+        axis=0
+    )
+
+
+def _modal_climate_cell(region_id, pts_lat, pts_lon):
+    """The ERA5-Land cell most of these points fall in, as (latitude, longitude).
+
+    This is the cell whose climate the gridded products carry: `smooth_era5land_by_mode`
+    replaces every climate column of a glacier by its modal value over the glacier's
+    pixels, which is the value of the cell covering most of them.
+    """
+    lat_axis, lon_axis = _climate_grid_axes(region_id)
+
+    # ERA5 files come in either longitude convention, as `_process_climate_data` also
+    # has to handle when it selects the points.
+    if float(np.nanmax(lon_axis)) > 180.0:
+        pts_lon = np.mod(np.asarray(pts_lon, dtype=float), 360.0)
+
+    cells = np.stack(
+        [_nearest_index(lat_axis, pts_lat), _nearest_index(lon_axis, pts_lon)], axis=1
+    )
+    unique_cells, counts = np.unique(cells, axis=0, return_counts=True)
+    lat_idx, lon_idx = unique_cells[counts.argmax()]
+
+    lon = float(lon_axis[lon_idx])
+    return float(lat_axis[lat_idx]), ((lon + 180.0) % 360.0) - 180.0
+
+
+def climate_cells_of_glaciers(
+    rgi_ids, product_source="Hugonnet21", year=None, grid_root=None, region_id=None
+):
+    """The ERA5-Land cell each glacier takes its gridded climate from.
+
+    The gridded products hold one climate value per glacier and month, not one per pixel:
+    `create_gridded_features_from_mask_per_year` smooths them with
+    `smooth_era5land_by_mode`, which collapses the glacier onto the single cell covering
+    most of it. That cell follows from the glacier outline alone, so it is the same in
+    every year and is read here from one year's product.
+
+    Args:
+        rgi_ids: the glaciers to look up.
+        product_source (str): which grids to read the pixel coordinates from.
+        year (int): the year whose product to read. Left to None, the earliest year
+            available for each glacier is used.
+        grid_root (str): the grid tree to read, by default the ERA5 grids of
+            `product_source`.
+        region_id (int): RGI region of the glaciers. Left to None it is read from
+            their RGI ids, which the ids of custom outlines are not.
+
+    Returns:
+        pd.DataFrame: indexed by `RGIId`, with the columns `CLIMATE_LAT`, `CLIMATE_LON`
+        (the cell centre, longitude in -180..180) and `ALTITUDE_CLIMATE` (the
+        geopotential height of the cell, as stored in the products).
+    """
+    rows = []
+    for rgi_id in rgi_ids:
+        if year is None:
+            available = _available_grid_years(rgi_id, product_source, grid_root)
+            if not available:
+                raise FileNotFoundError(
+                    f"No {product_source} grid for {rgi_id} "
+                    f"({_grid_dir(rgi_id, product_source, grid_root)}). Generate it first with "
+                    f"create_gridded_features_RGI(cfg, ['{rgi_id}'], years=...)."
+                )
+            grid_year = available[0]
+        else:
+            grid_year = year
+
+        file_path = _require_grid(rgi_id, grid_year, product_source, grid_root)
+        df_grid = pd.read_parquet(
+            file_path, columns=["POINT_LAT", "POINT_LON", "ALTITUDE_CLIMATE"]
+        )
+
+        altitudes = df_grid.ALTITUDE_CLIMATE.unique()
+        assert len(altitudes) == 1, (
+            f"{rgi_id} carries {len(altitudes)} different ALTITUDE_CLIMATE values in "
+            f"{grid_year}, so its grid was not collapsed onto a single climate cell."
+        )
+
+        lat, lon = _modal_climate_cell(
+            _region_id_of(rgi_id) if region_id is None else region_id,
+            df_grid.POINT_LAT.to_numpy(dtype=float),
+            df_grid.POINT_LON.to_numpy(dtype=float),
+        )
+        rows.append(
+            {
+                "RGIId": rgi_id,
+                "CLIMATE_LAT": lat,
+                "CLIMATE_LON": lon,
+                "ALTITUDE_CLIMATE": float(altitudes[0]),
+            }
+        )
+
+    return pd.DataFrame(rows).set_index("RGIId")
+
+
+def climate_features_of_glaciers(
+    rgi_ids,
+    cfg,
+    years=range(2000, 2020),
+    product_source="Hugonnet21",
+    features=None,
+    drop_duplicate_cells=True,
+    validate=False,
+):
+    """The monthly climate features of a set of glaciers, one row per climate cell.
+
+    The gridded products repeat the same climate on every pixel of a glacier, and
+    neighbouring glaciers often share an ERA5-Land cell - they are about 9 km wide, so in
+    the Alps a cell commonly covers several glaciers. Both redundancies are dropped here:
+    the result holds one row per distinct cell, year and month.
+
+    Args:
+        rgi_ids: the glaciers whose climate to extract.
+        years: the calendar years to extract. A year without a generated grid raises.
+        product_source (str): only "Hugonnet21" for now. The windowed sources take a
+            time range rather than a list of years and need their own entry point.
+        features (list of str): the climate columns to keep. Defaults to
+            `GRID_VOIS_CLIMATE`, everything the grids carry.
+        drop_duplicate_cells (bool): when False, the rows are expanded back to one per
+            glacier, year and month, glaciers sharing a cell repeating the same values.
+        validate (bool): additionally check that the climate really is constant over the
+            pixels of a glacier before collapsing them. Costs a groupby per glacier.
+
+    Returns:
+        pd.DataFrame: `RGIId`, `RGI_IDS`, `N_GLACIERS`, `CLIMATE_LAT`, `CLIMATE_LON`,
+        `ALTITUDE_CLIMATE`, `YEAR`, `MONTHS` and the feature columns, sorted by cell,
+        year and month. `YEAR` is the calendar year and `MONTHS` uses the tokens of the
+        gridded products: `jan` to `sep`, then `oct_`, `nov_`, `dec_`. `RGIId` is the
+        glacier the values were read from and `RGI_IDS` every glacier on that cell.
+    """
+    if product_source != "Hugonnet21":
+        raise NotImplementedError(
+            f"climate_features_of_glaciers does not support {product_source!r}: the "
+            "windowed sources are keyed by time range rather than by year."
+        )
+
+    features = list(GRID_VOIS_CLIMATE) if features is None else list(features)
+    years = list(years)
+    rgi_ids = list(dict.fromkeys(rgi_ids))  # keep the order, drop repeated ids
+
+    create_gridded_features_RGI(cfg, rgi_ids, years=years)
+
+    return climate_features_from_grids(
+        rgi_ids,
+        years,
+        product_source,
+        features,
+        drop_duplicate_cells=drop_duplicate_cells,
+        validate=validate,
+    )
+
+
+def climate_features_from_grids(
+    glacier_ids,
+    years,
+    product_source,
+    features,
+    drop_duplicate_cells=True,
+    validate=False,
+    grid_root=None,
+    region_id=None,
+):
+    """The reading part of `climate_features_of_glaciers`, on grids that have
+    already been generated.
+
+    Args:
+        grid_root (str): the grid tree to read, by default the ERA5 grids of
+            `product_source`. The grids built on climate projections live elsewhere.
+        region_id (int): see `climate_cells_of_glaciers`.
+
+    See `climate_features_of_glaciers` for the other arguments and the result.
+    """
+    rgi_ids = list(glacier_ids)
+    cells = climate_cells_of_glaciers(
+        rgi_ids, product_source, grid_root=grid_root, region_id=region_id
+    )
+    check_cell_altitudes(cells)
+
+    keys = ["YEAR", "MONTHS"]
+    per_cell = []
+    for (lat, lon), group in cells.groupby(["CLIMATE_LAT", "CLIMATE_LON"]):
+        glaciers = sorted(group.index)
+        # The representative is fixed by the sort, so the same input always reads the
+        # same grid and returns the same rows.
+        representative = glaciers[0]
+        df_grid = pd.concat(
+            [
+                pd.read_parquet(
+                    _require_grid(representative, year, product_source, grid_root),
+                    columns=keys + features,
+                )
+                for year in years
+            ],
+            ignore_index=True,
+        )
+
+        if validate:
+            spread = df_grid.groupby(keys)[features].nunique()
+            assert (spread == 1).all().all(), (
+                f"The climate of {representative} varies over its pixels, so it cannot "
+                "be collapsed to one row per month. Columns concerned: "
+                f"{sorted(spread.columns[(spread != 1).any()])}."
+            )
+
+        df_cell = df_grid.drop_duplicates(subset=keys)[keys + features].copy()
+        df_cell["RGIId"] = representative
+        df_cell["RGI_IDS"] = [tuple(glaciers)] * len(df_cell)
+        df_cell["N_GLACIERS"] = len(glaciers)
+        df_cell["CLIMATE_LAT"] = lat
+        df_cell["CLIMATE_LON"] = lon
+        df_cell["ALTITUDE_CLIMATE"] = group.ALTITUDE_CLIMATE.iloc[0]
+        per_cell.append(df_cell)
+
+    return finalize_cell_table(
+        pd.concat(per_cell, ignore_index=True), cells, features, drop_duplicate_cells
+    )
+
+
+def check_cell_altitudes(cells):
+    """Glaciers sharing a cell must agree on its geopotential height; if they do not,
+    the mode picked different cells for different variables and the dedup would be
+    wrong. `cells` is the result of `climate_cells_of_glaciers`."""
+    for (lat, lon), group in cells.groupby(["CLIMATE_LAT", "CLIMATE_LON"]):
+        if not np.allclose(group.ALTITUDE_CLIMATE, group.ALTITUDE_CLIMATE.iloc[0]):
+            raise ValueError(
+                f"Glaciers {sorted(group.index)} map to the climate cell "
+                f"({lat}, {lon}) but carry different ALTITUDE_CLIMATE values "
+                f"{sorted(group.ALTITUDE_CLIMATE.unique())}."
+            )
+
+
+def finalize_cell_table(df, cells, features, drop_duplicate_cells):
+    """Order the columns and rows of a table holding one row per climate cell, year and
+    month, expanding it back to one row per glacier when `drop_duplicate_cells` is
+    False. See `climate_features_of_glaciers` for the columns."""
+    columns = [
+        "RGIId",
+        "RGI_IDS",
+        "N_GLACIERS",
+        "CLIMATE_LAT",
+        "CLIMATE_LON",
+        "ALTITUDE_CLIMATE",
+        "YEAR",
+        "MONTHS",
+    ] + list(features)
+    df = df[columns]
+
+    if not drop_duplicate_cells:
+        # Expand back to one row per glacier without re-reading anything: glaciers of a
+        # cell share its values by construction.
+        df = (
+            cells.drop(columns=["ALTITUDE_CLIMATE"])
+            .reset_index()
+            .merge(
+                df.drop(columns=["RGIId"]),
+                on=["CLIMATE_LAT", "CLIMATE_LON"],
+                how="left",
+            )[columns]
+        )
+
+    sort_by = ["CLIMATE_LAT", "CLIMATE_LON", "YEAR", "MONTHS"]
+    if not drop_duplicate_cells:
+        sort_by = ["RGIId"] + sort_by
+    df = (
+        df.assign(_month=df.MONTHS.map(MONTH_TO_ID))
+        .sort_values([c if c != "MONTHS" else "_month" for c in sort_by])
+        .drop(columns="_month")
+        .reset_index(drop=True)
+    )
+    return df
+
+
+def per_glacier_rates_Hugonnet21():
+    filename = "hugonnet_2021_ds_rgi60_pergla_rates_10_20_worldwide.csv"
+    url = f"https://cluster.klima.uni-bremen.de/~oggm/geodetic_ref_mb/{filename}"
+    path = os.path.join(get_data_path(), "Hugonnet21", filename)
+    if not os.path.exists(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        urllib.request.urlretrieve(url, path + ".part")
+        os.replace(path + ".part", path)
+    return pd.read_csv(path)  # .set_index("rgiid")
+
+
+def geodetic_target_Hugonnet21(rgi_ids):
+    mbdf = per_glacier_rates_Hugonnet21()
     geo_target_data = {}
     for rgi_id in rgi_ids:
-        glacier_geo_mb_data = mbdf.loc[rgi_id]
+        glacier_geo_mb_data = mbdf[mbdf.rgiid == rgi_id]
         data = glacier_geo_mb_data[
             glacier_geo_mb_data.period == "2000-01-01_2020-01-01"
         ]
         assert len(data) == 1
         data = data.iloc[0]
 
-        # 1. Convert to mass equivalent
-        density_ice = 916.7  # kg/m³
-        density_water = 1000  # kg/m³
         area = data.area  # glacier area m²
-        # print(f"{area=}")
-        dmdtda = data.dmdtda  # m.w.e. / year
-        # print(f"{dmdtda=}")
-        V_water = dmdtda * area * period_range  # m³ of water equivalent
-        # print(f"{V_water=}")
-        m = V_water * density_water  # kg
-        # print(m)
-
-        # # 2. Retrieve the cell area of the geodetic grid
-        # cell_area = glacier_cell_area(rgi_id, "", cfg)
-
-        # 3. Convert to point-wise meter water equivalent (m.w.e.)
-        # cumulative_pmb = V_water / cell_area # cumulative m.w.e.
-        # mean_pmb = cumulative_pmb / period_range # mean m.w.e. / year
-        cumulative_pmb = V_water / area  # cumulative m.w.e.
-        mean_pmb = cumulative_pmb / period_range  # mean m.w.e. / year
-
-        # 4. Do the same for the error
-        # err_dmdtda = data.err_dmdtda
-        # err_V_water = err_dmdtda * area * period_range
-        # err_cumulative_pmb = err_V_water / cell_area
-        # err_pmb = err_cumulative_pmb / period_range
         err_pmb = data.err_dmdtda
+        mean_mb = data.dmdtda
+        assert mean_mb is not None and err_pmb is not None
 
-        geo_target_data[rgi_id] = {"mean": mean_pmb, "err": err_pmb, "area": area}
+        geo_target_data[rgi_id] = {"mean": mean_mb, "err": err_pmb, "area": area}
 
     return geo_target_data
 
-    # # 3. Convert to meter snow equivalent (m.s.e.)
-    # V_ice = m / density_ice # m³ of snow equivalent
-    # cumulative_pmb = V_ice / cell_area # cumulative m.s.e.
-    # mean_pmb = cumulative_pmb / period_range # mean m.s.e.
 
-    # return mean_pmb
-
-    # annual_pred = ...
-    # cell_area = abs( np.diff(nds.x).mean() * np.diff(nds.y).mean() )
-    # total_area = (nds.hugonnet_dhdt*0+1).sum().data*cell_area
-    # print(f"{total_area=}")
-    # sum_dhdt = nds.hugonnet_dhdt.sum().data * cell_area # m.s.e. * m² / year
-    # print(f"{sum_dhdt=}")
-    # V_ice = sum_dhdt * 20 # m³ of snow equivalent
-    # print(f"{V_ice=}")
-    # mass_change = V_ice * density_ice # kg
-    # print(f"{mass_change=}")
-
-
-def geodetic_target_region(region_id, cfg, thres_area=None):
-    mbdf = utils.get_geodetic_mb_dataframe()
-    ind = mbdf.index.str.contains("RGI60-%02d." % region_id)
+def geodetic_target_region_Hugonnet21(region_id, thres_area=None):
+    mbdf = per_glacier_rates_Hugonnet21()
+    ind = mbdf.rgiid.str.contains("RGI60-%02d." % region_id)
     reg_mbdf = mbdf[ind]
     reg_mbdf = reg_mbdf[reg_mbdf.period == "2000-01-01_2020-01-01"]
     reg_mbdf = reg_mbdf[
@@ -293,6 +1368,306 @@ def geodetic_target_region(region_id, cfg, thres_area=None):
     ]  # Remove data which has been corrected
     if thres_area is not None:
         reg_mbdf = reg_mbdf[reg_mbdf.area > thres_area]
-    rgi_ids = reg_mbdf.index.values
+    rgi_ids = reg_mbdf.rgiid.values
 
-    return geodetic_target(rgi_ids, cfg)
+    return geodetic_target_Hugonnet21(rgi_ids)
+
+
+GEODETIC_INPUT_FN = {
+    "Hugonnet21": geodetic_input_Hugonnet21,
+    "PGO": geodetic_input_PGO,
+    "GLAMOS": geodetic_input_GLAMOS,
+    "Rabatel16": geodetic_input_Rabatel16,
+    "Fischer11": geodetic_input_Fischer11,
+    "Hagg12": geodetic_input_Hagg12,
+    "Maurer19": geodetic_input_Maurer19,
+    "Maurer19_2000": geodetic_input_Maurer19_2000,
+    "Belart20": geodetic_input_Belart20,
+    "Andreassen16": geodetic_input_Andreassen16,
+}
+
+# Sources whose geodetic target covers an arbitrary date window rather than a whole
+# number of calendar years. `years` is then a list of (start, end) tuples, one per
+# geodetic window of the glacier.
+WINDOWED_SOURCES = {
+    "PGO",
+    "GLAMOS",
+    "Rabatel16",
+    "Fischer11",
+    "Hagg12",
+    "Maurer19",
+    "Maurer19_2000",
+    "Belart20",
+    "Andreassen16",
+}
+
+
+def _check_product_source(product_source):
+    assert product_source in GEODETIC_INPUT_FN, (
+        f"Unknown gridded product source {product_source!r}. "
+        f"Known sources: {sorted(GEODETIC_INPUT_FN)}."
+    )
+
+
+def _period_key(years):
+    """Folder name identifying the period a multi-year grid covers.
+
+    `years` is either an iterable of calendar years, or - for a windowed source -
+    a list of (start_date, end_date) tuples. The dates are rendered as plain ISO
+    days so that the folder name does not depend on the repr of whichever date type
+    the target table happened to use.
+
+    Several windows would make the name grow by 22 characters per window and quickly
+    exceed the 255 allowed for a file name, so the name then holds the overall
+    bounds, the number of windows and a hash of the full list. A single window keeps
+    the plain name, so the folders generated before multiple windows were supported
+    remain valid.
+    """
+    parts = []
+    windows = []
+    for y in years:
+        if isinstance(y, tuple):
+            window = [pd.Timestamp(d).strftime("%Y-%m-%d") for d in y]
+            windows.append(window)
+            parts.extend(window)
+        else:
+            parts.append(str(y))
+    key = "_".join(parts)
+    if len(windows) > 1:
+        first = min(w[0] for w in windows)
+        last = max(w[1] for w in windows)
+        return f"{first}_{last}_{len(windows)}w_{get_hash(key)}"
+    return key
+
+
+def prepared_grid_dir_multi_years(rgi_id, years, product_source):
+    _check_product_source(product_source)
+    return os.path.join(
+        get_data_path(),
+        "grids_multiyears",
+        product_source,
+        _period_key(years),
+        *(glacier_id_to_folders(rgi_id)[:-1]),
+    )
+
+
+def prepared_metadata_dir(rgi_id, years, product_source, feature_columns):
+    base_dir = prepared_grid_dir_multi_years(rgi_id, years, product_source)
+    feature_hash = get_hash(",".join(sorted(feature_columns)))
+    return os.path.join(base_dir, feature_hash)
+
+
+def _prepared_metadata_dict(df_X_geod, feature_columns):
+    metadata = df_X_geod.copy()
+    non_feature_columns = df_X_geod.columns.difference(feature_columns)
+    if "ELEVATION_DIFFERENCE" in feature_columns:
+        # We also want this in the metadata as this is useful to have it not unnormalized
+        non_feature_columns = list(
+            set(non_feature_columns).union(set(["ELEVATION_DIFFERENCE"]))
+        )
+    if "POINT_ELEVATION" in feature_columns:
+        # We also want this in the metadata as this is useful to have it not unnormalized
+        non_feature_columns = list(
+            set(non_feature_columns).union(set(["POINT_ELEVATION"]))
+        )
+    if "POINT_LAT" in feature_columns:
+        # We also want this in the metadata as this is useful to have it not unnormalized
+        non_feature_columns = list(set(non_feature_columns).union(set(["POINT_LAT"])))
+    if "POINT_LON" in feature_columns:
+        # We also want this in the metadata as this is useful to have it not unnormalized
+        non_feature_columns = list(set(non_feature_columns).union(set(["POINT_LON"])))
+    metadata = df_X_geod[non_feature_columns]
+
+    int_id, _ = pd.factorize(metadata["ID"].values)
+    int_glwd_m_id, _ = pd.factorize(metadata["GLWD_M_ID"].values)
+    metadata = metadata.assign(ID_int=int_id, GLWD_M_ID_int=int_glwd_m_id)
+
+    grouped_ids = metadata.groupby("ID_int").agg(
+        {"YEAR": "first", "ID": "first", "RGIId": "first"}
+    )
+    if "GLWD_ID" in metadata.columns:
+        grouped_ids["GLWD_ID"] = metadata.groupby("ID_int")["GLWD_ID"].first()
+    if "GLWD_M_ID" in metadata.columns:
+        grouped_ids["GLWD_M_ID"] = metadata.groupby("ID_int")["GLWD_M_ID"].first()
+    if "POINT_LAT" in metadata.columns:
+        grouped_ids["POINT_LAT"] = metadata.groupby("ID_int")["POINT_LAT"].first()
+    if "POINT_LON" in metadata.columns:
+        grouped_ids["POINT_LON"] = metadata.groupby("ID_int")["POINT_LON"].first()
+    if "PERIOD" in metadata.columns:
+        grouped_ids["PERIOD"] = metadata.groupby("ID_int")["PERIOD"].first()
+    if "POINT_ELEVATION" in metadata.columns:
+        grouped_ids["POINT_ELEVATION"] = metadata.groupby("ID_int")[
+            "POINT_ELEVATION"
+        ].first()
+    if "ELEVATION_DIFFERENCE" in metadata.columns:
+        grouped_ids["ELEVATION_DIFFERENCE"] = metadata.groupby("ID_int")[
+            "ELEVATION_DIFFERENCE"
+        ].first()
+
+    # TODO: optimize section below
+    grouped_glwd_m_ids = metadata.groupby("GLWD_M_ID_int").agg(
+        {"YEAR": "first", "ID": "first", "RGIId": "first"}
+    )
+    if "GLWD_ID" in metadata.columns:
+        grouped_glwd_m_ids["GLWD_ID"] = metadata.groupby("GLWD_M_ID_int")[
+            "GLWD_ID"
+        ].first()
+    if "GLWD_M_ID" in metadata.columns:
+        grouped_glwd_m_ids["GLWD_M_ID"] = metadata.groupby("GLWD_M_ID_int")[
+            "GLWD_M_ID"
+        ].first()
+    if "POINT_LAT" in metadata.columns:
+        grouped_glwd_m_ids["POINT_LAT"] = metadata.groupby("GLWD_M_ID_int")[
+            "POINT_LAT"
+        ].first()
+    if "POINT_LON" in metadata.columns:
+        grouped_glwd_m_ids["POINT_LON"] = metadata.groupby("GLWD_M_ID_int")[
+            "POINT_LON"
+        ].first()
+    if "PERIOD" in metadata.columns:
+        grouped_glwd_m_ids["PERIOD"] = metadata.groupby("GLWD_M_ID_int")[
+            "PERIOD"
+        ].first()
+    if "POINT_ELEVATION" in metadata.columns:
+        grouped_glwd_m_ids["POINT_ELEVATION"] = metadata.groupby("GLWD_M_ID_int")[
+            "POINT_ELEVATION"
+        ].first()
+    if "ELEVATION_DIFFERENCE" in metadata.columns:
+        grouped_glwd_m_ids["ELEVATION_DIFFERENCE"] = metadata.groupby("GLWD_M_ID_int")[
+            "ELEVATION_DIFFERENCE"
+        ].first()
+
+    return {
+        "metadata": metadata,
+        "grouped_ids": grouped_ids,
+        "grouped_glwd_m_ids": grouped_glwd_m_ids,
+        "nunique_glwd_m_ids": metadata["GLWD_M_ID_int"].nunique(),
+        "nunique_ids": metadata["ID_int"].nunique(),
+    }
+
+
+def prepare_precomputed_metadata(rgi_id, years, product_source, feature_columns):
+    _check_product_source(product_source)
+    path_prepared = prepared_metadata_dir(
+        rgi_id,
+        years,
+        product_source,
+        feature_columns,
+    )
+    os.makedirs(path_prepared, exist_ok=True)
+
+    manifest_path = os.path.join(path_prepared, f"{rgi_id}_metadata_manifest.json")
+    p = Product(manifest_path)
+    if not p.is_up_to_date():
+        df_X_geod = load_grid_multi_years(rgi_id, years, product_source)
+        precomputed_meta = _prepared_metadata_dict(df_X_geod, feature_columns)
+
+        for key, df in {
+            "metadata": precomputed_meta["metadata"],
+            "grouped_ids": precomputed_meta["grouped_ids"],
+            "grouped_glwd_m_ids": precomputed_meta["grouped_glwd_m_ids"],
+        }.items():
+            df.to_parquet(
+                os.path.join(path_prepared, f"{rgi_id}_{key}.parquet"), index=True
+            )
+
+        manifest = {
+            "nunique_glwd_m_ids": int(precomputed_meta["nunique_glwd_m_ids"]),
+            "nunique_ids": int(precomputed_meta["nunique_ids"]),
+        }
+        with open(manifest_path, "w") as f:
+            json.dump(manifest, f, sort_keys=True)
+        p.gen_chk()
+
+    return path_prepared
+
+
+def load_precomputed_metadata(rgi_id, years, product_source, feature_columns):
+    _check_product_source(product_source)
+    path_prepared = prepared_metadata_dir(
+        rgi_id,
+        years,
+        product_source,
+        feature_columns,
+    )
+    manifest_path = os.path.join(path_prepared, f"{rgi_id}_metadata_manifest.json")
+
+    if not os.path.exists(manifest_path):
+        raise FileNotFoundError(
+            f"Precomputed metadata not found for {rgi_id} in {path_prepared}. "
+            "Run prepare_precomputed_metadata(...) first."
+        )
+
+    with open(manifest_path, "r") as f:
+        manifest = json.load(f)
+
+    metadata = {
+        "metadata": pd.read_parquet(
+            os.path.join(path_prepared, f"{rgi_id}_metadata.parquet")
+        ),
+        "grouped_ids": pd.read_parquet(
+            os.path.join(path_prepared, f"{rgi_id}_grouped_ids.parquet")
+        ),
+        "grouped_glwd_m_ids": pd.read_parquet(
+            os.path.join(path_prepared, f"{rgi_id}_grouped_glwd_m_ids.parquet")
+        ),
+        "nunique_glwd_m_ids": int(manifest["nunique_glwd_m_ids"]),
+        "nunique_ids": int(manifest["nunique_ids"]),
+    }
+    return metadata
+
+
+def generate_grid_multi_years(rgi_id, years, product_source):
+    _check_product_source(product_source)
+    path_prepared = prepared_grid_dir_multi_years(rgi_id, years, product_source)
+    path_prepared_df = os.path.join(path_prepared, f"{rgi_id}.parquet")
+    p = Product(path_prepared_df)
+    if not p.is_up_to_date():
+        os.makedirs(path_prepared, exist_ok=True)
+        df_X_geod_rgi_id = GEODETIC_INPUT_FN[product_source](rgi_id, years)
+        df_X_geod_rgi_id.to_parquet(
+            path_prepared_df, engine="pyarrow", compression="snappy"
+        )
+        p.gen_chk()
+
+
+def load_grid_multi_years(rgi_id, years, product_source):
+    _check_product_source(product_source)
+    path_prepared = prepared_grid_dir_multi_years(rgi_id, years, product_source)
+    path_prepared_df = os.path.join(path_prepared, f"{rgi_id}.parquet")
+    # TODO: determine these based on features and metadata
+    columns = [
+        "ALTITUDE_CLIMATE",
+        "POINT_LAT",
+        "POINT_BALANCE",
+        "N_MONTHS",
+        "PERIOD",
+        "POINT_ELEVATION",
+        "ID",
+        "YEAR",
+        "svf",
+        "MONTHS",
+        "slope",
+        "RGIId",
+        "ELEVATION_DIFFERENCE",
+        "aspect",
+        "POINT_LON",
+        "t2m",
+        "tp",
+        "slhf",
+        "sshf",
+        "ssrd",
+        "fal",
+        "str",
+        "u10",
+        "v10",
+        "GLWD_M_ID",
+        "GLWD_ID",
+        "tp_sum",
+        # "slhf_sum",
+        # "sshf_sum",
+        # "ssrd_sum",
+        # "str_sum",
+    ]
+    df = pd.read_parquet(path_prepared_df, columns=columns)
+    return df

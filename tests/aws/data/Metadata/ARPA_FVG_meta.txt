@@ -1,0 +1,2 @@
+Code,Name,Longitude,Latitude,Elevation,T,TMIN,TMAX,P
+FVG0001,Sample station,13.056,46.309,213,x,,x,x

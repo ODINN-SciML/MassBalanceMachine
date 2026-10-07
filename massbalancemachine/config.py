@@ -27,6 +27,8 @@ DEFAULT_BNDS: Dict[str, Tuple[float, float]] = {
     "ALTITUDE_CLIMATE": (1500, 3000),
     "ELEVATION_DIFFERENCE": (0, 1000),
     "POINT_ELEVATION": (2000, 3500),
+    "POINT_LAT": (-90, 90),
+    "POINT_LON": (-180, 180),
     "aspect": (0, 360),
     "consensus_ice_thickness": (0, 300),
     "fal": (0, 1),
@@ -43,6 +45,11 @@ DEFAULT_BNDS: Dict[str, Tuple[float, float]] = {
     "u10": (-10, 10),
     "v10": (-10, 10),
     "svf": (0, 1),
+    "tp_sum": (0, 1),
+    "slhf_sum": (-10e7, 10e7),
+    "sshf_sum": (-10e7, 10e7),
+    "ssrd_sum": (-10e7, 10e7),
+    "str_sum": (-10e7, 10e7),
 }
 
 # Small, declarative region differences live here.
