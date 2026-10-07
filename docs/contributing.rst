@@ -27,6 +27,18 @@ However, in order to build a live representation of the documentation on your ow
 - `Install pandoc <https://pandoc.org/installing.html>`_.
 - Run ``sphinx-autobuild docs docs/_build/html`` which will print a link that you can open in your browser to visualize the documentation built locally. This will also execute the notebooks and render their outputs in the documentation. Notebooks execution can take a while, in order to build the documentatin and skip these execution steps run ``sphinx-autobuild docs docs/_build/html --define nbsphinx_execute=never``.
 
+Changing the dependencies
+*************************
+
+The documentation hosted on Read the Docs is not built from ``pyproject.toml`` directly: to stay within the build time limit, it installs the pinned versions listed in ``docs/requirements-docs.txt``, with the CPU build of PyTorch (see ``docs/install_rtd_requirements.sh``).
+Whenever you change the main or the ``docs`` dependencies in ``pyproject.toml``, regenerate this file and commit it with your changes.
+With Poetry 2, this requires the `export plugin <https://github.com/python-poetry/poetry-plugin-export>`_ (``pip install poetry-plugin-export``):
+
+.. code-block:: bash
+
+    poetry lock
+    poetry export --with docs --without-hashes -o docs/requirements-docs.txt
+
 Formatting the code
 *******************
 

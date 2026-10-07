@@ -24,24 +24,12 @@ import git
 from data_processing.utils.hydro_year import build_head_tail_pads_from_monthly_df
 from data_processing.utils.data_preprocessing import get_hash
 from data_processing.Product import Product
+from data_processing.product_utils import get_data_path
 from dataloader.DataLoader import DataLoader, set_dataloader_splits
 import data_preprocessing.iceland
 import data_preprocessing.wgms
 import data_processing.wgms
 import config
-
-###
-from regions.RGI_11_Switzerland.scripts.dataset.data_loader import (
-    process_or_load_data,
-    get_stakes_data,
-)
-from regions.RGI_11_Switzerland.scripts.config_CH import (
-    path_PMB_GLAMOS_csv,
-    path_ERA5_raw,
-    path_pcsr,
-)
-
-###
 
 _default_test_glaciers_switzerland = [
     "tortin",
@@ -178,6 +166,16 @@ def _format_data_credit(source, usage_conditions, papers):
     print()
 
 
+def wgms_rgi_regions(sourceData):
+    """RGI region(s) of a WGMS `source_data`: None for "wgms", 11 for "wgms:11" and
+    [13, 14, 15] for "wgms:13,14,15"."""
+    _split = sourceData.split(":")
+    if len(_split) == 1:
+        return None
+    regions = [int(r) for r in _split[1].split(",")]
+    return regions[0] if len(regions) == 1 else regions
+
+
 def _default_input(sourceData):
     if sourceData == "switzerland":
         return _default_input_switzerland
@@ -283,12 +281,35 @@ class SourceManager:
         # TODO: add some prints and checks
 
         # Split between train and test sets
-        train_set, test_set = set_dataloader_splits(
-            dataloader,
-            test_split_on=self.test_split_on,
-            test_splits=self.test_glaciers,
-            random_state=self.cfg.seed,
-        )
+        if "YEAR" in self.test_split_on:
+            tmp = self.test_split_on.split(":")
+            year_split = int(tmp[1][1:])
+            split = tmp[1][0]
+            if split == "<":
+                # Train glaciers are before year_split
+                test_split = dataloader.data[
+                    dataloader.data["YEAR"] >= year_split
+                ].YEAR.unique()
+            elif split == ">":
+                # Train glaciers are after year_split
+                test_split = dataloader.data[
+                    dataloader.data["YEAR"] <= year_split
+                ].YEAR.unique()
+            else:
+                raise ValueError(split)
+            train_set, test_set = set_dataloader_splits(
+                dataloader,
+                test_split_on="YEAR",
+                test_splits=test_split,
+                random_state=self.cfg.seed,
+            )
+        else:
+            train_set, test_set = set_dataloader_splits(
+                dataloader,
+                test_split_on=self.test_split_on,
+                test_splits=self.test_glaciers,
+                random_state=self.cfg.seed,
+            )
         return train_set, test_set, months_head_pad, months_tail_pad
 
 
@@ -305,6 +326,18 @@ class SourceManagerSwitzerland(SourceManager):
         super().__init__(cfg, params, *args, **kwargs)
 
     def load_stakes_data(self):
+        # The Swiss pipeline lives in the `regions/` tree of the repository, which is
+        # not part of the installed package: it is only available from a checkout.
+        from regions.RGI_11_Switzerland.scripts.dataset.data_loader import (
+            process_or_load_data,
+            get_stakes_data,
+        )
+        from regions.RGI_11_Switzerland.scripts.config_CH import (
+            path_PMB_GLAMOS_csv,
+            path_ERA5_raw,
+            path_pcsr,
+        )
+
         # TODO: determine this flag based on existing files
         ###########
         csvFileName = "CH_wgms_dataset_monthly_NN_nongeo.csv"
@@ -346,10 +379,12 @@ class SourceManagerSwitzerland(SourceManager):
             output_file=csvFileName,
         )
 
+        data_monthly["GLWD_M_ID"] = data_monthly.apply(
+            lambda x: get_hash(f"{x.GLACIER}_{x.YEAR}_{x.MONTHS}"), axis=1
+        ).astype(str)
         data_monthly["GLWD_ID"] = data_monthly.apply(
-            lambda x: get_hash(f"{x.GLACIER}_{x.YEAR}"), axis=1
-        )
-        data_monthly["GLWD_ID"] = data_monthly["GLWD_ID"].astype(str)
+            lambda x: get_hash(f"{x.GLACIER}"), axis=1
+        ).astype(str)
 
         return data_monthly
 
@@ -375,13 +410,13 @@ class SourceManagerIceland(SourceManager):
                 )
             )
         else:
-            p = Product(data_preprocessing.iceland.processed_features_stakes_path)
+            p = Product(data_preprocessing.iceland.processed_features_stakes_path())
             if not p.is_up_to_date():
                 data = data_preprocessing.iceland.raw_data()
                 data_preprocessing.iceland.build_monthly_data(data, self.cfg)
                 p.gen_chk()
             data = pd.read_csv(
-                data_preprocessing.iceland.processed_features_stakes_path
+                data_preprocessing.iceland.processed_features_stakes_path()
             )
             _format_data_credit(
                 "https://icelandicglaciers.is/#/page/map",
@@ -459,7 +494,7 @@ class SourceManagerNorway(SourceManager):
 
         url_monthly_dataset_train = "https://raw.githubusercontent.com/khsjursen/ML_MB_Norway/refs/heads/main/src/Data/2023-08-28_stake_mb_norway_cleaned_ids_latlon_wattributes_climate_svf_monthly.csv"
         url_monthly_dataset_test = "https://raw.githubusercontent.com/khsjursen/ML_MB_Norway/refs/heads/main/src/Data/2023-08-28_stake_mb_norway_cleaned_ids_latlon_wattributes_climate_test_svf.csv"
-        folder_csv = os.path.abspath(os.path.join(mbm_path, ".data/stakes/norway/"))
+        folder_csv = os.path.join(get_data_path(), "stakes", "norway")
         self.path_csv_train = os.path.abspath(
             os.path.join(
                 folder_csv,
@@ -611,15 +646,20 @@ class SourceManagerWGMS(SourceManager):
     def load_stakes_data(self):
         # TODO: for the moment the arguments are the RGIId but we should manage this properly in the future
 
-        path_preprocessed = data_preprocessing.wgms.processed_features_stakes_path(
+        regions = (
             self.rgi_region
+            if isinstance(self.rgi_region, (list, tuple))
+            else [self.rgi_region]
         )
-        p = Product(path_preprocessed)
-        if not p.is_up_to_date():
-            data = data_processing.wgms.load_processed_wgms(rgi_region=self.rgi_region)
-            data_preprocessing.wgms.build_monthly_data(data, self.cfg, self.rgi_region)
-            p.gen_chk()
-        data = pd.read_csv(path_preprocessed)
+        frames, offset = [], 0
+        for rgi_region in regions:
+            df = data_preprocessing.wgms.load_monthly_data(rgi_region, self.cfg)
+            # The measurement IDs restart at 0 in every region
+            df["ID"] = df["ID"] + offset
+            if len(df) > 0:
+                offset = df["ID"].max() + 1
+            frames.append(df)
+        data = pd.concat(frames, ignore_index=True)
         _format_data_credit(
             "WGMS (2026): Fluctuations of Glaciers (FoG) Database. World Glacier Monitoring Service (WGMS), Zurich, Switzerland. https://doi.org/10.5904/wgms-fog-2026-02-10",
             "Open access under the requirement of correct citation",

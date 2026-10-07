@@ -1,0 +1,451 @@
+"""
+GLAMOS geodetic mass balance and the Swiss Glacier Inventory outlines it refers to.
+
+GLAMOS publishes every DEM-difference pair it has for Swiss glaciers
+(https://doi.glamos.ch/data/volumechange), each one a glacier-wide geodetic mass
+balance `Bgeod` over a window that can start as early as the 1850s. That target is
+referenced to the glacier area of its own epoch, so a pre-2000 window must be paired
+with the Swiss Glacier Inventory (SGI) contemporary with it rather than with the RGI
+6.2 outlines, which for the Alps date from 2003. This module provides both halves:
+the outlines, and the target derived from the volume-change table.
+
+Glaciers are identified by their **SGI id** ("B36-26"), not by an RGI id. The Swiss
+inventory and the RGI do not cut the ice into the same glaciers - Claridenfirn is one
+SGI entity that RGI 6.2 splits into four - so the crosswalk built by
+`table_RGI62_to_GLAMOS` is deliberately many RGI ids to one SGI entity. As a
+consequence the gridded products of this source carry `RGIId == "B36-26"`: that column
+is the group key of the grid, not something to join against an RGI table.
+"""
+
+import os
+import zipfile
+import urllib.request
+
+import numpy as np
+import pandas as pd
+import geopandas as gpd
+
+from data_processing.custom_outlines import CustomOutlineSpec, match_rgi62_by_overlap
+from data_processing.product_utils import get_data_path
+from data_processing.Product import Product
+from data_processing.glacier_utils import get_region_shape_file
+from data_processing.utils.years import years_outside
+
+# GLAMOS covers Switzerland only, which is entirely inside RGI region 11 (Central
+# Europe), second-order region 11-01 (Alps).
+SWITZERLAND_REGION_ID = 11
+SWITZERLAND_SUBREGION = "01"
+
+# The SGI shapefiles carry a compound CRS (LV95 + LN02 height) that geopandas reads
+# as such, so the horizontal CRS has to be set explicitly.
+SGI_CRS = 2056
+
+GLAMOS_CSV_URL = "https://doi.glamos.ch/data/volumechange/volumechange.csv"
+
+# Archive, shapefile and SGI-id column of each inventory epoch that can be downloaded.
+# Every release names them differently.
+SGI_RELEASES = {
+    1973: ("inventory_sgi1973_r1976", "SGI_1973.shp", "SGI"),
+    2016: ("inventory_sgi2016_r2020", "SGI_2016_glaciers.shp", "sgi-id"),
+}
+
+
+def glamos_folder():
+    """Directory holding the cached GLAMOS inputs, always the same place so that a
+    later run finds what an earlier one downloaded."""
+    return os.path.join(get_data_path(), "GLAMOS")
+
+
+def glamos_volume_change_file(download: bool = True):
+    """Path to the GLAMOS volume-change table, downloading it if necessary."""
+    path = os.path.join(glamos_folder(), "volumechange.csv")
+    if not os.path.exists(path) and download:
+        os.makedirs(glamos_folder(), exist_ok=True)
+        print(f"downloading {GLAMOS_CSV_URL}")
+        urllib.request.urlretrieve(GLAMOS_CSV_URL, path)
+    return path
+
+
+def sgi_shapefile(epoch: int = 1973, download: bool = True):
+    """Path to the SGI shapefile of one inventory epoch, downloading it if
+    necessary. GLAMOS publishes 1850, 1931, 1973, 2010 and 2016; the epochs of
+    `SGI_RELEASES` are the ones that can be downloaded here."""
+    assert epoch in SGI_RELEASES, (
+        f"No download is known for the SGI {epoch} inventory, only for "
+        f"{sorted(SGI_RELEASES)}."
+    )
+    archive, shapefile, _ = SGI_RELEASES[epoch]
+    url = f"https://doi.glamos.ch/data/inventory/{archive}.zip"
+    folder = os.path.join(glamos_folder(), archive)
+    path = os.path.join(folder, shapefile)
+    if not os.path.exists(path) and download:
+        os.makedirs(glamos_folder(), exist_ok=True)
+        zpath = os.path.join(glamos_folder(), os.path.basename(url))
+        if not os.path.exists(zpath):
+            print(f"downloading {url}")
+            urllib.request.urlretrieve(url, zpath)
+        zipfile.ZipFile(zpath).extractall(folder)
+    return path
+
+
+# Survey date assumed when GLAMOS only gives the year: the end of the ablation season,
+# when almost every survey with a known date was flown (July to October)
+UNKNOWN_SURVEY_MONTH_DAY = (10, 1)
+# ... and when it gives the month but not the day
+UNKNOWN_SURVEY_DAY = 15
+
+
+def survey_timestamp(date):
+    """Survey date of the GLAMOS table, `yyyymmdd`, as a timestamp. An unknown month
+    (`yyyy9999`, `yyyy00..`) is taken as `UNKNOWN_SURVEY_MONTH_DAY`, an unknown day
+    (`yyyymm99`, `yyyymm00`) as `UNKNOWN_SURVEY_DAY`."""
+    d = str(int(date))
+    year, month, day = int(d[:4]), int(d[4:6]), int(d[6:8])
+    if not 1 <= month <= 12:
+        month, day = UNKNOWN_SURVEY_MONTH_DAY
+    elif not 1 <= day <= pd.Timestamp(year=year, month=month, day=1).days_in_month:
+        day = UNKNOWN_SURVEY_DAY
+    return pd.Timestamp(year=year, month=month, day=day)
+
+
+def nearest_new_year(date):
+    """Year of the 1st of January closest to `date`."""
+    return date.year + int(date.month > 6)
+
+
+def load_glamos_volume_change(path: str = None):
+    """Read the GLAMOS volume-change table.
+
+    Line 7 of the file is a units row with an empty SGI-ID and is dropped. Dates are
+    `yyyymmdd`, but many pre-2000 ones encode an unknown day as `yyyy9999`; see
+    `survey_timestamp` for the date assumed then.
+
+    Each window gets:
+
+        survey_start, survey_end   the survey dates, as timestamps
+        year_start, year_end       their years
+        y0, y1                     the 1st of January closest to each survey: the
+                                   window covers the calendar years y0 .. y1 - 1
+        dur                        y1 - y0, its length in calendar years
+
+    A late-summer survey closes the mass-balance year, so a window from August 1979 to
+    August 1998 covers the calendar years 1980 .. 1998 (y0 = 1980, y1 = 1999), not the
+    years of the surveys.
+    """
+    df = pd.read_csv(path or glamos_volume_change_file(), skiprows=6)
+    df = df[df["SGI-ID"].notna()].copy()
+    df["Name"] = df.Name.astype(str).str.strip()
+    for c in [
+        "A_start",
+        "A_end",
+        "dV",
+        "dh_mean",
+        "Bgeod",
+        "sigma",
+        "covered",
+        "rho_dv",
+    ]:
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+    for src, end in [("date_start", "start"), ("date_end", "end")]:
+        df[f"survey_{end}"] = df[src].map(survey_timestamp)
+        df[f"year_{end}"] = df[f"survey_{end}"].dt.year
+    df["y0"] = df.survey_start.map(nearest_new_year)
+    df["y1"] = df.survey_end.map(nearest_new_year)
+    df["dur"] = df.y1 - df.y0
+    df["A_mean"] = (df.A_start + df.A_end) / 2
+    return df
+
+
+def load_sgi_outlines(epoch: int = 1973, sgi_ids_to_keep=None):
+    """Read the SGI outlines of one epoch, one entity per SGI id.
+
+    A glacier is stored as several rows when it is split into isolated blocks of
+    ice, so the rows are dissolved into one entity per id. The returned frame is in
+    EPSG:4326 with the SGI id in a column named "SGI", ready for
+    `custom_outlines.build_custom_gdirs`.
+    """
+    sgi = gpd.read_file(sgi_shapefile(epoch)).set_crs(SGI_CRS, allow_override=True)
+    sgi = sgi.rename(columns={SGI_RELEASES[epoch][2]: "SGI"})
+    sgi = sgi.dissolve("SGI").reset_index()[["SGI", "geometry"]]
+    sgi["area_sgi"] = sgi.area / 1e6
+    if sgi_ids_to_keep is not None:
+        missing = set(sgi_ids_to_keep).difference(sgi.SGI)
+        assert (
+            not missing
+        ), f"The SGI {epoch} inventory has no entity {sorted(missing)}."
+        sgi = sgi[sgi.SGI.isin(sgi_ids_to_keep)]
+    return sgi.to_crs("EPSG:4326")
+
+
+def glamos_outline_spec(epoch: int = 1973, dem_source: str = "SRTM", **overrides):
+    """Description of the SGI outlines for the generic custom-outline machinery.
+
+    The DEM defaults to SRTM: its February 2000 acquisition is the same epoch as the
+    NASADEM shipped with the RGI level-3 directories, so a calibration run on the SGI
+    geometry and a reconstruction run on the RGI one see the same ice surface and
+    differ only in the outline.
+    """
+    spec = dict(
+        name="GLAMOS",
+        id_column="SGI",
+        o1_region=f"{SWITZERLAND_REGION_ID:02d}",
+        o2_region=SWITZERLAND_SUBREGION,
+        src_date=f"{epoch}-01-01 00:00:00",
+        bgndate=f"{epoch}0101",
+        dem_source=dem_source,
+    )
+    spec.update(overrides)
+    return CustomOutlineSpec(**spec)
+
+
+def _best_window_chain(windows):
+    """Rows of the best set of non-overlapping windows of one glacier.
+
+    Two windows may share a survey (one ends in 1967, the next starts from the same
+    flight): with the calendar bounds `y0` and `y1` of `load_glamos_volume_change` they
+    do not cover a common year. Among all such sets the one kept has **the most windows**, then the
+    **longest total duration**, then the **lowest sum of sigma^2**. Nested windows are
+    never combined, since they are built on the same DEMs and their errors are
+    strongly correlated.
+
+    The search is the classic weighted interval scheduling dynamic program over the
+    windows sorted by end year; a glacier has at most a few dozen windows.
+    """
+    windows = windows.sort_values(["y1", "y0"])
+    y0 = windows.y0.to_numpy()
+    y1 = windows.y1.to_numpy()
+    dur = windows.dur.to_numpy()
+    sigma2 = windows.sigma.fillna(np.inf).to_numpy() ** 2
+
+    # best[i] is the best chain whose last window is i, scored as a tuple compared
+    # lexicographically: (number of windows, total duration, -sum of sigma^2)
+    best = []
+    for i in range(len(windows)):
+        score, chain = (1, dur[i], -sigma2[i]), [i]
+        for j in range(i):
+            if y1[j] <= y0[i]:
+                prev_score, prev_chain = best[j]
+                candidate = (
+                    prev_score[0] + 1,
+                    prev_score[1] + dur[i],
+                    prev_score[2] - sigma2[i],
+                )
+                if candidate > score:
+                    score, chain = candidate, prev_chain + [i]
+        best.append((score, chain))
+    _, chain = max(best, key=lambda b: b[0])
+    return windows.iloc[chain]
+
+
+def window_years_outside(y0, y1, allowed_years):
+    """Years of a GLAMOS window that `allowed_years` does not hold.
+
+    `y0` and `y1` are the calendar bounds of `load_glamos_volume_change`: the window
+    covers `y0 .. y1 - 1`.
+    """
+    return years_outside(
+        pd.Timestamp(year=int(y0), month=1, day=1),
+        pd.Timestamp(year=int(y1), month=1, day=1),
+        allowed_years,
+    )
+
+
+def select_glamos_windows(
+    glamos,
+    max_year: int = 2000,
+    min_window_years: int = 10,
+    min_covered: float = 95,
+    min_year: int = None,
+    multi_period: bool = False,
+    tie_break: str = "sigma",
+    allowed_years=None,
+    max_outside_years: int = 0,
+):
+    """Pick the geodetic windows of every SGI entity.
+
+    A glacier can have dozens of overlapping GLAMOS windows, so a choice has to be
+    made. By default a single window is kept: **the longest one, ties broken on the
+    lowest reported sigma**, or on the most recent window with `tie_break="recent"`.
+    The mismatch between the survey dates and the calendar years the model integrates
+    is a fixed offset in years, so its relative weight falls as the window grows, and
+    the signal-to-noise of a DEM difference improves with the elapsed time.
+
+    With `multi_period` the glacier instead contributes a chain of non-overlapping
+    windows, see `_best_window_chain`. Every window of the chain satisfies the same
+    eligibility criteria, so each is still at least `min_window_years` long, but
+    together they constrain how the mass balance varies within the period rather
+    than only its mean.
+
+    Args:
+        max_year: the last survey of every window must be in or before this year. This
+            is what makes a study pre-2000. A survey in the summer of `max_year` closes
+            the mass-balance year `max_year`, so such a window covers that year.
+        min_window_years: shorter windows carry too much survey-date noise.
+        min_covered: minimum percentage of the glacier the DEM difference covers.
+        min_year: earliest year the first survey of a window may be in. Set it to the
+            first year of the climate forcing, otherwise the windows built on
+            1850s-1930s maps are selected and cannot be modelled.
+        multi_period: keep several non-overlapping windows per glacier instead of the
+            longest one.
+        tie_break: how the single window is chosen among the longest ones, "sigma"
+            for the lowest sigma, "recent" for the latest one, then the lowest sigma.
+            Ignored with `multi_period`.
+        allowed_years: years a window may cover, for instance the years of one side of
+            a train/validation split. A window covering anything else is dropped, up to
+            `max_outside_years` years of tolerance. Left to None every year is allowed.
+        max_outside_years: how many years of a window may fall outside `allowed_years`.
+            Keeps a glacier whose only long window crosses a boundary by a year or two
+            instead of dropping it; the cost is that the two sides of a split then
+            share those years.
+
+    Returns the selected rows indexed by SGI id, sorted by start year within a
+    glacier. The index is unique only without `multi_period`.
+    """
+    tie_break_keys = {"sigma": ["sigma"], "recent": ["y1", "y0", "sigma"]}
+    assert (
+        tie_break in tie_break_keys
+    ), f"tie_break must be one of {sorted(tie_break_keys)}, not {tie_break!r}."
+    candidates = glamos.loc[
+        (glamos.year_end <= max_year)
+        & (glamos.dur >= min_window_years)
+        & (glamos.covered >= min_covered)
+    ]
+    if min_year is not None:
+        candidates = candidates.loc[candidates.year_start >= min_year]
+    if allowed_years is not None:
+        allowed = set(allowed_years)
+        candidates = candidates.loc[
+            [
+                len(window_years_outside(row.y0, row.y1, allowed)) <= max_outside_years
+                for row in candidates.itertuples()
+            ]
+        ]
+    if not multi_period:
+        keys = ["dur"] + tie_break_keys[tie_break]
+        return (
+            candidates.sort_values(keys, ascending=[k == "sigma" for k in keys])
+            .drop_duplicates("SGI-ID")
+            .set_index("SGI-ID")
+        )
+    chains = [
+        _best_window_chain(windows) for _, windows in candidates.groupby("SGI-ID")
+    ]
+    if not chains:
+        return candidates.set_index("SGI-ID")
+    return pd.concat(chains).sort_values(["SGI-ID", "y0"]).set_index("SGI-ID")
+
+
+def geodetic_target_GLAMOS(
+    max_year: int = 2000,
+    min_window_years: int = 10,
+    min_covered: float = 95,
+    min_year: int = None,
+    sgi_ids_to_keep=None,
+    multi_period: bool = False,
+    tie_break: str = "sigma",
+    allowed_years=None,
+    max_outside_years: int = 0,
+    glamos=None,
+):
+    """GLAMOS geodetic targets, one window per SGI entity or, with `multi_period`,
+    a chain of non-overlapping windows per entity (see `select_glamos_windows`).
+
+    `glamos` is the volume-change table, read from disk when it is not given. Pass it
+    to call this repeatedly, for instance once per candidate of a split search.
+
+    `allowed_years` and `max_outside_years` restrict the selection to the windows that
+    stay inside a given set of years, which is how one side of a split by year gets its
+    own targets; see `select_glamos_windows`.
+
+    Returns a dataframe shaped like the one `data_processing.pgo.geodetic_target_PGO`
+    returns, so that both can drive the same code path in `GeoDataLoader`, with one
+    row per window:
+
+        RGIId                 the SGI entity id, e.g. "B36-26"
+        FROM_DATE, TO_DATE    the survey dates, see `survey_timestamp` for those
+                              GLAMOS only gives the year of
+        mwe_per_year          Bgeod, m w.e. per year
+        sigma_mwe_per_year    its 1-sigma uncertainty, m w.e. per year
+
+    GLAMOS already reports a rate in m w.e. per year, so unlike the PGO table no unit
+    conversion is applied here. A model that integrates whole calendar years covers
+    `y0 .. y1 - 1`, the 1st of January closest to each survey (see
+    `load_glamos_volume_change`).
+    """
+    glamos = load_glamos_volume_change() if glamos is None else glamos
+    chosen = select_glamos_windows(
+        glamos,
+        max_year=max_year,
+        min_window_years=min_window_years,
+        min_covered=min_covered,
+        min_year=min_year,
+        multi_period=multi_period,
+        tie_break=tie_break,
+        allowed_years=allowed_years,
+        max_outside_years=max_outside_years,
+    )
+    if sgi_ids_to_keep is not None:
+        chosen = chosen.loc[chosen.index.isin(list(sgi_ids_to_keep))]
+
+    df = chosen.reset_index().rename(columns={"SGI-ID": "RGIId"})
+    df["FROM_DATE"] = df.survey_start
+    df["TO_DATE"] = df.survey_end
+    df["mwe_per_year"] = df.Bgeod
+    df["sigma_mwe_per_year"] = df.sigma
+    return df
+
+
+def table_RGI62_to_GLAMOS(
+    epoch: int = 1973,
+    region_id=SWITZERLAND_REGION_ID,
+    min_frac_rgi: float = 0.5,
+):
+    """Crosswalk from RGI 6.2 ids to the SGI entity of one inventory epoch.
+
+    The match is made by **area overlap**, never by name, see
+    `custom_outlines.match_rgi62_by_overlap`: GLAMOS carries 1,422 distinct names
+    and fuzzy matching cannot separate `Feegletscher` from `Feegletscher N`, gives
+    four identical answers for the Clariden ids, and fails outright on Gietro,
+    Murtel and Basodino.
+
+    The mapping is many RGI ids to one SGI entity, which is the real relation:
+    Claridenfirn is one SGI glacier that RGI 6.2 splits into four, and Findel and
+    Adler were one entity in 1973 and have since separated into three RGI ids.
+
+    Which epoch is used is not cosmetic: on SGI2016 the Adler stakes map to a
+    different entity than on SGI1973, because the ice divide moved. The inventory
+    must be the one contemporary with the calibration window.
+
+    Args:
+        min_frac_rgi: an RGI outline is accepted as belonging to an SGI entity only
+            if at least this fraction of it lies inside, which removes
+            largest-overlap matches that are really no match at all.
+
+    Returns a dataframe with columns RGIId, custom_id (the SGI id), area_rgi,
+    area_sgi, frac_rgi, frac_sgi - `custom_id` matching the column name
+    `table_RGI62_to_PGO` uses, so `GeoDataLoader` reads both the same way.
+    """
+    if not isinstance(region_id, str):
+        region_id = f"{region_id:02d}"
+    save_path = os.path.abspath(
+        os.path.join(
+            get_data_path(),
+            "grids",
+            "GLAMOS",
+            f"RGI62_to_GLAMOS_sgi{epoch}_{region_id}.csv",
+        )
+    )
+    p = Product(save_path)
+    if p.is_up_to_date():
+        return pd.read_csv(save_path)
+
+    matches = match_rgi62_by_overlap(
+        load_sgi_outlines(epoch=epoch).to_crs(SGI_CRS),
+        "SGI",
+        gpd.read_file(get_region_shape_file(region_id)),
+        min_frac_rgi=min_frac_rgi,
+    ).rename(columns={"area_custom": "area_sgi", "frac_custom": "frac_sgi"})
+
+    matches.to_csv(save_path, index=False)
+    p.gen_chk()
+    return matches
