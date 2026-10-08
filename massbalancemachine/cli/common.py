@@ -21,6 +21,7 @@ REGION_LIST_KEYS = [
 REGION_OWNED_KEYS = REGION_LIST_KEYS + [
     "splitVal",
     "val_years",
+    "val_stakes",
     "geodetic_source",
     "geodetic_source_options",
     "geodetic_source_options_val",
@@ -58,7 +59,8 @@ def mergeRegions(training, netcfgFolder):
         assert block.get("splitVal") in (
             "group-year",
             "group-rgi",
-        ), f"Region {name}: splitVal must be group-year or group-rgi, not {block.get('splitVal')}."
+            "group-stake",
+        ), f"Region {name}: splitVal must be group-year, group-rgi or group-stake, not {block.get('splitVal')}."
         regions[name] = block
 
     merged = {k: v for k, v in training.items() if k != "regions"}
@@ -154,8 +156,24 @@ def testSplits(params, df_test, keyGlacier="RGIId"):
     return splits
 
 
-def _valMask(df, splitVal, val_years=None, val_glaciers=None):
-    """Stakes of `df` that go to validation with a split by year or by glacier."""
+def stakeKeys(df):
+    """The stake of every row of `df`, "<RGIId>_<POINT_LAT>_<POINT_LON>" with the
+    coordinates to 6 decimals: WGMS gives no stake id, and a stake is one position on its
+    glacier, measured over several periods and years."""
+    missing = {"RGIId", "POINT_LAT", "POINT_LON"} - set(df.columns)
+    assert not missing, f"A split per stake needs the columns {sorted(missing)}."
+    return (
+        df.RGIId.astype(str)
+        + "_"
+        + df.POINT_LAT.map("{:.6f}".format)
+        + "_"
+        + df.POINT_LON.map("{:.6f}".format)
+    )
+
+
+def _valMask(df, splitVal, val_years=None, val_glaciers=None, val_stakes=None):
+    """Stakes of `df` that go to validation with a split by year, by glacier or by stake
+    (`stakeKeys`)."""
     if splitVal == "group-year":
         assert (
             val_years is not None
@@ -163,6 +181,11 @@ def _valMask(df, splitVal, val_years=None, val_glaciers=None):
         return df.YEAR.isin(set(int(y) for y in val_years)).values
     if splitVal == "group-rgi":
         return df.RGIId.isin(val_glaciers or []).values
+    if splitVal == "group-stake":
+        assert (
+            val_stakes is not None
+        ), "With splitVal='group-stake', val_stakes must be provided."
+        return stakeKeys(df).isin(set(val_stakes)).values
     raise ValueError(f"No validation mask for splitVal={splitVal}.")
 
 
@@ -268,7 +291,7 @@ def trainValData(
         - split_key (str): Type of split between the train and validation sets.
         - val_glaciers (list or None): Optional list of glaciers to be kept aside for validation. If this option is used the split is done per glacier and split_key is ignored.
         - val_years (list or None): Years kept aside for validation, with `split_key="group-year"`. A measurement goes to the side holding the year it was measured in, so that the geodetic windows of each side stay in that side's years.
-        - regions (dict or None): With `split_key="per-region"`, the regions of `mergeRegions`: each stake is split with the rule (`splitVal`, `val_years`, `val_glaciers`) of the region its RGI id belongs to.
+        - regions (dict or None): With `split_key="per-region"`, the regions of `mergeRegions`: each stake is split with the rule (`splitVal`, `val_years`, `val_glaciers`, `val_stakes`) of the region its RGI id belongs to.
     """
     # Validation and train split:
     data_train = train_set["df_X"]
@@ -308,6 +331,7 @@ def trainValData(
                 region["splitVal"],
                 val_years=region.get("val_years"),
                 val_glaciers=region.get("val_glaciers"),
+                val_stakes=region.get("val_stakes"),
             )
             is_val |= regionVal
             print(
