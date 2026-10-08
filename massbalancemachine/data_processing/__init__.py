@@ -81,6 +81,7 @@ from data_processing.maurer19 import (
     download_maurer19_avg,
     download_maurer19_gridded,
     geodetic_target_Maurer19,
+    geodetic_target_Maurer19_Hugonnet21,
     lake_terminating_maurer19,
     load_maurer19_outlines,
     load_maurer19_table,

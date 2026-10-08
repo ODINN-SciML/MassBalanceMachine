@@ -189,6 +189,36 @@ def _default_input(sourceData):
         raise ValueError(f"source_data={sourceData} is unknown")
 
 
+def parseYearSplit(rule):
+    """("<", 2000) for "YEAR:<2000": the stakes before 2000 train, the others test;
+    (">", 2000) for "YEAR:>2000": the stakes after 2000 train."""
+    key, _, value = rule.partition(":")
+    assert key == "YEAR" and value[:1] in ("<", ">"), f"{rule} is not a split by year."
+    return value[0], int(value[1:])
+
+
+def isTestYear(year, rule):
+    """Whether a stake of `year` is a test stake under the split by year `rule`."""
+    side, yearSplit = parseYearSplit(rule)
+    return year >= yearSplit if side == "<" else year <= yearSplit
+
+
+def yearSplitPerRgiRegion(params, defaultRule):
+    """{RGI region: its split by year} for the regions of `training.regions` that set
+    their own `splitTest`, or {} when none does. The other regions keep `defaultRule`,
+    the `splitTest` of the training section, which must then be a split by year too."""
+    regions = params["training"].get("regions") or {}
+    rules = {
+        int(r): block["splitTest"]
+        for block in regions.values()
+        if block.get("splitTest")
+        for r in block["rgi_regions"]
+    }
+    for rule in list(rules.values()) + ([defaultRule] if rules else []):
+        parseYearSplit(rule)
+    return rules
+
+
 class SourceManager:
     def __init__(self, cfg, params, test_split_on="GLACIER"):
         self.cfg = cfg
@@ -281,7 +311,28 @@ class SourceManager:
         # TODO: add some prints and checks
 
         # Split between train and test sets
-        if "YEAR" in self.test_split_on:
+        regionRules = yearSplitPerRgiRegion(self.params, self.test_split_on)
+        if regionRules:
+            # A region of `training.regions` with a `splitTest` of its own: each stake
+            # is split with the rule of its RGI region. A measurement has one YEAR, so
+            # splitting on its ID keeps its months together.
+            data = dataloader.data
+            rgiRegion = (
+                data.RGIId.str.split("-").str[1].str.split(".").str[0].astype(int)
+            )
+            rules = rgiRegion.map(
+                lambda r: regionRules.get(r, self.test_split_on)
+            ).to_numpy()
+            is_test = np.array(
+                [isTestYear(y, rule) for y, rule in zip(data.YEAR.to_numpy(), rules)]
+            )
+            train_set, test_set = set_dataloader_splits(
+                dataloader,
+                test_split_on="ID",
+                test_splits=data.ID[is_test].unique(),
+                random_state=self.cfg.seed,
+            )
+        elif "YEAR" in self.test_split_on:
             tmp = self.test_split_on.split(":")
             year_split = int(tmp[1][1:])
             split = tmp[1][0]

@@ -194,3 +194,71 @@ def test_test_splits_per_region():
     (name,) = testSplits(flat, df_test)
     assert name is None
     assert testSplits(flat, df_test)[None]["stakes"] is df_test
+
+
+def test_test_year_split_per_region():
+    from dataloader.SourceManager import isTestYear, yearSplitPerRgiRegion
+
+    merged = mergeRegions(
+        {
+            "splitTest": "YEAR:<2000",
+            "regions": {
+                "ceu": EUROPE,
+                "him": {**HIMALAYA, "splitTest": "YEAR:<2010"},
+            },
+        },
+        ".",
+    )
+    rules = yearSplitPerRgiRegion({"training": merged}, merged["splitTest"])
+    assert rules == {13: "YEAR:<2010", 14: "YEAR:<2010", 15: "YEAR:<2010"}
+    # Central Europe keeps the rule of the training section
+    assert rules.get(11, merged["splitTest"]) == "YEAR:<2000"
+    assert isTestYear(2005, "YEAR:<2000") and not isTestYear(2005, "YEAR:<2010")
+    assert isTestYear(2010, "YEAR:<2010") and not isTestYear(1999, "YEAR:<2000")
+
+    # Without a region rule, the single rule of the training section applies, as before
+    plain = mergeRegions({"splitTest": "YEAR:<2000", "regions": {"ceu": EUROPE}}, ".")
+    assert yearSplitPerRgiRegion({"training": plain}, plain["splitTest"]) == {}
+    # A region rule needs the training section to split by year too
+    with pytest.raises(AssertionError, match="not a split by year"):
+        yearSplitPerRgiRegion({"training": merged}, "RGIId")
+
+
+def test_source_manager_splits_each_region_with_its_test_year():
+    from calendar import month_abbr
+
+    from dataloader.SourceManager import SourceManager
+
+    HYDRO_MONTHS = [m.lower() for m in month_abbr[10:] + month_abbr[1:10]]
+
+    rows = [
+        # RGIId, year, measurement ID
+        ("RGI60-11.00001", 1995, 0),  # train
+        ("RGI60-11.00001", 2005, 1),  # test in Central Europe (2000)
+        ("RGI60-13.00001", 2005, 2),  # train in the Himalaya (2010)
+        ("RGI60-15.00001", 2012, 3),  # test
+    ]
+    df = pd.DataFrame(
+        [(g, y, i, m, 0.1 * i, 1.0) for g, y, i in rows for m in HYDRO_MONTHS],
+        columns=["RGIId", "YEAR", "ID", "MONTHS", "POINT_BALANCE", "t2m"],
+    ).assign(POINT_LAT=46.0, POINT_LON=8.0, POINT_ELEVATION=3000.0)
+    merged = mergeRegions(
+        {
+            "splitTest": "YEAR:<2000",
+            "regions": {"ceu": EUROPE, "him": {**HIMALAYA, "splitTest": "YEAR:<2010"}},
+        },
+        ".",
+    )
+
+    class Stakes(SourceManager):
+        train_glaciers = merged["train_glaciers"]
+        test_glaciers = merged["test_glaciers"]
+
+        def load_stakes_data(self):
+            return df.copy()
+
+    cfg = mbm.Config(metaData=["RGIId", "ID", "YEAR", "MONTHS"])
+    manager = Stakes(cfg, {"training": merged}, test_split_on=merged["splitTest"])
+    train_set, test_set, _, _ = manager.train_test_sets()
+    assert sorted(train_set["df_X"].ID.unique()) == [0, 2]
+    assert sorted(test_set["df_X"].ID.unique()) == [1, 3]
