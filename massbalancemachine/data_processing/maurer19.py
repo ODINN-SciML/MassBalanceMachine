@@ -515,6 +515,105 @@ def geodetic_target_Maurer19(
     )
 
 
+def geodetic_target_Maurer19_Hugonnet21(
+    hugonnet_period: str = "2010-01-01_2020-01-01",
+    glacier_ids_to_keep=None,
+    require_1975_outline: bool = True,
+    verbose: bool = True,
+    exclude_lake_terminating: bool = False,
+    lake_terminating_types=LAKE_TERMINATING_ALL,
+    min_frac_rgi: float = 0.5,
+):
+    """The balance of Hugonnet et al. (2021) of the Maurer19 glaciers, for evaluation on
+    their outlines of 2000, one row per glacier, shaped as `geodetic_target_Maurer19`.
+
+    Hugonnet's rates are given per RGI 6.0 outline. The rate of a glacier is the mean
+    over the RGI outlines `table_RGI62_to_Maurer19` attaches to it, weighted by their
+    area, its uncertainty is averaged the same way (the errors of the outlines taken as
+    fully correlated). Outlines without a rate are left out of the mean, glaciers
+    without any are left out.
+
+    Args:
+        hugonnet_period: a period of the per-glacier product, e.g.
+            "2010-01-01_2020-01-01"; it gives FROM_DATE and TO_DATE.
+        glacier_ids_to_keep, require_1975_outline, verbose, exclude_lake_terminating,
+            lake_terminating_types: the glaciers, selected as by
+            `geodetic_target_Maurer19` over 1975-2000.
+        min_frac_rgi: see `table_RGI62_to_Maurer19`.
+    """
+    # gridded_utils imports this module
+    from data_processing.gridded_utils import per_glacier_rates_Hugonnet21
+
+    glaciers = geodetic_target_Maurer19(
+        glacier_ids_to_keep=glacier_ids_to_keep,
+        require_1975_outline=require_1975_outline,
+        verbose=verbose,
+        exclude_lake_terminating=exclude_lake_terminating,
+        lake_terminating_types=lake_terminating_types,
+    ).RGIId
+    crosswalk = pd.concat(
+        [
+            table_RGI62_to_Maurer19(region_id=r, min_frac_rgi=min_frac_rgi)
+            for r in MAURER19_REGION_IDS
+        ],
+        ignore_index=True,
+    )
+    crosswalk = crosswalk[crosswalk.custom_id.isin(set(glaciers))]
+    rates = per_glacier_rates_Hugonnet21()
+    rates = rates[rates.period == hugonnet_period]
+    assert len(rates), f"Hugonnet21 has no period {hugonnet_period}."
+    h = crosswalk[["RGIId", "custom_id"]].merge(
+        rates[["rgiid", "dmdtda", "err_dmdtda", "area"]],
+        left_on="RGIId",
+        right_on="rgiid",
+    )
+    h = h.dropna(subset=["dmdtda", "err_dmdtda", "area"])
+    no_rate = sorted(set(glaciers) - set(h.custom_id))
+    if verbose and no_rate:
+        print(
+            f"Maurer19/Hugonnet21: {len(no_rate)} glacier(s) without a Hugonnet rate on "
+            f"their RGI outlines are left out: {no_rate}"
+        )
+    df = (
+        h.groupby("custom_id")
+        .apply(
+            lambda d: pd.Series(
+                {
+                    "mwe_per_year": np.average(d.dmdtda, weights=d.area),
+                    "sigma_mwe_per_year": np.average(d.err_dmdtda, weights=d.area),
+                    "n_rgi": len(d),
+                }
+            ),
+            include_groups=False,
+        )
+        .rename_axis("RGIId")
+        .reset_index()
+    )
+    start, end = (pd.Timestamp(d) for d in hugonnet_period.split("_"))
+    months = (end.year - start.year) * 12 + (end.month - start.month)
+    df["FROM_DATE"], df["TO_DATE"] = start, end
+    df["n_years"] = months / 12
+    df["y0"], df["y1"] = start.year, end.year
+    df["cumulative_mwe"] = df.mwe_per_year * df.n_years
+    df["name"] = df.RGIId
+    df["n_rgi"] = df.n_rgi.astype(int)
+    return df[
+        [
+            "RGIId",
+            "name",
+            "y0",
+            "y1",
+            "n_years",
+            "FROM_DATE",
+            "TO_DATE",
+            "mwe_per_year",
+            "cumulative_mwe",
+            "sigma_mwe_per_year",
+            "n_rgi",
+        ]
+    ].reset_index(drop=True)
+
+
 def _coordinate(ds, names):
     for name in names:
         if name in ds.variables:

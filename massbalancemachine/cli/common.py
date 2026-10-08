@@ -38,7 +38,9 @@ def mergeRegions(training, netcfgFolder):
     `source_data` is the union of their RGI regions. The returned section has
     `splitVal="per-region"`, and keeps every region block, as read, under `regions`:
     `trainValData` splits each region with its own rule, and the evaluation tests each
-    region on its own geodetic source.
+    region on its own geodetic source. A region may set its own split by year,
+    `splitTest` (e.g. "YEAR:<2010"); the others keep the `splitTest` of the training
+    section, see `dataloader.SourceManager.yearSplitPerRgiRegion`.
     """
     owned = [k for k in REGION_OWNED_KEYS if k in training]
     assert (

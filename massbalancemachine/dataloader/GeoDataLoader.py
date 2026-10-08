@@ -54,6 +54,7 @@ from data_processing.hagg12 import geodetic_target_Hagg12, table_RGI62_to_Hagg12
 from data_processing.maurer19 import (
     LATE_PERIOD as MAURER19_LATE_PERIOD,
     geodetic_target_Maurer19,
+    geodetic_target_Maurer19_Hugonnet21,
     table_RGI62_to_Maurer19,
 )
 from data_processing.belart20 import geodetic_target_Belart20, table_RGI62_to_Belart20
@@ -219,15 +220,30 @@ def windowedSourceTarget(source: str, options: dict):
     if source == "Maurer19":
         return geodetic_target_Maurer19(**options), create_gridded_features_Maurer19
     if source == "Maurer19_2000":
-        # The 2000-2016 period of Maurer19, used for evaluation, gridded on the outlines
-        # of 2000 in a tree of its own. Several hundred of its glaciers have no outline
-        # (no 1975-2000 netCDF), so their list is only printed on request.
+        # The glaciers of Maurer19, used for evaluation, gridded on the outlines of 2000
+        # in a tree of its own. The target is the 2000-2016 period of Maurer19, or with
+        # `target="Hugonnet21"` the balance of Hugonnet et al. (2021) over
+        # `hugonnet_period`, see `geodetic_target_Maurer19_Hugonnet21`.
+        options = dict(options)
+        target = options.pop("target", "Maurer19")
+        gridded = functools.partial(create_gridded_features_Maurer19, epoch=2000)
+        if target == "Hugonnet21":
+            return (
+                geodetic_target_Maurer19_Hugonnet21(**{"verbose": False, **options}),
+                gridded,
+            )
+        assert target == "Maurer19", f"Maurer19_2000 has no target {target}."
+        # Several hundred glaciers of the 2000-2016 product have no outline (no
+        # 1975-2000 netCDF), so their list is only printed on request.
         assert (
             options.get("period", MAURER19_LATE_PERIOD) == MAURER19_LATE_PERIOD
         ), f"Maurer19_2000 covers {MAURER19_LATE_PERIOD}, not {options['period']}."
-        return geodetic_target_Maurer19(
-            **{"verbose": False, **options, "period": MAURER19_LATE_PERIOD}
-        ), functools.partial(create_gridded_features_Maurer19, epoch=2000)
+        return (
+            geodetic_target_Maurer19(
+                **{"verbose": False, **options, "period": MAURER19_LATE_PERIOD}
+            ),
+            gridded,
+        )
     if source == "Belart20":
         return geodetic_target_Belart20(**options), create_gridded_features_Belart20
     if source == "Andreassen16":
