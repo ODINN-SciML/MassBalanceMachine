@@ -262,3 +262,44 @@ def test_source_manager_splits_each_region_with_its_test_year():
     train_set, test_set, _, _ = manager.train_test_sets()
     assert sorted(train_set["df_X"].ID.unique()) == [0, 2]
     assert sorted(test_set["df_X"].ID.unique()) == [1, 3]
+
+
+def test_train_val_data_per_stake():
+    from cli.common import stakeKeys
+
+    rows = [
+        # RGIId, year, measurement ID, latitude
+        ("RGI60-15.00001", 2005, 0, 28.0),
+        ("RGI60-15.00001", 2006, 1, 28.0),  # same stake, another year: validation too
+        ("RGI60-15.00001", 2005, 2, 28.1),  # another stake of the glacier: train
+        ("RGI60-13.00001", 2005, 3, 40.0),
+    ]
+    df = pd.DataFrame(
+        [
+            (g, y, i, lat, m, 0.1 * i, 1.0)
+            for g, y, i, lat in rows
+            for m in ("oct", "nov")
+        ],
+        columns=["RGIId", "YEAR", "ID", "POINT_LAT", "MONTHS", "POINT_BALANCE", "t2m"],
+    ).assign(POINT_LON=86.0, ALTITUDE_CLIMATE=5000.0)
+    val_stake = stakeKeys(df.iloc[[0]]).iloc[0]
+    assert val_stake == "RGI60-15.00001_28.000000_86.000000"
+    cfg = mbm.Config(metaData=["RGIId", "ID", "YEAR", "MONTHS"])
+    cfg.setFeatures(["t2m"])
+    region = {
+        **HIMALAYA,
+        "splitVal": "group-stake",
+        "val_stakes": [val_stake],
+        "val_glaciers": ["RGI60-15.00001"],
+    }
+    merged = mergeRegions({"regions": {"him": region}}, ".")
+
+    df_X_train, _, df_X_val, _ = trainValData(
+        cfg,
+        {"df_X": df, "y": df.POINT_BALANCE},
+        ["t2m"],
+        split_key="per-region",
+        regions=merged["regions"],
+    )
+    assert sorted(df_X_val.ID.unique()) == [0, 1]
+    assert sorted(df_X_train.ID.unique()) == [2, 3]
