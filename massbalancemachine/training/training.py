@@ -896,14 +896,19 @@ def assessOnVal(
                 r2_annual,
                 bias_annual,
             ) = scores(predAnnual, targetAnnual)
-            (
-                mse_winter,
-                rmse_winter,
-                mae_winter,
-                pearson_corr_winter,
-                r2_winter,
-                bias_winter,
-            ) = scores(predWinter, targetWinter)
+            if targetWinter.shape[0] > 0:
+                (
+                    mse_winter,
+                    rmse_winter,
+                    mae_winter,
+                    pearson_corr_winter,
+                    r2_winter,
+                    bias_winter,
+                ) = scores(predWinter, targetWinter)
+            else:
+                mse_winter = rmse_winter = mae_winter = pearson_corr_winter = (
+                    r2_winter
+                ) = bias_winter = torch.tensor(torch.nan)
         else:
             mse = rmse = mae = pearson_corr = r2 = bias = torch.tensor(torch.nan)
             mse_annual = rmse_annual = mae_annual = pearson_corr_annual = r2_annual = (
