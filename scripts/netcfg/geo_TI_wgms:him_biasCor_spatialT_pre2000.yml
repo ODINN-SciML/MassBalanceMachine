@@ -1,0 +1,81 @@
+model:
+    type: TIlike
+    inputs:
+        - ELEVATION_DIFFERENCE
+        - aspect
+        - fal
+        - slhf
+        - slope
+        - sshf
+        - ssrd
+        - str
+        - t2m
+        - tp_sum
+        - svf
+        - u10
+        - v10
+        - POINT_LAT
+        - POINT_LON
+        - POINT_ELEVATION
+    grad_T:
+        inputs:
+            - t2m
+            - slhf
+            - sshf
+            - ssrd
+            - str
+        layers: [16, 8, 8]
+    bias_T:
+        inputs:
+            - POINT_LAT
+            - POINT_LON
+        layers: [16, 8]
+        b_max: 3.0
+    cor_acc:
+        inputs:
+            - u10
+            - v10
+            - slope
+        layers: [16, 8]
+    cor_abl:
+        inputs:
+            - fal
+            - slhf
+            - sshf
+            - ssrd
+            - str
+        layers: [16, 8]
+    bias_cor:
+        inputs:
+            - POINT_LAT
+            - POINT_LON
+        layers: [16, 8]
+        p_min: 0.1
+    bias_cor_elev:
+        inputs:
+            - ELEVATION_DIFFERENCE
+        layers: [16, 8]
+    sw_contrib:
+        inputs:
+            - aspect
+            - slope
+            - svf
+            - ssrd
+            - fal
+            - ELEVATION_DIFFERENCE
+        layers: [16, 8]
+training:
+    regions:
+        himalaya:
+            split_file: splits/himalaya.yml
+    splitTest: YEAR:<2000
+    # 0 trains on the stakes only. The geodetic run reuses this file with --wGeo, so that
+    # both experiments share the same split.
+    wGeo: 0.0
+    optim: ADAM
+    scheduler: StepLR
+    lr: 1e-3
+    scheduler_step_size: 500
+    Nepochs: 2000
+    scalingStakes: full
+    bestModelCriterion: lossVal
