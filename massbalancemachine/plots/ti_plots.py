@@ -14,14 +14,71 @@ def _month_number(months):
     return months.str.rstrip("_").map(_month_to_number)
 
 
-def _month_style(month):
-    """Color and linestyle of a month in the monthly profiles. The color gets
-    brighter from January to July and darker again until December, and the second
-    half of the year is dashed so that months with the same color can be told
-    apart."""
-    distance_to_january = min(month - 1, 13 - month) / 6
-    color = plt.get_cmap("plasma")(0.85 * distance_to_january)
-    return color, "-" if month <= 7 else "--"
+# One hue per season (winter blue, spring green, summer red, autumn gold to ochre),
+# the three months of a season going from light to dark
+_season_colors = [
+    ("Blues", [12, 1, 2], [0.5, 0.7, 0.9]),
+    ("Greens", [3, 4, 5], [0.45, 0.65, 0.85]),
+    ("Reds", [6, 7, 8], [0.5, 0.7, 0.9]),
+    ("YlOrBr", [9, 10, 11], [0.35, 0.5, 0.65]),
+]
+_month_colors = {
+    month: plt.get_cmap(cmap)(level)
+    for cmap, months, levels in _season_colors
+    for month, level in zip(months, levels)
+}
+
+
+def _month_color(month):
+    """Color of a month in the monthly profiles, see `_season_colors`."""
+    return _month_colors[month]
+
+
+def _label_line_ends(ax, ends, min_gap=0.045):
+    """Write each label at the top end of its line, the labels too close to the
+    previous one being raised by one row so that they do not overlap. Lines ending
+    at the same point share one label.
+
+    Args:
+        ends (list of (x, y, label)): Top end of each line, in data coordinates.
+        min_gap (float): Smallest horizontal distance between two labels of the
+            same row, in fraction of the axis width.
+    """
+    x0, x1 = ax.get_xlim()
+    merged = []
+    for x, y, label in ends:
+        same = next(
+            (m for m in merged if m[1] == y and abs(m[0] - x) < 0.01 * (x1 - x0)),
+            None,
+        )
+        if same is None:
+            merged.append([x, y, [label]])
+        else:
+            same[2].append(label)
+    rows = []  # x position, in axis fraction, of the last label of each row
+    placed = []
+    for x, y, labels in sorted(merged, key=lambda m: m[0]):
+        label = "all months" if len(labels) == 12 else ", ".join(labels)
+        xf = (x - x0) / (x1 - x0)
+        row = next((i for i, last in enumerate(rows) if xf - last >= min_gap), None)
+        if row is None:
+            row = len(rows)
+            rows.append(xf)
+        rows[row] = xf
+        placed.append((x, y, label, row))
+    for x, y, label, row in placed:
+        ax.annotate(
+            label,
+            (x, y),
+            xytext=(0, 4 + 11 * row),
+            textcoords="offset points",
+            ha="center",
+            va="bottom",
+            fontsize=8,
+            color="0.2",
+        )
+    # Room above the lines for the rows of labels
+    ax.margins(y=0.04 + 0.035 * len(rows))
 
 
 def monthlyProfile(
@@ -62,21 +119,23 @@ def monthlyProfile(
     else:
         fig = None
 
+    ends = []
     for month in profiles.index.get_level_values("MONTH").unique().sort_values():
         profile = profiles.loc[month]
         label = month_abbr[month]
         if lapse_rate_unit is not None and len(profile) > 1:
             slope = np.polyfit(profile.index.values, profile.values, 1)[0]
             label += f" ({1000 * slope:.1f} {lapse_rate_unit})"
-        color, linestyle = _month_style(month)
         ax.plot(
             profile.values,
             profile.index.values,
-            color=color,
-            linestyle=linestyle,
-            linewidth=1.5,
+            color=_month_color(month),
+            linewidth=2,
             label=label,
         )
+        ends.append((profile.values[-1], profile.index.values[-1], month_abbr[month]))
+    # Months named on the lines so that they can be read without the legend
+    _label_line_ends(ax, ends)
     ax.set_xlabel(xlabel or column)
     ax.set_ylabel("Elevation (m)")
     if title is not None:
