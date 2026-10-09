@@ -114,12 +114,28 @@ class TILikeModel(nn.Module):
         )
         self.beta1 = 10.0
         self.beta2 = 0.0049
-        init_tau_P_s = 1.5
+        # Range of the slope of the snow fraction sigmoid,
+        # slope = s_min + (s_max - s_min) * (tanh(tau_P_s) + 1) / 2
+        snow_slope_params = modelParams.get("snow_slope", {})
+        self.snow_slope_min = float(snow_slope_params.get("min", 0.0))
+        self.snow_slope_max = float(snow_slope_params.get("max", 4.0))
+        init_tau_P_s = float(snow_slope_params.get("init", 1.5))
+        assert (
+            0.0 <= self.snow_slope_min < init_tau_P_s < self.snow_slope_max
+        ), f"The snow slope must satisfy 0 <= min < init < max, got min={self.snow_slope_min}, init={init_tau_P_s}, max={self.snow_slope_max}."
         init_tau_P_c = 1.0
         init_beta_pdd = 1.0
         init_lapse_rate_P_cor = 0.1
         self.tau_P_s = torch.nn.Parameter(
-            torch.arctanh((torch.ones(1) * init_tau_P_s / 2) - 1.1)
+            torch.arctanh(
+                torch.ones(1)
+                * (
+                    2
+                    * (init_tau_P_s - self.snow_slope_min)
+                    / (self.snow_slope_max - self.snow_slope_min)
+                    - 1
+                )
+            )
         )
         self.tau_P_c = torch.nn.Parameter(torch.ones(1) * init_tau_P_c)
         self.beta_pdd = torch.nn.Parameter(
@@ -323,8 +339,13 @@ class TILikeModel(nn.Module):
 
     def snow_slope(self):
         """Slope (1/°C) of the sigmoid splitting precipitation into snow, from the
-        learnable tau_P_s."""
-        return (torch.tanh(self.tau_P_s) + 1.1) * 2
+        learnable tau_P_s, within [snow_slope_min, snow_slope_max]."""
+        return (
+            self.snow_slope_min
+            + (self.snow_slope_max - self.snow_slope_min)
+            * (torch.tanh(self.tau_P_s) + 1)
+            / 2
+        )
 
     def pdd_curvature(self):
         """Curvature (1/°C) of the softplus giving the positive degree days, from
