@@ -522,6 +522,7 @@ def geodetic_target_Maurer19_Hugonnet21(
     verbose: bool = True,
     exclude_lake_terminating: bool = False,
     lake_terminating_types=LAKE_TERMINATING_ALL,
+    min_coverage: float = None,
     min_frac_rgi: float = 0.5,
 ):
     """The balance of Hugonnet et al. (2021) of the Maurer19 glaciers, for evaluation on
@@ -537,8 +538,9 @@ def geodetic_target_Maurer19_Hugonnet21(
         hugonnet_period: a period of the per-glacier product, e.g.
             "2010-01-01_2020-01-01"; it gives FROM_DATE and TO_DATE.
         glacier_ids_to_keep, require_1975_outline, verbose, exclude_lake_terminating,
-            lake_terminating_types: the glaciers, selected as by
-            `geodetic_target_Maurer19` over 1975-2000.
+            lake_terminating_types, min_coverage: the glaciers, selected as by
+            `geodetic_target_Maurer19` over 1975-2000 (the coverage is that of
+            1975-2000).
         min_frac_rgi: see `table_RGI62_to_Maurer19`.
     """
     # gridded_utils imports this module
@@ -550,6 +552,7 @@ def geodetic_target_Maurer19_Hugonnet21(
         verbose=verbose,
         exclude_lake_terminating=exclude_lake_terminating,
         lake_terminating_types=lake_terminating_types,
+        min_coverage=min_coverage,
     ).RGIId
     crosswalk = pd.concat(
         [
