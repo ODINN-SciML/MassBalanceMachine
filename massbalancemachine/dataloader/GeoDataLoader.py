@@ -233,6 +233,16 @@ def windowedSourceTarget(source: str, options: dict):
                 gridded,
             )
         assert target == "Maurer19", f"Maurer19_2000 has no target {target}."
+        # The coverage selects the glaciers on the calibration period 1975-2000, as
+        # for Hugonnet21, not on the coverage of 2000-2016
+        min_coverage = options.pop("min_coverage", None)
+        if min_coverage is not None:
+            kept = geodetic_target_Maurer19(
+                min_coverage=min_coverage,
+                glacier_ids_to_keep=options.get("glacier_ids_to_keep"),
+                verbose=False,
+            ).RGIId
+            options["glacier_ids_to_keep"] = list(kept)
         # Several hundred glaciers of the 2000-2016 product have no outline (no
         # 1975-2000 netCDF), so their list is only printed on request.
         assert (
