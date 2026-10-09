@@ -1130,6 +1130,15 @@ def train_geo(
         "rmseGeo": "RMSEGeo/val",
     }
 
+    def logScalarParameters(step):
+        """Learnable scalars of a TIlike model, as the model uses them."""
+        if hasattr(model.module, "scalar_parameters"):
+            values = model.module.scalar_parameters()
+            for k in ["snow_slope", "snow_threshold", "pdd_curvature"]:
+                writer.add_scalar(f"Parameters/{k}", values[k], step)
+
+    logScalarParameters(-1)
+
     # Validation of the model before any update, logged at step -1 so that epoch e
     # keeps step e. It is kept apart from the per-epoch statistics and is not a
     # checkpoint candidate.
@@ -1474,6 +1483,8 @@ def train_geo(
             avg_training_loss /= iter_counter
             if scheduler is not None:
                 scheduler.step()
+
+            logScalarParameters(epoch)
 
             if freqVal and hasVal:
                 statsValEpoch = runVal()

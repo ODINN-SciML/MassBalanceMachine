@@ -321,6 +321,33 @@ class TILikeModel(nn.Module):
         cor_abl.append(nn.Softplus())
         self.cor_abl = nn.Sequential(*cor_abl)
 
+    def snow_slope(self):
+        """Slope (1/°C) of the sigmoid splitting precipitation into snow, from the
+        learnable tau_P_s."""
+        return (torch.tanh(self.tau_P_s) + 1.1) * 2
+
+    def pdd_curvature(self):
+        """Curvature (1/°C) of the softplus giving the positive degree days, from
+        the learnable beta_pdd. The larger, the closer to max(T, 0)."""
+        return (torch.tanh(self.beta_pdd) + 1) * 2
+
+    def scalar_parameters(self):
+        """Values of the learnable scalars as the model uses them.
+
+        Returns a dict with the slope of the snow fraction sigmoid (1/°C), its
+        threshold temperature tau_P_c (°C) and the curvature of the PDD softplus
+        (1/°C), together with the raw parameters they are computed from.
+        """
+        with torch.no_grad():
+            return {
+                "snow_slope": self.snow_slope().item(),
+                "snow_threshold": self.tau_P_c.item(),
+                "pdd_curvature": self.pdd_curvature().item(),
+                "tau_P_s": self.tau_P_s.item(),
+                "tau_P_c": self.tau_P_c.item(),
+                "beta_pdd": self.beta_pdd.item(),
+            }
+
     def _net_from_df(self, net, columns, df, name):
         """Raw output of `net` on the unnormalized `columns` of df."""
         if net is None:
@@ -485,14 +512,8 @@ class TILikeModel(nn.Module):
             P_cor = self._P_cor(inputs)
         else:
             P_cor = 1.0
-        P_solid = (
-            P
-            * P_cor
-            * F.sigmoid(
-                (torch.tanh(self.tau_P_s) + 1.1) * 2 * (self.tau_P_c - cor_T - T)
-            )
-        )
-        curv_pdd = (torch.tanh(self.beta_pdd) + 1) * 2
+        snow_slope, curv_pdd = self.snow_slope(), self.pdd_curvature()
+        P_solid = P * P_cor * F.sigmoid(snow_slope * (self.tau_P_c - cor_T - T))
         PDD = F.softplus((T + cor_T) * curv_pdd) / curv_pdd
 
         cor_acc = F.sigmoid(self.cor_acc(inp_cor_acc).view(-1))
@@ -592,14 +613,8 @@ class TILikeModel(nn.Module):
             P_cor = self._P_cor(inputs)
         else:
             P_cor = 1.0
-        P_solid = (
-            P
-            * P_cor
-            * F.sigmoid(
-                (torch.tanh(self.tau_P_s) + 1.1) * 2 * (self.tau_P_c - cor_T - T)
-            )
-        )
-        curv_pdd = (torch.tanh(self.beta_pdd) + 1) * 2
+        snow_slope, curv_pdd = self.snow_slope(), self.pdd_curvature()
+        P_solid = P * P_cor * F.sigmoid(snow_slope * (self.tau_P_c - cor_T - T))
         PDD = F.softplus((T + cor_T) * curv_pdd) / curv_pdd
 
         # Accumulation factor correction

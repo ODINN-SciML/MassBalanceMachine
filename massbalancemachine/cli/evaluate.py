@@ -331,6 +331,16 @@ def main(argv=None):
     bestModelPath, _ = mbm.training.loadBestModel(pathFolder, model)
     print(f"Loaded model {bestModelPath}")
 
+    if params["model"]["type"] == "TIlike":
+        # Learnable scalars of the snow fraction and PDD activation functions
+        with open(os.path.join(pathFolder, "ti_parameters.json"), "w") as f:
+            json.dump(model.module.scalar_parameters(), f, indent=4)
+        fig = mbm.plots.scalarParameters(model.module)
+        fig.savefig(os.path.join(pathFolder, "ti_parameters.png"))
+        if plot:
+            plt.show()
+        plt.close(fig)
+
     def inspect_glaciers():
         """Plot and save the intermediate variables of the glaciers of option inspect."""
         # The inspected glaciers get their own dataloaders so that they do not have to be
