@@ -141,9 +141,13 @@ class TILikeModel(nn.Module):
         self.beta_pdd = torch.nn.Parameter(
             torch.arctanh((torch.ones(1) * init_beta_pdd / 2) - 1)
         )
-        self.tau_P_s.requires_grad = True
-        self.tau_P_c.requires_grad = True
-        self.beta_pdd.requires_grad = True
+        # Whether each scalar is optimized, otherwise it keeps its initial value
+        trainable = modelParams.get("trainable", {})
+        unknown = set(trainable) - {"tau_P_c", "tau_P_s", "beta_pdd"}
+        assert not unknown, f"Unknown trainable parameters: {sorted(unknown)}."
+        self.tau_P_s.requires_grad = bool(trainable.get("tau_P_s", True))
+        self.tau_P_c.requires_grad = bool(trainable.get("tau_P_c", True))
+        self.beta_pdd.requires_grad = bool(trainable.get("beta_pdd", True))
         self.lapse_rate_P_cor = torch.nn.Parameter(
             torch.arctanh((torch.ones(1) * (init_lapse_rate_P_cor / 0.2) * 2) - 1)
         )  # 0.2*(tanh(x)+1)/2
