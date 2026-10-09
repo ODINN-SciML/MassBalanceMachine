@@ -488,7 +488,9 @@ class TILikeModel(nn.Module):
         P_solid = (
             P
             * P_cor
-            * F.sigmoid((torch.tanh(self.tau_P_s) + 1) * 2 * (self.tau_P_c - cor_T - T))
+            * F.sigmoid(
+                (torch.tanh(self.tau_P_s) + 1.1) * 2 * (self.tau_P_c - cor_T - T)
+            )
         )
         curv_pdd = (torch.tanh(self.beta_pdd) + 1) * 2
         PDD = F.softplus((T + cor_T) * curv_pdd) / curv_pdd
@@ -593,7 +595,9 @@ class TILikeModel(nn.Module):
         P_solid = (
             P
             * P_cor
-            * F.sigmoid((torch.tanh(self.tau_P_s) + 1) * 2 * (self.tau_P_c - cor_T - T))
+            * F.sigmoid(
+                (torch.tanh(self.tau_P_s) + 1.1) * 2 * (self.tau_P_c - cor_T - T)
+            )
         )
         curv_pdd = (torch.tanh(self.beta_pdd) + 1) * 2
         PDD = F.softplus((T + cor_T) * curv_pdd) / curv_pdd
