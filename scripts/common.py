@@ -90,6 +90,8 @@ def parseParams(params):
             }
         if "bias_cor_elev" in params["model"]:
             modelParams["bias_cor_elev"] = params["model"]["bias_cor_elev"]
+        if "snow_slope" in params["model"]:
+            modelParams["snow_slope"] = params["model"]["snow_slope"]
     trainingParams = {
         "source_data": source_data,
         "geodetic_source": geodetic_source,
