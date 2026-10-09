@@ -11,6 +11,7 @@ import heapq
 import matplotlib.pyplot as plt
 import pandas as pd
 import glob
+import re
 import warnings
 import json
 import git
@@ -964,37 +965,33 @@ def bestModelFile(log_dir):
     best = None
     bestVal = None
     bestEpoch = None
-    for i, f in enumerate(files):
-        s = os.path.basename(f).replace("model_epoch", "").replace(".pt", "")
-        epoch = s.split("_")[0]
-        val = s.split("_")[1]
-        for metric in _criterionVal:
-            if metric in val:
-                higherBetter = metric in _maxCriterion
-                val = val.replace(metric, "")
+    for f in files:
+        # Checkpoints are named model_epoch<epoch>_<criterion><score>.pt
+        match = re.fullmatch(
+            r"model_epoch(\d+)_([A-Za-z]+)(.+)\.pt", os.path.basename(f)
+        )
+        if match is None or match.group(2) not in _criterionVal:
+            warnings.warn(f"Ignoring checkpoint {f} whose name cannot be parsed.")
+            continue
+        epoch = int(match.group(1))
+        higherBetter = match.group(2) in _maxCriterion
+        val = float(match.group(3))
         if bestVal is None:
-            best = i
-            bestVal = val
-            bestEpoch = epoch
-        elif val == bestVal and (epoch > bestEpoch):
+            better = True
+        elif val == bestVal:
             warnings.warn(
                 "Two models have exactly the same validation score. Taking the one with the largest epoch number."
             )
-            best = i
+            better = epoch > bestEpoch
+        else:
+            better = val > bestVal if higherBetter else val < bestVal
+        if better:
+            best = f
             bestVal = val
             bestEpoch = epoch
-        elif higherBetter and val > bestVal:
-            best = i
-            bestVal = val
-            bestEpoch = epoch
-        elif not higherBetter and val < bestVal:
-            best = i
-            bestVal = val
-            bestEpoch = epoch
-        val = float(val)
     if best is None:
         raise Exception("No model found.")
-    return files[best], bestVal
+    return best, bestVal
 
 
 def loadBestModel(log_dir, model):
@@ -1505,10 +1502,12 @@ def train_geo(
                     f"model_epoch{epoch}_{bestModelCriterion}{scalarBestModelCriterion:.4f}.pt",
                 )
 
+                # The heap is keyed by higherBetterCriterion * score, so its first
+                # element is the worst of the kept models whatever the criterion
                 if (
                     len(top_models) < 5
-                    or scalarBestModelCriterion
-                    < higherBetterCriterion * top_models[0][0]
+                    or higherBetterCriterion * scalarBestModelCriterion
+                    > top_models[0][0]
                 ):
 
                     if len(top_models) >= 5:
