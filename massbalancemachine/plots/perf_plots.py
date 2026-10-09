@@ -301,14 +301,39 @@ def predVSTruthGlacierWide(
     elinewidth=None,
     markersize=None,
     label_fontsize=15,
+    dense=None,
+    dense_threshold=50,
 ):
+    """Predicted against observed glacier-wide MB, with the 2-sigma observation
+    uncertainty as horizontal error bars.
+
+    With many points (`dense`, by default when there are more than `dense_threshold`
+    of them) the figure is made readable for hundreds of glaciers: small translucent
+    markers, faint error bars drawn behind them, equal axes fitted to the points (the
+    given limits are then ignored) and the scores written on the figure.
+    """
+    # A glacier holds one value per geodetic window, so it can have several points
+    targetAll = np.concatenate([np.atleast_1d(geoTarget[g]) for g in geoPred])
+    predAll = np.concatenate([np.atleast_1d(geoPred[g]) for g in geoPred])
+    errAll = np.concatenate([np.atleast_1d(geoErr[g]) for g in geoPred])
+    if dense is None:
+        dense = len(targetAll) > dense_threshold
 
     if ax is None:
-        fig, ax = plt.subplots(1, 1)
+        fig, ax = plt.subplots(1, 1, figsize=(6.5, 6.5) if dense else None)
     else:
         fig = None
 
-    # A glacier holds one value per geodetic window, so it can have several points
+    if dense:
+        _glacierWideDense(
+            ax, targetAll, predAll, errAll, len(geoPred), color, alpha, markersize
+        )
+        ax.set_title(title, fontsize=20)
+        ax.set_xlabel("Observed mean SMB / year [m w.e.]", fontsize=label_fontsize)
+        ax.set_ylabel("Predicted mean SMB / year [m w.e.]", fontsize=label_fontsize)
+        plt.tight_layout()
+        return fig
+
     for g in geoPred.keys():
         ax.errorbar(
             geoTarget[g],
@@ -351,6 +376,64 @@ def predVSTruthGlacierWide(
     plt.tight_layout()
 
     return fig
+
+
+def _glacierWideDense(ax, target, pred, err, nGlaciers, color, alpha, markersize):
+    """Dense version of `predVSTruthGlacierWide` on `ax`, for hundreds of points."""
+    ax.errorbar(
+        target,
+        pred,
+        xerr=2 * err,
+        fmt="none",
+        ecolor=color,
+        elinewidth=0.6,
+        alpha=0.15,
+        zorder=1,
+    )
+    ax.scatter(
+        target,
+        pred,
+        s=(markersize or 4) ** 2,
+        color=color,
+        alpha=alpha or 0.6,
+        edgecolors="white",
+        linewidths=0.3,
+        zorder=2,
+    )
+
+    # Same range on both axes, fitted to the points rather than to the error bars
+    lo = min(target.min(), pred.min())
+    hi = max(target.max(), pred.max())
+    pad = 0.08 * (hi - lo) if hi > lo else 0.5
+    lim = (lo - pad, hi + pad)
+    ax.set_xlim(lim)
+    ax.set_ylim(lim)
+    ax.set_aspect("equal")
+
+    ax.axline((0, 0), slope=1, color="0.3", linestyle="--", linewidth=0.8, zorder=0)
+    ax.axvline(0, color="grey", linewidth=0.6, zorder=0)
+    ax.axhline(0, color="grey", linewidth=0.6, zorder=0)
+    ax.grid(color="0.9", linewidth=0.6, zorder=0)
+
+    s = metrics.scores(target, pred)
+    w = 1 / err**2
+    rmseWeighted = np.sqrt((w * (target - pred) ** 2).sum() / w.sum())
+    ax.text(
+        0.03,
+        0.97,
+        "\n".join(
+            (
+                f"{nGlaciers} glaciers, {len(target)} values",
+                rf"RMSE $= {s['rmse']:.2f}$ (weighted $= {rmseWeighted:.2f}$)",
+                rf"bias $= {s['bias']:+.2f}$",
+                rf"$r = {s['pearson_corr']:.2f}$",
+            )
+        ),
+        transform=ax.transAxes,
+        va="top",
+        fontsize=11,
+        bbox=dict(boxstyle="round", facecolor="white", edgecolor="0.8", alpha=0.85),
+    )
 
 
 def plotMeanPred(
