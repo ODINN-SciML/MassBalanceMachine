@@ -346,3 +346,47 @@ def regionCorrectionMaps(
         fig.suptitle(title)
     fig.tight_layout()
     return fig
+
+
+def scalarParameters(module, temperatures=np.linspace(-10, 10, 401)):
+    """
+    Plots the two activation functions shaped by the learnable scalars of a TIlike
+    model: the fraction of precipitation falling as snow, and the positive degree
+    days, both against the corrected temperature T + cor_T. Their sharp versions
+    (a step at the threshold and max(T, 0)) are drawn for reference.
+
+    Args:
+        module (TILikeModel): Model whose parameters are plotted.
+        temperatures (np.ndarray): Corrected temperatures (°C) on the x axis.
+
+    Returns the created figure.
+    """
+    values = module.scalar_parameters()
+    slope, threshold = values["snow_slope"], values["snow_threshold"]
+    curvature = values["pdd_curvature"]
+    x = torch.as_tensor(temperatures)
+
+    fig, (ax_snow, ax_pdd) = plt.subplots(1, 2, figsize=(11, 4.5))
+
+    snow = torch.sigmoid(slope * (threshold - x))
+    ax_snow.plot(temperatures, (temperatures < threshold), color="0.6", ls="--")
+    ax_snow.plot(temperatures, snow, color="tab:blue", linewidth=2)
+    ax_snow.axvline(threshold, color="0.6", linewidth=0.8)
+    ax_snow.set_xlabel("Corrected temperature $T + cor_T$ (°C)")
+    ax_snow.set_ylabel("Fraction of precipitation as snow (-)")
+    ax_snow.set_title(
+        f"Snow fraction: slope {slope:.2f} /°C, threshold {threshold:.2f} °C"
+    )
+
+    pdd = torch.nn.functional.softplus(x * curvature) / curvature
+    ax_pdd.plot(temperatures, np.maximum(temperatures, 0), color="0.6", ls="--")
+    ax_pdd.plot(temperatures, pdd, color="tab:red", linewidth=2)
+    ax_pdd.set_xlabel("Corrected temperature $T + cor_T$ (°C)")
+    ax_pdd.set_ylabel("Positive degree days (°C)")
+    ax_pdd.set_title(f"PDD: curvature {curvature:.2f} /°C")
+
+    for ax in (ax_snow, ax_pdd):
+        ax.grid(alpha=0.3)
+    ax_pdd.legend(["sharp version", "learned"], fontsize="small")
+    fig.tight_layout()
+    return fig

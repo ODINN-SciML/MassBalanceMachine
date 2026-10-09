@@ -10,7 +10,13 @@ from plots.profile_plots import profilePerGlacier, profilePerGlacierPerMonth
 from plots.temporal_plots import cumulatedMassChange
 from plots.input_plot import histogram_mb, scatterplot_mb
 from plots.map_plots import mapGlacier, mapGlacierArray
-from plots.ti_plots import monthlyProfile, monthlyMaps, periodMap, regionCorrectionMaps
+from plots.ti_plots import (
+    monthlyProfile,
+    monthlyMaps,
+    periodMap,
+    regionCorrectionMaps,
+    scalarParameters,
+)
 from plots.train_plots import plot_training_history
 from plots.profile_plots import profilePerGlacier
 from plots.temporal_plots import cumulatedMassChange
