@@ -17,7 +17,7 @@ import json
 import git
 import time
 
-from plots import predVSTruth, predVSTruthGlacierWide
+from plots import predVSTruth, predVSTruthGlacierWide, glacierWideScores
 from data_processing.Dataset import Normalizer
 from models.TorchNeuralNetworkRegressor import (
     aggrPredict,
@@ -606,6 +606,7 @@ def assessOnTest(log_dir, model, geodataloader_test, params, light=False, color=
     if not light:
         # Geodetic prediction
         geoPred, geoTarget, geoErr, _ = eval_geodetic(model, geodataloader_test)
+        geoArea = {g: geodataloader_test.geodetic_areas(g) for g in geoPred}
         fig = predVSTruthGlacierWide(
             geoTarget,
             geoPred,
@@ -614,6 +615,7 @@ def assessOnTest(log_dir, model, geodataloader_test, params, light=False, color=
             color=color,
             ax_xlim=(-4, 3),
             ax_ylim=(-4, 3),
+            geoArea=geoArea,
         )
         plt.savefig(os.path.join(log_dir, "geodetic_test.png"))
         plt.close(fig)
@@ -625,6 +627,16 @@ def assessOnTest(log_dir, model, geodataloader_test, params, light=False, color=
         w = 1 / sigmaAllGeo**2
         rmse_geo = np.sqrt((w * (targetAllGeo - predAllGeo) ** 2).sum() / (w.sum()))
         stats["rmseGeo"] = rmse_geo.item()
+        # The scores of the figure, unweighted and area-weighted
+        sGeo = glacierWideScores(
+            targetAllGeo,
+            predAllGeo,
+            sigmaAllGeo,
+            np.concatenate([geoArea[k] for k in kGl]),
+        )
+        stats["biasGeo"] = float(sGeo["bias"])
+        stats["biasGeoArea"] = float(sGeo["bias_area"])
+        stats["rmseGeoArea"] = float(sGeo["rmse_area"])
 
     return stats
 

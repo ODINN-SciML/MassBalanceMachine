@@ -33,6 +33,7 @@ from data_processing.gridded_utils import (
     geodetic_target_Hugonnet21,
     geodetic_target_region_Hugonnet21,
     generate_grid_multi_years,
+    geodetic_grid_area,
     geodetic_window_weights,
     load_grid_multi_years,
     load_precomputed_metadata,
@@ -752,6 +753,22 @@ class GeoDataLoader:
 
     def geodetic_periods(self, g):
         return self.periods_per_glacier[self._toSourceGlacierId(g)]
+
+    def geodetic_areas(self, g) -> np.ndarray:
+        """Area in km² of the grid every geodetic window of `g` is averaged over, in the
+        order of `geodetic_periods`, read on the first year of the window: a window of
+        `Maurer19_Hugonnet21` is on the outlines of its own epoch."""
+        glacierId = self._toSourceGlacierId(g)
+        source = self.sourceOf(glacierId)
+        if not self.isWindowed:
+            # Hugonnet21: a single 2000-2020 window, its periods given as years
+            return np.array([geodetic_grid_area(glacierId, self.years[0], source)])
+        return np.array(
+            [
+                geodetic_grid_area(glacierId, pd.Timestamp(start).year, source)
+                for start, _ in self.periods_per_glacier[glacierId]
+            ]
+        )
 
     def elevation_diff_range(self, g: str):
         assert self.hasGeo(g)

@@ -76,5 +76,11 @@ def test_geodataloader_on_maurer19_with_hugonnet21():
         )
         assert before.nunique() == 1 and after.nunique() == 1
         assert before.iloc[0] != after.iloc[0]
+
+        # The area of each window is that of the outlines of its epoch (each on its
+        # own OGGM grid, so the pixel size differs too): the glacier shrank
+        areas = dataloader.geodetic_areas(GLACIER_ID)
+        assert len(areas) == 2 and (areas > 0).all()
+        assert areas[1] < areas[0]
     finally:
         dataloader.close()

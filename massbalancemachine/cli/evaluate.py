@@ -746,6 +746,7 @@ def main(argv=None):
             geoTarget,
             geoPred,
             geoErr,
+            geoArea={g: pgo_gdl.geodetic_areas(g) for g in geoPred},
             title="Glacier wide MB on PGO",
             ax_xlim=(-2.5, 1.0),
             ax_ylim=(-2.5, 1.0),
@@ -1316,6 +1317,10 @@ def main(argv=None):
             merged[f"{glacier} (val)" if glacier in merged else glacier] = value
         return merged
 
+    geoArea = _merge_geodetic(
+        {g: train_gdl.geodetic_areas(g) for g in geoPred},
+        {g: val_gdl.geodetic_areas(g) for g in geoPredVal},
+    )
     geoPred = _merge_geodetic(geoPred, geoPredVal)
     geoTarget = _merge_geodetic(geoTarget, geoTargetVal)
     geoErr = _merge_geodetic(geoErr, geoErrVal)
@@ -1353,6 +1358,7 @@ def main(argv=None):
         geoTarget,
         geoPred,
         geoErr,
+        geoArea=geoArea,
         title="Glacier wide MB on train",
         ax_xlim=(-2.5, 1.0),
         ax_ylim=(-2.5, 1.0),
@@ -1447,6 +1453,7 @@ def main(argv=None):
             geoTarget,
             geoPred,
             geoErr,
+            geoArea={g: region_gdl.geodetic_areas(g) for g in geoPred},
             title="Glacier wide MB on the whole region",
             legend=False,
         )

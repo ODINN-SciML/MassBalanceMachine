@@ -1008,6 +1008,31 @@ def _grid_dir(glacier_id, product_source, grid_root=None):
     return os.path.join(grid_root, *glacier_id_to_folders(glacier_id))
 
 
+def grid_tree(product_source, year):
+    """Grid tree holding the products of `product_source` for `year`: the source's own
+    tree, except for `Maurer19_Hugonnet21`, which has none (see
+    `maurer19_hugonnet21_tree`)."""
+    if product_source == "Maurer19_Hugonnet21":
+        return maurer19_hugonnet21_tree(year)
+    return product_source
+
+
+@lru_cache(maxsize=None)
+def geodetic_grid_area(glacier_id, year, product_source):
+    """Area in km² of the grid a glacier-wide balance of `year` is averaged over: its
+    number of points times the area of a pixel of the glacier's DEM (`dem.nc`, written
+    on the same OGGM grid as the products)."""
+    tree = grid_tree(product_source, year)
+    months = pd.read_parquet(
+        _require_grid(glacier_id, year, tree), columns=["MONTHS"]
+    ).MONTHS
+    n_points = (months == months.iloc[0]).sum()
+    with xr.open_dataset(os.path.join(_grid_dir(glacier_id, tree), "dem.nc")) as dem:
+        dx = abs(float(dem.x[1] - dem.x[0]))
+        dy = abs(float(dem.y[1] - dem.y[0]))
+    return float(n_points * dx * dy / 1e6)
+
+
 def _grid_year_path(glacier_id, year, product_source, grid_root=None):
     return os.path.abspath(
         os.path.join(

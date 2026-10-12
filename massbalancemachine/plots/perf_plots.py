@@ -303,19 +303,28 @@ def predVSTruthGlacierWide(
     label_fontsize=15,
     dense=None,
     dense_threshold=50,
+    geoArea=None,
 ):
     """Predicted against observed glacier-wide MB, with the 2-sigma observation
-    uncertainty as horizontal error bars.
+    uncertainty as horizontal error bars, and the scores written on the figure.
 
     With many points (`dense`, by default when there are more than `dense_threshold`
     of them) the figure is made readable for hundreds of glaciers: small translucent
-    markers, faint error bars drawn behind them, equal axes fitted to the points (the
-    given limits are then ignored) and the scores written on the figure.
+    markers, faint error bars drawn behind them and equal axes fitted to the points (the
+    given limits are then ignored).
+
+    `geoArea` ({glacier: area of each window, km²}, see
+    `GeoDataLoader.geodetic_areas`) adds the area-weighted bias and RMSE to the scores.
     """
     # A glacier holds one value per geodetic window, so it can have several points
     targetAll = np.concatenate([np.atleast_1d(geoTarget[g]) for g in geoPred])
     predAll = np.concatenate([np.atleast_1d(geoPred[g]) for g in geoPred])
     errAll = np.concatenate([np.atleast_1d(geoErr[g]) for g in geoPred])
+    areaAll = (
+        np.concatenate([np.atleast_1d(geoArea[g]) for g in geoPred])
+        if geoArea is not None
+        else None
+    )
     if dense is None:
         dense = len(targetAll) > dense_threshold
 
@@ -328,6 +337,7 @@ def predVSTruthGlacierWide(
         _glacierWideDense(
             ax, targetAll, predAll, errAll, len(geoPred), color, alpha, markersize
         )
+        _glacierWideScores(ax, targetAll, predAll, errAll, len(geoPred), areaAll)
         ax.set_title(title, fontsize=20)
         ax.set_xlabel("Observed mean SMB / year [m w.e.]", fontsize=label_fontsize)
         ax.set_ylabel("Predicted mean SMB / year [m w.e.]", fontsize=label_fontsize)
@@ -360,6 +370,7 @@ def predVSTruthGlacierWide(
 
     ax.grid()
     ax.set_title(title, fontsize=20)
+    _glacierWideScores(ax, targetAll, predAll, errAll, len(geoPred), areaAll)
 
     # Set axes limits
     if ax_xlim is not None:
@@ -415,20 +426,38 @@ def _glacierWideDense(ax, target, pred, err, nGlaciers, color, alpha, markersize
     ax.axhline(0, color="grey", linewidth=0.6, zorder=0)
     ax.grid(color="0.9", linewidth=0.6, zorder=0)
 
-    s = metrics.scores(target, pred)
-    w = 1 / err**2
-    rmseWeighted = np.sqrt((w * (target - pred) ** 2).sum() / w.sum())
+
+def glacierWideScores(target, pred, err, area=None):
+    """Scores of glacier-wide predictions (`metrics.scores`), with the RMSE weighted
+    by the inverse variance of the observations (`rmse_weighted`) and, given the area
+    of every value, the area-weighted bias and RMSE (`bias_area`, `rmse_area`)."""
+    s = dict(metrics.scores(target, pred))
+    residual = np.asarray(pred) - np.asarray(target)
+    w = 1 / np.asarray(err) ** 2
+    s["rmse_weighted"] = np.sqrt((w * residual**2).sum() / w.sum())
+    if area is not None:
+        s["bias_area"] = np.average(residual, weights=area)
+        s["rmse_area"] = np.sqrt(np.average(residual**2, weights=area))
+    return s
+
+
+def _glacierWideScores(ax, target, pred, err, nGlaciers, area=None):
+    """Write the scores of `glacierWideScores` on `ax`."""
+    s = glacierWideScores(target, pred, err, area)
+    lines = [
+        f"{nGlaciers} glaciers, {len(target)} values",
+        rf"RMSE $= {s['rmse']:.2f}$ (weighted $= {s['rmse_weighted']:.2f}$)",
+        rf"bias $= {s['bias']:+.2f}$",
+        rf"$r = {s['pearson_corr']:.2f}$",
+    ]
+    if area is not None:
+        lines.append(
+            rf"area-weighted: bias $= {s['bias_area']:+.2f}$, RMSE $= {s['rmse_area']:.2f}$"
+        )
     ax.text(
         0.03,
         0.97,
-        "\n".join(
-            (
-                f"{nGlaciers} glaciers, {len(target)} values",
-                rf"RMSE $= {s['rmse']:.2f}$ (weighted $= {rmseWeighted:.2f}$)",
-                rf"bias $= {s['bias']:+.2f}$",
-                rf"$r = {s['pearson_corr']:.2f}$",
-            )
-        ),
+        "\n".join(lines),
         transform=ax.transAxes,
         va="top",
         fontsize=11,
