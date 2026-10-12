@@ -54,6 +54,7 @@ from data_processing.hagg12 import (
 )
 from data_processing.maurer19 import (
     OUTLINES_YEAR as MAURER19_OUTLINES_YEAR,
+    END_DATE as MAURER19_END_DATE,
     maurer19_outline_spec,
     load_maurer19_outlines,
 )
@@ -585,6 +586,39 @@ def create_gridded_features_Maurer19(
         )
 
 
+def maurer19_hugonnet21_tree(year):
+    """Grid tree of the source `Maurer19_Hugonnet21` holding `year`: the 1975 outlines
+    (`Maurer19`) before 2000, those of 2000 (`Maurer19_2000`) from 2000 on."""
+    return "Maurer19" if year < MAURER19_END_DATE.year else "Maurer19_2000"
+
+
+def create_gridded_features_Maurer19_Hugonnet21(cfg, time_ranges, **kwargs):
+    """Generate the gridded products of the source `Maurer19_Hugonnet21`: the windows
+    ending by 2000 on the 1975 outlines, in the `Maurer19` tree, and those starting from
+    2000 on the outlines of 2000, in the `Maurer19_2000` tree, see
+    `data_processing.maurer19.geodetic_target_Maurer19_with_Hugonnet21`.
+
+    Args:
+        time_ranges: {RGI 5.0 id: [(start_date, end_date), ...]}.
+        kwargs: forwarded to `create_gridded_features_Maurer19`.
+    """
+    per_epoch = {MAURER19_OUTLINES_YEAR: {}, MAURER19_END_DATE.year: {}}
+    for glacier_id, windows in time_ranges.items():
+        for start, end in windows:
+            if pd.Timestamp(end) <= MAURER19_END_DATE:
+                epoch = MAURER19_OUTLINES_YEAR
+            else:
+                assert pd.Timestamp(start) >= MAURER19_END_DATE, (
+                    f"The window {start} - {end} of {glacier_id} spans the switch of "
+                    f"outlines, {MAURER19_END_DATE.date()}."
+                )
+                epoch = MAURER19_END_DATE.year
+            per_epoch[epoch].setdefault(glacier_id, []).append((start, end))
+    for epoch, ranges in per_epoch.items():
+        if ranges:
+            create_gridded_features_Maurer19(cfg, ranges, epoch=epoch, **kwargs)
+
+
 def create_gridded_features_Belart20(
     cfg,
     time_ranges,
@@ -812,7 +846,7 @@ def create_gridded_features_from_mask_per_year(args):
     return year
 
 
-def _geodetic_input_windowed(glacier_id, time_range, product_source):
+def _geodetic_input_windowed(glacier_id, time_range, product_source, tree_of_year=None):
     """Assemble the per-year gridded products of one glacier over its geodetic
     windows.
 
@@ -822,8 +856,13 @@ def _geodetic_input_windowed(glacier_id, time_range, product_source):
     least one window, once: a month shared by two windows is predicted once and
     weighted into both by `geodetic_window_weights`. With a single window this
     clips the first and the last year to the months the window actually covers.
+
+    `tree_of_year` gives the grid tree each year is read from, `product_source` by
+    default. A source whose windows lie on outlines of different epochs reads each
+    year from the tree of its epoch.
     """
-    grid_path = os.path.join(get_data_path(), "grids", product_source)
+    if tree_of_year is None:
+        tree_of_year = lambda year: product_source
     bounds = [_window_month_bounds(window) for window in time_range]
     years = years_from_time_ranges(time_range)
 
@@ -832,7 +871,11 @@ def _geodetic_input_windowed(glacier_id, time_range, product_source):
     for year in years:
         file_path = os.path.abspath(
             os.path.join(
-                grid_path, *glacier_id_to_folders(glacier_id), f"{year}.parquet"
+                get_data_path(),
+                "grids",
+                tree_of_year(year),
+                *glacier_id_to_folders(glacier_id),
+                f"{year}.parquet",
             )
         )
         df_grid = pd.read_parquet(file_path)
@@ -887,6 +930,15 @@ def geodetic_input_Maurer19(rgi50_id, time_range):
 
 def geodetic_input_Maurer19_2000(rgi50_id, time_range):
     return _geodetic_input_windowed(rgi50_id, time_range, "Maurer19_2000")
+
+
+def geodetic_input_Maurer19_Hugonnet21(rgi50_id, time_range):
+    return _geodetic_input_windowed(
+        rgi50_id,
+        time_range,
+        "Maurer19_Hugonnet21",
+        tree_of_year=maurer19_hugonnet21_tree,
+    )
 
 
 def geodetic_input_Belart20(glacier_id, time_range):
@@ -1011,11 +1063,14 @@ def geodetic_glacier_locations(glacier_ids, sources):
     rows = []
     for glacier_id in glacier_ids:
         for source in sources:
-            years = _available_grid_years(glacier_id, source)
+            # Maurer19_Hugonnet21 has no tree of its own: its glaciers are placed on
+            # their 1975 outlines
+            tree = "Maurer19" if source == "Maurer19_Hugonnet21" else source
+            years = _available_grid_years(glacier_id, tree)
             if len(years) == 0:
                 continue
             points = pd.read_parquet(
-                _grid_year_path(glacier_id, years[0], source),
+                _grid_year_path(glacier_id, years[0], tree),
                 columns=["POINT_LAT", "POINT_LON"],
             )
             rows.append(
@@ -1382,6 +1437,7 @@ GEODETIC_INPUT_FN = {
     "Hagg12": geodetic_input_Hagg12,
     "Maurer19": geodetic_input_Maurer19,
     "Maurer19_2000": geodetic_input_Maurer19_2000,
+    "Maurer19_Hugonnet21": geodetic_input_Maurer19_Hugonnet21,
     "Belart20": geodetic_input_Belart20,
     "Andreassen16": geodetic_input_Andreassen16,
 }
@@ -1397,6 +1453,7 @@ WINDOWED_SOURCES = {
     "Hagg12",
     "Maurer19",
     "Maurer19_2000",
+    "Maurer19_Hugonnet21",
     "Belart20",
     "Andreassen16",
 }

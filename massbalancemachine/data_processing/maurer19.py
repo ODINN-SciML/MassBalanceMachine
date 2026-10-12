@@ -617,6 +617,60 @@ def geodetic_target_Maurer19_Hugonnet21(
     ].reset_index(drop=True)
 
 
+def geodetic_target_Maurer19_with_Hugonnet21(
+    hugonnet_period: str = "2000-01-01_2010-01-01",
+    glacier_ids_to_keep=None,
+    require_1975_outline: bool = True,
+    verbose: bool = True,
+    exclude_lake_terminating: bool = False,
+    lake_terminating_types=LAKE_TERMINATING_ALL,
+    min_coverage: float = None,
+    min_frac_rgi: float = 0.5,
+):
+    """Two geodetic windows per Maurer19 glacier: its 1975-2000 balance, gridded on the
+    1975 outlines, followed by the balance of Hugonnet et al. (2021) over
+    `hugonnet_period`, gridded on the outlines of 2000 (see
+    `gridded_utils.geodetic_input_Maurer19_Hugonnet21`).
+
+    The glaciers are selected as by `geodetic_target_Maurer19`. A glacier without a
+    Hugonnet rate keeps its Maurer19 window only. The column `target` tells the two
+    windows apart. Returns the columns of `geodetic_target_Maurer19_Hugonnet21`, one
+    row per window, sorted by glacier and `FROM_DATE`.
+
+    Args:
+        hugonnet_period: a period of the per-glacier product starting on or after
+            `END_DATE`, the date the grids switch from the 1975 to the 2000 outlines.
+        The others: see `geodetic_target_Maurer19_Hugonnet21`.
+    """
+    selection = dict(
+        glacier_ids_to_keep=glacier_ids_to_keep,
+        require_1975_outline=require_1975_outline,
+        verbose=verbose,
+        exclude_lake_terminating=exclude_lake_terminating,
+        lake_terminating_types=lake_terminating_types,
+        min_coverage=min_coverage,
+    )
+    maurer = geodetic_target_Maurer19(**selection)
+    hugonnet = geodetic_target_Maurer19_Hugonnet21(
+        hugonnet_period=hugonnet_period, min_frac_rgi=min_frac_rgi, **selection
+    )
+    assert (maurer.TO_DATE <= END_DATE).all() and (
+        hugonnet.FROM_DATE >= END_DATE
+    ).all(), (
+        f"The Maurer19 windows must end and the Hugonnet21 ones start at the switch of "
+        f"outlines, {END_DATE.date()}."
+    )
+    columns = list(hugonnet.columns.drop("n_rgi"))
+    df = pd.concat(
+        [
+            maurer[columns].assign(target="Maurer19"),
+            hugonnet[columns].assign(target="Hugonnet21"),
+        ],
+        ignore_index=True,
+    )
+    return df.sort_values(["RGIId", "FROM_DATE"]).reset_index(drop=True)
+
+
 def _coordinate(ds, names):
     for name in names:
         if name in ds.variables:

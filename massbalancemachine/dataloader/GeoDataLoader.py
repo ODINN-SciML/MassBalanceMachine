@@ -26,6 +26,7 @@ from data_processing.gridded_utils import (
     create_gridded_features_Fischer11,
     create_gridded_features_Hagg12,
     create_gridded_features_Maurer19,
+    create_gridded_features_Maurer19_Hugonnet21,
     create_gridded_features_Belart20,
     create_gridded_features_Andreassen16,
     geodetic_input_Hugonnet21,
@@ -55,6 +56,7 @@ from data_processing.maurer19 import (
     LATE_PERIOD as MAURER19_LATE_PERIOD,
     geodetic_target_Maurer19,
     geodetic_target_Maurer19_Hugonnet21,
+    geodetic_target_Maurer19_with_Hugonnet21,
     table_RGI62_to_Maurer19,
 )
 from data_processing.belart20 import geodetic_target_Belart20, table_RGI62_to_Belart20
@@ -63,6 +65,10 @@ from data_processing.andreassen16 import (
     table_RGI62_to_Andreassen16,
 )
 from models.TorchNeuralNetworkRegressor import aggrMetadata
+
+
+# The sources built on the glaciers of Maurer et al. (2019), identified by their RGI 5.0 id
+MAURER19_SOURCES = ("Maurer19", "Maurer19_2000", "Maurer19_Hugonnet21")
 
 
 def isNativeGlacierId(glacierName: str, geodeticSource: str) -> bool:
@@ -74,11 +80,11 @@ def isNativeGlacierId(glacierName: str, geodeticSource: str) -> bool:
     ones by their Austrian inventory number ("2125"), Hagg12, Belart20 and
     Andreassen16 ones by a code of their own ("NSF", "ORA", "NIG"), which for these six
     is anything that is not an RGI id, and Maurer19 ones by their RGI 5.0 id ("RGI50-15.02201"),
-    as Maurer19_2000 ones (the same glaciers over 2000-2016).
+    as Maurer19_2000 ones (the same glaciers over 2000-2016) and Maurer19_Hugonnet21 ones.
     """
     if geodeticSource == "PGO":
         return glacierName.startswith("RGI2000-v7.0-G-")
-    if geodeticSource in ("Maurer19", "Maurer19_2000"):
+    if geodeticSource in MAURER19_SOURCES:
         return glacierName.startswith("RGI50-")
     if geodeticSource in (
         "GLAMOS",
@@ -121,8 +127,8 @@ def buildGlacierMapping(glacierList, geodeticSource: str):
         table_df = table_RGI62_to_Fischer11(region_id=region_id)
     elif geodeticSource == "Hagg12":
         table_df = table_RGI62_to_Hagg12(region_id=region_id)
-    elif geodeticSource in ("Maurer19", "Maurer19_2000"):
-        # The two periods share their glaciers and their RGI 5.0 ids
+    elif geodeticSource in MAURER19_SOURCES:
+        # The periods share their glaciers and their RGI 5.0 ids
         table_df = table_RGI62_to_Maurer19(region_id=region_id)
     elif geodeticSource == "Belart20":
         table_df = table_RGI62_to_Belart20(region_id=region_id)
@@ -253,6 +259,13 @@ def windowedSourceTarget(source: str, options: dict):
                 **{"verbose": False, **options, "period": MAURER19_LATE_PERIOD}
             ),
             gridded,
+        )
+    if source == "Maurer19_Hugonnet21":
+        # Maurer19 1975-2000 on the 1975 outlines, then Hugonnet21 over
+        # `hugonnet_period` (2000-2010 by default) on the outlines of 2000
+        return (
+            geodetic_target_Maurer19_with_Hugonnet21(**options),
+            create_gridded_features_Maurer19_Hugonnet21,
         )
     if source == "Belart20":
         return geodetic_target_Belart20(**options), create_gridded_features_Belart20
@@ -602,7 +615,10 @@ class GeoDataLoader:
         `data_processing.hagg12.geodetic_target_Hagg12`). Maurer19 has a single
         1975-2000 period per glacier and takes `min_coverage`, the least percentage
         of a glacier covered by data (see
-        `data_processing.maurer19.geodetic_target_Maurer19`). Belart20 takes the
+        `data_processing.maurer19.geodetic_target_Maurer19`). Maurer19_Hugonnet21 adds
+        to it the period `hugonnet_period` of Hugonnet et al. (2021), gridded on the
+        outlines of 2000 (see
+        `data_processing.maurer19.geodetic_target_Maurer19_with_Hugonnet21`). Belart20 takes the
         arguments of Hagg12, and keeps by default a chain of non-overlapping periods
         per glacier (see `data_processing.belart20.geodetic_target_Belart20`).
         Andreassen16 takes the arguments of Hagg12 too, and leaves out the calving
