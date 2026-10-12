@@ -13,10 +13,10 @@ build:
     python: "3.11"
   jobs:
     post_create_environment:
-      - pip install poetry
-      - poetry config virtualenvs.create false
+      - pip install uv
     post_install:
-      - VIRTUAL_ENV=$READTHEDOCS_VIRTUALENV_PATH poetry install --with docs --without publish,viz,advanced
+      # Installs the CPU build of torch, see the script
+      - bash docs/install_rtd_requirements.sh
 
 
 # Build documentation in the "docs/" directory with Sphinx

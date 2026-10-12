@@ -5,13 +5,14 @@ import zipfile
 import xarray as xr
 
 from data_processing.glacier_utils import get_region_area_bounds
+from data_processing.product_utils import get_data_path
 
 
 def path_climate_data(region):
     """Return path of data for a given region (string or integer)."""
     if not isinstance(region, str):
         region = f"{region:02d}"
-    return f".data/ERA5/{region}/"
+    return os.path.join(get_data_path(), "ERA5", region) + "/"
 
 
 def download_climate_ERA5(region):

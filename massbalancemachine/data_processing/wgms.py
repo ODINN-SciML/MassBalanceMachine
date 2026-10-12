@@ -3,30 +3,57 @@ import shutil
 import urllib.request
 import zipfile
 import pandas as pd
-from data_processing.product_utils import data_path
+import pyproj
+import tqdm
+import multiprocessing
+import xarray as xr
+import oggm
+from data_processing.Dataset import Dataset
+from data_processing.Product import Product
+from data_processing.product_utils import rgi_id_to_folders, get_data_path
+from data_processing.oggm_utils import _initialize_oggm_config
+from data_processing.get_topo_data import (
+    glacier_cell_area,
+    get_glacier_mask,
+    masked_glacier_grid,
+)
+from data_processing.glacier_utils import (
+    create_glacier_grid_RGI,
+    create_dem_file_RGI,
+    generate_svf_file,
+)
+from data_processing.utils.data_preprocessing import get_hash
+from data_processing.parallel_utils import gridded_worker_count
 
 wgms_zip_file = "DOI-WGMS-FoG-2026-02-10.zip"
 
 wgms_source_data_link = f"https://wgms.ch/downloads/{wgms_zip_file}"
-local_path_wgms = f"{data_path}/WGMS/{wgms_zip_file}"
 
-wgms_folder = f"{data_path}/WGMS/{wgms_zip_file.replace('.zip', '')}"
+
+def local_path_wgms():
+    """The downloaded WGMS archive."""
+    return f"{get_data_path()}/WGMS/{wgms_zip_file}"
+
+
+def wgms_folder():
+    """The folder the WGMS archive is extracted to."""
+    return f"{get_data_path()}/WGMS/{wgms_zip_file.replace('.zip', '')}"
 
 
 def _clean_extracted_wgms():
-    if os.path.isdir(wgms_folder):
-        shutil.rmtree(wgms_folder)
+    if os.path.isdir(wgms_folder()):
+        shutil.rmtree(wgms_folder())
 
 
 def check_and_download_wgms():
-    os.makedirs(f"{data_path}/WGMS/", exist_ok=True)
-    if not os.path.isdir(wgms_folder):
-        if not os.path.isfile(local_path_wgms):
+    os.makedirs(f"{get_data_path()}/WGMS/", exist_ok=True)
+    if not os.path.isdir(wgms_folder()):
+        if not os.path.isfile(local_path_wgms()):
             print("Downloading data from WGMS website")
-            urllib.request.urlretrieve(wgms_source_data_link, local_path_wgms)
+            urllib.request.urlretrieve(wgms_source_data_link, local_path_wgms())
         print("Unzipping WGMS archive")
-        with zipfile.ZipFile(local_path_wgms, "r") as zip_ref:
-            zip_ref.extractall(wgms_folder)
+        with zipfile.ZipFile(local_path_wgms(), "r") as zip_ref:
+            zip_ref.extractall(wgms_folder())
 
 
 def load_wgms_data():
@@ -38,8 +65,8 @@ def load_wgms_data():
     """
     check_and_download_wgms()
 
-    point_mb_file = f"{wgms_folder}/data/mass_balance_point.csv"
-    glacier_file = f"{wgms_folder}/data/glacier.csv"
+    point_mb_file = f"{wgms_folder()}/data/mass_balance_point.csv"
+    glacier_file = f"{wgms_folder()}/data/glacier.csv"
 
     data_mb = pd.read_csv(point_mb_file)
     data_glacier = pd.read_csv(glacier_file)
@@ -55,6 +82,27 @@ def load_wgms_data():
     return data_mb
 
 
+def _coordinates_from_utm_remarks(data_mb):
+    """
+    Fill the missing latitude and longitude of the points whose remarks give UTM
+    coordinates as "UTM North, Zone <zone>: <northing> / <easting>" (Mera glacier).
+    """
+    utm = data_mb["remarks"].str.extract(r"UTM North, Zone (\d+): ([\d.]+) / ([\d.]+)")
+    mask = data_mb["latitude"].isna() & data_mb["longitude"].isna() & utm[0].notna()
+    data_mb = data_mb.copy()
+    for zone in utm.loc[mask, 0].unique():
+        sel = mask & (utm[0] == zone)
+        transformer = pyproj.Transformer.from_crs(
+            f"EPSG:326{int(zone):02d}", "EPSG:4326", always_xy=True
+        )
+        lon, lat = transformer.transform(
+            utm.loc[sel, 2].astype(float).values, utm.loc[sel, 1].astype(float).values
+        )
+        data_mb.loc[sel, "longitude"] = lon
+        data_mb.loc[sel, "latitude"] = lat
+    return data_mb
+
+
 def parse_wgms_format(data_mb):
     """
     Converts the WGMS point balance DataFrame to a dataframe ready to be used by MBM Data preparation notebook.
@@ -65,11 +113,13 @@ def parse_wgms_format(data_mb):
         pd.DataFrame
     """
 
+    data_mb = _coordinates_from_utm_remarks(data_mb)
+
     new_df = data_mb.drop(
         columns=[
             "country",
             "glacier_name",
-            "original_id",
+            # "original_id",
             "glacier_id",
             "time_system",
             "begin_date_unc",
@@ -84,6 +134,7 @@ def parse_wgms_format(data_mb):
     new_df = new_df.rename(
         columns={
             "id": "ID",
+            "original_id": "WGMS_ID",
             "year": "YEAR",
             "balance": "POINT_BALANCE",
             "latitude": "POINT_LAT",
@@ -121,3 +172,333 @@ def load_processed_wgms(rgi_region=None):
     if rgi_region is not None:
         df = df.loc[df.rgi_region == rgi_region]
     return df
+
+
+def _prepare_glacier_wide_mb(rgi_ids):
+    """Load glacier-wide MB data from the WGMS database and map `glacier_id` to the RGI ID"""
+    # 1. Map the RGIId to WGMS ID
+    _initialize_oggm_config("")
+    gdirs = oggm.workflow.init_glacier_directories(
+        rgi_ids,
+        from_prepro_level=5,
+        prepro_base_url=oggm.DEFAULT_BASE_URL,
+        prepro_border=80,
+    )
+    rgi_id_to_wgms_id = {}
+    wgms_id_to_rgi_id = {}
+    for gdir in gdirs:
+        df = gdir.get_ref_mb_data()
+        assert df.WGMS_ID.nunique() == 1
+        wgms_id = df.WGMS_ID.unique()[0]
+        rgi_id_to_wgms_id[gdir.rgi_id] = wgms_id
+        wgms_id_to_rgi_id[wgms_id] = gdir.rgi_id
+
+    # 2. Read glacier wide data from WGMS
+    check_and_download_wgms()
+
+    mb_file = f"{wgms_folder()}/data/mass_balance.csv"
+    glacier_file = f"{wgms_folder()}/data/glacier.csv"
+
+    data_mb = pd.read_csv(mb_file)
+    data_glacier = pd.read_csv(glacier_file)
+
+    # Build mapping: id -> rgi_region (extract number before "_")
+    mapping = data_glacier.assign(
+        rgi_region=data_glacier["gtng_region"].str.split("_").str[0].astype(int)
+    ).set_index("id")["rgi_region"]
+
+    # Apply mapping to data_mb
+    data_mb["rgi_region"] = data_mb["glacier_id"].map(mapping)
+    glacier_ids = [rgi_id_to_wgms_id[rgi_id] for rgi_id in rgi_ids]
+    df = (
+        data_mb[data_mb.glacier_id.isin(glacier_ids)]
+        .drop(
+            columns=[
+                "country",
+                "outline_id",
+                "ela_position",
+                "ela",
+                "ela_unc",
+                "aar",
+                "investigators",
+                "agencies",
+                "midseason_date",
+                "midseason_date_unc",
+                "winter_balance",
+                "winter_balance_unc",
+                "summer_balance",
+                "summer_balance_unc",
+            ]
+        )
+        .reset_index()
+    )
+    df["RGIId"] = df.glacier_id.map(lambda glacier_id: wgms_id_to_rgi_id[glacier_id])
+
+    # 3. Format to the same format as the stakes data
+    df = filter_dates(df)
+    df = df.rename(
+        columns={
+            "year": "YEAR",
+            "annual_balance": "GLWD_BALANCE",
+            "begin_date": "FROM_DATE",
+            "end_date": "TO_DATE",
+        },
+    )
+    df["FROM_DATE"] = pd.to_datetime(df["FROM_DATE"]).dt.strftime("%Y%m%d")
+    df["TO_DATE"] = pd.to_datetime(df["TO_DATE"]).dt.strftime("%Y%m%d")
+    df["PERIOD"] = "annual"
+
+    df = df.drop(
+        columns=["time_system", "begin_date_unc", "end_date_unc", "annual_balance_unc"]
+    )
+
+    for rgi_id in rgi_ids:
+        years = df[df.RGIId == rgi_id].YEAR.unique()
+
+    return df
+
+
+def load_glacier_wide_annual_mb(rgi_ids, cfg, multi=True, num_workers=None):
+    """Glacier-wide annual mass balance of the WGMS glaciers, with the gridded
+    features backing it.
+
+    Args:
+        num_workers (int): number of processes to generate the years with. Left to
+            None it follows the memory free on the machine, see
+            `parallel_utils.worker_count`.
+    """
+
+    grid_path = os.path.join(get_data_path(), "grids", "WGMS")
+    path_rgi_ids = {
+        rgi_id: os.path.join(grid_path, *rgi_id_to_folders(rgi_id))
+        for rgi_id in rgi_ids
+    }
+
+    # Check table data
+    products = {}
+    for rgi_id, path_rgi_id in path_rgi_ids.items():
+        table_file = os.path.join(path_rgi_id, "table_data.csv")
+        p = Product(table_file)
+        products[rgi_id] = p
+
+    if not all([p.is_up_to_date() for p in products.values()]):
+        df = _prepare_glacier_wide_mb(rgi_ids)
+        for rgi_id, path_rgi_id in path_rgi_ids.items():
+            p = products[rgi_id]
+            if not p.is_up_to_date():
+                table_file = os.path.join(path_rgi_id, "table_data.csv")
+                df_gl = df[df.RGIId == rgi_id]
+                df_gl.to_csv(table_file, index=False)
+                p.gen_chk()
+        del df
+    del products
+
+    years_per_rgi_id = {}
+    # Generate products if needed
+    for rgi_id, path_rgi_id in path_rgi_ids.items():
+        region_id = int(rgi_id.split("-")[1].split(".")[0])
+
+        table_file = os.path.join(path_rgi_id, "table_data.csv")
+        df_gl = pd.read_csv(table_file)
+        years = df_gl.YEAR.unique()
+        years_per_rgi_id[rgi_id] = years.tolist()
+        products = {}
+        for year in years:
+            sel_year = df_gl[df_gl.YEAR == year]
+            assert (
+                sel_year.shape[0] == 1
+            ), f"Expected to find only one entry for {rgi_id} and year {year} in the WGMS database but found {sel_year.shape[0]}."
+            save_path = os.path.abspath(os.path.join(path_rgi_id, f"{year}.parquet"))
+            products[year] = Product(save_path)
+
+        # Add sky view factor product
+        svf_file = os.path.join(path_rgi_id, "svf.nc")
+        products["svf"] = Product(svf_file)
+
+        if all([p.is_up_to_date() for p in products.values()]):
+            # print(f"All gridded products are already generated for {rgi_id}")
+            continue
+
+        # Check if sky view factor needs to be generated
+        p = products["svf"]
+        if not p.is_up_to_date():
+
+            # Create DEM grid
+            create_dem_file_RGI(cfg, rgi_id, path_rgi_id)
+
+            # Generate sky view factor
+            generate_svf_file(path_rgi_id)
+
+            p.gen_chk()
+
+        # Get the glacier directory from OGGM. The grid it holds is read by the
+        # workers themselves, so it is dropped here.
+        _, _, gdir = get_glacier_mask(rgi_id, "", cfg)
+
+        with tqdm.tqdm(total=len(years)) as pbar:
+            if multi:
+                n_workers = gridded_worker_count(
+                    region_id,
+                    requested=num_workers,
+                    max_workers=min(len(years), os.cpu_count() or 4),
+                )
+                # Create a pool of workers
+                with multiprocessing.Pool(processes=n_workers) as pool:
+                    for year in pool.imap_unordered(
+                        create_gridded_features_from_mask_per_year,
+                        [
+                            (
+                                rgi_id,
+                                year,
+                                region_id,
+                                cfg,
+                                df_gl,
+                                gdir,
+                                path_rgi_id,
+                            )
+                            for year in years
+                        ],
+                    ):
+                        pbar.update(1)  # Update progress bar
+                        pbar.set_description(
+                            "%s: Generating gridded data for %i" % (rgi_id, year)
+                        )  # Update description
+            else:
+                for year in years:
+                    create_gridded_features_from_mask_per_year(
+                        (
+                            rgi_id,
+                            year,
+                            region_id,
+                            cfg,
+                            df_gl,
+                            gdir,
+                            path_rgi_id,
+                        )
+                    )
+
+    df_annual = pd.DataFrame()
+    for rgi_id, path_rgi_id in path_rgi_ids.items():
+
+        maxId = -1
+        for year in years:
+            file_path = os.path.abspath(os.path.join(path_rgi_id, f"{year}.parquet"))
+            df_grid = pd.read_parquet(file_path)
+
+            # Remap ID so that one ID covers only one year
+            df_grid["ID"] = df_grid["ID"] + maxId + 1
+
+            # df_grid["GLWD_M_ID"] = df_grid.apply(
+            #     lambda x: get_hash(f"{rgi_id}_{year}_{x.MONTHS}"),
+            #     axis=1,
+            # ).astype(str)
+            df_grid["GLWD_M_ID"] = f"{rgi_id}_{year}_" + df_grid.MONTHS
+            # df_grid["GLWD_ID"] = df_grid.apply(
+            #     lambda x: get_hash(f"{rgi_id}"),
+            #     axis=1,
+            # ).astype(str)
+            df_X_geod["GLWD_ID"] = f"{rgi_id}"
+
+            # Append to the final dataframe
+            df_annual = pd.concat([df_annual, df_grid], ignore_index=True)
+
+            # Update the ID counter
+            maxId = df_annual.ID.max()
+
+    return df_annual
+
+
+def create_gridded_features_from_mask_per_year(args):
+    rgi_id, year, region_id, cfg, df_gl, gdir, path_rgi_id = args
+    try:
+        save_path = os.path.abspath(os.path.join(path_rgi_id, f"{year}.parquet"))
+        p = Product(save_path)
+
+        if not p.is_up_to_date():
+
+            # The masked grid of the glacier, read from its directory rather than
+            # received with the task: consecutive years of one glacier hit the
+            # cache, so it is read once per worker instead of once per year.
+            ds, glacier_indices = masked_glacier_grid(gdir, "RGI")
+
+            # Load sky view factor
+            svf = xr.open_dataset(os.path.join(path_rgi_id, "svf.nc"))
+
+            # Create glacier grid
+            df_grid = create_glacier_grid_RGI(
+                ds,
+                [year],
+                glacier_indices,
+                gdir,
+                rgi_id,
+                ds_svf=svf,
+            )  # We don't care if it's calendar year or not because FROM_DATE and TO_DATE are overwritten just after
+
+            df_year = df_gl[df_gl.YEAR == year]
+            df_grid["FROM_DATE"] = df_year.FROM_DATE.values[0]
+            df_grid["TO_DATE"] = df_year.TO_DATE.values[0]
+            df_grid["POINT_BALANCE"] = df_year.GLWD_BALANCE.values[0]
+            df_grid["area"] = df_year.area.values[0]
+            df_grid["PERIOD"] = df_year.PERIOD.values[0]
+
+            dataset_grid = Dataset(
+                cfg=cfg,
+                data=df_grid,
+                region_name="",
+                region_id=region_id,
+            )
+
+            # Climate columns
+            vois_climate = [
+                "t2m",
+                "tp",
+                "slhf",
+                "sshf",
+                "ssrd",
+                "fal",
+                "str",
+                "u10",
+                "v10",
+            ]
+            # Topographical columns
+            voi_topographical = [
+                "aspect",
+                "slope",
+                "hugonnet_dhdt",
+                "consensus_ice_thickness",
+                "millan_v",
+                "topo",
+                "svf",
+            ]
+            if "millan_v" not in df_grid.columns:
+                # Some glaciers do not have velocity data
+                voi_topographical.remove("millan_v")
+
+            # Add climate data
+            dataset_grid.get_climate_features(
+                change_units=True,
+                smoothing_vois={
+                    "vois_climate": vois_climate,
+                    "vois_other": ["ALTITUDE_CLIMATE"],
+                },
+            )
+
+            # Convert to monthly time resolution
+            dataset_grid.convert_to_monthly(
+                meta_data_columns=cfg.metaData,
+                vois_climate=vois_climate,
+                vois_topographical=voi_topographical,
+            )
+
+            # Save the dataset for the specific year
+            data = dataset_grid.data.loc[:, ~dataset_grid.data.columns.duplicated()]
+            data.to_parquet(p.file_path, engine="pyarrow", compression="snappy")
+            del data  # Free up memory
+
+            p.gen_chk()
+    except Exception as e:
+        print(f"Error processing year {year}: {e}")
+        raise Exception(
+            "Exception occurred during gridded features generation. Look at the traceback above."
+        )
+    return year
