@@ -11,6 +11,11 @@ from data_processing.utils.data_exploration import (
 from data_processing.utils.features_metadata_manipulation import (
     create_features_metadata,
 )
+from data_processing.utils.years import (
+    contiguous_year_runs,
+    years_from_time_range,
+    years_outside,
+)
 from data_processing.utils.hydro_year import (
     _rebuild_month_index,
     build_head_tail_pads_from_monthly_df,

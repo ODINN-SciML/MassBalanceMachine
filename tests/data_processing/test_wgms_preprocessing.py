@@ -22,6 +22,7 @@ def test_data_preprocessing_wgms():
     expected_columns = [
         "YEAR",
         "ID",
+        "WGMS_ID",
         "FROM_DATE",
         "TO_DATE",
         "POINT_LAT",
@@ -34,9 +35,9 @@ def test_data_preprocessing_wgms():
     assert set(expected_columns).issubset(
         set(df.columns)
     ), f"Not all features are in the dataframe. Expected {set(expected_columns)} but {set(expected_columns).difference(set(df.columns))} are missing."
-    assert df.shape == (64143, 10)
+    assert df.shape == (64143, 11)
     df_alps = load_processed_wgms(rgi_region=11)
-    assert df_alps.shape == (27137, 10)
+    assert df_alps.shape == (27137, 11)
 
 
 if __name__ == "__main__":
