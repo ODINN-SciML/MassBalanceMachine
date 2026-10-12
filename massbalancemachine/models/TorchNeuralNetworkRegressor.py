@@ -112,7 +112,9 @@ class TILikeModel(nn.Module):
         self.ind_inp_cor_abl = sorted(
             [self.input_labels.index(inp) for inp in self.inp_cor_abl]
         )
-        self.beta1 = 10.0
+        # Scaling of the accumulation term
+        self.beta1 = float(modelParams.get("beta1", 10.0))
+        assert self.beta1 > 0, f"beta1 must be positive, got {self.beta1}."
         self.beta2 = 0.0049
         # Range of the slope of the snow fraction sigmoid,
         # slope = s_min + (s_max - s_min) * (tanh(tau_P_s) + 1) / 2
@@ -164,6 +166,11 @@ class TILikeModel(nn.Module):
         # Range of the temperature bias, bias = b_max * tanh
         self.b_max = float(modelParams.get("bias_T", {}).get("b_max", 5.0))
         assert self.b_max > 0, f"b_max must be positive, got {self.b_max}."
+        # Range of the shortwave radiation contribution, R_sw = R_sw_max * sigmoid
+        self.R_sw_max = float(modelParams.get("sw_contrib", {}).get("max", 1.0))
+        assert (
+            self.R_sw_max > 0
+        ), f"The maximum of R_sw must be positive, got {self.R_sw_max}."
 
         if "bias_cor" in modelParams:
             self.inp_bias_cor = modelParams["bias_cor"]["inputs"]
@@ -524,7 +531,7 @@ class TILikeModel(nn.Module):
             cor_T = elev_diff * alpha + bias
 
             # Short wave radiation contribution
-            R_sw = F.sigmoid(self.R_sw_contrib(inp_sw_contrib).view(-1))
+            R_sw = self.R_sw_max * F.sigmoid(self.R_sw_contrib(inp_sw_contrib).view(-1))
 
         if self.bias_cor is not None:
             # P_cor = (
@@ -625,7 +632,7 @@ class TILikeModel(nn.Module):
             cor_T = elev_diff * alpha + bias
 
             # Short wave radiation contribution
-            R_sw = F.sigmoid(self.R_sw_contrib(inp_sw_contrib).view(-1))
+            R_sw = self.R_sw_max * F.sigmoid(self.R_sw_contrib(inp_sw_contrib).view(-1))
 
         if self.bias_cor is not None:
             # P_cor = (

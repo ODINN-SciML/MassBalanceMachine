@@ -74,7 +74,10 @@ def parseParams(params):
                 modelParams["cor_dir"] = params["model"]["cor_dir"]
                 modelParams["cor_terrain"] = params["model"]["cor_terrain"]
             if "sw_contrib" in params["model"]:
-                modelParams["sw_contrib"] = params["model"]["sw_contrib"]
+                modelParams["sw_contrib"] = {
+                    **params["model"]["sw_contrib"],
+                    "max": float(params["model"]["sw_contrib"].get("max", 1.0)),
+                }
         else:
             ValueError("Cannot identify the type of temperature downscaling")
         if "cor_fac" in params["model"]:
@@ -92,6 +95,7 @@ def parseParams(params):
             modelParams["bias_cor_elev"] = params["model"]["bias_cor_elev"]
         if "snow_slope" in params["model"]:
             modelParams["snow_slope"] = params["model"]["snow_slope"]
+        modelParams["beta1"] = float(params["model"].get("beta1", 10.0))
         if "trainable" in params["model"]:
             modelParams["trainable"] = params["model"]["trainable"]
     trainingParams = {
