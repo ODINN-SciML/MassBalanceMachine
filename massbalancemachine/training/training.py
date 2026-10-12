@@ -427,10 +427,14 @@ def compute_geo_loss(
     geod_periods,
     precomputed_meta,
     scalingGeo,
+    windowWeights=None,
 ):
     # TODO: update docstring
     """
     Computes the geodetic loss term.
+
+    `windowWeights` (torch.Tensor, one value per geodetic window) weights the loss term
+    of every window, see `geodeticAreaWeights`; by default every window counts the same.
 
     Args:
         model (CustomTorchNeuralNetRegressor): Model to evaluate.
@@ -469,7 +473,24 @@ def compute_geo_loss(
             scalingGeo,
         )
 
+    if windowWeights is not None:
+        lossGeo = lossGeo * windowWeights.to(lossGeo.device)
     return lossGeo.mean(), ypred  # Compute mean of the different time window scores
+
+
+def geodeticAreaWeights(geodataloader, glaciers):
+    """Weight of the geodetic loss term of every window of `glaciers`, proportional to
+    the area of the window (`GeoDataLoader.geodetic_areas`) and normalized so that the
+    windows of `glaciers` average to 1: `wGeo` keeps its scale, only the share of the
+    large glaciers grows.
+
+    Returns {glacier: torch.Tensor with one weight per window}.
+    """
+    areas = {g: geodataloader.geodetic_areas(g) for g in glaciers}
+    meanArea = np.concatenate(list(areas.values())).mean()
+    return {
+        g: torch.tensor(a / meanArea, dtype=torch.float32) for g, a in areas.items()
+    }
 
 
 def scores(pred: torch.Tensor, target: torch.Tensor):
@@ -675,6 +696,19 @@ def assessOnVal(
     )
     stakesVal = geodataloader.stakes if separateLoader else geodataloader.stakesVal
     iterPerEpoch = lenGeoVal() if wGeo > 0 else len(geodataloader)
+    # The validation windows are weighted as the training ones, on their own mean area
+    areaWeights = (
+        geodeticAreaWeights(
+            geodataloader,
+            (
+                geodataloader.glacierListGeo
+                if separateLoader
+                else geodataloader.glacierListValGeo
+            ),
+        )
+        if wGeo > 0 and params["training"].get("areaWeightGeo", False)
+        else None
+    )
     nColsProgressBar = 500 if _inJupyterNotebook else 85
     wWinter = params["training"].get("wWinter", 1.0)
     wSummer = params["training"].get("wSummer", 1.0)
@@ -858,6 +892,9 @@ def assessOnVal(
                         geod_periods,
                         precomputed_meta,
                         scalingGeo,
+                        windowWeights=(
+                            areaWeights[current_g] if areaWeights is not None else None
+                        ),
                     )
                     targetAllGeo.append(ygeo.detach())
                     predAllGeo.append(ypredgeo.detach())
@@ -1058,6 +1095,12 @@ def train_geo(
     if wWinter == 1.0 and wSummer == 1.0:
         weightStakes = None
     useStakes = scalingStakes != "none"
+    # Geodetic loss term of every window weighted by its area, see `geodeticAreaWeights`
+    areaWeights = (
+        geodeticAreaWeights(geodataloader, geodataloader.glacierListGeo)
+        if wGeo > 0 and params["training"].get("areaWeightGeo", False)
+        else None
+    )
 
     # Setup logging
     run_name = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1414,6 +1457,11 @@ def train_geo(
                                 geod_periods,
                                 precomputed_meta,
                                 scalingGeo,
+                                windowWeights=(
+                                    areaWeights[current_g]
+                                    if areaWeights is not None
+                                    else None
+                                ),
                             )
                             if timeExec:
                                 torch.cuda.synchronize()

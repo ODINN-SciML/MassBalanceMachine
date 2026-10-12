@@ -401,6 +401,8 @@ class GeoDataLoader:
         # Prepare geodetic data
         if not noGeo:
             self.prepareGeoData()
+            # Read once here rather than from the grids at every call, see `geodetic_areas`
+            self.geodeticAreas = self._readGeodeticAreas()
         else:
             # No glacier carries geodetic data, so that the methods iterating over them
             # (onEpochEnd, lenGeo, hasGeo, ...) still work on stakes only
@@ -409,6 +411,7 @@ class GeoDataLoader:
             self.glaciersAllWithGeo = []
             self.glacier_id_map = {}
             self.glacier_id_map_val = {}
+            self.geodeticAreas = {}
         self.glacierListGeo = self.glaciersWithGeo
         self.glacierListValGeo = self.glaciersValWithGeo
         self.glacierListAllGeo = self.glaciersAllWithGeo
@@ -756,19 +759,32 @@ class GeoDataLoader:
 
     def geodetic_areas(self, g) -> np.ndarray:
         """Area in km² of the grid every geodetic window of `g` is averaged over, in the
-        order of `geodetic_periods`, read on the first year of the window: a window of
-        `Maurer19_Hugonnet21` is on the outlines of its own epoch."""
-        glacierId = self._toSourceGlacierId(g)
-        source = self.sourceOf(glacierId)
-        if not self.isWindowed:
-            # Hugonnet21: a single 2000-2020 window, its periods given as years
-            return np.array([geodetic_grid_area(glacierId, self.years[0], source)])
-        return np.array(
-            [
-                geodetic_grid_area(glacierId, pd.Timestamp(start).year, source)
-                for start, _ in self.periods_per_glacier[glacierId]
-            ]
-        )
+        order of `geodetic_periods`. Read at instantiation, see `_readGeodeticAreas`."""
+        return self.geodeticAreas[self._toSourceGlacierId(g)]
+
+    def _readGeodeticAreas(self) -> dict:
+        """Area of every geodetic window of every glacier of the dataloader, train and
+        validation sides, from its grid (`gridded_utils.geodetic_grid_area`), read on the
+        first year of the window: a window of `Maurer19_Hugonnet21` is on the outlines of
+        its own epoch.
+
+        Returns {glacier id in its source: np.ndarray, one area per window, km²}.
+        """
+        areas = {}
+        for glacierId in self.glaciersWithGeo + self.glaciersValWithGeo:
+            source = self.sourceOf(glacierId)
+            if self.isWindowed:
+                years = [
+                    pd.Timestamp(start).year
+                    for start, _ in self.periods_per_glacier[glacierId]
+                ]
+            else:
+                # Hugonnet21: a single 2000-2020 window, its periods given as years
+                years = [self.years[0]]
+            areas[glacierId] = np.array(
+                [geodetic_grid_area(glacierId, year, source) for year in years]
+            )
+        return areas
 
     def elevation_diff_range(self, g: str):
         assert self.hasGeo(g)

@@ -122,6 +122,9 @@ def parseParams(params):
         "val_glaciers": params["training"].get("val_glaciers"),
         "wGeo": params["training"].get("wGeo", 0.0),
         "scalingGeo": params["training"].get("scalingGeo", "quad"),
+        # Weight the geodetic loss term of every window by its area, see
+        # `training.geodeticAreaWeights`
+        "areaWeightGeo": params["training"].get("areaWeightGeo", False),
         "bestModelCriterion": params["training"].get("bestModelCriterion", "lossVal"),
         "splitVal": params["training"].get("splitVal", "group-meas-id"),
         "splitTest": params["training"].get("splitTest", "group-rgi"),

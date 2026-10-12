@@ -1017,7 +1017,6 @@ def grid_tree(product_source, year):
     return product_source
 
 
-@lru_cache(maxsize=None)
 def geodetic_grid_area(glacier_id, year, product_source):
     """Area in km² of the grid a glacier-wide balance of `year` is averaged over: its
     number of points times the area of a pixel of the glacier's DEM (`dem.nc`, written
