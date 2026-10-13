@@ -1417,6 +1417,9 @@ def per_glacier_rates_Hugonnet21():
 
 
 def geodetic_target_Hugonnet21(rgi_ids):
+    """Geodetic target over 2000-2020 of `rgi_ids`. Glaciers that Hugonnet21 did not
+    measure (no valid observation, NaN rates, mostly glaciers of a few hectares) are
+    left out."""
     mbdf = per_glacier_rates_Hugonnet21()
     geo_target_data = {}
     for rgi_id in rgi_ids:
@@ -1430,7 +1433,8 @@ def geodetic_target_Hugonnet21(rgi_ids):
         area = data.area  # glacier area m²
         err_pmb = data.err_dmdtda
         mean_mb = data.dmdtda
-        assert mean_mb is not None and err_pmb is not None
+        if pd.isna(mean_mb) or pd.isna(err_pmb):
+            continue
 
         geo_target_data[rgi_id] = {"mean": mean_mb, "err": err_pmb, "area": area}
 
