@@ -193,11 +193,12 @@ test_glaciers:
 - RGI60-15.04847
 - RGI60-15.11693
 geodetic_source:
-- Maurer19
+- Maurer19_Hugonnet21
 geodetic_source_options:
-  Maurer19:
+  Maurer19_Hugonnet21:
     exclude_lake_terminating: true
     min_coverage: 85
+    hugonnet_period: 2000-01-01_2010-01-01
 geodetic_source_test: Maurer19_2000
 geodetic_source_test_options:
   target: Hugonnet21
@@ -292,11 +293,12 @@ test_glaciers_geo:
 provenance:
   notebook: split_train_test_wgms_bruteforce_himalaya_glacier.ipynb
   year_split: 2010
+  hugonnet_train_period: 2000-01-01_2010-01-01
   always_train:
   - RGI60-13.18096
   val_fraction_target: 0.25
   val_fraction_measurements_target: 0.25
-  split_unit: stake (RGIId, POINT_LAT, POINT_LON) and Maurer19 glacier
+  split_unit: stake (RGIId, POINT_LAT, POINT_LON) and Maurer19 glacier (both windows)
   constraint_elev_diff: geodetic
   split_features:
   - ELEVATION_DIFFERENCE

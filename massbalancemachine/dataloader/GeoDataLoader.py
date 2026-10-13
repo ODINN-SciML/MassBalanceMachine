@@ -67,7 +67,6 @@ from data_processing.andreassen16 import (
 )
 from models.TorchNeuralNetworkRegressor import aggrMetadata
 
-
 # The sources built on the glaciers of Maurer et al. (2019), identified by their RGI 5.0 id
 MAURER19_SOURCES = ("Maurer19", "Maurer19_2000", "Maurer19_Hugonnet21")
 

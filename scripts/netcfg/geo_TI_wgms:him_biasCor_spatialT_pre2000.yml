@@ -81,10 +81,15 @@ training:
     # 0 trains on the stakes only. The geodetic run reuses this file with --wGeo, so that
     # both experiments share the same split.
     wGeo: 0.0
+    # Weight the geodetic loss term of every window by its area (normalized to a mean
+    # of 1, see training.geodeticAreaWeights). The stake term is not weighted.
+    areaWeightGeo: true
     optim: ADAM
     scheduler: StepLR
     lr: 1e-3
     scheduler_step_size: 500
     Nepochs: 2000
+    NepochsGeo: 200
+    wGeoSchedule: [1e-3, 1e-2]
     scalingStakes: full
     bestModelCriterion: lossVal
