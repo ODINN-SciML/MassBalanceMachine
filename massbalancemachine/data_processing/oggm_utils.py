@@ -100,6 +100,28 @@ def _define_glacier_region_with_dem(gdirs, dem_source, dem_file):
         oggmCfg.PATHS["dem_file"] = prev_dem_file
 
 
+# Variables of OGGM's gridded data that `_initialize_custom_glacier_directories` removes
+# once it has replaced the glacier mask by the true outline
+_CUSTOM_DROPPED_VARIABLES = [
+    "glacier_ext",
+    "glacier_ext_erosion",
+    "ice_divides",
+    "dis_from_border",
+    "topo_valid_mask",
+]
+
+
+def _custom_gdir_complete(gdir) -> bool:
+    """Whether a custom glacier directory went through the whole of
+    `_initialize_custom_glacier_directories`. A run interrupted after OGGM's tasks
+    leaves a `gridded_data` file with the mask of the convex hull and the variables the
+    last step removes, which the gridded features cannot be built from."""
+    if not gdir.has_file("gridded_data"):
+        return False
+    with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
+        return not any(v in ds for v in _CUSTOM_DROPPED_VARIABLES)
+
+
 def _initialize_custom_glacier_directories(
     df,
     splitdf,
@@ -134,7 +156,7 @@ def _initialize_custom_glacier_directories(
         force=reset,
     )
 
-    todo = gdirs if reset else [g for g in gdirs if not g.has_file("gridded_data")]
+    todo = gdirs if reset else [g for g in gdirs if not _custom_gdir_complete(g)]
     if not todo:
         return gdirs
 
@@ -156,15 +178,7 @@ def _initialize_custom_glacier_directories(
             out = gdir.grid.region_of_interest(geometry=true_geom.iloc[i].geometry)
             mask = mask | out
         ds["glacier_mask"].values = mask
-        ds = ds.drop(
-            [
-                "glacier_ext",
-                "glacier_ext_erosion",
-                "ice_divides",
-                "dis_from_border",
-                "topo_valid_mask",
-            ]
-        )
+        ds = ds.drop(_CUSTOM_DROPPED_VARIABLES)
         # Overwrite netcdf
         save_path = gdir.get_filepath("gridded_data")
         ds.to_netcdf(save_path)
