@@ -1,0 +1,95 @@
+model:
+    type: TIlike
+    inputs:
+        - ELEVATION_DIFFERENCE
+        - aspect
+        - fal
+        - slhf
+        - slope
+        - sshf
+        - ssrd
+        - str
+        - t2m
+        - tp_sum
+        - svf
+        - u10
+        - v10
+        - POINT_LAT
+        - POINT_LON
+        - POINT_ELEVATION
+    grad_T:
+        inputs:
+            - t2m
+            - slhf
+            - sshf
+            - ssrd
+            - str
+        layers: [32, 16, 16]
+    bias_T:
+        inputs:
+            - POINT_LAT
+            - POINT_LON
+        layers: [32, 16, 8]
+        b_max: 3.0
+    cor_acc:
+        inputs:
+            - u10
+            - v10
+            - slope
+        layers: [32, 16, 8]
+    cor_abl:
+        inputs:
+            - fal
+            - slhf
+            - sshf
+            - ssrd
+            - str
+        layers: [32, 16, 8]
+    bias_cor:
+        inputs:
+            - POINT_LAT
+            - POINT_LON
+        layers: [32, 16, 8]
+        p_min: 0.1
+    bias_cor_elev:
+        inputs:
+            - ELEVATION_DIFFERENCE
+        layers: [16, 8]
+    sw_contrib:
+        inputs:
+            - aspect
+            - slope
+            - svf
+            - ssrd
+            - fal
+            - ELEVATION_DIFFERENCE
+        layers: [32, 16, 8]
+        max: 5.0
+    snow_slope:
+        min: 0.8    # 1/°C, default 0.0
+        max: 4.0    # default 4.0
+    trainable:
+        tau_P_c: true    # snow/rain threshold temperature
+        tau_P_s: false   # snow slope: stays at snow_slope.init
+        beta_pdd: false  # PDD curvature: stays at 1.0
+    beta1: 3.0
+training:
+    regions:
+        iceland:
+            split_file: splits/iceland.yml
+    splitTest: YEAR:<2000
+    # 0 trains on the stakes only. The geodetic run reuses this file with --wGeo, so that
+    # both experiments share the same split.
+    wGeo: 0.0
+    # Weight the geodetic loss term of every window by its area (normalized to a mean
+    # of 1, see training.geodeticAreaWeights). The stake term is not weighted.
+    areaWeightGeo: false
+    optim: ADAM
+    scheduler: StepLR
+    lr: 1e-3
+    scheduler_step_size: 500
+    Nepochs: 2000
+    NepochsGeo: 200
+    wGeoSchedule: [1e-3, 1e-2]
+    scalingStakes: full
+    bestModelCriterion: lossVal
