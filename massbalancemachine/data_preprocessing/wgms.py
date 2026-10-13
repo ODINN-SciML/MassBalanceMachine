@@ -62,30 +62,19 @@ def build_monthly_data(data, cfg, rgi_region=None):
         rgi_region is not None
     ), "For the moment only one single RGI region can be used at a time with the WGMS data."
 
-    # Correct coordinates before they are used to assign the RGIId, hence the selection by stake name and position
-
-    # RGI60-15
-    # Rikha Samba: latitude of S1/S2/S3/S5 shifted by ~-0.0063° (~700 m south) in 2018-2021 compared to 2012-2017 and 2024 at the same elevation, which puts S2/S3 off the glacier and S1 on a neighbouring glacier
-    mask_sel = (
-        data.WGMS_ID.isin(
-            ["S1_2017", "S1_2018", "S1_2019", "S2_2016", "S2_2017", "S2_2018"]
-            + ["S3_2016", "S3_2017", "S3_2018", "S5_2015", "S5_2017"]
-        )
-        & data.YEAR.isin([2018, 2019, 2021])
-        & data.POINT_LAT.between(28.79, 28.84)
-        & data.POINT_LON.between(83.48, 83.51)
+    points_to_monthly(
+        prepare_points(data, rgi_region),
+        cfg,
+        rgi_region,
+        processed_features_stakes_path(rgi_region),
     )
-    data.loc[mask_sel, "POINT_LAT"] = data[mask_sel].POINT_LAT + 0.0063
 
-    # Yala 2025 S6_1124: latitude 28.3847 is 15 km north of the glacier, all the other positions of S6 are at 28.2346
-    mask_sel = (
-        (data.WGMS_ID == "S6_1124")
-        & (data.YEAR == 2025)
-        & data.POINT_LON.between(85.61, 85.63)
-    )
-    data.loc[mask_sel, "POINT_LAT"] = 28.2347
 
-    data = get_rgi(data=data, region=rgi_region)
+def filter_points(data):
+    """Drop the stake measurements that MBM cannot use, whatever their source: no RGIId,
+    no elevation, unrealistic balance, time window too short or too long to be padded,
+    or before 1950 (not covered by ERA5-Land). Adds the columns FROM_DATE_DT,
+    TO_DATE_DT and MONTH_DIFF."""
 
     # Drop measurements where no RGIId was found
     data = data[data.RGIId.notnull()]
@@ -116,6 +105,43 @@ def build_monthly_data(data, cfg, rgi_region=None):
     # Filter out measurements with period too small
     data = data[data.MONTH_DIFF > 0]
     data = data[(data.TO_DATE_DT - data.FROM_DATE_DT).dt.days >= 30]
+
+    # Discard points before 1950 since ERA5 Land does not cover this period
+    data = data[data.YEAR > 1950]
+
+    return data
+
+
+def prepare_points(data, rgi_region):
+    """The WGMS stake measurements of `rgi_region` (table of `load_processed_wgms`)
+    corrected, assigned to their RGI glacier and filtered with `filter_points`."""
+
+    # Correct coordinates before they are used to assign the RGIId, hence the selection by stake name and position
+
+    # RGI60-15
+    # Rikha Samba: latitude of S1/S2/S3/S5 shifted by ~-0.0063° (~700 m south) in 2018-2021 compared to 2012-2017 and 2024 at the same elevation, which puts S2/S3 off the glacier and S1 on a neighbouring glacier
+    mask_sel = (
+        data.WGMS_ID.isin(
+            ["S1_2017", "S1_2018", "S1_2019", "S2_2016", "S2_2017", "S2_2018"]
+            + ["S3_2016", "S3_2017", "S3_2018", "S5_2015", "S5_2017"]
+        )
+        & data.YEAR.isin([2018, 2019, 2021])
+        & data.POINT_LAT.between(28.79, 28.84)
+        & data.POINT_LON.between(83.48, 83.51)
+    )
+    data.loc[mask_sel, "POINT_LAT"] = data[mask_sel].POINT_LAT + 0.0063
+
+    # Yala 2025 S6_1124: latitude 28.3847 is 15 km north of the glacier, all the other positions of S6 are at 28.2346
+    mask_sel = (
+        (data.WGMS_ID == "S6_1124")
+        & (data.YEAR == 2025)
+        & data.POINT_LON.between(85.61, 85.63)
+    )
+    data.loc[mask_sel, "POINT_LAT"] = 28.2347
+
+    data = get_rgi(data=data, region=rgi_region)
+
+    data = filter_points(data)
 
     # Filter out specific measurements with a time window that is too large and that prevent from correctly computing the padding
     # RGI60-11
@@ -343,11 +369,14 @@ def build_monthly_data(data, cfg, rgi_region=None):
     )
     data = data[~mask_sel]
 
-    # Discard points before 1950 since ERA5 Land does not cover this period
-    data = data[data.YEAR > 1950]
-
     # User does not need this
-    data = data.drop(columns=["WGMS_ID"])
+    return data.drop(columns=["WGMS_ID"])
+
+
+def points_to_monthly(data, cfg, rgi_region, path):
+    """Add the topographical and climate features to the stake measurements `data` of
+    `rgi_region` (filtered with `filter_points`), convert them to the monthly table and
+    write it to `path`."""
 
     region_name = get_region_name(rgi_region)
     dataset = Dataset(cfg, data=data, region_name=region_name, region_id=rgi_region)
@@ -387,5 +416,5 @@ def build_monthly_data(data, cfg, rgi_region=None):
         vois_climate=vois_climate, vois_topographical=voi_topographical
     )
 
-    os.makedirs(processed_stakes_folder(), exist_ok=True)
-    dataset.data.to_csv(processed_features_stakes_path(rgi_region), index=False)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    dataset.data.to_csv(path, index=False)

@@ -27,6 +27,7 @@ REGION_OWNED_KEYS = REGION_LIST_KEYS + [
     "geodetic_source_options_val",
     "geodetic_source_test",
     "geodetic_source_test_options",
+    "stake_sources",
 ]
 
 
@@ -41,7 +42,9 @@ def mergeRegions(training, netcfgFolder):
     `trainValData` splits each region with its own rule, and the evaluation tests each
     region on its own geodetic source. A region may set its own split by year,
     `splitTest` (e.g. "YEAR:<2010"); the others keep the `splitTest` of the training
-    section, see `dataloader.SourceManager.yearSplitPerRgiRegion`.
+    section, see `dataloader.SourceManager.yearSplitPerRgiRegion`. A region may also
+    combine several stake sources, `stake_sources` (e.g. [wgms, nve]), see
+    `dataloader.SourceManager.stakeSourcesPerRgiRegion`.
     """
     owned = [k for k in REGION_OWNED_KEYS if k in training]
     assert (
