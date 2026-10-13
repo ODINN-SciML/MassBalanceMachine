@@ -116,6 +116,27 @@ def prepare_points(data, rgi_region):
     """The WGMS stake measurements of `rgi_region` (table of `load_processed_wgms`)
     corrected, assigned to their RGI glacier and filtered with `filter_points`."""
 
+    # Drop the copies of a measurement that WGMS lists several times, identical in every
+    # field but their record ID: a stake shared by several WGMS glaciers (Hofsjökull
+    # summit stake H18 under HOFSJOEKULL E, N and SW; Adler and Findelen stakes 200 and
+    # 600 in 2021) or a measurement submitted twice (Grand Etret and Garabashi 2024, several
+    # Swiss glaciers in 2023, Lemon Creek 2014).
+    data = data[
+        ~data.duplicated(
+            subset=[
+                "WGMS_ID",
+                "YEAR",
+                "FROM_DATE",
+                "TO_DATE",
+                "PERIOD",
+                "POINT_BALANCE",
+                "POINT_LAT",
+                "POINT_LON",
+                "POINT_ELEVATION",
+            ]
+        )
+    ]
+
     # Correct coordinates before they are used to assign the RGIId, hence the selection by stake name and position
 
     # RGI60-15

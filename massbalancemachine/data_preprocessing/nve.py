@@ -19,8 +19,8 @@ def load_points():
     Each stake year has a winter balance (previous minimum to maximum), a summer
     balance (maximum to minimum) and an annual balance (previous minimum to minimum).
     Since the annual balance is the sum of the two others, the summer balance is only
-    kept for the years without annual balance, as WGMS reports winter and annual
-    balances."""
+    kept for the years without annual balance, as the WGMS stakes of region 08 only
+    have winter and annual balances."""
     raw = raw_data()
     prev_min, curr_max, curr_min = (
         pd.to_datetime(raw[c], format="%d.%m.%Y").dt.strftime("%Y%m%d")

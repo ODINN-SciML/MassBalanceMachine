@@ -35,7 +35,7 @@ def test_drop_duplicate_measurements():
             ["20101004", "20110501", 61.00045, 8.0, 1.50, "winter"],
             # Same stake and dates but another period
             ["20110501", "20111001", 61.0, 8.0, -2.50, "summer"],
-            # Same dates and position, different balance
+            # Same dates and position, revised balance: still the same measurement
             ["20101001", "20111001", 61.0, 8.0, -1.40, "annual"],
             # Same dates and balance, 1 km away
             ["20101001", "20110501", 61.009, 8.0, 1.50, "winter"],
@@ -44,7 +44,8 @@ def test_drop_duplicate_measurements():
     points = mbm.data_preprocessing.stakes.drop_duplicate_measurements(
         pd.concat([first, second], ignore_index=True)
     )
-    assert len(points) == 5
-    assert points.SOURCE.value_counts().to_dict() == {"wgms": 2, "nve": 3}
-    # The measurement of the source listed first is kept
+    assert len(points) == 4
+    assert points.SOURCE.value_counts().to_dict() == {"wgms": 2, "nve": 2}
+    # The measurement of the source listed first is kept, with its balance
     assert not ((points.SOURCE == "nve") & (points.FROM_DATE == "20101004")).any()
+    assert points[points.PERIOD == "annual"].POINT_BALANCE.tolist() == [-1.00]

@@ -178,6 +178,17 @@ _stake_source_credits = {
             "WGMS (2012): Fluctuations of Glaciers 2005-2010 (Vol. X): Michael Zemp, Holger Frey, Isabelle Gärtner-Roer, Samuel U. Nussbaumer, Martin Hoelzle, Frank Paul, and Wilfried Haeberli (eds.), ICSU (WDS) / IUGG (IACS) / UNEP / UNESCO / WMO, World Glacier Monitoring Service, Zurich, Switzerland. Based on database version https://doi.org/10.5904/wgms-fog-2012-11.",
         ],
     ),
+    "iceland": (
+        "https://icelandicglaciers.is/#/page/map",
+        "CC-BY license with following references provided for the mass balance data",
+        [
+            "Finnur Pálsson. 2022. Vatnajökull. Mass balance, meltwater drainage and surface velocity of the glacial year 2021–22. Reykjavík, Landsvirkjun, Institute of Earth Sciences University of Iceland, Rep. LV-2022-054. https://gogn.lv.is/files/2022/2022-054.pdf",
+            "Finnur Pálsson. 2022. Afkomu- og hraðamælingar á Langjökli jökulárið 2021–2022 (Mass balance and ice flow measurements of Langjökull in 2021–2022). Reykjavík, Landsvirkjun, Institute of Earth Sciences University of Iceland, Rep. LV-2022-053. https://gogn.lv.is/files/2022/2022-053.pdf",
+            "Helgi Björnsson, Finnur Pálsson, Magnús Tumi Guðmundsson and Hannes H. Haraldsson. 1998. Mass balance of western and northern Vatnajökull, Iceland, 1991–1995, Jökull, 45, 35–58, https://doi.org/10.33799/jokull1998.45.035",
+            "Þorsteinn Þorsteinsson, Tómas Jóhannesson, Bergur Einarsson, Vilhjálmur S. Kjartansson. 2017. Afkomumælingar á Hofsjökli 1988–2017 [Mass balance measurements on Hofsjökull 1988–2017]. Reykjavík, Veðurstofa Íslands, skýrsla 2017-016. https://www.vedur.is/media/vedurstofan-utgafa-2017/2017_016_hofsjokull30_rs.pdf",
+            "Guðfinna Aðalgeirsdóttir, Eyjólfur Magnússon, Finnur Pálsson, Þorsteinn Þorsteinsson, JMC Belart, Tómas Jóhannesson, Hrafnhildur Hannesdóttir, Oddur Sigurðsson, Andri Gunnarsson, Bergur Einarsson, E Berthier, LS Schmidt, Hannes H. Haraldsson, Helgi Björnsson. 2020. Glacier changes in Iceland in the 20th and the beginning of the 21st century. Frontiers of Earth Sciences, 8, 523646, https://doi.org/10.3389/feart.2020.523646",
+        ],
+    ),
     "nve": (
         "Elvehøy, H., Kjøllmoen, B., Andreassen, L. M. and Sjursen, K. H. (2025): Glaciological point mass balance measurements for Norway 1962-2021. Norwegian Water Resources and Energy Directorate (NVE). https://doi.org/10.58059/sjse-6w92",
         "CC-BY 4.0 license",
@@ -513,17 +524,7 @@ class SourceManagerIceland(SourceManager):
             data = pd.read_csv(
                 data_preprocessing.iceland.processed_features_stakes_path()
             )
-            _format_data_credit(
-                "https://icelandicglaciers.is/#/page/map",
-                "CC-BY license with following references provided for the mass balance data",
-                [
-                    "Finnur Pálsson. 2022. Vatnajökull. Mass balance, meltwater drainage and surface velocity of the glacial year 2021–22. Reykjavík, Landsvirkjun, Institute of Earth Sciences University of Iceland, Rep. LV-2022-054. https://gogn.lv.is/files/2022/2022-054.pdf",
-                    "Finnur Pálsson. 2022. Afkomu- og hraðamælingar á Langjökli jökulárið 2021–2022 (Mass balance and ice flow measurements of Langjökull in 2021–2022). Reykjavík, Landsvirkjun, Institute of Earth Sciences University of Iceland, Rep. LV-2022-053. https://gogn.lv.is/files/2022/2022-053.pdf",
-                    "Helgi Björnsson, Finnur Pálsson, Magnús Tumi Guðmundsson and Hannes H. Haraldsson. 1998. Mass balance of western and northern Vatnajökull, Iceland, 1991–1995, Jökull, 45, 35–58, https://doi.org/10.33799/jokull1998.45.035",
-                    "Þorsteinn Þorsteinsson, Tómas Jóhannesson, Bergur Einarsson, Vilhjálmur S. Kjartansson. 2017. Afkomumælingar á Hofsjökli 1988–2017 [Mass balance measurements on Hofsjökull 1988–2017]. Reykjavík, Veðurstofa Íslands, skýrsla 2017-016. https://www.vedur.is/media/vedurstofan-utgafa-2017/2017_016_hofsjokull30_rs.pdf",
-                    "Guðfinna Aðalgeirsdóttir, Eyjólfur Magnússon, Finnur Pálsson, Þorsteinn Þorsteinsson, JMC Belart, Tómas Jóhannesson, Hrafnhildur Hannesdóttir, Oddur Sigurðsson, Andri Gunnarsson, Bergur Einarsson, E Berthier, LS Schmidt, Hannes H. Haraldsson, Helgi Björnsson. 2020. Glacier changes in Iceland in the 20th and the beginning of the 21st century. Frontiers of Earth Sciences, 8, 523646, https://doi.org/10.3389/feart.2020.523646",
-                ],
-            )
+            _format_data_credit(*_stake_source_credits["iceland"])
 
         data["aspect"] = 180 * data["aspect"] / np.pi
         data["slope"] = 180 * data["slope"] / np.pi

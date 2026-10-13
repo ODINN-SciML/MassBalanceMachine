@@ -18,11 +18,13 @@ from data_processing.utils import get_rgi
 from data_processing.wgms import load_processed_wgms
 import data_preprocessing.wgms
 import data_preprocessing.nve
+import data_preprocessing.iceland
 
 # Source name: RGI regions it covers (None for all)
 STAKE_SOURCES = {
     "wgms": None,
     "nve": [8],
+    "iceland": [6],
 }
 DEFAULT_STAKE_SOURCES = ["wgms"]
 
@@ -71,6 +73,13 @@ def load_points(source, rgi_region):
         points = data_preprocessing.nve.load_points()
         points = get_rgi(data=points, region=rgi_region)
         points = data_preprocessing.wgms.filter_points(points)
+    elif source == "iceland":
+        # Already assigned to the RGI glaciers of region 06 by the Iceland pipeline
+        points = data_preprocessing.wgms.filter_points(
+            data_preprocessing.iceland.raw_data()
+        )
+    # Dates as YYYYMMDD strings, as in the WGMS table
+    points = points.astype({"FROM_DATE": str, "TO_DATE": str})
     return points[POINT_COLUMNS].assign(SOURCE=source).reset_index(drop=True)
 
 
@@ -78,9 +87,10 @@ def drop_duplicate_measurements(
     points, max_days=10, max_distance=100, max_balance_diff=0.05
 ):
     """Drop the measurements reported by several sources: same glacier and period, start
-    and end dates within `max_days` days, positions within `max_distance` m and balances
-    within `max_balance_diff` m w.e. The measurement of the source listed first in
-    `points.SOURCE` is kept."""
+    and end dates within `max_days` days and positions within `max_distance` m. The
+    measurement of the source listed first in `points.SOURCE` is kept, even when the
+    balances differ (a source may hold a revised value), and the number of duplicates
+    whose balances differ by more than `max_balance_diff` m w.e. is printed."""
     sources = list(dict.fromkeys(points.SOURCE))
     points = points.reset_index(drop=True)
     duplicates = []
@@ -100,17 +110,33 @@ def drop_duplicate_measurements(
             ((pairs.FROM_DATE_DT - pairs.FROM_DATE_DT_kept).abs().dt.days <= max_days)
             & ((pairs.TO_DATE_DT - pairs.TO_DATE_DT_kept).abs().dt.days <= max_days)
             & (distance <= max_distance)
-            & (
-                (pairs.POINT_BALANCE - pairs.POINT_BALANCE_kept).abs()
-                <= max_balance_diff
-            )
         )
         found = pairs.loc[is_duplicate, "index"].unique().tolist()
+        conflicting = pairs.loc[
+            is_duplicate
+            & (
+                (pairs.POINT_BALANCE - pairs.POINT_BALANCE_kept).abs()
+                > max_balance_diff
+            ),
+            "index",
+        ].nunique()
         print(
-            f"{source}: {len(found)} of {len(candidates)} measurements already provided by {sources[:i]}"
+            f"{source}: {len(found)} of {len(candidates)} measurements already provided by {sources[:i]}, "
+            f"{conflicting} of them with a balance differing by more than {max_balance_diff} m w.e."
         )
         duplicates += found
     return points.drop(index=duplicates).reset_index(drop=True)
+
+
+def drop_identical_measurements(points):
+    """Drop the copies of the measurements listed several times by the same source,
+    identical in every field (e.g. a WGMS stake reported under several glaciers): for
+    the model, they are the same sample counted several times."""
+    columns = [c for c in POINT_COLUMNS if c not in ["YEAR", "MONTH_DIFF"]]
+    copies = points.duplicated(subset=columns + ["SOURCE"])
+    for source, n in points[copies].SOURCE.value_counts().items():
+        print(f"{source}: {n} copies of identical measurements dropped")
+    return points[~copies].reset_index(drop=True)
 
 
 def combine_points(rgi_region, sources):
@@ -118,7 +144,7 @@ def combine_points(rgi_region, sources):
     points = pd.concat(
         [load_points(source, rgi_region) for source in sources], ignore_index=True
     )
-    return drop_duplicate_measurements(points)
+    return drop_duplicate_measurements(drop_identical_measurements(points))
 
 
 def load_monthly_data(rgi_region, sources=None, cfg=None):
