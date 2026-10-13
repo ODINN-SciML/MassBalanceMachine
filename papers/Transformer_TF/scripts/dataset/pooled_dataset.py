@@ -1,6 +1,8 @@
 """Multi-region (pooled) training dataset of the Transformer grid search
 (notebook `2.2 Transformer_grid_search`).
 
+- `compute_pool_holdout_splits`: compute that split (Sinkhorn-optimised) and write
+  `glacier_splits.json`, if the file is missing.
 - `load_pool_holdout_splits`: glacier split of each source region into pool (training)
   and holdout glaciers, from `glacier_splits.json`.
 - `build_pooled_assets_from_cache`: one pooled training dataset from the pool glaciers of
@@ -19,6 +21,81 @@ import massbalancemachine as mbm
 from papers.Transformer_TF.scripts.dataset.lstm_dataset_helpers import (
     build_combined_LSTM_dataset,
 )
+
+
+def compute_pool_holdout_splits(
+    monthly_cache,
+    regions,
+    monthly_cols,
+    static_cols,
+    save_path,
+    seed,
+    pool_frac=0.2,
+    n_restarts=50,
+):
+    """
+    Sinkhorn-optimised glacier split of each region (`split_pool_holdout_sinkhorn`):
+    a set of about pool_frac of the glaciers whose inputs cover the rest of the
+    region, saved to save_path in the format read by `load_pool_holdout_splits`.
+    The 2.2 grid search trains on the larger set and keeps the smaller one out.
+
+    Scalers and blur are fitted on all data of the given regions. This reproduces
+    the procedure behind the existing `glacier_splits.json`, but not necessarily
+    the same glaciers (that file was made from an earlier version of the data).
+    """
+    from papers.Transformer_TF.scripts.dataset.topoclimatic_distance import (
+        build_global_scalers_multi_source_simple,
+        estimate_global_bandwidths_simple,
+        split_pool_holdout_sinkhorn,
+    )
+
+    res_regions = {r: {"df_train": monthly_cache[r]["data_monthly"]} for r in regions}
+    scaler_m, scaler_s, _, _ = build_global_scalers_multi_source_simple(
+        res_regions, monthly_cols=monthly_cols, static_cols=static_cols
+    )
+    _, _, blur_joint, _ = estimate_global_bandwidths_simple(
+        res_regions,
+        monthly_cols=monthly_cols,
+        static_cols=static_cols,
+        scaler_m=scaler_m,
+        scaler_s=scaler_s,
+        seed=seed,
+    )
+
+    keys = [
+        "pool_glaciers",
+        "holdout_glaciers",
+        "actual_pool_frac",
+        "sinkhorn_pool_vs_holdout",
+        "sinkhorn_pool_vs_region",
+        "sinkhorn_holdout_vs_region",
+        "blur_joint",
+        "best_seed",
+        "best_score",
+    ]
+    output = {}
+    for region in regions:
+        print(f"\n{'='*50}\nSplitting region: {region}")
+        split = split_pool_holdout_sinkhorn(
+            df_region=monthly_cache[region]["data_monthly"],
+            monthly_cols=monthly_cols,
+            static_cols=static_cols,
+            scaler_m=scaler_m,
+            scaler_s=scaler_s,
+            blur_joint=blur_joint,
+            pool_frac=pool_frac,
+            n_restarts=n_restarts,
+            seed=seed,
+        )
+        output[region] = {
+            k: (list(split[k]) if k.endswith("glaciers") else split[k]) for k in keys
+        }
+
+    with open(save_path, "w") as f:
+        # numpy scalars -> plain Python numbers
+        json.dump(output, f, indent=2, default=lambda x: x.item())
+    print(f"\nSaved splits to: {save_path}")
+    return output
 
 
 def load_pool_holdout_splits(save_path, verbose=True):

@@ -129,13 +129,6 @@ STAKES_SPECS = {
         / "ALA_wgms_dataset_all.csv",
         "post": _post_default,
     },
-    "CAW": {
-        "relpath": Path("WGMS")
-        / "WesternCanadaUS"
-        / "csv"
-        / "CAW_wgms_dataset_all.csv",
-        "post": _post_default,
-    },
     "CENTRALASIA": {
         "relpath": Path("WGMS") / "HMA" / "csv" / "CentralAsia_wgms_dataset_all.csv",
         "post": _post_default,

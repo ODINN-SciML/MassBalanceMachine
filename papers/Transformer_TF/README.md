@@ -4,6 +4,33 @@ This folder holds everything behind the paper (`manuscript.tex`): the climate an
 
 This README gives the order in which to run the notebooks, describes the data preparation notebooks `1.1.1`–`1.4`, and lists where each figure of the paper is made. Each `2.x`/`3.x` notebook explains its own steps in its first cell, and `PMB_sources/README.md` covers the stake preprocessing.
 
+## Installation
+
+Two conda environments are used:
+
+| Environment | Used for | Create with |
+|---|---|---|
+| `MassBalanceMachine` (Python 3.11) | everything except 1.3 | `conda env create -f environment_gpu.yml` (or `environment_cpu.yml` without a GPU) in the repository root, then `conda activate MassBalanceMachine` and `poetry install` to install the `massbalancemachine` package and its dependencies (`pyproject.toml`) |
+| `rvt` (Python 3.11) | `1.3 Create_skyview_factor` only (Relief Visualization Toolbox) | `conda env create -f environment_rvt.yml` in this folder |
+
+See also the [MBM installation instructions](https://massbalancemachine.readthedocs.io/en/latest/install.html). The model notebooks (2.2–3.4) are meant to run on a GPU. Each notebook adds the repository root to `sys.path`, so run it from its own folder. The data root (`cfg.dataPath`) is set in the MBM config (`mbm.EuropeTFConfig()`); 1.3 sets it by hand (`cfg_datapath`).
+
+## Model settings
+
+All model settings of the paper are in `scripts/config_models.py`:
+
+| Setting | Value | Name in `config_models.py` |
+|---|---|---|
+| Transformer hyperparameters | best configuration of the 3.1 search | `PARAMS_TRANSFORMER` |
+| LSTM hyperparameters | | `PARAMS_LSTM` |
+| Maximum training epochs (early stopping on the validation loss) | 150 | `N_EPOCHS` |
+| Hyperparameter search | random search, 150 configurations sampled (seed `cfg.seed`) from the grid in 3.1, up to 150 epochs each | `GS_N_TRIALS`, `GS_MAX_EPOCHS` |
+| Search validation data and selection rule | test glaciers of the within-region splits of 2.3 (about 16–24% of each source region's measurements); lowest pooled validation loss | `GS_SELECTION_METRIC`, `GS_LOG` |
+| Fine-tuning data | 10% of the measurement IDs of each target region (winter and annual drawn separately); the rest is the test set | `FT_FRAC` |
+| Fine-tuning repeats and seeds | 5 repeats, seeds `cfg.seed + rep` (20–24) | `FT_N_REPEATS` |
+| Fine-tuning training | up to 50 epochs, learning rate × 0.1, 80/20 train/validation split of the fine-tuning data, early stopping (patience 10), best-validation checkpoint restored | `PARAMS_FT` |
+| Date tag of the trained models | 2026-06-10 | `MODEL_DATE` |
+
 ## Order of the steps
 
 ```
@@ -36,7 +63,7 @@ This README gives the order in which to run the notebooks, describes the data pr
 | Notebook | Needs | Writes (under `cache/TF_Europe/`) |
 |---|---|---|
 | `2.1 Study_regions` | stake datasets, RGI outlines | figures only |
-| `2.2 Transformer_grid_search` | monthly inputs; `TF_REGION/glacier_splits.json` (see Known issues) | `TF_REGION/` datasets and grid-search log |
+| `2.2 Transformer_grid_search` | monthly inputs | `TF_REGION/glacier_splits.json` (pool/holdout glaciers, computed if missing), datasets and grid-search log |
 | `2.3 Within_region` | monthly inputs | `WITHIN_REGION/` splits, datasets, models |
 | `2.4 Cross_region` | monthly inputs | `CROSS_REGION/` datasets and models (one LSTM and one Transformer per source region) |
 | `3.1 Pooled_model_grid_search` | monthly inputs; within-region test glaciers of 2.3 (used as validation glaciers) | `FD_MODEL/GS_results/` log; its best configuration is `PARAMS_TRANSFORMER` in `scripts/config_models.py` |
@@ -57,7 +84,7 @@ These download monthly ERA5-Land data from the Copernicus Climate Data Store. Bo
 | Notebook | Area name | Box (N, W, S, E) | Used for RGI regions |
 |---|---|---|---|
 | 1.1.1 | `HIGH_MOUNTAIN_ASIA` | 45, 60, 25, 105 | 13–15 |
-| 1.1.2 | `EU_US_CANADA` | 82, −170, 42, 40 | 01, 02, 06, 07, 08, 11 |
+| 1.1.2 | `EU_US_CANADA` | 82, −170, 42, 40 | 01, 06, 07, 08, 11 |
 
 Each notebook:
 1. Downloads monthly means for 1950–2025 of 14 variables: wind, 2 m temperature, albedo, snow variables, latent/sensible heat fluxes, net thermal and downward solar radiation, and precipitation.
@@ -76,7 +103,7 @@ This is the first step of the glacier grids. It runs in the MBM environment. For
 
 The `geotiff/` folder is emptied before each run.
 
-The OGGM step can be restricted to the glaciers with stakes: regions listed in `stakes_only` only download the RGI IDs in `WGMS/RGIids_stakes_all_regions.csv` and `WGMS/RGIids_stakes_HMA.csv` (duplicates between the two files are dropped). As set now (`stakes_only = RGI_REGIONS.keys()`), every region is restricted to its stake glaciers. The GeoTIFF export then converts whatever OGGM grids exist; its own stake filter is commented out.
+The OGGM step can be restricted to the glaciers with stakes: for the regions in `stakes_only`, only the glaciers in the processed stake datasets of the PMB_sources notebooks are downloaded (`stake_rgi_ids` in `scripts/dataset/data_loader.py`). As set now (`stakes_only = RGI_REGIONS.keys()`), every region is restricted to its stake glaciers. On a fresh setup the stake datasets don't exist yet, so all glaciers of each region are processed; rerun 1.2 after the stake preprocessing to restrict it. The GeoTIFF export converts all OGGM grids that exist.
 
 ### 1.3 Create_skyview_factor
 
@@ -114,7 +141,7 @@ Regions without OGGM grids or SVF are skipped. The cell is off by default (`RUN 
 The grids can be run in three ways:
 - for glaciers with stakes (`run_for_stake_glaciers`)
 - for named glaciers (`run_for_glaciers`)
-- for all glaciers larger than 1 km² (`run_all_glacier_grids`)
+- for all glaciers larger than 1 km² of the regions in `REGIONS_TO_RUN` (`run_all_glacier_grids`; off by default, `RUN = False`)
 
 ## Paper figures
 
@@ -155,14 +182,6 @@ Figures marked *assembled* are combined outside the code from the listed panels 
 | A15 | `A15_gradients_CA.png` | `3.3 Pooled_model_pred` | Fig. A11–A16: elevation gradients of all stake glaciers (15) | |
 | A16 | `A16_gradients_ALA.png` | `3.3 Pooled_model_pred` | Fig. A11–A16: elevation gradients of all stake glaciers (15) | |
 
-## Known issues
-
-- **RGI 02 (Western Canada & USA) is not set up.** It is missing from `RGI_REGIONS` in `scripts/config_TF_Europe.py` and from the copy in 1.3, so no SVF or masked grids exist for it. The SVF step of `RGI_01_02_US_CA/1.1. US_CA-prepro.ipynb` will fail for region 02 until it is added.
-- **1.4 "Run all RGIs"** uses `RGI_REGIONS_TEST`, which isn't defined anywhere.
-- **The last cell of 1.4 overwrites `RGI_REGIONS`** with a subset. Restart the kernel or re-import the config before running other cells after it.
-- **No notebook writes the stake RGI ID lists** (`WGMS/RGIids_stakes_all_regions.csv`, `WGMS/RGIids_stakes_HMA.csv`) used by the stakes-only option of 1.2. They come from an earlier run.
-- **2.2 reads `TF_REGION/glacier_splits.json`**, which no current notebook writes (it comes from an earlier draft). 2.2 is not used for the paper.
-- **3.1 reads the split cache of an older 2.3 run** (`WITHIN_REGION/within_region_splits_cache.pkl`); the current 2.3 writes `within_region_splits_cache.pkl` instead. The test glaciers of CH, NOR, ISL and FR are the same in both files, so the results don't change, but 3.1 fails on a fresh setup until it reads the new file.
 
 ## `scripts/`
 
@@ -172,7 +191,7 @@ These are the helper modules imported by the notebooks:
 - `pmb_processing/`: stake QC, RGI ID assignment and SVF sampling, used by the regional preprocessing notebooks
 - `svf_processing/`: SVF computation (needs the `rvt` environment)
 - `geodata/`: GeoTIFF export
-- `config_models.py`: model hyperparameters (`PARAMS_LSTM`, `PARAMS_TRANSFORMER`, `PARAMS_FT`), `N_EPOCHS`, `MODEL_DATE`
+- `config_models.py`: model hyperparameters, search and fine-tuning settings (see [Model settings](#model-settings))
 - `dataset/`: stake loading, monthly data, grid creation, and the datasets and splits of the experiments (e.g. `within_region_splits.py` for 2.3, `pooled_experiment.py` for 3.2–3.4, `pooled_distance.py` for 3.4)
 - `models/`: training, evaluation and the model figures of each experiment (`within_region.py`, `cross_region.py`, `transformer_grid_search.py`, `pooled_model.py`, `pooled_figures.py`, `ft_sensitivity.py`)
 - `plotting/`: maps and other figures (`study_region_maps.py` for 2.1, `domain_shift.py`, `pooled_pred.py` and `pooled_pred_figures.py` for 3.3)

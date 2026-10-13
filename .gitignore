@@ -23,6 +23,8 @@ docs/MBM_logo.png
 # Paper workflows: keep notebooks and scripts, ignore all generated outputs
 papers/**/figures/
 papers/**/models/
+# ...but keep the code packages named models/
+!papers/**/scripts/models/
 papers/**/cache/
 papers/**/results/
 papers/**/logs/
@@ -35,6 +37,9 @@ papers/**/*.nc
 papers/**/*.zarr
 papers/**/*.pkl
 papers/**/*.joblib
+
+# Exploratory notebooks, not part of the paper workflow
+papers/Transformer_TF/draft_notebooks/
 
 notes
 

@@ -758,17 +758,21 @@ def finetune_dan_transformer_on_target(
 def load_within_region_test_glaciers(within_splits_cache, regions):
     """
     Test glaciers of the within-region (Sinkhorn) splits of `2.3 Within_region`,
-    per region, from its split cache (`WITHIN_REGION/within_region_splits_cache.pkl`).
+    per region, from its split cache (`WITHIN_REGION/within_region_splits_cache.pkl`;
+    both the current and the earlier layout of that file are read).
     Returns {region: set of glacier names}.
     """
     import pickle
 
     with open(within_splits_cache, "rb") as f:
         within_cache = pickle.load(f)
-    res_within_by_code = within_cache["res_within_by_code"]
-    return {
-        region: set(res_within_by_code[region]["test_glaciers"]) for region in regions
-    }
+    if "split_info_by_code_gl" in within_cache:
+        # layout written by the current 2.3 (glacier-level splits)
+        split_info = within_cache["split_info_by_code_gl"]
+    else:
+        # layout of earlier 2.3 runs
+        split_info = within_cache["res_within_by_code"]
+    return {region: set(split_info[region]["test_glaciers"]) for region in regions}
 
 
 def build_grid_search_assets(
