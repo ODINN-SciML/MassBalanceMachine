@@ -1,7 +1,5 @@
 import os
-from os.path import isfile, join
-from collections import defaultdict
-from datetime import datetime
+from os.path import join
 import tempfile
 import shutil
 import numpy as np
@@ -11,12 +9,8 @@ import geopandas as gpd
 import rasterio
 import pyproj
 from scipy.ndimage import gaussian_filter
-from dateutil.relativedelta import relativedelta
 from tqdm.notebook import tqdm
 from rasterio.transform import from_bounds
-import glob
-from pyproj import CRS
-import massbalancemachine as mbm
 
 from papers.Transformer_TF.PMB_sources.RGI_11_Switzerland.scripts.config_CH import *
 from papers.Transformer_TF.PMB_sources.RGI_11_Switzerland.scripts.utils import *
@@ -235,96 +229,6 @@ def transform_xarray_coords_lv95_to_wgs84(data_array):
 
     # Convert to lat/lon
     df = LV95_to_WGS84(df)
-
-    # Transform LV95 to WGS84 (lat, lon)
-    lon, lat = df.lon.values, df.lat.values
-
-    # Reshape the flattened WGS84 coordinates back to the original grid shape (time, y, x)
-    lon = lon.reshape(x_coords.shape)  # Shape: (y, x)
-    lat = lat.reshape(y_coords.shape)  # Shape: (y, x)
-
-    # Assign the 1D WGS84 coordinates for swapping
-    lon_1d = lon[0, :]  # take x (lon) values
-    lat_1d = lat[:, 0]  # take y (lat) values
-
-    # Assign the WGS84 coordinates back to the xarray
-    data_array = data_array.assign_coords(lon=("x", lon_1d))  # Assign longitudes
-    data_array = data_array.assign_coords(lat=("y", lat_1d))  # Assign latitudes
-
-    # First, swap 'x' with 'lon' and 'y' with 'lat'
-    data_array = data_array.swap_dims({"x": "lon", "y": "lat"})
-
-    return data_array
-
-
-def transform_xarray_coords_lv03_to_wgs84(data_array):
-    """
-    Transform the spatial coordinates of an xarray DataArray from Swiss LV03 (CH1903)
-    projected coordinates to WGS84 geographic coordinates (longitude/latitude).
-
-    This function assumes that the input DataArray is a 2-dimensional raster with
-    dimensions ("y", "x") representing Swiss grid coordinates in meters (LV03).
-    It performs the following steps:
-
-    1. Flattens the 2D grid values and corresponding LV03 x/y coordinates.
-    2. Converts all grid coordinates from LV03 to WGS84 using `LV03_to_WGS84`.
-    3. Reshapes the transformed longitude and latitude arrays back to the original
-       grid shape.
-    4. Assigns new 1D longitude and latitude coordinates to the DataArray.
-    5. Swaps dimensions so that the resulting DataArray uses ("lat", "lon")
-       instead of ("y", "x").
-
-    Parameters
-    ----------
-    data_array : xarray.DataArray
-        Input DataArray with dimensions ("y", "x") and LV03 coordinates stored
-        as `data_array.coords["x"]` and `data_array.coords["y"]`.
-
-    Returns
-    -------
-    xarray.DataArray
-        DataArray with spatial dimensions transformed to WGS84 coordinates.
-        The returned array has dimensions ("lat", "lon") instead of ("y", "x"),
-        and includes new coordinates:
-        - `lon` : 1D array of longitudes in degrees (EPSG:4326)
-        - `lat` : 1D array of latitudes in degrees (EPSG:4326)
-
-    Raises
-    ------
-    AttributeError
-        If the input DataArray does not contain `x` and `y` coordinates.
-    ValueError
-        If the coordinate transformation fails or the array shapes are inconsistent.
-
-    Notes
-    -----
-    - The transformation assumes that the input coordinates are in LV03
-      (EPSG:21781). If the data are in LV95 instead, a different converter
-      should be used.
-    - The conversion is performed by flattening the grid to a table of points,
-      transforming them using `LV03_to_WGS84`, and then reconstructing the grid.
-    - The function does not modify data values—only the coordinate system.
-    """
-    # Flatten the DataArray (values) and extract x and y coordinates for each time step
-    flattened_values = data_array.values.reshape(-1)  # Flatten entire 2D array (y, x)
-
-    # flattened_values = data_array.values.flatten()
-    y_coords, x_coords = np.meshgrid(
-        data_array.y.values, data_array.x.values, indexing="ij"
-    )
-
-    # Flatten the coordinate arrays
-    flattened_x = x_coords.flatten()  # Repeat for each time step
-    flattened_y = y_coords.flatten()  # Repeat for each time step
-
-    # Create a DataFrame with columns for x, y, and value
-    df = pd.DataFrame(
-        {"x_pos": flattened_x, "y_pos": flattened_y, "value": flattened_values}
-    )
-    df["z_pos"] = 0
-
-    # Convert to lat/lon
-    df = LV03_to_WGS84(df)
 
     # Transform LV95 to WGS84 (lat, lon)
     lon, lat = df.lon.values, df.lat.values

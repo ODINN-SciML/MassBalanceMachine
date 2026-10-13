@@ -1,36 +1,5 @@
-import torch
-import numpy as np
-import random
-import gc
 import os
 import shutil
-
-
-def seed_all(seed=None):
-    # Python
-    random.seed(seed)
-    # NumPy
-    np.random.seed(seed)
-    # PyTorch
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-
-    # cuDNN deterministic kernels
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-
-    # Forbid nondeterministic ops (warn if an op has no deterministic impl)
-    torch.use_deterministic_algorithms(True, warn_only=True)
-
-    # Setting CUBLAS environment variable (helps in newer versions)
-    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:2"
-
-
-def free_up_cuda():
-    """Frees up unused CUDA memory in PyTorch."""
-    gc.collect()  # Run garbage collection
-    torch.cuda.empty_cache()  # Free unused cached memory
-    torch.cuda.ipc_collect()  # Collect inter-process memory
 
 
 def emptyfolder(path):

@@ -192,6 +192,30 @@ def load_stakes_for_rgi_region(cfg, rgi_region: str) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
+def stake_rgi_ids(cfg) -> pd.DataFrame:
+    """
+    RGI IDs of all glaciers with stakes, from the processed stake datasets of every
+    code in STAKES_SPECS (written by the PMB_sources notebooks). Missing datasets are
+    skipped. Returns a DataFrame with columns RGIId and RGI_REGION ('01', '02', ...),
+    one row per glacier.
+    """
+    frames = []
+    for code in STAKES_SPECS:
+        try:
+            df = load_stakes(cfg, code)
+        except FileNotFoundError:
+            print(f"[skip] no stake dataset for {code}")
+            continue
+        frames.append(df[["RGIId"]].dropna())
+    if not frames:
+        return pd.DataFrame(columns=["RGIId", "RGI_REGION"])
+    rgi_ids = pd.concat(frames).drop_duplicates(ignore_index=True)
+    rgi_ids["RGI_REGION"] = rgi_ids["RGIId"].str.extract(
+        r"RGI60-(\d{2})\.", expand=False
+    )
+    return rgi_ids.sort_values("RGIId", ignore_index=True)
+
+
 def prepare_monthly_dfs_with_padding(
     *,
     cfg,

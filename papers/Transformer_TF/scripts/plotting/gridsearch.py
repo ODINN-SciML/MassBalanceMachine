@@ -216,3 +216,41 @@ def FI_plot(best_estimator, feature_columns, vois_climate):
 
     ax.set_xlabel("Feature Importance")
     ax.set_ylabel("Feature")
+
+
+def plot_gs_top_configs(results_gs, param_cols, k=10, ncols=4):
+    """
+    One horizontal bar chart per hyperparameter, showing its value in each of the k
+    best grid-search configurations (rows labelled by rank and validation loss,
+    coloured from best (green) to worst (red)). results_gs must be sorted by
+    'valid_loss'.
+    """
+    import numpy as np
+
+    top = results_gs.head(k).reset_index(drop=True)
+
+    n = len(param_cols)
+    nrows = int(np.ceil(n / ncols))
+
+    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 3.5, nrows * 3))
+    axes = axes.flatten()
+
+    for i, col in enumerate(param_cols):
+        ax = axes[i]
+        vals = top[col].values
+        colors = plt.cm.RdYlGn_r(top["valid_loss"].rank(pct=True).values)
+        ax.barh(range(len(top)), vals, color=colors)
+        ax.set_yticks(range(len(top)))
+        ax.set_yticklabels(
+            [f"#{j+1} ({row.valid_loss:.4f})" for j, row in top.iterrows()], fontsize=8
+        )
+        ax.set_title(col, fontsize=10)
+        ax.invert_yaxis()
+
+    for j in range(i + 1, len(axes)):
+        axes[j].axis("off")
+
+    fig.suptitle(f"Top {k} GS configs by validation loss", fontsize=13, y=1.01)
+    fig.tight_layout()
+    plt.show()
+    return fig

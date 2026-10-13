@@ -1,3 +1,4 @@
+import os
 import logging
 import geopandas as gpd
 import pandas as pd
@@ -35,7 +36,7 @@ def initialize_oggm_glacier_directories(
     cfg : object
         Configuration object with attribute `dataPath`.
     working_dir : str or None, optional
-        OGGM working directory. If None, uses `<dataPath>/<path_OGGM>` and empties it.
+        OGGM working directory. If None, uses `<dataPath>/OGGM/rgi_region_<rgi_region>` and empties it.
     rgi_region : str, optional
         RGI region string (default "11").
     rgi_version : str, optional
@@ -126,7 +127,7 @@ def export_oggm_grids(cfg, gdirs, subset_rgis=None, output_path=None, rgi_region
     subset_rgis : set or list or None, optional
         If provided, only export glaciers whose RGIId is in this subset.
     output_path : str or None, optional
-        Output folder for Zarr files. Defaults to `<dataPath>/<path_OGGM_xrgrids>`.
+        Output folder for Zarr files. Defaults to `<dataPath>/OGGM/rgi_region_<rgi_region>/xr_grids`.
 
     Returns
     -------

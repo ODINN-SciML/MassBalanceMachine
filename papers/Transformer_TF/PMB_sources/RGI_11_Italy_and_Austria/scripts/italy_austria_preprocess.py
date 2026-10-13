@@ -1,24 +1,4 @@
 import pandas as pd
-import numpy as np
-import pyproj
-import xarray as xr
-import geopandas as gpd
-import math
-from geopy.distance import geodesic
-from shapely.geometry import Point
-from tqdm import tqdm
-import logging
-from oggm import utils, workflow, tasks
-from oggm import cfg as oggmCfg
-from itertools import combinations
-from scipy.spatial.distance import cdist
-
-
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
-log = logging.getLogger(__name__)
 
 
 # --- Preprocess --- #

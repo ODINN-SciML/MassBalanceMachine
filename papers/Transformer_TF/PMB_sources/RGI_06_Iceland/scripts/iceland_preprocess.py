@@ -1,7 +1,4 @@
 import pandas as pd
-from shapely.geometry import Point
-
-from papers.Transformer_TF.PMB_sources.RGI_06_Iceland.scripts.config_ICE import *
 
 
 # --- Preprocess --- #

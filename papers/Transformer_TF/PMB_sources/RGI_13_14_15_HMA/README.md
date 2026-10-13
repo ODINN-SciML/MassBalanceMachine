@@ -1,6 +1,6 @@
 # RGI 13–15 — High Mountain Asia
 
-This folder builds the point mass balance (PMB) datasets for High Mountain Asia from the WGMS Fluctuations of Glaciers database.
+This folder builds the point mass balance (PMB) datasets for High Mountain Asia from the WGMS Fluctuations of Glaciers database. Only Central Asia (RGI 13) is used in the paper, split into RGI O2 sub-regions 3 and 4 later by `add_o2region_to_dfs` (`papers/Transformer_TF/scripts/utils/glaciers.py`).
 
 | RGI region | GTN-G region name | Output file (in `cfg.dataPath/WGMS/HMA/csv/`) |
 |---|---|---|
@@ -26,7 +26,7 @@ All paths are relative to `cfg.dataPath`. There is no HMA-specific MBM config; `
 
 ## What the notebook does
 
-1. Keep WGMS stakes in GTN-G regions 13, 14 and 15 that have an RGI ID; also save the list of stake glaciers to `WGMS/RGIids_stakes_HMA.csv`.
+1. Keep WGMS stakes in GTN-G regions 13, 14 and 15 that have an RGI ID.
 2. For each region, sample `aspect`, `slope` and `topo` from OGGM and drop stakes outside their RGI outline.
 3. Keep annual and winter balances and merge stakes closer than 10 m.
 4. Add the SVF (nearest valid pixel, search radius 60 cells).

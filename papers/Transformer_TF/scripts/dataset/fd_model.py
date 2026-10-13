@@ -459,6 +459,11 @@ def plot_pred_vs_truth_grid(
         _, df_preds = model.evaluate_with_preds(device, test_dl, ds_test_copy)
         df_preds = df_preds.dropna(subset=["target", "pred"])
 
+        # imported here: models imports this module (circular at import time)
+        from papers.Transformer_TF.scripts.models.predictions import (
+            compute_seasonal_scores,
+        )
+
         scores_annual, scores_winter = compute_seasonal_scores(
             df_preds, target_col="target", pred_col="pred"
         )
@@ -745,3 +750,119 @@ def finetune_dan_transformer_on_target(
     if verbose:
         plot_history_lstm(history)
     return model_ft, domain_vocab
+
+
+# ── Datasets of the multi-region Transformer grid search (3.1 Pooled_model_grid_search) ──
+
+
+def load_within_region_test_glaciers(within_splits_cache, regions):
+    """
+    Test glaciers of the within-region (Sinkhorn) splits of `2.3 Within_region`,
+    per region, from its split cache (`WITHIN_REGION/within_region_splits_cache.pkl`).
+    Returns {region: set of glacier names}.
+    """
+    import pickle
+
+    with open(within_splits_cache, "rb") as f:
+        within_cache = pickle.load(f)
+    res_within_by_code = within_cache["res_within_by_code"]
+    return {
+        region: set(res_within_by_code[region]["test_glaciers"]) for region in regions
+    }
+
+
+def build_grid_search_assets(
+    res_xreg_by_source,
+    val_glaciers_by_region,
+    source_regions,
+    monthly_cols,
+    static_cols,
+    cfg,
+    months_head_pad,
+    months_tail_pad,
+    cache_dir,
+    force_recompute=False,
+):
+    """
+    Datasets of the multi-region grid search: the glaciers of the source regions are
+    split into grid-search training glaciers and validation glaciers
+    (val_glaciers_by_region). Builds (or loads from cache_dir) one training dataset,
+    one validation dataset per region and one pooled validation dataset ('pooled').
+
+    Returns
+    -------
+    dict with
+        "df_all_glaciers": DataFrame (glacier, region) of all source glaciers,
+        "gs_train_glaciers", "gs_val_glaciers": lists of glacier names,
+        "ds_gs_train_assets": assets of the training glaciers,
+        "val_datasets": {region or "pooled": assets of the validation glaciers}.
+    """
+    all_val_glaciers = set().union(*val_glaciers_by_region.values())
+
+    # All glaciers of the source regions, with their region
+    df_all_glaciers = pd.concat(
+        [
+            res_xreg_by_source[r]["df_train"][["GLACIER"]]
+            .drop_duplicates()
+            .assign(region=r)
+            for r in source_regions
+        ],
+        ignore_index=True,
+    ).rename(columns={"GLACIER": "glacier"})
+
+    gs_train_glaciers = df_all_glaciers[
+        ~df_all_glaciers["glacier"].isin(all_val_glaciers)
+    ]["glacier"].tolist()
+    gs_val_glaciers = df_all_glaciers[
+        df_all_glaciers["glacier"].isin(all_val_glaciers)
+    ]["glacier"].tolist()
+
+    print(f"GS train glaciers : {len(gs_train_glaciers)}")
+    print(f"GS val glaciers   : {len(gs_val_glaciers)}")
+    for r, gls in val_glaciers_by_region.items():
+        print(f"  {r} val: {len(gls)} glaciers")
+
+    common = dict(
+        df_ranked=df_all_glaciers,  # glacier -> region lookup
+        res_xreg_by_source=res_xreg_by_source,
+        monthly_cols=monthly_cols,
+        static_cols=static_cols,
+        cfg=cfg,
+        months_head_pad=months_head_pad,
+        months_tail_pad=months_tail_pad,
+        force_recompute=force_recompute,
+        src_regions=source_regions,
+    )
+
+    # Training glaciers (built once, reused for all configurations)
+    ds_gs_train_assets = build_assets_from_glacier_list(
+        glaciers=gs_train_glaciers,
+        cache_path=str(cache_dir / "assets_gs_train.joblib"),
+        **common,
+    )
+
+    # Validation glaciers, per region and pooled
+    val_datasets = {}
+    for region in source_regions:
+        val_datasets[region] = build_assets_from_glacier_list(
+            glaciers=list(val_glaciers_by_region[region]),
+            cache_path=str(cache_dir / f"assets_gs_val_{region}.joblib"),
+            **common,
+        )
+    val_datasets["pooled"] = build_assets_from_glacier_list(
+        glaciers=gs_val_glaciers,
+        cache_path=str(cache_dir / "assets_gs_val_pooled.joblib"),
+        **common,
+    )
+
+    print(f"GS train sequences: {len(ds_gs_train_assets['ds_train'])}")
+    for r, assets in val_datasets.items():
+        print(f"  {r} val sequences: {len(assets['ds_train'])}")
+
+    return {
+        "df_all_glaciers": df_all_glaciers,
+        "gs_train_glaciers": gs_train_glaciers,
+        "gs_val_glaciers": gs_val_glaciers,
+        "ds_gs_train_assets": ds_gs_train_assets,
+        "val_datasets": val_datasets,
+    }

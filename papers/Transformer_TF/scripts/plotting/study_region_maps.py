@@ -1,6 +1,6 @@
 """Location maps of the study-region glaciers (Fig. 1 and Fig. A3b of the paper).
 
-Used by notebook `2.2 Study_regions`. Not to be confused with
+Used by notebook `2.1 Study_regions`. Not to be confused with
 `pmb_maps.plot_glacier_measurements_map`, which plots train/test splits.
 """
 

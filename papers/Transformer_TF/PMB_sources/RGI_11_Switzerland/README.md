@@ -6,7 +6,7 @@ This folder builds the Swiss point mass balance (PMB) dataset from the GLAMOS st
 |---|---|
 | 11 (Switzerland) | `CH_wgms_dataset_all.csv` in `cfg.dataPath/WGMS/Switzerland/csv/` |
 
-Intermediate files (converted `.dat` files, `df_pmb_50s.csv`, `df_pmb_oggm_intermediate.csv`, `GLAMOS_elev_mismatch.csv`) are written to `cfg.dataPath/GLAMOS/point/csv/`.
+Intermediate files are written to `cfg.dataPath/GLAMOS/point/csv/`: the converted `.dat` files (`annual/`, `winter/`, `winter_clean/`), `df_pmb_50s.csv` (after the elevation check), `df_pmb_oggm_intermediate.csv` (after OGGM), and `GLAMOS_elev_mismatch.csv` (stakes flagged by the elevation check). The two `df_pmb_*` files are restart points: the notebook reads them back, so later sections can be re-run without repeating the earlier ones.
 
 ## Contents
 
@@ -14,35 +14,40 @@ Intermediate files (converted `.dat` files, `df_pmb_50s.csv`, `df_pmb_oggm_inter
 RGI_11_Switzerland/
 ├── 1.1 GLAMOS-prepro.ipynb   # Preprocessing notebook
 └── scripts/
-    ├── config_CH.py          # Data paths and Swiss settings
-    ├── glamos/               # .dat → .csv conversion, stake assembly, QC, glacier-wide MB, PCSR
-    ├── geo_data/             # SGI topography masks, coordinate transforms, SVF merging
-    ├── geodetic/             # Geodetic MB helpers (used by ../../4.1 Pooled_model_pred)
+    ├── config_CH.py          # Data paths (relative to cfg.dataPath)
+    ├── glamos/
+    │   ├── pmb_stakes_processing.py  # .dat → .csv, annual/winter assembly, RGI IDs, OGGM and SGI sampling
+    │   └── pmb_stakes_qc.py          # Merge close stakes, RGI ID fixes, elevation check, stake renaming
+    ├── geo_data/             # SGI topography masks (create_sgi_topo_masks), SVF merging, LV03/LV95 → WGS84
     ├── oggm/                 # OGGM glacier directories
-    ├── plotting/             # Palettes and LSTM map loading (used by ../../scripts/plotting/pooled_pred.py)
-    └── utils/                # Dates, glacier areas, helpers, LV03 ↔ WGS84
+    ├── utils/                # Date parsing, emptyfolder, LV03 ↔ WGS84 converter
+    └── plotting/             # Not used by the notebook, see below
 ```
 
-Unlike the other regions, the Swiss notebook uses its own copies of the stake QC helpers (`glamos/pmb_stakes_qc.py`) rather than `papers/Transformer_TF/scripts/pmb_processing`.
+Unlike the other regions, the Swiss notebook uses its own copies of the stake QC and OGGM helpers rather than `papers/Transformer_TF/scripts/pmb_processing` and `scripts/oggm`.
+
+`plotting/palettes.py` (`get_color_maps`), `plotting/spatial_maps.py` (`_load_lstm_ds`) and `geo_data.apply_gaussian_filter` are not used for the stake data. They are imported by `papers/Transformer_TF/3.3 Pooled_model_pred.ipynb` and `papers/Transformer_TF/scripts/plotting/pooled_pred.py`.
 
 ## Required input data
 
 All paths are relative to `cfg.dataPath` (`mbm.SwitzerlandConfig()`):
 
-- `GLAMOS/point/point_raw/`: raw GLAMOS stake files (`.dat`).
-- `GLAMOS/topo/GLAMOS_DEM/xr_masked_grids/<glacier>_<year>.zarr`: yearly GLAMOS DEM grids, used to correct stake elevations.
-- `GLAMOS/topo/SGI2020/`: SGI 2020 topography, and the SVF in `svf_nc_latlon/`.
+- `GLAMOS/point/point_raw/annual/` and `winter/`: raw GLAMOS stake files (`.dat`).
+- `GLAMOS/topo/GLAMOS_DEM/xr_masked_grids/<glacier>_<year>.zarr`: yearly GLAMOS DEM grids, used to check stake elevations.
+- `GLAMOS/topo/SGI2020/`: SGI 2020 topography; the SVF is read from `svf_nc_latlon/` and the masked grids are written to `xr_masked_grids/`.
+- `GLAMOS/CH_glacier_ids_long.csv`: glacier name ↔ SGI/RGI ID table.
 - `RGI_v6/RGI_11_CentralEurope/11_rgi60_CentralEurope.shp`: RGI outlines.
 
-The two grid folders are made by notebooks `1.3 Glacier grids-SGI-prepro` and `1.4 Skyview_factor-prepro` in `papers/LSTM_CH`.
+The GLAMOS DEM grids and the SGI SVF are made by notebooks `1.3 Glacier grids-SGI-prepro` and `1.4 Skyview_factor-prepro` in `papers/LSTM_CH`. OGGM glacier directories are downloaded on the first run.
 
 ## What the notebook does
 
-1. Convert the GLAMOS `.dat` files to CSV and assemble the annual and winter measurements.
-2. Assign RGI IDs (with hand-curated corrections), keep years after 1950 and convert to m w.e.
-3. Merge stakes closer than 10 m and correct or remove stakes whose elevation differs from the GLAMOS DEM by more than 400 m.
-4. Sample OGGM topography, then the SGI topography and SVF (`aspect_sgi`, `slope_sgi`, `topo_sgi`, `svf`, `asvf`, `opns`).
-5. Rename stakes by elevation and clean the months (remove July starts, reclassify some annual/winter periods, drop stakes with too little data).
-6. Save `CH_wgms_dataset_all.csv`.
-
-The notebook also converts the GLAMOS glacier-wide mass balance files and the potential clear-sky solar radiation (PCSR) grids. These are not needed for the stake dataset.
+1. Convert the GLAMOS `.dat` files to CSV and assemble the annual and winter measurements (for each annual stake, the closest winter measurement).
+2. Assign RGI IDs (with hand-curated corrections), keep years after 1950, convert to m w.e., and merge Clariden L and U.
+3. Merge stakes closer than 10 m.
+4. Compare stake elevations with the yearly GLAMOS DEM: differences above 400 m are replaced by the DEM value on Aletsch and removed elsewhere.
+5. Sample OGGM topography and drop stakes outside their RGI outline.
+6. Build the SGI masks per glacier and sample `aspect_sgi`, `slope_sgi`, `topo_sgi`, `svf`, `asvf` and `opns`; drop stakes outside the SGI mask.
+7. Drop Taelliboden (one measurement) and Plaine Morte (outliers), and rename stakes by elevation.
+8. Clean months: remove July starts and annual periods ending in June or November; relabel annual periods ending in May as winter and winter periods ending in August as annual; remove eight stakes with too much missing data.
+9. Save `CH_wgms_dataset_all.csv`.

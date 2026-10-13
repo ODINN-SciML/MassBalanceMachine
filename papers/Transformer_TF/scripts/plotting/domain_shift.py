@@ -616,3 +616,220 @@ def plot_kde_pair(glaciers_to_plot, selected_cols):
 
     plt.tight_layout(h_pad=3.0)
     plt.show()
+
+
+def plot_kde_pair_reg(glaciers_to_plot, selected_cols):
+    """
+    Normalised KDEs of each input variable (and PMB) for two or more datasets, e.g. a
+    source and a target region; 4 panels per row, coloured with COLORS and labelled
+    with REGION_LABELS by region code (variant of `plot_kde_pair`).
+
+    glaciers_to_plot : {region_code: {"df": DataFrame, ...}}
+    """
+    ncols = 4
+    nrows = int(np.ceil(len(selected_cols) / ncols))
+    w, h = nature_figsize(cols=1, height_mm=160)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(w * 2, h), squeeze=False)
+
+    legend_handles = []
+
+    for idx, col in enumerate(selected_cols):
+        ax = axes[idx // ncols][idx % ncols]
+
+        all_vals = pd.concat(
+            [cfg_gl["df"][col].dropna() for cfg_gl in glaciers_to_plot.values()]
+        )
+        x_grid = np.linspace(float(all_vals.min()), float(all_vals.max()), 500)
+
+        for region_code, cfg_gl in glaciers_to_plot.items():
+            vals = cfg_gl["df"][col].dropna().values
+            if len(vals) < 10:
+                continue
+            color = COLORS.get(region_code, "#888888")
+            label = REGION_LABELS.get(region_code, region_code)
+            kde = scipy_stats.gaussian_kde(vals, bw_method=0.3)
+            y = kde(x_grid)
+            y = y / y.max()
+            (line,) = ax.plot(x_grid, y, color=color, linewidth=0.8, label=label)
+            ax.fill_between(x_grid, y, alpha=0.08, color=color)
+
+            # collect handles only from first panel to avoid duplicates
+            if idx == 0:
+                legend_handles.append(line)
+
+        var_name = vois_climate_long_name.get(col, col)
+        unit = vois_units.get(col, "")
+        title = f"{var_name} ({unit})" if unit else var_name
+        ax.set_title(title, fontsize=8)
+
+        # panel label (a), (b), (c)...
+        panel_label = chr(ord("a") + idx)
+        ax.text(
+            0.02,
+            0.98,
+            f"({panel_label})",
+            transform=ax.transAxes,
+            fontsize=8,
+            va="top",
+            ha="left",
+            zorder=5,
+        )
+
+        ax.set_ylim(0, 1.15)
+        ax.set_xlabel("")
+        ax.tick_params(labelsize=8, width=0.4, length=2, direction="in")
+        ax.spines[["top", "right", "left", "bottom"]].set_visible(True)
+        for spine in ax.spines.values():
+            spine.set_linewidth(0.4)
+        ax.grid(axis="x", color="#e0e0e0", linewidth=0.3)
+        ax.set_axisbelow(True)
+        format_axis_ticks(ax, label_size=6)
+
+    # ── place legend in first empty axis if one exists, else above figure ──
+    empty_axes = [
+        axes[idx // ncols][idx % ncols]
+        for idx in range(len(selected_cols), nrows * ncols)
+    ]
+
+    if empty_axes:
+        leg_ax = empty_axes[0]
+        leg_ax.axis("off")
+        leg_ax.legend(
+            handles=legend_handles,
+            loc="center",
+            fontsize=8,
+            frameon=False,
+        )
+        # turn off remaining empty axes
+        for ax in empty_axes[1:]:
+            ax.axis("off")
+    else:
+        # no empty panels — place legend above the figure
+        fig.legend(
+            handles=legend_handles,
+            loc="lower center",
+            bbox_to_anchor=(0.5, -0.02),
+            ncol=len(glaciers_to_plot),
+            fontsize=8,
+            frameon=False,
+        )
+
+    plt.tight_layout(h_pad=3.0, rect=[0, 0.03, 1, 1])
+    plt.show()
+    return fig
+
+
+def plot_pooled_performance_vs_shift(
+    all_shifts_pooled: dict,
+    df_metrics: dict,
+    metric: str = "RMSE_annual",
+    model_label: str = "no_ft",
+    distance_metrics: list[str] = [
+        "D_sinkhorn_climate",
+        "D_sinkhorn_topo",
+        "D_sinkhorn_geo",
+        "D_sinkhorn_joint",
+    ],
+    src="Pooled",
+    suptitle=None,
+):
+    """
+    Fig. A10: one panel per distance in distance_metrics, with the metric of
+    df_metrics[target][model_label] (± its repeat std, if available) against the
+    domain shift between the pooled source data and each target region.
+    """
+    # ── 1. Merge distances and performance per target ────────────────────────
+    df_shifts = pd.DataFrame(
+        [{"target": tgt, **shift} for tgt, shift in all_shifts_pooled.items()]
+    )
+
+    perf_rows = []
+    for tgt, results in df_metrics.items():
+        if model_label not in results:
+            continue
+        row = {"target": tgt, metric: results[model_label][metric]}
+        std_key = f"{metric}_std"
+        if std_key in results[model_label]:
+            row[std_key] = results[model_label][std_key]
+        perf_rows.append(row)
+    df_perf = pd.DataFrame(perf_rows)
+
+    df_plot = df_shifts.merge(df_perf, on="target")
+
+    # ── 2. Plot ───────────────────────────────────────────────────────────────
+    dist_labels = {
+        "D_sinkhorn_climate": "Sinkhorn distance",
+        "D_sinkhorn_topo": "Sinkhorn distance",
+        "D_sinkhorn_geo": "Sinkhorn distance",
+        "D_sinkhorn_joint": "Sinkhorn distance (joint)",
+    }
+    dist_title = {
+        "D_sinkhorn_climate": "Climate predictors",
+        "D_sinkhorn_topo": "Topographic predictors",
+        "D_sinkhorn_geo": "Geographic location",
+        "D_sinkhorn_joint": "Sinkhorn distance (joint)",
+    }
+    metric_label = {
+        "RMSE_annual": "RMSE annual",
+        "RMSE_annual_gain": "RMSE annual gain FT",
+    }
+
+    n = len(distance_metrics)
+    fig, axes = plt.subplots(1, n, figsize=(4.5 * n, 4), constrained_layout=False)
+    fig.subplots_adjust(left=0.08, right=0.98, bottom=0.18, top=0.85, wspace=0.3)
+    if n == 1:
+        axes = [axes]
+
+    std_key = f"{metric}_std"
+    has_err = std_key in df_plot.columns
+
+    for ax, dist_key in zip(axes, distance_metrics):
+        x = df_plot[dist_key].values
+        y = df_plot[metric].values
+        labels = df_plot["target"].values
+        yerr = df_plot[std_key].values if has_err else None
+
+        ax.errorbar(
+            x,
+            y,
+            yerr=yerr,
+            fmt="o",
+            color=NATURE_PALETTE["sky_blue"],
+            markersize=8,
+            zorder=3,
+            ecolor="0.5",
+            elinewidth=1.0,
+            capsize=3,
+            markeredgecolor="white",
+            markeredgewidth=0.5,
+        )
+
+        for xi, yi, lab in zip(x, y, labels):
+            ax.annotate(
+                f"{src} → {lab}",
+                (xi, yi),
+                xytext=(5, 4),
+                textcoords="offset points",
+                fontsize=10,
+                color="0.3",
+            )
+
+        # leave headroom above the highest point for its annotation
+        y_min, y_max = y.min(), y.max()
+        y_range = y_max - y_min if y_max > y_min else 1.0
+        ax.set_ylim(y_min - y_range * 0.1, y_max + y_range * 0.5)
+
+        ax.set_xlabel(dist_labels.get(dist_key, dist_key), fontsize=11)
+        ax.set_ylabel(
+            (
+                f"{metric_label[metric]} (m w.e.)"
+                if dist_key == distance_metrics[0]
+                else ""
+            ),
+            fontsize=11,
+        )
+        ax.set_title(dist_title[dist_key], fontsize=14)
+
+    plt.suptitle(suptitle, fontsize=16)
+
+    return fig

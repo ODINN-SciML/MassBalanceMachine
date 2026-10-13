@@ -1,25 +1,5 @@
 import pandas as pd
-import numpy as np
-import pyproj
-import xarray as xr
-import geopandas as gpd
-import math
-from itertools import combinations
-from geopy.distance import geodesic
-from shapely.geometry import Point
-from tqdm import tqdm
-import logging
-from oggm import utils, workflow, tasks
-from oggm import cfg as oggmCfg
-from scipy.spatial.distance import cdist
 
-from papers.Transformer_TF.PMB_sources.RGI_08_Norway.scripts.config_NOR import *
-
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
-log = logging.getLogger(__name__)
 
 # --- Preprocess --- #
 

@@ -15,6 +15,10 @@ Run these notebooks after `1.4 Create_grids` part 1 (masked glacier grids with S
 | `RGI_11_Switzerland` | `1.1 GLAMOS-prepro` | GLAMOS | `WGMS/Switzerland/csv/CH_wgms_dataset_all.csv` |
 | `RGI_13_14_15_HMA` | `1.1. Stakes-prepro_HMA` | WGMS | `WGMS/HMA/csv/CentralAsia_…`, `SouthAsiaWest_…`, `SouthAsiaEast_wgms_dataset_all.csv` |
 
+The paper (`manuscript.tex`, section "Target Variable: Point Mass Balance" and table `tab:region_overview`) uses RGI regions 01, 06, 07, 08, 11 and 13: the files `ALA`, `ISL`, `SJM`, `NOR`, `CH`, `FR`, `IT_AT` and `CentralAsia`. The notebooks also write `CAW` (RGI 02) and `SouthAsiaWest`/`SouthAsiaEast` (RGI 14/15); these are not used in the paper.
+
+Data sources as cited in the paper: GLAMOS (Switzerland), GLACIOCLIM (France), NVE (Norway; Elvehøy et al., 2025), the Icelandic GlacierWeb portal (Björnsson et al., 1998; Aðalgeirsdóttir et al., 2020), and WGMS (2023) for Italy, Austria, Svalbard, Central Asia and Alaska.
+
 ## Common steps
 
 All regions except Switzerland follow the same pattern, using the shared helpers in `papers/Transformer_TF/scripts/`:
@@ -27,8 +31,10 @@ All regions except Switzerland follow the same pattern, using the shared helpers
 6. Rename stakes as `<GLACIER>_<rank>` by elevation (`pmb_processing/rename_stakes_by_elevation`).
 7. Clean the measurement months so they match the hydrological year. The rules differ by region; each folder's README lists them.
 
-Switzerland uses GLAMOS DEMs and the SGI 2020 topography instead of OGGM, and its own helper copies in `RGI_11_Switzerland/scripts/`.
+Switzerland also samples OGGM, but uses the SGI 2020 topography and SVF for the model inputs, checks stake elevations against yearly GLAMOS DEMs, and uses its own helper copies in `RGI_11_Switzerland/scripts/`.
+
+Each folder's `scripts/` holds only the code its notebook needs: a `config_*.py` with the data paths, and region-specific readers and date fixes where needed. Everything else comes from `papers/Transformer_TF/scripts/` (`oggm/`, `pmb_processing/`, `plotting/folium.py`).
 
 ## Running
 
-Each notebook adds the repository root (`../../../../`) to `sys.path` and imports helpers as `papers.Transformer_TF.…`. Run it from its own folder in the MBM environment.
+Each notebook adds the repository root (`../../../../`) to `sys.path` and imports helpers as `papers.Transformer_TF.…`. Run it from its own folder in the `MassBalanceMachine` environment. The notebooks are saved without outputs.

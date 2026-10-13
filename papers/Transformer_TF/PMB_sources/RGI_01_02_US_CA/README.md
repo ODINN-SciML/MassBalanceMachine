@@ -7,7 +7,7 @@ This folder builds the point mass balance (PMB) dataset for North American glaci
 | 01         | `01_alaska`              | `ALA_wgms_dataset_all.csv`  |
 | 02         | `02_western_canada_usa`  | `CAW_wgms_dataset_all.csv`  |
 
-Arctic Canada (RGI 03/04) is not included.
+Arctic Canada (RGI 03/04) is not included. Only the Alaska file is used in the paper; `CAW_wgms_dataset_all.csv` is not.
 
 ## Contents
 
@@ -16,12 +16,14 @@ RGI_01_02_US_CA/
 ├── 1.1. US_CA-prepro.ipynb   # Preprocessing notebook (the whole pipeline)
 ├── 01_Alaska.csv             # Extra Alaskan stake data not in WGMS
 └── scripts/
-    └── config_US_CA.py       # Region-specific data paths (relative to cfg.dataPath)
+    └── config_US_CA.py       # Output path (relative to cfg.dataPath)
 ```
 
 - **`1.1. US_CA-prepro.ipynb`**: the main notebook. It reads the raw stake data, adds topographic and sky-view factor variables, cleans the measurement periods and writes one CSV per region.
 - **`01_Alaska.csv`**: additional Alaskan stake measurements (`;`-separated, latin1 encoded, dates as `DD.MM.YYYY`) that are not in the WGMS database. It uses the WGMS column layout but has no glacier/RGI IDs. Sources are given per row in the `source` column (e.g. USGS, https://doi.org/10.5066/F7MP51CB).
-- **`scripts/config_US_CA.py`**: paths to WGMS, ERA5-Land, OGGM and RGI v6 data, relative to the data root `cfg.dataPath`.
+- **`scripts/config_US_CA.py`**: the output folder `path_PMB_WGMS_csv`, relative to the data root `cfg.dataPath`.
+
+`01_Alaska.csv` matches the `papers/**/*.csv` rule in `.gitignore`, so it is not tracked by git. Add it with `git add -f` if it should be versioned.
 
 ## Required input data
 
@@ -65,4 +67,4 @@ The notebook uses helpers from `papers/Transformer_TF/scripts/`, which are share
 
 ## Running
 
-Run the notebook from inside this folder, because it adds the repository root (`../../../../`) to `sys.path` and reads `01_Alaska.csv` by relative path. Model training on these outputs happens elsewhere, for example in the cross-region notebooks in `papers/Transformer_TF/`.
+Run the notebook from inside this folder, because it adds the repository root (`../../../../`) to `sys.path` and reads `01_Alaska.csv` by relative path. The outputs are read by `papers/Transformer_TF/scripts/dataset/data_loader.py` (codes `ALA` and `CAW`).

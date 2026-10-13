@@ -12,7 +12,7 @@ This folder builds the Svalbard point mass balance (PMB) dataset from the WGMS F
 RGI_07_Svalbard/
 ├── 1.1. Svalbard-prepro.ipynb   # Preprocessing notebook
 └── scripts/
-    └── config_SVA.py            # Data paths (relative to cfg.dataPath)
+    └── config_SVA.py            # Output path (relative to cfg.dataPath)
 ```
 
 ## Required input data

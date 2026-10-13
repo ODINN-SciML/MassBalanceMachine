@@ -11,10 +11,8 @@ import xarray as xr
 import pyproj
 import geopandas as gpd
 from shapely.geometry import Point
-from scipy.spatial.distance import cdist
 from tqdm import tqdm
-from oggm import utils, workflow, tasks
-from oggm import cfg as oggmCfg
+from oggm import utils
 
 # --- project/local ---
 import massbalancemachine as mbm

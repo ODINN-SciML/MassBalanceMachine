@@ -1,22 +1,9 @@
 import os
 import shutil
 import pandas as pd
-import numpy as np
-from datetime import datetime
 import pyproj
-import xarray as xr
 import zipfile
-import logging
-from tqdm import tqdm
 from pathlib import Path
-
-from papers.Transformer_TF.PMB_sources.RGI_11_French_Alps.scripts.config_FR import *
-
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
-log = logging.getLogger(__name__)
 
 
 # --- Preprocess --- #
