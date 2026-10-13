@@ -3,9 +3,11 @@
 the outlines of 2000, read from two grid trees.
 
 Like `test_multisource_geodataloader.py`, this test reads the grids already cached
-under `.data/grids` and is skipped when they are not there.
+under `.data/grids` and is skipped when they are not there, or when the Maurer19
+product is not downloaded (its download needs a NASA Earthdata login).
 """
 
+import glob
 import os
 
 import numpy as np
@@ -13,7 +15,12 @@ import pytest
 
 import massbalancemachine as mbm
 from data_processing.gridded_utils import years_from_time_ranges
-from data_processing.maurer19 import END_DATE, geodetic_target_Maurer19_with_Hugonnet21
+from data_processing.maurer19 import (
+    END_DATE,
+    PERIOD,
+    geodetic_target_Maurer19_with_Hugonnet21,
+    maurer19_avg_folder,
+)
 from data_processing.product_utils import get_data_path, glacier_id_to_folders
 
 from tests.dataloader.test_multisource_geodataloader import _cfg, _fake_stakes
@@ -37,6 +44,10 @@ def _skip_without_cached_grids(target):
             pytest.skip(f"no cached {tree} grid for {GLACIER_ID} at {path}")
 
 
+@pytest.mark.skipif(
+    not glob.glob(os.path.join(maurer19_avg_folder(), f"*{PERIOD}*.shp")),
+    reason="HMA_GlacierAvg_dH not downloaded",
+)
 def test_geodataloader_on_maurer19_with_hugonnet21():
     target = geodetic_target_Maurer19_with_Hugonnet21(
         glacier_ids_to_keep=[GLACIER_ID], verbose=False
