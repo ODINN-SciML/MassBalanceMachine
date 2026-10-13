@@ -121,6 +121,12 @@ def parseParams(params):
         "train_glaciers": params["training"].get("train_glaciers"),
         "val_glaciers": params["training"].get("val_glaciers"),
         "wGeo": params["training"].get("wGeo", 0.0),
+        # Geodetic stages run after the first one, each over NepochsGeo epochs and
+        # starting from the best model of the previous stage, see scripts/geo/train.py
+        "wGeoSchedule": [
+            float(w) for w in params["training"].get("wGeoSchedule") or []
+        ],
+        "NepochsGeo": params["training"].get("NepochsGeo"),
         "scalingGeo": params["training"].get("scalingGeo", "quad"),
         # Weight the geodetic loss term of every window by its area, see
         # `training.geodeticAreaWeights`

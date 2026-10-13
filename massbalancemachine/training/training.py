@@ -1103,7 +1103,10 @@ def train_geo(
     )
 
     # Setup logging
-    run_name = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    # Given when several runs make one experiment, so that their folders share it
+    run_name = params["training"].get("run_name") or datetime.datetime.now().strftime(
+        "%Y%m%d_%H%M%S"
+    )
     log_suffix = params["training"]["log_suffix"]
     if log_suffix != "":
         log_suffix = "_" + log_suffix
