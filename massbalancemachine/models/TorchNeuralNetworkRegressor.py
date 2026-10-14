@@ -166,6 +166,15 @@ class TILikeModel(nn.Module):
         # Range of the temperature bias, bias = b_max * tanh
         self.b_max = float(modelParams.get("bias_T", {}).get("b_max", 5.0))
         assert self.b_max > 0, f"b_max must be positive, got {self.b_max}."
+        # Range of the temperature lapse rate, alpha = max - (max - min) * sigmoid, in
+        # °C/km. The default range is [-15, -2]
+        default_lapse_rate = (-15.0, -2.0)
+        grad_T_bnds = modelParams.get("grad_T", {})
+        self.lapse_rate_min = float(grad_T_bnds.get("min", default_lapse_rate[0]))
+        self.lapse_rate_max = float(grad_T_bnds.get("max", default_lapse_rate[1]))
+        assert (
+            self.lapse_rate_min < self.lapse_rate_max
+        ), f"The lapse rate range must satisfy min < max, got [{self.lapse_rate_min}, {self.lapse_rate_max}]."
         # Range of the shortwave radiation contribution, R_sw = R_sw_max * sigmoid
         self.R_sw_max = float(modelParams.get("sw_contrib", {}).get("max", 1.0))
         assert (
@@ -403,6 +412,12 @@ class TILikeModel(nn.Module):
             )
         return net(inputs)[:, 0]
 
+    def _lapse_rate(self, inp_grad_T):
+        """Temperature lapse rate, within [lapse_rate_min, lapse_rate_max]."""
+        return self.lapse_rate_max - (
+            self.lapse_rate_max - self.lapse_rate_min
+        ) * F.sigmoid(self.grad_T(inp_grad_T)[:, 0])
+
     def _P_cor(self, inputs):
         """Precipitation correction of the normalized model inputs."""
         factor = F.sigmoid(self.bias_cor(inputs[:, self.ind_inp_bias_cor])[:, 0])
@@ -486,12 +501,13 @@ class TILikeModel(nn.Module):
             # grad_T_val = self.grad_T(inp_grad_T)
             # bias_T_val = self.bias_T(inp_bias_T)
             # cor_T_val = torch.concatenate([grad_T_val, bias_T_val], dim=1)
-            elev_diff = inputs[:, self.ind_elev_diff]
+            # In km, so that the lapse rate is in °C/km whatever the normalization
+            elev_diff = elev_diff_unorm / 1000
             # cor_T = elev_diff * cor_T_val[:, 0] + cor_T_val[:, 1]
 
             inp_dir = inputs[:, self.ind_inp_dir]
             inp_terrain = inputs[:, self.ind_inp_terrain]
-            alpha = 1 - 15 * F.sigmoid(self.grad_T(inp_grad_T)[:, 0])
+            alpha = self._lapse_rate(inp_grad_T)
             # alpha = self.grad_T(inp_grad_T)[:, 0]
             bias = self.b_max * F.tanh(self.bias_T(inp_bias_T)[:, 0])
             svf_unorm = Normalizer._unorm(
@@ -523,9 +539,10 @@ class TILikeModel(nn.Module):
 
             R_sw = 0.0
         else:
-            elev_diff = inputs[:, self.ind_elev_diff]
+            # In km, so that the lapse rate is in °C/km whatever the normalization
+            elev_diff = elev_diff_unorm / 1000
             inp_sw_contrib = inputs[:, self.ind_inp_sw_contrib]
-            alpha = -2 - 13 * F.sigmoid(self.grad_T(inp_grad_T)[:, 0])
+            alpha = self._lapse_rate(inp_grad_T)
             bias = self.b_max * F.tanh(self.bias_T(inp_bias_T)[:, 0])
             cor_T_val = torch.stack([alpha, bias], dim=1)
             cor_T = elev_diff * alpha + bias
@@ -599,12 +616,13 @@ class TILikeModel(nn.Module):
             # grad_T_val = self.grad_T(inp_grad_T)
             # bias_T_val = self.bias_T(inp_bias_T)
             # cor_T_val = torch.concatenate([grad_T_val, bias_T_val], dim=1)
-            elev_diff = inputs[:, self.ind_elev_diff]
+            # In km, so that the lapse rate is in °C/km whatever the normalization
+            elev_diff = elev_diff_unorm / 1000
             # cor_T = elev_diff * cor_T_val[:, 0] + cor_T_val[:, 1]
 
             inp_dir = inputs[:, self.ind_inp_dir]
             inp_terrain = inputs[:, self.ind_inp_terrain]
-            alpha = 1 - 15 * F.sigmoid(self.grad_T(inp_grad_T)[:, 0])
+            alpha = self._lapse_rate(inp_grad_T)
             # alpha = self.grad_T(inp_grad_T)[:, 0]
             bias = self.b_max * F.tanh(self.bias_T(inp_bias_T)[:, 0])
             # svf_unorm = Normalizer._unorm(
@@ -625,9 +643,10 @@ class TILikeModel(nn.Module):
 
             R_sw = 0.0
         else:
-            elev_diff = inputs[:, self.ind_elev_diff]
+            # In km, so that the lapse rate is in °C/km whatever the normalization
+            elev_diff = elev_diff_unorm / 1000
             inp_sw_contrib = inputs[:, self.ind_inp_sw_contrib]
-            alpha = -2 - 13 * F.sigmoid(self.grad_T(inp_grad_T)[:, 0])
+            alpha = self._lapse_rate(inp_grad_T)
             bias = self.b_max * F.tanh(self.bias_T(inp_bias_T)[:, 0])
             cor_T = elev_diff * alpha + bias
 

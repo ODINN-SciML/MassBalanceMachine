@@ -32,6 +32,9 @@ model:
             - ssrd
             - str
         layers: [32, 16, 16]
+        # Range of the temperature lapse rate (°C/km). Default: [-15, -2].
+        min: -9.0
+        max: -4.0
     bias_T:
         inputs:
             - POINT_LAT
