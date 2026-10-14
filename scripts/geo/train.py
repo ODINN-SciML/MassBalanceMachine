@@ -15,6 +15,7 @@ from scripts.common import loadParams
 from scripts.nongeo.utils import (
     getMetaData,
     setFeatures,
+    setNormalizationBounds,
     trainValData,
     testData,
     testSplits,
@@ -240,6 +241,7 @@ elif "wgms" in sourceData:
     )
 else:
     raise ValueError(f"source_data={sourceData} is unknown")
+setNormalizationBounds(cfg, params)
 
 
 keyGlacier = "GLACIER" if sourceData == "switzerland" else "RGIId"

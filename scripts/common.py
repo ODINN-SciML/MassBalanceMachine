@@ -53,6 +53,9 @@ def parseParams(params):
     modelParams = {
         "type": params["model"]["type"],
         "inputs": inputs,
+        # Normalization bounds {feature: [lower, upper]} replacing the global defaults
+        # of `config.DEFAULT_BNDS`, see `cli.common.setNormalizationBounds`
+        "normalization": params["model"].get("normalization") or {},
     }
     if (
         modelParams["type"] == "sequential"

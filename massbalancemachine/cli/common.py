@@ -263,6 +263,25 @@ def getMetaData(featuresInpModel, sourceData):
     return metaData
 
 
+def setNormalizationBounds(cfg, params):
+    """Override the normalization bounds of `cfg` with those of `params["model"]
+    ["normalization"]` ({feature: [lower, upper]}); the features it does not list keep
+    the bounds of `cfg`, by default the global `DEFAULT_BNDS`.
+
+    The bounds go into the model and the normalization of every input, so they must be
+    applied wherever a config is built from the params of a model, before any
+    dataloader or model is built from it."""
+    for feature, bounds in (params["model"].get("normalization") or {}).items():
+        assert (
+            len(bounds) == 2
+        ), f"The normalization bounds of {feature} must be [lower, upper], got {bounds}."
+        lower, upper = float(bounds[0]), float(bounds[1])
+        assert (
+            lower < upper
+        ), f"The normalization bounds of {feature} must satisfy lower < upper, got [{lower}, {upper}]."
+        cfg.bnds[feature] = (lower, upper)
+
+
 def setFeatures(cfg, data_train, featuresInpModel):
     # feature_columns = list(
     #     data_train.columns.difference(cfg.metaData)
