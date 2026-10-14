@@ -131,6 +131,12 @@ def parseParams(params):
         # Weight the geodetic loss term of every window by its area, see
         # `training.geodeticAreaWeights`
         "areaWeightGeo": params["training"].get("areaWeightGeo", False),
+        # Lower bound (m w.e. a-1) on the 1 sigma error of the geodetic windows in the
+        # loss, see `training.compute_geo_loss`; None uses the errors as they are
+        "errGeoFloor": params["training"].get("errGeoFloor"),
+        # With a geodetic term, one optimizer step per epoch on the gradient averaged
+        # over the geodetic glaciers instead of one step per geodetic glacier
+        "geoStepPerEpoch": params["training"].get("geoStepPerEpoch", False),
         "bestModelCriterion": params["training"].get("bestModelCriterion", "lossVal"),
         "splitVal": params["training"].get("splitVal", "group-meas-id"),
         "splitTest": params["training"].get("splitTest", "group-rgi"),

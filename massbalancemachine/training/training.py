@@ -428,6 +428,7 @@ def compute_geo_loss(
     precomputed_meta,
     scalingGeo,
     windowWeights=None,
+    errFloor=None,
 ):
     # TODO: update docstring
     """
@@ -435,6 +436,10 @@ def compute_geo_loss(
 
     `windowWeights` (torch.Tensor, one value per geodetic window) weights the loss term
     of every window, see `geodeticAreaWeights`; by default every window counts the same.
+
+    `errFloor` (float, m w.e. a-1) is a lower bound on the 1 sigma error of the windows
+    in the loss, so that a window with a very small error does not dominate the loss;
+    by default the errors are used as they are.
 
     Args:
         model (CustomTorchNeuralNetRegressor): Model to evaluate.
@@ -461,6 +466,9 @@ def compute_geo_loss(
             (nunique,), device=pred.device, dtype=pred.dtype
         )
         aggrPredictGlwd(pred, idAggr, out=predSumGeodPeriod)
+
+    if errFloor:
+        errgeo = torch.clamp(errgeo, min=errFloor)
 
     # Compute the geodetic MB for the different time windows
     with record_function("timeWindowGeodeticLoss"):
@@ -684,6 +692,7 @@ def assessOnVal(
     wGeo = params["training"]["wGeo"]
     scalingGeo = params["training"].get("scalingGeo", "quad")
     assert scalingGeo in ["quad", "linear"]
+    errGeoFloor = params["training"].get("errGeoFloor")
     scalingStakes = params["training"]["scalingStakes"]
     # Accessors of the validation side, which are the train-side ones of a loader built
     # for the validation set alone
@@ -895,6 +904,7 @@ def assessOnVal(
                         windowWeights=(
                             areaWeights[current_g] if areaWeights is not None else None
                         ),
+                        errFloor=errGeoFloor,
                     )
                     targetAllGeo.append(ygeo.detach())
                     predAllGeo.append(ypredgeo.detach())
@@ -1079,6 +1089,10 @@ def train_geo(
     wGeo = params["training"]["wGeo"]
     scalingGeo = params["training"].get("scalingGeo", "quad")
     assert scalingGeo in ["quad", "linear"]
+    errGeoFloor = params["training"].get("errGeoFloor")
+    # One optimizer step per epoch, on the gradient averaged over the geodetic glaciers,
+    # instead of one step per geodetic glacier
+    geoStepPerEpoch = wGeo > 0 and params["training"].get("geoStepPerEpoch", False)
     freqVal = params["training"]["freqVal"]
     bestModelCriterion = params["training"]["bestModelCriterion"]
     assert bestModelCriterion in _criterionVal
@@ -1223,6 +1237,8 @@ def train_geo(
             avg_training_loss = 0.0
             iter_counter = 0
             model.train()
+            if geoStepPerEpoch:
+                optim.zero_grad()
             with tqdm.tqdm(
                 total=iterPerEpoch,
                 desc=f"Batch (train)",
@@ -1331,7 +1347,8 @@ def train_geo(
                     )
                     with prof_ctx as prof:
 
-                        optim.zero_grad()
+                        if not geoStepPerEpoch:
+                            optim.zero_grad()
 
                         if useStakes:
                             if not geodataloader.allStakesPerIter:
@@ -1465,6 +1482,7 @@ def train_geo(
                                     if areaWeights is not None
                                     else None
                                 ),
+                                errFloor=errGeoFloor,
                             )
                             if timeExec:
                                 torch.cuda.synchronize()
@@ -1485,8 +1503,13 @@ def train_geo(
                             st = time.time()
                         with record_function("backward"):
                             if not torch.isnan(loss):
-                                loss.backward()
-                                optim.step()
+                                if geoStepPerEpoch:
+                                    # Accumulated over the epoch: the stake term, the
+                                    # same at every iteration, keeps its weight
+                                    (loss / iterPerEpoch).backward()
+                                else:
+                                    loss.backward()
+                                    optim.step()
                         if timeExec:
                             torch.cuda.synchronize()
                             backwardOptimTime = time.time() - st
@@ -1543,6 +1566,8 @@ def train_geo(
                     )
                     batch_bar.update(1)
 
+            if geoStepPerEpoch:
+                optim.step()
             avg_training_loss /= iter_counter
             if scheduler is not None:
                 scheduler.step()

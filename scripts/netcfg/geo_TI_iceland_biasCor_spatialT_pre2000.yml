@@ -84,6 +84,12 @@ training:
     # Weight the geodetic loss term of every window by its area (normalized to a mean
     # of 1, see training.geodeticAreaWeights). The stake term is not weighted.
     areaWeightGeo: false
+    # Lower bound (m w.e. a-1) on the 1 sigma error of the geodetic windows in the loss,
+    # so that a window with a very small error does not dominate it. null: no floor.
+    errGeoFloor: 0.1
+    # With a geodetic term, one optimizer step per epoch on the gradient averaged over
+    # the geodetic glaciers, instead of one step per geodetic glacier.
+    geoStepPerEpoch: true
     optim: ADAM
     scheduler: StepLR
     lr: 1e-4

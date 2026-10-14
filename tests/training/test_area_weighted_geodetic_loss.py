@@ -63,3 +63,34 @@ def test_loss_term_of_every_window_is_weighted():
     assert _geo_loss(torch.tensor([1.5, 0.5])) == pytest.approx(
         1.5 * first + 0.5 * second
     )
+
+
+def _geo_loss_floor(errFloor):
+    geoGrid = torch.tensor([[-0.5], [0.3]])
+    meta = {
+        "GLWD_M_ID_int": torch.tensor([0, 1]),
+        "nunique_glwd_m_ids": 2,
+        "geo_window_weights": torch.eye(2),
+    }
+    loss, _ = compute_geo_loss(
+        _Identity(),
+        geoGrid,
+        None,
+        torch.tensor([-0.2, 0.0]),
+        torch.tensor([0.1, 0.2]),
+        [("2000-01-01", "2000-02-01"), ("2000-02-01", "2000-03-01")],
+        meta,
+        "quad",
+        errFloor=errFloor,
+    )
+    return float(loss)
+
+
+def test_error_floor_bounds_the_sigma_of_every_window():
+    # Residuals of -0.3 and 0.3, errors of 0.1 and 0.2
+    assert _geo_loss_floor(None) == pytest.approx((9 + 2.25) / 2)
+    # Below both errors, the floor changes nothing
+    assert _geo_loss_floor(0.05) == pytest.approx(_geo_loss_floor(None))
+    # Between them, only the window with the smaller error is affected
+    assert _geo_loss_floor(0.15) == pytest.approx((4 + 2.25) / 2)
+    assert _geo_loss_floor(0.3) == pytest.approx((1 + 1) / 2)
