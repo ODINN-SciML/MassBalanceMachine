@@ -45,7 +45,7 @@ N_EPOCHS = 150  # maximum training epochs (early stopping on the validation loss
 # in 3.1, skipping combinations where nhead does not divide d_model or
 # dim_feedforward < d_model. Each is trained on the source regions (CH, NOR, ISL,
 # FR) for up to GS_MAX_EPOCHS epochs. Validation data: the test glaciers of the
-# within-region splits of 2.3 (about 16-24% of each region's measurements).
+# within-region splits of 2.2 (about 16-24% of each region's measurements).
 # Selection rule: the configuration with the lowest pooled validation loss.
 GS_N_TRIALS = 150
 GS_MAX_EPOCHS = 150

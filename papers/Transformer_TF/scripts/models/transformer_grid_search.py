@@ -1,27 +1,23 @@
 """Random grid search of the Transformer hyperparameters on the pooled multi-region
-dataset (notebook `2.2 Transformer_grid_search`).
+dataset (notebook `3.1 Pooled_model_grid_search`).
 
 - `generate_transformer_param_sets` / `sample_transformer_param_sets`: valid
   parameter combinations from a grid, and a random sample of them.
-- `run_transformer_grid_search`: trains one model per sampled configuration and logs
-  its validation loss and RMSE to a CSV file (2.2, random validation sequences).
-- `run_pooled_transformer_grid_search`: same with validation on held-out glaciers and
-  an RMSE per source region (3.1; gives PARAMS_TRANSFORMER).
+- `run_pooled_transformer_grid_search`: trains one model per sampled configuration,
+  validates on held-out glaciers and logs the validation loss and RMSE (pooled and per
+  source region) to a CSV file; the best configuration is PARAMS_TRANSFORMER.
 - `best_params_from_gs_log` / `summarize_gs_top_k`: best configuration and summary of
   the top configurations from that CSV file.
 """
 
-import os
 import csv
 import json
 import random
 import hashlib
-from datetime import datetime
 from itertools import product
 
 import numpy as np
 import pandas as pd
-import torch
 from torch.utils.data import DataLoader
 import massbalancemachine as mbm
 
@@ -85,151 +81,6 @@ def sample_transformer_param_sets(const_params, param_grid, n_samples, seed=42):
         return all_params
     rng = random.Random(seed)
     return rng.sample(all_params, n_samples)
-
-
-def run_transformer_grid_search(
-    cfg,
-    device,
-    ds_pooled,
-    train_idx,
-    val_idx,
-    sampled_params,
-    models_dir,
-    logs_dir,
-    epochs=150,
-):
-    """
-    Train one Transformer per parameter set on ds_pooled (train_idx), with early
-    stopping on the validation split (val_idx). The best validation loss and the
-    validation RMSE (annual, winter) of each configuration are appended to
-    `<logs_dir>/transformer_gs_pooled_<date>.csv`. Model checkpoints are deleted
-    after evaluation to save disk space.
-
-    Returns
-    -------
-    (best_overall, log_filename), with best_overall = {"val", "row", "params"} of the
-    configuration with the lowest validation loss.
-    """
-    os.makedirs(models_dir, exist_ok=True)
-    os.makedirs(logs_dir, exist_ok=True)
-
-    log_filename = (
-        logs_dir / f"transformer_gs_pooled_{datetime.now().strftime('%Y-%m-%d')}.csv"
-    )
-
-    fieldnames = list(sampled_params[0].keys()) + GS_SCORE_COLS
-    with open(log_filename, mode="w", newline="") as f:
-        csv.DictWriter(f, fieldnames=fieldnames).writeheader()
-
-    best_overall = {"val": float("inf"), "row": None, "params": None}
-
-    for i, params in enumerate(sampled_params):
-        mbm.utils.seed_all(cfg.seed)
-
-        run_id = hashlib.md5(json.dumps(params, sort_keys=True).encode()).hexdigest()[
-            :8
-        ]
-        model_filename = str(models_dir / f"transformer_pooled_gs_{run_id}.pt")
-
-        if os.path.exists(model_filename):
-            os.remove(model_filename)
-
-        print(f"\n--- Config {i+1}/{len(sampled_params)}  [id={run_id}] ---")
-        print(params)
-
-        # --- loaders: fit scalers on train split, evaluate on val split ---
-        ds_train_copy = (
-            mbm.data_processing.MBSequenceDataset._clone_untransformed_dataset(
-                ds_pooled
-            )
-        )
-        # val dataset for metric evaluation (separate clone)
-        ds_val_copy = (
-            mbm.data_processing.MBSequenceDataset._clone_untransformed_dataset(
-                ds_pooled
-            )
-        )
-
-        train_dl, val_dl = ds_train_copy.make_loaders(
-            train_idx=train_idx,
-            val_idx=val_idx,
-            batch_size_train=64,
-            batch_size_val=128,
-            seed=cfg.seed,
-            fit_and_transform=True,
-            shuffle_train=True,
-            use_weighted_sampler=True,
-            verbose=False,
-        )
-
-        # val loader with train scalers (for RMSE evaluation)
-        val_eval_dl = mbm.data_processing.MBSequenceDataset.make_test_loader(
-            ds_val_copy, ds_train_copy, batch_size=128, seed=cfg.seed
-        )
-
-        # --- build model & train ---
-        model = mbm.models.Transformer_MB.build_model_from_params(
-            cfg, params, device, verbose=False
-        )
-        loss_fn = mbm.models.Transformer_MB.resolve_loss_fn(params)
-
-        history, best_val, _ = model.train_loop(
-            device=device,
-            train_dl=train_dl,
-            val_dl=val_dl,
-            epochs=epochs,
-            lr=params["lr"],
-            weight_decay=params["weight_decay"],
-            clip_val=1,
-            sched_factor=0.5,
-            sched_patience=6,
-            sched_threshold=0.01,
-            sched_threshold_mode="rel",
-            sched_cooldown=1,
-            sched_min_lr=1e-6,
-            es_patience=15,
-            es_min_delta=1e-4,
-            log_every=10,
-            verbose=False,
-            save_best_path=model_filename,
-            loss_fn=loss_fn,
-        )
-
-        # --- evaluate on val split for RMSE (not used for selection, just logged) ---
-        best_state = torch.load(model_filename, map_location=device)
-        model.load_state_dict(best_state)
-
-        val_metrics, _ = model.evaluate_with_preds(device, val_eval_dl, ds_val_copy)
-        val_rmse_a = val_metrics["RMSE_annual"]
-        val_rmse_w = val_metrics["RMSE_winter"]
-
-        print(
-            f"  val_loss={best_val:.4f}  RMSE_a={val_rmse_a:.3f}  RMSE_w={val_rmse_w:.3f}"
-        )
-
-        # --- log ---
-        row = {
-            **params,
-            "valid_loss": float(best_val),
-            "val_rmse_a": float(val_rmse_a),
-            "val_rmse_w": float(val_rmse_w),
-        }
-        with open(log_filename, mode="a", newline="") as f:
-            csv.DictWriter(f, fieldnames=fieldnames).writerow(row)
-
-        if best_val < best_overall["val"]:
-            best_overall = {"val": best_val, "row": row, "params": params}
-
-        # clean up model file to save disk space
-        if os.path.exists(model_filename):
-            os.remove(model_filename)
-
-    print("\n=== Best config by validation loss ===")
-    print(best_overall["params"])
-    print(f"  val_loss={best_overall['val']:.4f}")
-    print(f"  val_rmse_a={best_overall['row']['val_rmse_a']:.3f}")
-    print(f"  val_rmse_w={best_overall['row']['val_rmse_w']:.3f}")
-    return best_overall, log_filename
 
 
 def best_params_from_gs_log(logs_gs, verbose=True):

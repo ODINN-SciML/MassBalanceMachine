@@ -2,7 +2,6 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 
-from papers.Transformer_TF.scripts.dataset import load_stakes_for_rgi_region
 from papers.Transformer_TF.scripts.config_TF_Europe import *
 
 
@@ -205,6 +204,11 @@ def build_region_glacier_info(
     """
 
     if load_stakes_fn is None:
+        # imported here: the dataset package imports this module (circular at import time)
+        from papers.Transformer_TF.scripts.dataset.data_loader import (
+            load_stakes_for_rgi_region,
+        )
+
         load_stakes_fn = load_stakes_for_rgi_region
 
     data_region = load_stakes_fn(cfg, rgi_region_id)
@@ -384,7 +388,12 @@ def build_region_glacier_info_for_splits(
     """
 
     if load_stakes_fn is None:
-        load_stakes_fn = load_stakes_for_rgi_region  # noqa: F821
+        # imported here: the dataset package imports this module (circular at import time)
+        from papers.Transformer_TF.scripts.dataset.data_loader import (
+            load_stakes_for_rgi_region,
+        )
+
+        load_stakes_fn = load_stakes_for_rgi_region
 
     data_region = load_stakes_fn(cfg, rgi_region_id)
     glacier_outline_rgi = gpd.read_file(outline_shp_path)

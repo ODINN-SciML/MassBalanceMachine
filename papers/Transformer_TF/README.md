@@ -25,7 +25,7 @@ All model settings of the paper are in `scripts/config_models.py`:
 | LSTM hyperparameters | | `PARAMS_LSTM` |
 | Maximum training epochs (early stopping on the validation loss) | 150 | `N_EPOCHS` |
 | Hyperparameter search | random search, 150 configurations sampled (seed `cfg.seed`) from the grid in 3.1, up to 150 epochs each | `GS_N_TRIALS`, `GS_MAX_EPOCHS` |
-| Search validation data and selection rule | test glaciers of the within-region splits of 2.3 (about 16–24% of each source region's measurements); lowest pooled validation loss | `GS_SELECTION_METRIC`, `GS_LOG` |
+| Search validation data and selection rule | test glaciers of the within-region splits of 2.2 (about 16–24% of each source region's measurements); lowest pooled validation loss | `GS_SELECTION_METRIC`, `GS_LOG` |
 | Fine-tuning data | 10% of the measurement IDs of each target region (winter and annual drawn separately); the rest is the test set | `FT_FRAC` |
 | Fine-tuning repeats and seeds | 5 repeats, seeds `cfg.seed + rep` (20–24) | `FT_N_REPEATS` |
 | Fine-tuning training | up to 50 epochs, learning rate × 0.1, 80/20 train/validation split of the fine-tuning data, early stopping (patience 10), best-validation checkpoint restored | `PARAMS_FT` |
@@ -43,12 +43,12 @@ All model settings of the paper are in `scripts/config_models.py`:
                 └─> 1.4 part 2: monthly inputs + glacier grids <─┘
                      │
                      ├─> 2.1 Study regions          (Fig. 1, A3b)
-                     ├─> 2.3 Within-region          (Fig. 3, A2, A3a, A4)
-                     ├─> 2.4 Cross-region           (Fig. 4, A5)
-                     │    └─> 3.1 Multi-region grid search 
-                     │    └─> 3.2 Multi-region model (Fig. 5, 6, A6–A9)
-                     │         ├─> 3.3 Predictions   (Fig. 7, A11–A16)
-                     │         └─> 3.4 Distance      (Fig. A10)
+                     ├─> 2.2 Within-region          (Fig. 3, A2, A3a, A4)
+                     │    └─> 3.1 Multi-region grid search -> PARAMS_TRANSFORMER
+                     └─> 2.3 Cross-region           (Fig. 4, A5)
+                          └─> 3.2 Multi-region model (Fig. 5, 6, A6–A9; uses PARAMS_TRANSFORMER)
+                               ├─> 3.3 Predictions   (Fig. 7, A11–A16)
+                               └─> 3.4 Distance      (Fig. A10)
 ```
 
 **Data preparation**
@@ -64,8 +64,8 @@ All model settings of the paper are in `scripts/config_models.py`:
 | `2.1 Study_regions` | stake datasets, RGI outlines | figures only |
 | `2.2 Within_region` | monthly inputs | `WITHIN_REGION/` splits, datasets, models |
 | `2.3 Cross_region` | monthly inputs | `CROSS_REGION/` datasets and models (one LSTM and one Transformer per source region) |
-| `3.1 Pooled_model_grid_search` | monthly inputs; within-region test glaciers of 2.3 (used as validation glaciers) | `FD_MODEL/GS_results/` log; its best configuration is `PARAMS_TRANSFORMER` in `scripts/config_models.py` |
-| `3.2 Pooled_model` | monthly inputs; `PARAMS_TRANSFORMER`; single-region Transformers of 2.4 | `FD_MODEL/` datasets, multi-region model (`models/foundation/`), fine-tuned models (`models/finetuned/`), fine-tuning sensitivity runs |
+| `3.1 Pooled_model_grid_search` | monthly inputs; within-region test glaciers of 2.2 (used as validation glaciers) | `FD_MODEL/GS_results/` log; its best configuration is `PARAMS_TRANSFORMER` in `scripts/config_models.py` |
+| `3.2 Pooled_model` | monthly inputs; `PARAMS_TRANSFORMER`; single-region Transformers of 2.3 | `FD_MODEL/` datasets, multi-region model (`models/foundation/`), fine-tuned models (`models/finetuned/`), fine-tuning sensitivity runs |
 | `3.3 Pooled_model_pred` | models of 3.2; for new predictions, the grid datasets of 1.4 part 2 (`build_ds=True`) | `pooled_pred/predictions_transformer/` (in `cfg.dataPath/cache/`) |
 | `3.4 Distance` | models of 3.2 | `FD_MODEL/domain_shifts_pooled_cache.pkl` |
 
@@ -190,7 +190,7 @@ These are the helper modules imported by the notebooks:
 - `svf_processing/`: SVF computation (needs the `rvt` environment)
 - `geodata/`: GeoTIFF export
 - `config_models.py`: model hyperparameters, search and fine-tuning settings (see [Model settings](#model-settings))
-- `dataset/`: stake loading, monthly data, grid creation, and the datasets and splits of the experiments (e.g. `within_region_splits.py` for 2.3, `pooled_experiment.py` for 3.2–3.4, `pooled_distance.py` for 3.4)
+- `dataset/`: stake loading, monthly data, grid creation, and the datasets and splits of the experiments (e.g. `within_region_splits.py` for 2.2, `pooled_experiment.py` for 3.2–3.4, `pooled_distance.py` for 3.4)
 - `models/`: training, evaluation and the model figures of each experiment (`within_region.py`, `cross_region.py`, `transformer_grid_search.py`, `pooled_model.py`, `pooled_figures.py`, `ft_sensitivity.py`)
 - `plotting/`: maps and other figures (`study_region_maps.py` for 2.1, `domain_shift.py`, `pooled_pred.py` and `pooled_pred_figures.py` for 3.3)
 - `utils/`: glacier and region helpers

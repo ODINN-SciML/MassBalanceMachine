@@ -19,6 +19,9 @@ import colormaps as cmaps
 
 from papers.Transformer_TF.scripts.config_TF_Europe import *
 from papers.Transformer_TF.scripts.plotting.palettes import *
+from papers.Transformer_TF.scripts.plotting.palettes import (
+    _default_style,
+)  # private: not in the star import
 
 from massbalancemachine.plots.style import COLOR_ANNUAL, COLOR_WINTER
 

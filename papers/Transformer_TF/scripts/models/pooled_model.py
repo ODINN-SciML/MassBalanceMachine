@@ -2,7 +2,7 @@
 `3.2 Pooled_model`, `3.3 Pooled_model_pred` and `3.4 Distance`.
 
 - `load_pooled_model`: the multi-region Transformer and the scaler of its training data.
-- `load_single_source_models`: the single-region Transformers of `2.4 Cross_region`.
+- `load_single_source_models`: the single-region Transformers of `2.3 Cross_region`.
 - `add_nrmse` / `evaluate_on`: evaluation of a model on a test dataset.
 - `zero_shot_comparison_metrics`: zero-shot metrics of all models on all targets.
 - `finetune_id_split_models`: fine-tuned models per target region and repeat.
@@ -86,7 +86,7 @@ def load_single_source_models(
     train_flag=False,
 ):
     """
-    Load the single-region Transformers trained in `2.4 Cross_region`
+    Load the single-region Transformers trained in `2.3 Cross_region`
     (models_base/<src>/transformer_xreg_<src>_<src>_<date>.pt), with the scaler of
     each source region's training data. Missing models are trained if train_flag.
 

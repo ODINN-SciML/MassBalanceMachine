@@ -10,6 +10,5 @@ from .sinkhorn import *
 from .fd_model import *
 from .create_grids import *
 from .within_region_splits import *
-from .pooled_dataset import *
 from .pooled_experiment import *
 from .pooled_distance import *

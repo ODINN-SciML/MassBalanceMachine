@@ -1,4 +1,4 @@
-"""Single-region zero-shot transfer (notebook `2.4 Cross_region`).
+"""Single-region zero-shot transfer (notebook `2.3 Cross_region`).
 
 - `report_nan_in_xreg_inputs` / `report_nan_in_xreg_datasets`: sanity checks of the
   monthly data and sequence datasets.

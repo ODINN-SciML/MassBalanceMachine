@@ -1,4 +1,4 @@
-"""Evaluation and figures of the within-region experiment (notebook `2.3 Within_region`).
+"""Evaluation and figures of the within-region experiment (notebook `2.2 Within_region`).
 
 - `count_trainable_params`: number of trainable parameters of a model.
 - `plot_within_region_grid`: LSTM vs Transformer, predicted vs observed PMB per region (Fig. A2).

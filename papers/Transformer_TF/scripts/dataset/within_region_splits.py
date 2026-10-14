@@ -1,4 +1,4 @@
-"""Helpers for the within-region train/test splits (notebook `2.3 Within_region`).
+"""Helpers for the within-region train/test splits (notebook `2.2 Within_region`).
 
 The splits themselves are computed by `prepare_within_region_pairs_from_cache` and
 `prepare_within_region_random_splits` (`xreg_dataset.py`); these helpers manage

@@ -2,13 +2,23 @@ import numpy as np
 import pandas as pd
 import joblib
 import os
+import torch
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 import matplotlib.ticker as mtick
 
 import massbalancemachine as mbm
 from papers.Transformer_TF.scripts.dataset import build_combined_LSTM_dataset
 from papers.Transformer_TF.scripts.config_TF_Europe import *
-from papers.Transformer_TF.scripts.plotting import *
-from papers.Transformer_TF.scripts.models import *
+
+# Plotting modules imported one by one: importing the plotting or models packages
+# here would be circular (plotting -> dataset -> fd_model -> models -> plotting)
+from papers.Transformer_TF.scripts.plotting.style import (
+    NATURE_SPECS,
+    apply_nature_style,
+)
+from papers.Transformer_TF.scripts.plotting.model_training import plot_history_lstm
+from papers.Transformer_TF.scripts.plotting.pmb_performance import pred_vs_truth_density
 
 
 def build_glacier_subsets(df_ranked, fracs, n_random_seeds, seed=42):
@@ -757,7 +767,7 @@ def finetune_dan_transformer_on_target(
 
 def load_within_region_test_glaciers(within_splits_cache, regions):
     """
-    Test glaciers of the within-region (Sinkhorn) splits of `2.3 Within_region`,
+    Test glaciers of the within-region (Sinkhorn) splits of `2.2 Within_region`,
     per region, from its split cache (`WITHIN_REGION/within_region_splits_cache.pkl`;
     both the current and the earlier layout of that file are read).
     Returns {region: set of glacier names}.
