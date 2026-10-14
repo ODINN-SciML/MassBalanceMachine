@@ -86,10 +86,10 @@ training:
     areaWeightGeo: false
     optim: ADAM
     scheduler: StepLR
-    lr: 1e-3
+    lr: 1e-4
     scheduler_step_size: 500
     Nepochs: 2000
-    NepochsGeo: 200
-    wGeoSchedule: [1e-3, 1e-2]
+    # NepochsGeo: 200
+    # wGeoSchedule: [1e-3, 1e-2]
     scalingStakes: full
     bestModelCriterion: lossVal
