@@ -548,7 +548,7 @@ class TILikeModel(nn.Module):
         P_solid = P * P_cor * F.sigmoid(snow_slope * (self.tau_P_c - cor_T - T))
         PDD = F.softplus((T + cor_T) * curv_pdd) / curv_pdd
 
-        cor_acc = F.sigmoid(self.cor_acc(inp_cor_acc).view(-1))
+        cor_acc = self.cor_acc(inp_cor_acc).view(-1)
         cor_abl = self.cor_abl(inp_cor_abl).view(-1)
 
         return (
@@ -650,7 +650,7 @@ class TILikeModel(nn.Module):
         PDD = F.softplus((T + cor_T) * curv_pdd) / curv_pdd
 
         # Accumulation factor correction
-        cor_acc = F.sigmoid(self.cor_acc(inp_cor_acc).view(-1))
+        cor_acc = self.cor_acc(inp_cor_acc).view(-1)
 
         # Ablation factor correction
         cor_abl = self.cor_abl(inp_cor_abl).view(-1)
