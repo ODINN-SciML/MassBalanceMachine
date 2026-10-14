@@ -326,13 +326,13 @@ class SourceManagerSwitzerland(SourceManager):
         super().__init__(cfg, params, *args, **kwargs)
 
     def load_stakes_data(self):
-        # The Swiss pipeline lives in the `regions/` tree of the repository, which is
+        # The Swiss pipeline lives in `papers/LSTM_CH/` of the repository, which is
         # not part of the installed package: it is only available from a checkout.
-        from regions.RGI_11_Switzerland.scripts.dataset.data_loader import (
+        from papers.LSTM_CH.scripts.dataset.data_loader import (
             process_or_load_data,
             get_stakes_data,
         )
-        from regions.RGI_11_Switzerland.scripts.config_CH import (
+        from papers.LSTM_CH.scripts.config_CH import (
             path_PMB_GLAMOS_csv,
             path_ERA5_raw,
             path_pcsr,
