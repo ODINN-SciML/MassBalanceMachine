@@ -44,9 +44,9 @@ All model settings of the paper are in `scripts/config_models.py`:
                      │
                      ├─> 2.1 Study regions          (Fig. 1, A3b)
                      ├─> 2.2 Within-region          (Fig. 3, A2, A3a, A4)
-                     │    └─> 3.1 Multi-region grid search -> PARAMS_TRANSFORMER
                      └─> 2.3 Cross-region           (Fig. 4, A5)
-                          └─> 3.2 Multi-region model (Fig. 5, 6, A6–A9; uses PARAMS_TRANSFORMER)
+                         └─> 3.1 Multi-region grid search -> PARAMS_TRANSFORMER
+                         └─> 3.2 Multi-region model (Fig. 5, 6, A6–A9; uses PARAMS_TRANSFORMER)
                                ├─> 3.3 Predictions   (Fig. 7, A11–A16)
                                └─> 3.4 Distance      (Fig. A10)
 ```
