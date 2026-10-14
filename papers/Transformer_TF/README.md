@@ -43,10 +43,9 @@ All model settings of the paper are in `scripts/config_models.py`:
                 └─> 1.4 part 2: monthly inputs + glacier grids <─┘
                      │
                      ├─> 2.1 Study regions          (Fig. 1, A3b)
-                     ├─> 2.2 Transformer grid search (not used in the paper)
                      ├─> 2.3 Within-region          (Fig. 3, A2, A3a, A4)
-                     │    └─> 3.1 Multi-region grid search -> PARAMS_TRANSFORMER
                      ├─> 2.4 Cross-region           (Fig. 4, A5)
+                     │    └─> 3.1 Multi-region grid search 
                      │    └─> 3.2 Multi-region model (Fig. 5, 6, A6–A9)
                      │         ├─> 3.3 Predictions   (Fig. 7, A11–A16)
                      │         └─> 3.4 Distance      (Fig. A10)
@@ -63,9 +62,8 @@ All model settings of the paper are in `scripts/config_models.py`:
 | Notebook | Needs | Writes (under `cache/TF_Europe/`) |
 |---|---|---|
 | `2.1 Study_regions` | stake datasets, RGI outlines | figures only |
-| `2.2 Transformer_grid_search` | monthly inputs | `TF_REGION/glacier_splits.json` (pool/holdout glaciers, computed if missing), datasets and grid-search log |
-| `2.3 Within_region` | monthly inputs | `WITHIN_REGION/` splits, datasets, models |
-| `2.4 Cross_region` | monthly inputs | `CROSS_REGION/` datasets and models (one LSTM and one Transformer per source region) |
+| `2.2 Within_region` | monthly inputs | `WITHIN_REGION/` splits, datasets, models |
+| `2.3 Cross_region` | monthly inputs | `CROSS_REGION/` datasets and models (one LSTM and one Transformer per source region) |
 | `3.1 Pooled_model_grid_search` | monthly inputs; within-region test glaciers of 2.3 (used as validation glaciers) | `FD_MODEL/GS_results/` log; its best configuration is `PARAMS_TRANSFORMER` in `scripts/config_models.py` |
 | `3.2 Pooled_model` | monthly inputs; `PARAMS_TRANSFORMER`; single-region Transformers of 2.4 | `FD_MODEL/` datasets, multi-region model (`models/foundation/`), fine-tuned models (`models/finetuned/`), fine-tuning sensitivity runs |
 | `3.3 Pooled_model_pred` | models of 3.2; for new predictions, the grid datasets of 1.4 part 2 (`build_ds=True`) | `pooled_pred/predictions_transformer/` (in `cfg.dataPath/cache/`) |
@@ -155,8 +153,8 @@ Figures marked *assembled* are combined outside the code from the listed panels 
 |---|---|---|---|---|
 | 1 | `fig1_study_regions.png` | `2.1 Study_regions` | (a) Alaska (13), (b) Svalbard (11), (c) Norway (7), (d) Iceland (9), (e) Central European Alps (5), (f) Central Asia (15) | *assembled* from `fig1_<a–f>_maps_<region>_gl.pdf`, `fig1_e_maps_CEU_gl_legend.pdf` and `fig1_f_maps_CA_legend_color.pdf` |
 | 2 | `fig2_transformer_architecture.pdf` | — | — | schematic, not made in code |
-| 3 | `fig3_within_region_transformer_only.png` | `2.3 Within_region` | Fig. 3: Transformer only (26) | |
-| 4 | `fig4_zeroshot_comparison.pdf` | `2.4 Cross_region` | Fig. 4: Δ RMSE and example scatter plots (16) | *assembled* from `fig4_zeroshot_comparison_subpart.png` and `fig4_zeroshot_comparison_subpart_legend.png` |
+| 3 | `fig3_within_region_transformer_only.png` | `2.2 Within_region` | Fig. 3: Transformer only (26) | |
+| 4 | `fig4_zeroshot_comparison.pdf` | `2.3 Cross_region` | Fig. 4: Δ RMSE and example scatter plots (16) | *assembled* from `fig4_zeroshot_comparison_subpart.png` and `fig4_zeroshot_comparison_subpart_legend.png` |
 | 5 | `fig5_zs_pooled_vs_ss_barplot_a.png` | `3.2 Pooled_model` | Fig. 5 and A6: RMSE per target region (11) | |
 | 6 | `fig6_pooled_ft_gain_barplot.png` | `3.2 Pooled_model` | Fig. 6: fine-tuning gain (20) | |
 | 7 | `fig7_application.png` | `3.3 Pooled_model_pred` | Fig. 7: zero-shot vs fine-tuned maps (13) | |
@@ -166,10 +164,10 @@ Figures marked *assembled* are combined outside the code from the listed panels 
 | Fig. | Paper file | Notebook | Section (cell) | Saved as |
 |---|---|---|---|---|
 | A1 | `A1_diff_LSTM_Transformer.pdf` | — | — | schematic, not made in code |
-| A2 | `A2_within_region_lstm_vs_transf_mixed.png` | `2.3 Within_region` | Fig. A2: LSTM vs Transformer (24) | |
-| A3 | `A3_CA3_per_gl.png` | (a) `2.3 Within_region`; (b) `2.1 Study_regions` | (a) Fig. A3a: Central Asia sub-region 3 by glacier (28); (b) Appendix A3 (b) (17) | *assembled* from (a) `A3_a.png` and `A3_a_legend.png`, (b) `A3_b.png` |
-| A4 | `A4_random_vs_smart_split_transformer.pdf` | `2.3 Within_region` | Fig. A4: Sinkhorn-informed vs random splits (31) | `A4_random_vs_smart_split_transformer.png` (PNG, the paper uses a PDF) |
-| A5 | `A5_zs_comparison_absolute.png` | `2.4 Cross_region` | Fig. A5: absolute RMSE (14) | |
+| A2 | `A2_within_region_lstm_vs_transf_mixed.png` | `2.2 Within_region` | Fig. A2: LSTM vs Transformer (24) | |
+| A3 | `A3_CA3_per_gl.png` | (a) `2.2 Within_region`; (b) `2.1 Study_regions` | (a) Fig. A3a: Central Asia sub-region 3 by glacier (28); (b) Appendix A3 (b) (17) | *assembled* from (a) `A3_a.png` and `A3_a_legend.png`, (b) `A3_b.png` |
+| A4 | `A4_random_vs_smart_split_transformer.pdf` | `2.2 Within_region` | Fig. A4: Sinkhorn-informed vs random splits (31) | `A4_random_vs_smart_split_transformer.png` (PNG, the paper uses a PDF) |
+| A5 | `A5_zs_comparison_absolute.png` | `2.3 Cross_region` | Fig. A5: absolute RMSE (14) | |
 | A6 | `A6_zs_pooled_vs_ss_barplot_w.png` | `3.2 Pooled_model` | Fig. 5 and A6: RMSE per target region (12) | |
 | A7 | `A7_zs_pooled_vs_ss_scatter_all.png` | `3.2 Pooled_model` | Fig. A7: modeled vs observed PMB (14) | |
 | A8 | `A8_sensitivity_FT.png` | `3.2 Pooled_model` | Fig. A8: RMSE versus fine-tuning fraction (25) | |
