@@ -160,16 +160,26 @@ def histogram_mb(
     else:
         fig = None
     x = grouped_ids["POINT_BALANCE"]
+    if test_data is None:
+        bins = np.linspace(x.min(), x.max(), nbins + 1)
+    else:
+        # Define same bins for train and test
+        bins = np.linspace(
+            min(x.min(), test_data["POINT_BALANCE"].min()),
+            max(x.max(), test_data["POINT_BALANCE"].max()),
+            nbins + 1,
+        )
     ax = axs[0] if test_data is not None else axs
-    ax.hist(x, bins=nbins, label="training data")
+    ax.hist(x, bins=bins, label="training data")
     ax.set_xlabel(xlabel, fontsize=20)
     ax.set_ylabel(ylabel, fontsize=20)
     ax.legend()
     ax.grid()
+
     if test_data is not None:
-        x = test_data["POINT_BALANCE"]
+        x_test = test_data["POINT_BALANCE"]
         ax = axs[1]
-        ax.hist(x, bins=nbins, label="test data")
+        ax.hist(x_test, bins=bins, label="test data")  # Same bins as train data
         ax.set_xlabel(xlabel, fontsize=20)
         ax.set_ylabel(ylabel, fontsize=20)
         ax.legend()

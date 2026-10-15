@@ -27,7 +27,7 @@ from scripts.nongeo.utils import (
     getLogDir,
 )
 
-# from regions.RGI_11_Switzerland.scripts.nn_helpers import plot_training_history
+# from papers.LSTM_CH.scripts.nn_helpers import plot_training_history
 
 warnings.filterwarnings("ignore")
 
@@ -108,11 +108,7 @@ elif sourceData == "norway":
         cfg, params, test_split_on="RGIId"
     )
 elif "wgms" in sourceData:
-    _split = sourceData.split(":")
-    if len(_split) > 1:
-        rgi_region = int(_split[1])
-    else:
-        rgi_region = None
+    rgi_region = mbm.dataloader.wgms_rgi_regions(sourceData)
     datasetManager = mbm.dataloader.SourceManagerWGMS(
         cfg, params, test_split_on="RGIId", rgi_region=rgi_region
     )
