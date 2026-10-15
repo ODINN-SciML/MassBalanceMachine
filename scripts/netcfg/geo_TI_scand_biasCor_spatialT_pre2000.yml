@@ -19,11 +19,13 @@ model:
         - POINT_ELEVATION
     # Normalization bounds [lower, upper] replacing the global ones of
     # config.DEFAULT_BNDS; a feature not listed keeps its global bounds. With the global
-    # (-90, 90) and (-180, 180), Iceland spans about 0.02 of the normalized range, and
-    # the networks on POINT_LAT/POINT_LON cannot tell its glaciers apart.
+    # (-90, 90) and (-180, 180), Norway spans about 0.06 of the normalized range, and
+    # the networks on POINT_LAT/POINT_LON cannot tell its glaciers apart. The stakes
+    # (NVE and WGMS, Sweden included) and the RGI outlines of the NVE glaciers span
+    # 59.9-70.2 N and 5.6-21.8 E.
     normalization:
-        POINT_LAT: [63.0, 67.0]
-        POINT_LON: [-25.0, -13.0]
+        POINT_LAT: [59.5, 70.5]
+        POINT_LON: [5.0, 22.0]
     grad_T:
         inputs:
             - t2m
@@ -87,6 +89,8 @@ training:
     regions:
         norway:
             split_file: splits/norway.yml
+    # Test on the stakes from 2000 on, the year_split splits/norway.yml was drawn with.
+    # Engabreen's training window 1968-2001 is the only geodetic one reaching past it.
     splitTest: YEAR:<2000
     # 0 trains on the stakes only. The geodetic run reuses this file with --wGeo, so that
     # both experiments share the same split.
