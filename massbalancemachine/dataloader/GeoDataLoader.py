@@ -8,7 +8,7 @@ import torch
 import tqdm
 from concurrent.futures import ThreadPoolExecutor
 
-# from regions.RGI_11_Switzerland.scripts.geodetic.geodetic_processing import (
+# from papers.LSTM_CH.scripts.geodetic.geodetic_processing import (
 #     prepare_geo_targets,
 #     build_periods_per_glacier,
 #     get_geodetic_MB,

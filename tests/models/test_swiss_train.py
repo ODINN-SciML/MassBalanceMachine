@@ -6,15 +6,15 @@ import torch
 from torch import nn
 import massbalancemachine as mbm
 
-from regions.RGI_11_Switzerland.scripts.geodetic.geodetic_processing import (
+from papers.LSTM_CH.scripts.geodetic.geodetic_processing import (
     get_geodetic_MB,
 )
-from regions.RGI_11_Switzerland.scripts.config_CH import (
+from papers.LSTM_CH.scripts.config_CH import (
     path_PMB_GLAMOS_csv,
     path_ERA5_raw,
     path_pcsr,
 )
-from regions.RGI_11_Switzerland.scripts.dataset.data_loader import (
+from papers.LSTM_CH.scripts.dataset.data_loader import (
     process_or_load_data,
     get_CV_splits,
     get_stakes_data,
