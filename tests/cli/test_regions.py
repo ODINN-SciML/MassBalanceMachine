@@ -303,3 +303,39 @@ def test_train_val_data_per_stake():
     )
     assert sorted(df_X_val.ID.unique()) == [0, 1]
     assert sorted(df_X_train.ID.unique()) == [2, 3]
+
+
+def test_train_val_data_per_glacier_and_year():
+    # Each glacier has its own validation years: the stakes of one year can be in
+    # validation on one glacier and in training on another
+    rows = [
+        # RGIId, year, measurement ID
+        ("RGI60-08.00001", 1980, 0),
+        ("RGI60-08.00001", 1990, 1),  # validation year of this glacier
+        ("RGI60-08.00002", 1990, 2),  # same year, glacier without validation years
+        ("RGI60-08.00002", 1980, 3),
+        ("RGI60-08.00003", 1980, 4),  # validation year of this glacier
+    ]
+    df = pd.DataFrame(
+        [(g, y, i, m, 0.1 * i, 1.0) for g, y, i in rows for m in ("oct", "nov")],
+        columns=["RGIId", "YEAR", "ID", "MONTHS", "POINT_BALANCE", "t2m"],
+    ).assign(POINT_LAT=61.0, POINT_LON=7.0, ALTITUDE_CLIMATE=1000.0)
+    cfg = mbm.Config(metaData=["RGIId", "ID", "YEAR", "MONTHS"])
+    cfg.setFeatures(["t2m"])
+    region = {
+        "rgi_regions": [8],
+        "splitVal": "group-glacier-year",
+        "val_glacier_years": {"RGI60-08.00001": [1990, 1991], "RGI60-08.00003": [1980]},
+        "geodetic_source": ["NVE"],
+    }
+    merged = mergeRegions({"regions": {"nor": region}}, ".")
+
+    df_X_train, _, df_X_val, _ = trainValData(
+        cfg,
+        {"df_X": df, "y": df.POINT_BALANCE},
+        ["t2m"],
+        split_key="per-region",
+        regions=merged["regions"],
+    )
+    assert sorted(df_X_val.ID.unique()) == [1, 4]
+    assert sorted(df_X_train.ID.unique()) == [0, 2, 3]

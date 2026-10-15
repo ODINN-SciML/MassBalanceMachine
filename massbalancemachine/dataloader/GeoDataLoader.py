@@ -29,6 +29,7 @@ from data_processing.gridded_utils import (
     create_gridded_features_Maurer19_Hugonnet21,
     create_gridded_features_Belart20,
     create_gridded_features_Andreassen16,
+    create_gridded_features_NVE,
     geodetic_input_Hugonnet21,
     geodetic_target_Hugonnet21,
     geodetic_target_region_Hugonnet21,
@@ -65,6 +66,11 @@ from data_processing.andreassen16 import (
     geodetic_target_Andreassen16,
     table_RGI62_to_Andreassen16,
 )
+from data_processing.nve_geodetic import (
+    ID_PREFIX as NVE_ID_PREFIX,
+    geodetic_target_NVE,
+    table_RGI62_to_NVE,
+)
 from models.TorchNeuralNetworkRegressor import aggrMetadata
 
 # The sources built on the glaciers of Maurer et al. (2019), identified by their RGI 5.0 id
@@ -81,11 +87,14 @@ def isNativeGlacierId(glacierName: str, geodeticSource: str) -> bool:
     Andreassen16 ones by a code of their own ("NSF", "ORA", "NIG"), which for these six
     is anything that is not an RGI id, and Maurer19 ones by their RGI 5.0 id ("RGI50-15.02201"),
     as Maurer19_2000 ones (the same glaciers over 2000-2016) and Maurer19_Hugonnet21 ones.
+    NVE ones carry the prefix "NVE-" ("NVE-2297", "NVE-3113+3115+3117").
     """
     if geodeticSource == "PGO":
         return glacierName.startswith("RGI2000-v7.0-G-")
     if geodeticSource in MAURER19_SOURCES:
         return glacierName.startswith("RGI50-")
+    if geodeticSource == "NVE":
+        return glacierName.startswith(NVE_ID_PREFIX)
     if geodeticSource in (
         "GLAMOS",
         "Rabatel16",
@@ -98,14 +107,17 @@ def isNativeGlacierId(glacierName: str, geodeticSource: str) -> bool:
     return True
 
 
-def buildGlacierMapping(glacierList, geodeticSource: str):
+def buildGlacierMapping(glacierList, geodeticSource: str, idsWithTarget=None):
     """Map every glacier of `glacierList` onto the identifier the geodetic source
     uses for it.
 
     Several RGI ids mapping onto one entity is expected and kept: the Swiss inventory
     and the RGI do not cut the ice into the same glaciers, and Claridenfirn is one SGI
     glacier that RGI 6.2 splits into four. The reverse - one RGI id matching several
-    entities - is dropped, see below.
+    entities - is dropped, see below, unless the RGI outline lies entirely in each of
+    them (`frac_rgi` = 1): the entities are then nested, a glacier and a group of
+    glaciers holding it (NVE), and the RGI id goes to the single one of them
+    in `idsWithTarget`, the entities carrying a geodetic target, when there is one.
     """
     if isNativeGlacierId(glacierList[0], geodeticSource):
         # Glacier list already follows the source's own identifiers
@@ -134,6 +146,8 @@ def buildGlacierMapping(glacierList, geodeticSource: str):
         table_df = table_RGI62_to_Belart20(region_id=region_id)
     elif geodeticSource == "Andreassen16":
         table_df = table_RGI62_to_Andreassen16(region_id=region_id)
+    elif geodeticSource == "NVE":
+        table_df = table_RGI62_to_NVE(region_id=region_id)
     else:
         raise ValueError(f"No glacier id mapping available for {geodeticSource}.")
 
@@ -144,6 +158,8 @@ def buildGlacierMapping(glacierList, geodeticSource: str):
     mapping = {}
     for rgi_id_rgi6 in rgi_ids_rgi6:
         tmp = table_df[table_df.RGIId == rgi_id_rgi6]
+        if tmp.shape[0] > 1 and idsWithTarget is not None and (tmp.frac_rgi == 1).all():
+            tmp = tmp[tmp.custom_id.isin(idsWithTarget)]
         if tmp.shape[0] == 1:
             mapping[rgi_id_rgi6] = tmp.custom_id.values[0]
     return mapping
@@ -185,7 +201,9 @@ def buildGlacierMappingMultiSource(glacierList, glacierIdsPerSource):
 
     if len(rgi_ids) > 0:
         for source, ids in glacierIdsPerSource.items():
-            for rgi_id, glacier_id in buildGlacierMapping(rgi_ids, source).items():
+            for rgi_id, glacier_id in buildGlacierMapping(
+                rgi_ids, source, idsWithTarget=ids
+            ).items():
                 # Only the entities carrying a target matter: an RGI outline matched to
                 # an entity without data in this source is not a conflict
                 if glacier_id in ids:
@@ -273,6 +291,11 @@ def windowedSourceTarget(source: str, options: dict):
         return (
             geodetic_target_Andreassen16(**options),
             create_gridded_features_Andreassen16,
+        )
+    if source == "NVE":
+        return (
+            geodetic_target_NVE(**options),
+            create_gridded_features_NVE,
         )
     raise ValueError(f"Unknown windowed geodetic source {source}.")
 
@@ -626,7 +649,12 @@ class GeoDataLoader:
         per glacier (see `data_processing.belart20.geodetic_target_Belart20`).
         Andreassen16 takes the arguments of Hagg12 too, and leaves out the calving
         Austdalsbreen unless `exclude_calving=False` (see
-        `data_processing.andreassen16.geodetic_target_Andreassen16`).
+        `data_processing.andreassen16.geodetic_target_Andreassen16`). NVE
+        takes the arguments of Belart20 and `exclude_calving`, and `max_area_ratio`,
+        the largest mismatch between the surveyed area and the RGI outlines (see
+        `data_processing.nve_geodetic.geodetic_target_NVE`). An RGI outline
+        lying in a glacier and in a group of glaciers of NVE goes to the one
+        carrying a target (see `buildGlacierMapping`).
 
         Several windowed sources can be combined, e.g. `geodeticSource=["GLAMOS",
         "Rabatel16"]` with `geodeticSourceOptions={"GLAMOS": {...}, "Rabatel16":
@@ -653,9 +681,15 @@ class GeoDataLoader:
                     {s: set(dfGeo.RGIId) for s, (dfGeo, _) in targets.items()},
                 )
             # A single source keeps its historical mapping, which also retains the
-            # entities without a target
+            # entities without a target. The target only settles an RGI outline
+            # lying in nested entities.
             (source,) = self.geodeticSources
-            return {source: buildGlacierMapping(glacierList, source)}
+            (dfGeo, _) = targets[source]
+            return {
+                source: buildGlacierMapping(
+                    glacierList, source, idsWithTarget=set(dfGeo.RGIId)
+                )
+            }
 
         if self.glacierList is None:
             # We are working with geodetic data only, no need to map RGI62 IDs to the

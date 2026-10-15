@@ -390,6 +390,50 @@ def prepare_points(data, rgi_region):
     )
     data = data[~mask_sel]
 
+    # RGI60-08
+    # Winter balances dated from one autumn survey to the next (11-12 months) while their
+    # values are those of a winter (0.6-1.2 m w.e. at median): the end date is that of the
+    # annual survey and the date of the spring survey is not known
+    mask_sel = (
+        data.RGIId.isin(
+            ["RGI60-08.00006", "RGI60-08.00188", "RGI60-08.00199", "RGI60-08.00213"]
+        )
+        & data.YEAR.isin([2023, 2024])
+        & (data.PERIOD == "winter")
+        & (data.MONTH_DIFF >= 11)
+    )
+    data = data[~mask_sel]  # Riukojietna, Rabots, Mårma, Storglaciären
+
+    # Annual balance ending on the date of the winter survey (2023-03-28): it ends at the
+    # start of the annual balance of 2024
+    mask_sel = (
+        (data.RGIId == "RGI60-08.00213")
+        & (data.YEAR == 2023)
+        & (data.PERIOD == "annual")
+        & (data.TO_DATE == "20230328")
+    )
+    data.loc[mask_sel, "TO_DATE_DT"] = pd.Timestamp("2023-09-03")
+    data.loc[mask_sel, "TO_DATE"] = "20230903"
+    data.loc[mask_sel, "MONTH_DIFF"] = 12  # Storglaciären
+
+    # Annual balance starting on the date of the winter survey (2022-04-14): it starts at
+    # the end of the annual balance of 2021
+    mask_sel = (
+        (data.RGIId == "RGI60-08.00006")
+        & (data.YEAR == 2022)
+        & (data.PERIOD == "annual")
+        & (data.FROM_DATE == "20220414")
+    )
+    data.loc[mask_sel, "FROM_DATE_DT"] = pd.Timestamp("2021-09-11")
+    data.loc[mask_sel, "FROM_DATE"] = "20210911"
+    data.loc[mask_sel, "MONTH_DIFF"] = 12  # Riukojietna
+
+    # Measurements labelled as index, a winter (ending in May-June) and an annual balance
+    # (ending in September-October) every year, as the NVE copies of the same measurements
+    mask_sel = (data.RGIId == "RGI60-08.00868") & (data.PERIOD == "index")
+    data.loc[mask_sel & (data.MONTH_DIFF <= 8), "PERIOD"] = "winter"  # Juvfonne
+    data.loc[mask_sel & (data.MONTH_DIFF > 8), "PERIOD"] = "annual"  # Juvfonne
+
     # User does not need this
     return data.drop(columns=["WGMS_ID"])
 

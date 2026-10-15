@@ -68,6 +68,10 @@ from data_processing.andreassen16 import (
     load_andreassen16_outlines,
     NORWAY_REGION_ID,
 )
+from data_processing.nve_geodetic import (
+    nve_outline_spec,
+    load_nve_outlines,
+)
 from data_processing.glacier_utils import (
     create_glacier_grid_RGI,
     create_dem_file_RGI,
@@ -693,6 +697,44 @@ def create_gridded_features_Andreassen16(
     )
 
 
+def create_gridded_features_NVE(
+    cfg,
+    time_ranges,
+    dem_source: str = "COPDEM30",
+    multi=True,
+    num_workers=None,
+    climate=None,
+):
+    """Generate the gridded products of the Norwegian glaciers of the NVE glacier
+    database on their RGI 6.2 outlines, keyed by their entity id ("NVE-2297", or
+    "NVE-3113+3115+3117" for a group of glaciers, whose outlines are dissolved into
+    one).
+
+    Every period is gridded on the same outlines, dated 1999-2006, since the table
+    gives no outlines; see `data_processing.nve_geodetic`. `dem_source` defaults to the
+    Copernicus GLO-30 DEM, see `data_processing.nve_geodetic.nve_outline_spec`.
+
+    Args:
+        time_ranges: {entity id: [(start_date, end_date), ...]}, the geodetic periods
+            of every entity.
+        num_workers (int): number of processes to use. Left to None it follows the
+            memory free on the machine, see `parallel_utils.worker_count`.
+    """
+    glacier_ids = list(time_ranges.keys())
+    outlines = load_nve_outlines(glacier_ids_to_keep=glacier_ids)
+
+    _create_gridded_features_custom_outlines(
+        cfg,
+        time_ranges,
+        outlines,
+        nve_outline_spec(dem_source=dem_source),
+        NORWAY_REGION_ID,
+        multi=multi,
+        num_workers=num_workers,
+        climate=climate,
+    )
+
+
 def create_gridded_features_RGI(
     cfg,
     rgi_ids,
@@ -947,6 +989,10 @@ def geodetic_input_Belart20(glacier_id, time_range):
 
 def geodetic_input_Andreassen16(glacier_id, time_range):
     return _geodetic_input_windowed(glacier_id, time_range, "Andreassen16")
+
+
+def geodetic_input_NVE(glacier_id, time_range):
+    return _geodetic_input_windowed(glacier_id, time_range, "NVE")
 
 
 def geodetic_input_Hugonnet21(
@@ -1468,6 +1514,7 @@ GEODETIC_INPUT_FN = {
     "Maurer19_Hugonnet21": geodetic_input_Maurer19_Hugonnet21,
     "Belart20": geodetic_input_Belart20,
     "Andreassen16": geodetic_input_Andreassen16,
+    "NVE": geodetic_input_NVE,
 }
 
 # Sources whose geodetic target covers an arbitrary date window rather than a whole
@@ -1484,6 +1531,7 @@ WINDOWED_SOURCES = {
     "Maurer19_Hugonnet21",
     "Belart20",
     "Andreassen16",
+    "NVE",
 }
 
 
