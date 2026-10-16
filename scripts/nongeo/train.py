@@ -20,6 +20,7 @@ from torch.utils.tensorboard import SummaryWriter
 from scripts.common import loadParams
 from scripts.nongeo.utils import (
     getMetaData,
+    setNormalizationBounds,
     getDatasets,
     buildArgs,
     trainValData,
@@ -80,6 +81,7 @@ elif "wgms" in sourceData:
     )
 else:
     raise ValueError(f"source_data={sourceData} is unknown")
+setNormalizationBounds(cfg, params)
 
 
 if torch.cuda.is_available():

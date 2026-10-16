@@ -28,6 +28,7 @@ from data_processing.product_utils import get_data_path
 from dataloader.DataLoader import DataLoader, set_dataloader_splits
 import data_preprocessing.iceland
 import data_preprocessing.wgms
+import data_preprocessing.stakes
 import data_processing.wgms
 import config
 
@@ -166,6 +167,39 @@ def _format_data_credit(source, usage_conditions, papers):
     print()
 
 
+# Stake source of data_preprocessing.stakes: arguments of _format_data_credit
+_stake_source_credits = {
+    "wgms": (
+        "WGMS (2026): Fluctuations of Glaciers (FoG) Database. World Glacier Monitoring Service (WGMS), Zurich, Switzerland. https://doi.org/10.5904/wgms-fog-2026-02-10",
+        "Open access under the requirement of correct citation",
+        [
+            "WGMS (2023): Global Glacier Change Bulletin No. 5 (2020-2021). Michael Zemp, Isabelle Gärtner-Roer, Samuel U. Nussbaumer, Ethan Z. Welty, Inés Dussaillant, and Jacqueline Bannwart (eds.), ISC (WDS) / IUGG (IACS) / UNEP / UNESCO / WMO, World Glacier Monitoring Service, Zurich, Switzerland, 134 pp. Based on database version https://doi.org/10.5904/wgms-fog-2023-09.",
+            "WGMS (2013): Glacier Mass Balance Bulletin No. 12 (2010-2011). Michael Zemp, Samuel U. Nussbaumer, Kathrin Naegeli, Isabelle Gärtner-Roer, Frank Paul, Martin Hoelzle, and Wilfried Haeberli (eds.), ICSU (WDS) / IUGG (IACS) / UNEP / UNESCO / WMO, World Glacier Monitoring Service, Zurich, Switzerland, 106 pp. Based on database version https://doi.org/10.5904/wgms-fog-2013-11.",
+            "WGMS (2012): Fluctuations of Glaciers 2005-2010 (Vol. X): Michael Zemp, Holger Frey, Isabelle Gärtner-Roer, Samuel U. Nussbaumer, Martin Hoelzle, Frank Paul, and Wilfried Haeberli (eds.), ICSU (WDS) / IUGG (IACS) / UNEP / UNESCO / WMO, World Glacier Monitoring Service, Zurich, Switzerland. Based on database version https://doi.org/10.5904/wgms-fog-2012-11.",
+        ],
+    ),
+    "iceland": (
+        "https://icelandicglaciers.is/#/page/map",
+        "CC-BY license with following references provided for the mass balance data",
+        [
+            "Finnur Pálsson. 2022. Vatnajökull. Mass balance, meltwater drainage and surface velocity of the glacial year 2021–22. Reykjavík, Landsvirkjun, Institute of Earth Sciences University of Iceland, Rep. LV-2022-054. https://gogn.lv.is/files/2022/2022-054.pdf",
+            "Finnur Pálsson. 2022. Afkomu- og hraðamælingar á Langjökli jökulárið 2021–2022 (Mass balance and ice flow measurements of Langjökull in 2021–2022). Reykjavík, Landsvirkjun, Institute of Earth Sciences University of Iceland, Rep. LV-2022-053. https://gogn.lv.is/files/2022/2022-053.pdf",
+            "Helgi Björnsson, Finnur Pálsson, Magnús Tumi Guðmundsson and Hannes H. Haraldsson. 1998. Mass balance of western and northern Vatnajökull, Iceland, 1991–1995, Jökull, 45, 35–58, https://doi.org/10.33799/jokull1998.45.035",
+            "Þorsteinn Þorsteinsson, Tómas Jóhannesson, Bergur Einarsson, Vilhjálmur S. Kjartansson. 2017. Afkomumælingar á Hofsjökli 1988–2017 [Mass balance measurements on Hofsjökull 1988–2017]. Reykjavík, Veðurstofa Íslands, skýrsla 2017-016. https://www.vedur.is/media/vedurstofan-utgafa-2017/2017_016_hofsjokull30_rs.pdf",
+            "Guðfinna Aðalgeirsdóttir, Eyjólfur Magnússon, Finnur Pálsson, Þorsteinn Þorsteinsson, JMC Belart, Tómas Jóhannesson, Hrafnhildur Hannesdóttir, Oddur Sigurðsson, Andri Gunnarsson, Bergur Einarsson, E Berthier, LS Schmidt, Hannes H. Haraldsson, Helgi Björnsson. 2020. Glacier changes in Iceland in the 20th and the beginning of the 21st century. Frontiers of Earth Sciences, 8, 523646, https://doi.org/10.3389/feart.2020.523646",
+        ],
+    ),
+    "nve": (
+        "Elvehøy, H., Kjøllmoen, B., Andreassen, L. M. and Sjursen, K. H. (2025): Glaciological point mass balance measurements for Norway 1962-2021. Norwegian Water Resources and Energy Directorate (NVE). https://doi.org/10.58059/sjse-6w92",
+        "CC-BY 4.0 license",
+        [
+            "Sjursen, K. H., Bolibar, J., van der Meer, M., Andreassen, L. M., Biesheuvel, J. P., Dunse, T., Huss, M., Maussion, F., Rounce, D. R. and Tober, B.: Machine learning improves seasonal mass balance prediction for unmonitored glaciers, The Cryosphere, 19, 5801-5826, https://doi.org/10.5194/tc-19-5801-2025, 2025.",
+            "Kjøllmoen, B. (Ed.), Andreassen, L. M., Elvehøy, H. and Storheil, S. (2022): Glaciological investigations in Norway 2021. NVE Rapport 27-2022.",
+        ],
+    ),
+}
+
+
 def wgms_rgi_regions(sourceData):
     """RGI region(s) of a WGMS `source_data`: None for "wgms", 11 for "wgms:11" and
     [13, 14, 15] for "wgms:13,14,15"."""
@@ -187,6 +221,57 @@ def _default_input(sourceData):
         return []
     else:
         raise ValueError(f"source_data={sourceData} is unknown")
+
+
+def stakeSourcesPerRgiRegion(params):
+    """{RGI region: its stake sources} from `training.stake_sources`, which maps RGI
+    regions to lists of sources (e.g. {8: ["wgms", "nve"]}), or, with
+    `training.regions`, from the `stake_sources` of each region block. The RGI regions
+    left out take `data_preprocessing.stakes.DEFAULT_STAKE_SOURCES`."""
+    sources = {
+        int(r): list(s)
+        for r, s in (params["training"].get("stake_sources") or {}).items()
+    }
+    for block in (params["training"].get("regions") or {}).values():
+        if block.get("stake_sources"):
+            for r in block["rgi_regions"]:
+                sources[int(r)] = list(block["stake_sources"])
+    for regionSources in sources.values():
+        for source in regionSources:
+            assert (
+                source in data_preprocessing.stakes.STAKE_SOURCES
+            ), f"Stake source {source} is unknown, choose among {list(data_preprocessing.stakes.STAKE_SOURCES)}."
+    return sources
+
+
+def parseYearSplit(rule):
+    """("<", 2000) for "YEAR:<2000": the stakes before 2000 train, the others test;
+    (">", 2000) for "YEAR:>2000": the stakes after 2000 train."""
+    key, _, value = rule.partition(":")
+    assert key == "YEAR" and value[:1] in ("<", ">"), f"{rule} is not a split by year."
+    return value[0], int(value[1:])
+
+
+def isTestYear(year, rule):
+    """Whether a stake of `year` is a test stake under the split by year `rule`."""
+    side, yearSplit = parseYearSplit(rule)
+    return year >= yearSplit if side == "<" else year <= yearSplit
+
+
+def yearSplitPerRgiRegion(params, defaultRule):
+    """{RGI region: its split by year} for the regions of `training.regions` that set
+    their own `splitTest`, or {} when none does. The other regions keep `defaultRule`,
+    the `splitTest` of the training section, which must then be a split by year too."""
+    regions = params["training"].get("regions") or {}
+    rules = {
+        int(r): block["splitTest"]
+        for block in regions.values()
+        if block.get("splitTest")
+        for r in block["rgi_regions"]
+    }
+    for rule in list(rules.values()) + ([defaultRule] if rules else []):
+        parseYearSplit(rule)
+    return rules
 
 
 class SourceManager:
@@ -281,7 +366,28 @@ class SourceManager:
         # TODO: add some prints and checks
 
         # Split between train and test sets
-        if "YEAR" in self.test_split_on:
+        regionRules = yearSplitPerRgiRegion(self.params, self.test_split_on)
+        if regionRules:
+            # A region of `training.regions` with a `splitTest` of its own: each stake
+            # is split with the rule of its RGI region. A measurement has one YEAR, so
+            # splitting on its ID keeps its months together.
+            data = dataloader.data
+            rgiRegion = (
+                data.RGIId.str.split("-").str[1].str.split(".").str[0].astype(int)
+            )
+            rules = rgiRegion.map(
+                lambda r: regionRules.get(r, self.test_split_on)
+            ).to_numpy()
+            is_test = np.array(
+                [isTestYear(y, rule) for y, rule in zip(data.YEAR.to_numpy(), rules)]
+            )
+            train_set, test_set = set_dataloader_splits(
+                dataloader,
+                test_split_on="ID",
+                test_splits=data.ID[is_test].unique(),
+                random_state=self.cfg.seed,
+            )
+        elif "YEAR" in self.test_split_on:
             tmp = self.test_split_on.split(":")
             year_split = int(tmp[1][1:])
             split = tmp[1][0]
@@ -418,17 +524,7 @@ class SourceManagerIceland(SourceManager):
             data = pd.read_csv(
                 data_preprocessing.iceland.processed_features_stakes_path()
             )
-            _format_data_credit(
-                "https://icelandicglaciers.is/#/page/map",
-                "CC-BY license with following references provided for the mass balance data",
-                [
-                    "Finnur Pálsson. 2022. Vatnajökull. Mass balance, meltwater drainage and surface velocity of the glacial year 2021–22. Reykjavík, Landsvirkjun, Institute of Earth Sciences University of Iceland, Rep. LV-2022-054. https://gogn.lv.is/files/2022/2022-054.pdf",
-                    "Finnur Pálsson. 2022. Afkomu- og hraðamælingar á Langjökli jökulárið 2021–2022 (Mass balance and ice flow measurements of Langjökull in 2021–2022). Reykjavík, Landsvirkjun, Institute of Earth Sciences University of Iceland, Rep. LV-2022-053. https://gogn.lv.is/files/2022/2022-053.pdf",
-                    "Helgi Björnsson, Finnur Pálsson, Magnús Tumi Guðmundsson and Hannes H. Haraldsson. 1998. Mass balance of western and northern Vatnajökull, Iceland, 1991–1995, Jökull, 45, 35–58, https://doi.org/10.33799/jokull1998.45.035",
-                    "Þorsteinn Þorsteinsson, Tómas Jóhannesson, Bergur Einarsson, Vilhjálmur S. Kjartansson. 2017. Afkomumælingar á Hofsjökli 1988–2017 [Mass balance measurements on Hofsjökull 1988–2017]. Reykjavík, Veðurstofa Íslands, skýrsla 2017-016. https://www.vedur.is/media/vedurstofan-utgafa-2017/2017_016_hofsjokull30_rs.pdf",
-                    "Guðfinna Aðalgeirsdóttir, Eyjólfur Magnússon, Finnur Pálsson, Þorsteinn Þorsteinsson, JMC Belart, Tómas Jóhannesson, Hrafnhildur Hannesdóttir, Oddur Sigurðsson, Andri Gunnarsson, Bergur Einarsson, E Berthier, LS Schmidt, Hannes H. Haraldsson, Helgi Björnsson. 2020. Glacier changes in Iceland in the 20th and the beginning of the 21st century. Frontiers of Earth Sciences, 8, 523646, https://doi.org/10.3389/feart.2020.523646",
-                ],
-            )
+            _format_data_credit(*_stake_source_credits["iceland"])
 
         data["aspect"] = 180 * data["aspect"] / np.pi
         data["slope"] = 180 * data["slope"] / np.pi
@@ -641,6 +737,7 @@ class SourceManagerWGMS(SourceManager):
         self.train_glaciers = params["training"].get("train_glaciers")
         self.test_glaciers = params["training"].get("test_glaciers")
         self.rgi_region = rgi_region
+        self.stake_sources = stakeSourcesPerRgiRegion(params)
         super().__init__(cfg, params, *args, **kwargs)
 
     def load_stakes_data(self):
@@ -651,24 +748,23 @@ class SourceManagerWGMS(SourceManager):
             if isinstance(self.rgi_region, (list, tuple))
             else [self.rgi_region]
         )
-        frames, offset = [], 0
+        frames, offset, sourcesUsed = [], 0, []
         for rgi_region in regions:
-            df = data_preprocessing.wgms.load_monthly_data(rgi_region, self.cfg)
+            sources = self.stake_sources.get(
+                rgi_region, data_preprocessing.stakes.DEFAULT_STAKE_SOURCES
+            )
+            df = data_preprocessing.stakes.load_monthly_data(
+                rgi_region, sources, self.cfg
+            )
             # The measurement IDs restart at 0 in every region
             df["ID"] = df["ID"] + offset
             if len(df) > 0:
                 offset = df["ID"].max() + 1
             frames.append(df)
+            sourcesUsed += [s for s in sources if s not in sourcesUsed]
         data = pd.concat(frames, ignore_index=True)
-        _format_data_credit(
-            "WGMS (2026): Fluctuations of Glaciers (FoG) Database. World Glacier Monitoring Service (WGMS), Zurich, Switzerland. https://doi.org/10.5904/wgms-fog-2026-02-10",
-            "Open access under the requirement of correct citation",
-            [
-                "WGMS (2023): Global Glacier Change Bulletin No. 5 (2020-2021). Michael Zemp, Isabelle Gärtner-Roer, Samuel U. Nussbaumer, Ethan Z. Welty, Inés Dussaillant, and Jacqueline Bannwart (eds.), ISC (WDS) / IUGG (IACS) / UNEP / UNESCO / WMO, World Glacier Monitoring Service, Zurich, Switzerland, 134 pp. Based on database version https://doi.org/10.5904/wgms-fog-2023-09.",
-                "WGMS (2013): Glacier Mass Balance Bulletin No. 12 (2010-2011). Michael Zemp, Samuel U. Nussbaumer, Kathrin Naegeli, Isabelle Gärtner-Roer, Frank Paul, Martin Hoelzle, and Wilfried Haeberli (eds.), ICSU (WDS) / IUGG (IACS) / UNEP / UNESCO / WMO, World Glacier Monitoring Service, Zurich, Switzerland, 106 pp. Based on database version https://doi.org/10.5904/wgms-fog-2013-11.",
-                "WGMS (2012): Fluctuations of Glaciers 2005-2010 (Vol. X): Michael Zemp, Holger Frey, Isabelle Gärtner-Roer, Samuel U. Nussbaumer, Martin Hoelzle, Frank Paul, and Wilfried Haeberli (eds.), ICSU (WDS) / IUGG (IACS) / UNEP / UNESCO / WMO, World Glacier Monitoring Service, Zurich, Switzerland. Based on database version https://doi.org/10.5904/wgms-fog-2012-11.",
-            ],
-        )
+        for source in sourcesUsed:
+            _format_data_credit(*_stake_source_credits[source])
 
         data["aspect"] = 180 * data["aspect"] / np.pi
         data["slope"] = 180 * data["slope"] / np.pi

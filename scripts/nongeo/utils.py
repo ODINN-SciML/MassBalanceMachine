@@ -13,6 +13,7 @@ from skorch.helper import SliceDataset
 from massbalancemachine.cli.common import (
     getMetaData,
     setFeatures,
+    setNormalizationBounds,
     trainValData,
     testData,
     testSplits,

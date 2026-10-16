@@ -1,0 +1,294 @@
+rgi_regions:
+- 6
+stake_sources:
+- iceland
+splitVal: group-rgi
+train_glaciers:
+- RGI60-06.00228
+- RGI60-06.00232
+- RGI60-06.00236
+- RGI60-06.00237
+- RGI60-06.00238
+- RGI60-06.00292
+- RGI60-06.00294
+- RGI60-06.00302
+- RGI60-06.00303
+- RGI60-06.00305
+- RGI60-06.00306
+- RGI60-06.00309
+- RGI60-06.00310
+- RGI60-06.00377
+- RGI60-06.00424
+- RGI60-06.00443
+- RGI60-06.00465
+- RGI60-06.00466
+- RGI60-06.00473
+- RGI60-06.00475
+- RGI60-06.00476
+- RGI60-06.00477
+- RGI60-06.00478
+- RGI60-06.00480
+- RGI60-06.00483
+val_glaciers:
+- RGI60-06.00234
+- RGI60-06.00291
+- RGI60-06.00296
+- RGI60-06.00301
+- RGI60-06.00311
+- RGI60-06.00416
+- RGI60-06.00472
+test_glaciers:
+- RGI60-06.00228
+- RGI60-06.00232
+- RGI60-06.00234
+- RGI60-06.00236
+- RGI60-06.00237
+- RGI60-06.00238
+- RGI60-06.00291
+- RGI60-06.00292
+- RGI60-06.00294
+- RGI60-06.00302
+- RGI60-06.00303
+- RGI60-06.00305
+- RGI60-06.00309
+- RGI60-06.00310
+- RGI60-06.00311
+- RGI60-06.00320
+- RGI60-06.00328
+- RGI60-06.00336
+- RGI60-06.00339
+- RGI60-06.00340
+- RGI60-06.00342
+- RGI60-06.00343
+- RGI60-06.00349
+- RGI60-06.00350
+- RGI60-06.00359
+- RGI60-06.00377
+- RGI60-06.00409
+- RGI60-06.00411
+- RGI60-06.00413
+- RGI60-06.00416
+- RGI60-06.00422
+- RGI60-06.00424
+- RGI60-06.00425
+- RGI60-06.00443
+- RGI60-06.00445
+- RGI60-06.00465
+- RGI60-06.00466
+- RGI60-06.00472
+- RGI60-06.00473
+- RGI60-06.00474
+- RGI60-06.00475
+- RGI60-06.00476
+- RGI60-06.00477
+- RGI60-06.00478
+- RGI60-06.00479
+- RGI60-06.00480
+- RGI60-06.00483
+- RGI60-06.00539
+- RGI60-06.00540
+- RGI60-06.00541
+- RGI60-06.00542
+- RGI60-06.00544
+- RGI60-06.00549
+geodetic_source:
+- Belart20
+geodetic_source_options:
+  Belart20:
+    periods:
+      BAR:
+      - - 1960
+        - 1980
+      - - 1980
+        - 1994
+      EIR:
+      - - 1960
+        - 1978
+      - - 1986
+        - 1995
+      HOF:
+      - - 1967
+        - 1976
+      - - 1983
+        - 1990
+      HRU:
+      - - 1960
+        - 1980
+      - - 1987
+        - 1995
+      SNA:
+      - - 1984
+        - 1993
+      SNJ:
+      - - 1959
+        - 1979
+      - - 1985
+        - 1991
+      THR:
+      - - 1982
+        - 1990
+      TIN:
+      - - 1960
+        - 1980
+      - - 1990
+        - 1994
+      TUN:
+      - - 1960
+        - 1980
+      - - 1986
+        - 1995
+geodetic_source_options_val:
+  Belart20:
+    periods:
+      EIR:
+      - - 1978
+        - 1986
+      HOF:
+      - - 1976
+        - 1983
+      HRU:
+      - - 1980
+        - 1987
+      SNJ:
+      - - 1979
+        - 1985
+      TIN:
+      - - 1980
+        - 1990
+      TUN:
+      - - 1980
+        - 1986
+      THR:
+      - - 1976
+        - 1982
+geodetic_source_test: Hugonnet21
+train_glaciers_geo:
+- BAR
+- EIR
+- HOF
+- HRU
+- SNA
+- SNJ
+- THR
+- TIN
+- TUN
+val_glaciers_geo:
+- EIR
+- HOF
+- HRU
+- SNJ
+- THR
+- TIN
+- TUN
+test_glaciers_geo:
+- RGI60-06.00001
+- RGI60-06.00002
+- RGI60-06.00003
+- RGI60-06.00005
+- RGI60-06.00006
+- RGI60-06.00007
+- RGI60-06.00025
+- RGI60-06.00026
+- RGI60-06.00027
+- RGI60-06.00035
+- RGI60-06.00270
+- RGI60-06.00271
+- RGI60-06.00272
+- RGI60-06.00273
+- RGI60-06.00274
+- RGI60-06.00275
+- RGI60-06.00276
+- RGI60-06.00277
+- RGI60-06.00278
+- RGI60-06.00279
+- RGI60-06.00281
+- RGI60-06.00283
+- RGI60-06.00284
+- RGI60-06.00285
+- RGI60-06.00286
+- RGI60-06.00287
+- RGI60-06.00288
+- RGI60-06.00289
+- RGI60-06.00290
+- RGI60-06.00349
+- RGI60-06.00350
+- RGI60-06.00351
+- RGI60-06.00352
+- RGI60-06.00353
+- RGI60-06.00354
+- RGI60-06.00355
+- RGI60-06.00356
+- RGI60-06.00357
+- RGI60-06.00358
+- RGI60-06.00359
+- RGI60-06.00512
+- RGI60-06.00513
+- RGI60-06.00514
+- RGI60-06.00516
+- RGI60-06.00517
+- RGI60-06.00518
+- RGI60-06.00519
+- RGI60-06.00520
+- RGI60-06.00521
+- RGI60-06.00522
+- RGI60-06.00523
+- RGI60-06.00548
+- RGI60-06.00553
+- RGI60-06.00554
+- RGI60-06.00555
+- RGI60-06.00564
+- RGI60-06.00567
+- RGI60-06.00568
+provenance:
+  notebook: split_train_test_wgms_bruteforce_iceland_glacier.ipynb
+  year_split: 2000
+  calibration_periods_oggm_pygem:
+    BAR:
+    - - 1960
+      - 1980
+    EIR:
+    - - 1960
+      - 1978
+    HOF:
+    - - 1967
+      - 1976
+    HRU:
+    - - 1960
+      - 1980
+    SNJ:
+    - - 1959
+      - 1979
+    TIN:
+    - - 1960
+      - 1980
+    TUN:
+    - - 1960
+      - 1980
+  excluded_geodetic:
+    MYR: "M\xFDrdalsj\xF6kull: geothermal and volcanic melt under Katla, ~157 mm w.e.\
+      \ a-1 (J\xF3hannesson et al., 2020)"
+    TOR: "Torfaj\xF6kull: high-temperature geothermal area beneath the ice"
+    ORA: "\xD6r\xE6faj\xF6kull: part of S-Vatnaj\xF6kull, calving outlets"
+    EYJ: "Eyjafjallaj\xF6kull: 2010 eruption (no period before 2000, so only left\
+      \ out of the test)"
+  val_fraction_target: 0.25
+  val_fraction_measurements_target: 0.25
+  split_unit: RGI outline (stakes); Belart20 periods per epoch
+  constraint_elev_diff: stakes
+  split_features:
+  - ELEVATION_DIFFERENCE
+  - aspect
+  - fal
+  - slhf
+  - slope
+  - sshf
+  - ssrd
+  - str
+  - t2m
+  - tp
+  - svf
+  - u10
+  - v10
+  max_measurements_per_glacier: 10000
+  n_trials: 500
+  score: 0.6467406749725342

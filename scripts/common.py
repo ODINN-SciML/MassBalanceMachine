@@ -53,6 +53,9 @@ def parseParams(params):
     modelParams = {
         "type": params["model"]["type"],
         "inputs": inputs,
+        # Normalization bounds {feature: [lower, upper]} replacing the global defaults
+        # of `config.DEFAULT_BNDS`, see `cli.common.setNormalizationBounds`
+        "normalization": params["model"].get("normalization") or {},
     }
     if (
         modelParams["type"] == "sequential"
@@ -74,7 +77,10 @@ def parseParams(params):
                 modelParams["cor_dir"] = params["model"]["cor_dir"]
                 modelParams["cor_terrain"] = params["model"]["cor_terrain"]
             if "sw_contrib" in params["model"]:
-                modelParams["sw_contrib"] = params["model"]["sw_contrib"]
+                modelParams["sw_contrib"] = {
+                    **params["model"]["sw_contrib"],
+                    "max": float(params["model"]["sw_contrib"].get("max", 1.0)),
+                }
         else:
             ValueError("Cannot identify the type of temperature downscaling")
         if "cor_fac" in params["model"]:
@@ -90,6 +96,11 @@ def parseParams(params):
             }
         if "bias_cor_elev" in params["model"]:
             modelParams["bias_cor_elev"] = params["model"]["bias_cor_elev"]
+        if "snow_slope" in params["model"]:
+            modelParams["snow_slope"] = params["model"]["snow_slope"]
+        modelParams["beta1"] = float(params["model"].get("beta1", 10.0))
+        if "trainable" in params["model"]:
+            modelParams["trainable"] = params["model"]["trainable"]
     trainingParams = {
         "source_data": source_data,
         "geodetic_source": geodetic_source,
@@ -113,7 +124,22 @@ def parseParams(params):
         "train_glaciers": params["training"].get("train_glaciers"),
         "val_glaciers": params["training"].get("val_glaciers"),
         "wGeo": params["training"].get("wGeo", 0.0),
+        # Geodetic stages run after the first one, each over NepochsGeo epochs and
+        # starting from the best model of the previous stage, see scripts/geo/train.py
+        "wGeoSchedule": [
+            float(w) for w in params["training"].get("wGeoSchedule") or []
+        ],
+        "NepochsGeo": params["training"].get("NepochsGeo"),
         "scalingGeo": params["training"].get("scalingGeo", "quad"),
+        # Weight the geodetic loss term of every window by its area, see
+        # `training.geodeticAreaWeights`
+        "areaWeightGeo": params["training"].get("areaWeightGeo", False),
+        # Lower bound (m w.e. a-1) on the 1 sigma error of the geodetic windows in the
+        # loss, see `training.compute_geo_loss`; None uses the errors as they are
+        "errGeoFloor": params["training"].get("errGeoFloor"),
+        # With a geodetic term, one optimizer step per epoch on the gradient averaged
+        # over the geodetic glaciers instead of one step per geodetic glacier
+        "geoStepPerEpoch": params["training"].get("geoStepPerEpoch", False),
         "bestModelCriterion": params["training"].get("bestModelCriterion", "lossVal"),
         "splitVal": params["training"].get("splitVal", "group-meas-id"),
         "splitTest": params["training"].get("splitTest", "group-rgi"),
