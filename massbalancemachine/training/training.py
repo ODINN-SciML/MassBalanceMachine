@@ -591,7 +591,7 @@ def assessOnTest(log_dir, model, geodataloader_test, params, light=False, color=
     mse_winter, rmse_winter, mae_winter, pearson_corr_winter, r2_winter, bias_winter = (
         scores(predWinter, targetWinter)
     )
-    if len(targetSummer) > 0:
+    if len(targetSummer) > 1:
         (
             mse_summer,
             rmse_summer,
@@ -624,7 +624,7 @@ def assessOnTest(log_dir, model, geodataloader_test, params, light=False, color=
         "r2_winter": r2_winter.item(),
         "bias_winter": bias_winter.item(),
     }
-    if len(targetSummer) > 0:
+    if len(targetSummer) > 1:
         stats["mse_summer"] = mse_summer.item()
         stats["rmse_summer"] = rmse_summer.item()
         stats["mae_summer"] = mae_summer.item()
@@ -956,7 +956,7 @@ def assessOnVal(
                 r2_annual,
                 bias_annual,
             ) = scores(predAnnual, targetAnnual)
-            if targetWinter.shape[0] > 0:
+            if targetWinter.shape[0] > 1:
                 (
                     mse_winter,
                     rmse_winter,

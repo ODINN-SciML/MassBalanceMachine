@@ -684,7 +684,7 @@ class GeoDataLoader:
             # entities without a target. The target only settles an RGI outline
             # lying in nested entities.
             (source,) = self.geodeticSources
-            (dfGeo, _) = targets[source]
+            dfGeo, _ = targets[source]
             return {
                 source: buildGlacierMapping(
                     glacierList, source, idsWithTarget=set(dfGeo.RGIId)
