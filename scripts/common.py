@@ -149,6 +149,9 @@ def parseParams(params):
         "log_dir": params["training"].get("log_dir"),
         "wWinter": params["training"].get("wWinter", 1.0),
         "wSummer": params["training"].get("wSummer", 1.0),
+        # Where t2m, tp, tp_sum, ALTITUDE_CLIMATE and ELEVATION_DIFFERENCE come from,
+        # see `cli.common.setClimateSource`
+        "climate_source": params["training"].get("climate_source", "era5land"),
     }
     if "regions" in params["training"]:
         trainingParams["regions"] = params["training"]["regions"]
