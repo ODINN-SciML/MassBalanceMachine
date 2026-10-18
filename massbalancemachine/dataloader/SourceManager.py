@@ -25,6 +25,7 @@ from data_processing.utils.hydro_year import build_head_tail_pads_from_monthly_d
 from data_processing.utils.data_preprocessing import get_hash
 from data_processing.Product import Product
 from data_processing.product_utils import get_data_path
+from data_processing.gswp3_w5e5 import apply_climate_source, DEFAULT_CLIMATE_SOURCE
 from dataloader.DataLoader import DataLoader, set_dataloader_splits
 import data_preprocessing.iceland
 import data_preprocessing.wgms
@@ -304,6 +305,16 @@ class SourceManager:
 
     def train_test_sets(self):
         data_monthly = self.load_stakes_data()
+        # The climate of the stakes, ERA5-Land as stored or another source replacing
+        # t2m, tp, tp_sum, ALTITUDE_CLIMATE and ELEVATION_DIFFERENCE (see
+        # data_processing.gswp3_w5e5); a measurement it does not cover is dropped
+        data_monthly = apply_climate_source(
+            data_monthly,
+            getattr(self.cfg, "climate_source", DEFAULT_CLIMATE_SOURCE),
+            grid=False,
+            glacier_column="RGIId",
+            missing="drop",
+        ).reset_index(drop=True)
         self.glaciers_list = data_monthly[
             "GLACIER" if self.glacierNamesProvided else "RGIId"
         ].unique()

@@ -17,6 +17,12 @@ from concurrent.futures import ThreadPoolExecutor
 # )
 
 from data_processing.Dataset import Normalizer
+from data_processing.gswp3_w5e5 import (
+    apply_climate_source,
+    replace_metadata_elevation_difference,
+    DEFAULT_CLIMATE_SOURCE,
+    REPLACED_COLUMNS,
+)
 from data_processing.utils import _rebuild_month_index
 from data_processing.gridded_utils import (
     create_gridded_features_RGI,
@@ -454,8 +460,8 @@ class GeoDataLoader:
                     for rgi_id in tqdm.tqdm(
                         self.glaciersWithGeo + self.glaciersValWithGeo
                     ):
-                        self.df_X_geod[rgi_id] = geodetic_input_Hugonnet21(
-                            rgi_id, years=self.years
+                        self.df_X_geod[rgi_id] = self._withClimate(
+                            geodetic_input_Hugonnet21(rgi_id, years=self.years)
                         )
                 elif self.isWindowed:
                     print(f"Preloading {self.geodeticSource} geodetic grids")
@@ -464,9 +470,11 @@ class GeoDataLoader:
                         self.glaciersWithGeo + self.glaciersValWithGeo
                     ):
                         geodetic_input = GEODETIC_INPUT_FN[self.sourceOf(glacier_id)]
-                        self.df_X_geod[glacier_id] = geodetic_input(
-                            glacier_id,
-                            time_range=self.periods_per_glacier[glacier_id],
+                        self.df_X_geod[glacier_id] = self._withClimate(
+                            geodetic_input(
+                                glacier_id,
+                                time_range=self.periods_per_glacier[glacier_id],
+                            )
                         )
                 else:
                     raise ValueError(f"Unknown geodetic source {self.geodeticSource}.")
@@ -829,6 +837,7 @@ class GeoDataLoader:
                 df_X_geod = load_grid_multi_years(
                     g, self.periods_per_glacier[g], self.sourceOf(g)
                 )
+            df_X_geod = self._withClimate(df_X_geod)
             precomputed_meta = self._metadata_groups(df_X_geod)
         else:
             if self.preloadGeodetic:
@@ -1112,6 +1121,37 @@ class GeoDataLoader:
             "nunique_ids": metadata["ID_int"].nunique(),
         }
 
+    def _climateSource(self) -> str:
+        return getattr(self.cfg, "climate_source", DEFAULT_CLIMATE_SOURCE)
+
+    def _withClimate(self, df_X_geod: pd.DataFrame, key=None) -> pd.DataFrame:
+        """A geodetic grid with the climate of `cfg.climate_source` (see
+        `data_processing.gswp3_w5e5`). The rows are kept: a grid month the source does
+        not cover raises. With `key` (the glacier), the replaced columns are computed
+        once and reused, as `_geo_sync` reads the same grid at every step."""
+        if self._climateSource() == DEFAULT_CLIMATE_SOURCE:
+            return df_X_geod
+        cache = self.__dict__.setdefault("_climateColumns", {})
+        if key is None or key not in cache:
+            replaced = apply_climate_source(
+                df_X_geod,
+                self._climateSource(),
+                grid=True,
+                glacier_column="RGIId",
+                missing="raise",
+            )
+            columns = {
+                c: replaced[c].to_numpy() for c in REPLACED_COLUMNS if c in replaced
+            }
+            if key is None:
+                return replaced
+            cache[key] = columns
+        columns = cache[key]
+        assert all(
+            len(v) == len(df_X_geod) for v in columns.values()
+        ), "the grid of the glacier changed since its climate was replaced"
+        return df_X_geod.assign(**columns)
+
     def _geo_sync(self, glacierName: str, async_transfer: bool = False):
         """
         Returns the geodetic data to be used in the model.
@@ -1157,6 +1197,11 @@ class GeoDataLoader:
             #     df_X_geod = create_geodetic_input(
             #         self.cfg, glacierName, self.periods_per_glacier, to_seasonal=False
             #     )
+            if self._climateSource() != DEFAULT_CLIMATE_SOURCE:
+                df_X_geod = self._withClimate(df_X_geod, key=glacierName)
+                precomputed_meta = replace_metadata_elevation_difference(
+                    precomputed_meta, df_X_geod
+                )
         else:
             df_X_geod = self.df_X_geod[glacierName]
             if self.precomputed_meta is not None:

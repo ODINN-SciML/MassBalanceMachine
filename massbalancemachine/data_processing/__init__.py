@@ -7,6 +7,7 @@ from data_processing.Dataset import (
     MBSequenceDatasetTL,
 )
 import data_processing.climate_projections
+import data_processing.gswp3_w5e5
 import data_processing.utils
 from data_processing.wgms import (
     check_and_download_wgms,

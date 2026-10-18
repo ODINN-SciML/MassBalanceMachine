@@ -16,6 +16,7 @@ from scripts.nongeo.utils import (
     getMetaData,
     setFeatures,
     setNormalizationBounds,
+    setClimateSource,
     trainValData,
     testData,
     testSplits,
@@ -242,6 +243,7 @@ elif "wgms" in sourceData:
 else:
     raise ValueError(f"source_data={sourceData} is unknown")
 setNormalizationBounds(cfg, params)
+setClimateSource(cfg, params)
 
 
 keyGlacier = "GLACIER" if sourceData == "switzerland" else "RGIId"

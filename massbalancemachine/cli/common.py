@@ -307,6 +307,26 @@ def setNormalizationBounds(cfg, params):
         cfg.bnds[feature] = (lower, upper)
 
 
+def setClimateSource(cfg, params):
+    """Set the climate source of `cfg` from `params["training"]["climate_source"]`:
+    "era5land" (the default, the climate stored in the stake tables and grids) or
+    "gswp3_w5e5" (t2m, tp, tp_sum, ALTITUDE_CLIMATE and ELEVATION_DIFFERENCE replaced
+    when they are read, see `data_processing.gswp3_w5e5`).
+
+    Like the normalization bounds, it must be applied wherever a config is built from
+    the params of a model, before any dataloader is built from it, so that a model is
+    evaluated with the climate it was trained on."""
+    # The top-level module, which `import massbalancemachine` puts on the path: the
+    # attribute `mbm.data_processing` can be rebound to a partial copy of the package
+    from data_processing.gswp3_w5e5 import CLIMATE_SOURCES, DEFAULT_CLIMATE_SOURCE
+
+    source = params["training"].get("climate_source", DEFAULT_CLIMATE_SOURCE)
+    assert (
+        source in CLIMATE_SOURCES
+    ), f"training.climate_source must be one of {CLIMATE_SOURCES}, got {source}."
+    cfg.climate_source = source
+
+
 def setFeatures(cfg, data_train, featuresInpModel):
     # feature_columns = list(
     #     data_train.columns.difference(cfg.metaData)

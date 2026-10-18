@@ -23,6 +23,7 @@ from massbalancemachine.cli.common import (
     getMetaData,
     setFeatures,
     setNormalizationBounds,
+    setClimateSource,
     trainValData,
     testData,
     testSplits,
@@ -259,6 +260,7 @@ def main(argv=None):
     else:
         raise ValueError(f"source_data={sourceData} is unknown")
     setNormalizationBounds(cfg, params)
+    setClimateSource(cfg, params)
 
     if torch.cuda.is_available():
         print("CUDA is available")
@@ -575,17 +577,24 @@ def main(argv=None):
                 ],
                 ignore_index=True,
             )
-            # A correction on ELEVATION_DIFFERENCE needs the altitude of the ERA5 cell
-            # of each glacier, which each RGI region has its own file for
+            # A correction on ELEVATION_DIFFERENCE needs the altitude of the climate
+            # cell of each glacier: of ERA5-Land, which each RGI region has its own file
+            # for, or of the climate source of the model
             correctionInputs = (module.inp_bias_T or []) + (module.inp_P_cor or [])
             if "ELEVATION_DIFFERENCE" in correctionInputs:
                 glaciers["ALTITUDE_CLIMATE"] = np.nan
                 for r, idx in glaciers.groupby("RGI_REGION").groups.items():
-                    glaciers.loc[idx, "ALTITUDE_CLIMATE"] = (
-                        mbm.data_processing.get_climate_data.altitude_climate_at(
-                            r, glaciers.CenLat[idx], glaciers.CenLon[idx]
+                    if cfg.climate_source == "gswp3_w5e5":
+                        altitude = mbm.data_processing.gswp3_w5e5.altitude_climate_at(
+                            glaciers.CenLat[idx], glaciers.CenLon[idx]
                         )
-                    )
+                    else:
+                        altitude = (
+                            mbm.data_processing.get_climate_data.altitude_climate_at(
+                                r, glaciers.CenLat[idx], glaciers.CenLon[idx]
+                            )
+                        )
+                    glaciers.loc[idx, "ALTITUDE_CLIMATE"] = altitude
             # Elevations spanning the glaciers of the region (missing values are < 0)
             zmin = np.percentile(glaciers.Zmin[glaciers.Zmin > 0], 5)
             zmax = np.percentile(glaciers.Zmax[glaciers.Zmax > 0], 95)
