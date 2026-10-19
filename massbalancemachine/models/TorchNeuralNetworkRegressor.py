@@ -354,8 +354,27 @@ class TILikeModel(nn.Module):
             )
         cor_abl.append(nn.ReLU())
         cor_abl.append(nn.Linear(cor_abl_params["layers"][-1], 1))
-        cor_abl.append(nn.Softplus())
         self.cor_abl = nn.Sequential(*cor_abl)
+        # Output of the ablation factor: "softplus" (unbounded, the default) or
+        # "sigmoid", cor_abl = min + (max - min) * sigmoid, within prescribed bounds
+        self.cor_abl_output = cor_abl_params.get("output", "softplus")
+        assert self.cor_abl_output in (
+            "softplus",
+            "sigmoid",
+        ), f"cor_abl.output must be 'softplus' or 'sigmoid', got {self.cor_abl_output}."
+        if self.cor_abl_output == "sigmoid":
+            assert (
+                "min" in cor_abl_params and "max" in cor_abl_params
+            ), "cor_abl.output 'sigmoid' needs the bounds cor_abl.min and cor_abl.max."
+            self.cor_abl_min = float(cor_abl_params["min"])
+            self.cor_abl_max = float(cor_abl_params["max"])
+            assert (
+                0.0 <= self.cor_abl_min < self.cor_abl_max
+            ), f"The ablation factor range must satisfy 0 <= min < max, got [{self.cor_abl_min}, {self.cor_abl_max}]."
+        else:
+            assert (
+                "min" not in cor_abl_params and "max" not in cor_abl_params
+            ), "cor_abl.min and cor_abl.max only apply with cor_abl.output 'sigmoid'."
 
     def snow_slope(self):
         """Slope (1/°C) of the sigmoid splitting precipitation into snow, from the
@@ -417,6 +436,16 @@ class TILikeModel(nn.Module):
         return self.lapse_rate_max - (
             self.lapse_rate_max - self.lapse_rate_min
         ) * F.sigmoid(self.grad_T(inp_grad_T)[:, 0])
+
+    def _ablation_factor(self, inp_cor_abl):
+        """Ablation factor of the normalized inputs of cor_abl, unbounded (softplus) or
+        within [cor_abl_min, cor_abl_max] (sigmoid)."""
+        raw = self.cor_abl(inp_cor_abl).view(-1)
+        if self.cor_abl_output == "sigmoid":
+            return self.cor_abl_min + (self.cor_abl_max - self.cor_abl_min) * F.sigmoid(
+                raw
+            )
+        return F.softplus(raw)
 
     def _P_cor(self, inputs):
         """Precipitation correction of the normalized model inputs."""
@@ -566,7 +595,7 @@ class TILikeModel(nn.Module):
         PDD = F.softplus((T + cor_T) * curv_pdd) / curv_pdd
 
         cor_acc = self.cor_acc(inp_cor_acc).view(-1)
-        cor_abl = self.cor_abl(inp_cor_abl).view(-1)
+        cor_abl = self._ablation_factor(inp_cor_abl)
 
         return (
             cor_T,
@@ -672,7 +701,7 @@ class TILikeModel(nn.Module):
         cor_acc = self.cor_acc(inp_cor_acc).view(-1)
 
         # Ablation factor correction
-        cor_abl = self.cor_abl(inp_cor_abl).view(-1)
+        cor_abl = self._ablation_factor(inp_cor_abl)
 
         MB = self.beta1 * cor_acc * P_solid - self.beta2 * cor_abl * PDD - R_sw
         # TODO: changer scaling de beta2 pour correspondre aux valeurs typiques calées avec ODINN

@@ -55,6 +55,13 @@ model:
             - ssrd
             - str
         layers: [32, 16, 8]
+        # Output of the ablation factor: softplus (unbounded, the default) or sigmoid,
+        # cor_abl = min + (max - min) * sigmoid. The melt is 0.0049 * cor_abl * PDD m w.e.
+        # per month, so a summer degree-day factor of 3-10 mm w.e. K-1 d-1 is a cor_abl of
+        # about 19-62.
+        # output: sigmoid
+        # min: 19.0
+        # max: 62.0
     bias_cor:
         inputs:
             - POINT_LAT
