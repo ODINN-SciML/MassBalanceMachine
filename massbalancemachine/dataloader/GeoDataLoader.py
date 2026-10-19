@@ -659,7 +659,8 @@ class GeoDataLoader:
         Austdalsbreen unless `exclude_calving=False` (see
         `data_processing.andreassen16.geodetic_target_Andreassen16`). NVE
         takes the arguments of Belart20 and `exclude_calving`, and `max_area_ratio`,
-        the largest mismatch between the surveyed area and the RGI outlines (see
+        the largest mismatch between the surveyed area and the outlines of the
+        period, the GAO outlines of 1947-1985 before 1985 and RGI 6.2 after (see
         `data_processing.nve_geodetic.geodetic_target_NVE`). An RGI outline
         lying in a glacier and in a group of glaciers of NVE goes to the one
         carrying a target (see `buildGlacierMapping`).
@@ -806,8 +807,8 @@ class GeoDataLoader:
     def _readGeodeticAreas(self) -> dict:
         """Area of every geodetic window of every glacier of the dataloader, train and
         validation sides, from its grid (`gridded_utils.geodetic_grid_area`), read on the
-        first year of the window: a window of `Maurer19_Hugonnet21` is on the outlines of
-        its own epoch.
+        first year of the window: a window of `Maurer19_Hugonnet21` or of `NVE` is on the
+        outlines of its own epoch (`gridded_utils.grid_tree`).
 
         Returns {glacier id in its source: np.ndarray, one area per window, km²}.
         """

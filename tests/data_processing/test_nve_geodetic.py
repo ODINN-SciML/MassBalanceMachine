@@ -1,20 +1,27 @@
 """Tests of the NVE source: the geodetic balances of the NVE glacier database,
-their versions, groups of glaciers, units and uncertainty, and the crosswalk to RGI 6.2.
+their versions, groups of glaciers, units and uncertainty, the crosswalk to RGI 6.2
+and the GAO outlines of 1947-1985 the periods before 1985 are gridded on.
 
 The table is not public and is read from `.data/NVE`, the outlines from OGGM's
-local copy of RGI 6.2: every test is skipped when either is missing.
+local copy of RGI 6.2: every test is skipped when either is missing. The GAO
+outlines are downloaded to `.data/NVE` on first use.
 """
 
 import os
 
 import pandas as pd
 import pytest
+import shapely
 
 from data_processing.andreassen16 import ANDREASSEN16_GLACIERS, andreassen16_periods
 from data_processing.nve_geodetic import (
     AGGREGATED_PERIODS,
+    JOSTEFONN,
     LANGFJORDJOKELEN,
     RAW_FILE,
+    _gao_basins,
+    _rgi_of_breid,
+    gao_basins,
     nve_data_folder,
     nve_periods,
     entity_id,
@@ -54,7 +61,9 @@ def test_coordinates_are_read_the_right_way_round():
 
 def test_only_current_periods_are_kept(periods):
     raw = read_nve_table()
-    assert len(periods) == (raw.generation_no == 0).sum() - 1
+    # The fifteen glaciers of Strupbreen 1953-2010, and the periods before 1985 of the
+    # four glaciers on no N50 map
+    assert len(periods) == (raw.generation_no == 0).sum() - 1 - 4
     # Ålfotbreen 1988-1997: the reanalysis of 2016, not the value of 2004 (+0.50)
     alf = periods.set_index(["RGIId", "y0", "y1"]).loc[("NVE-2078", 1988, 1997)]
     assert alf.mwe_per_year == pytest.approx(0.87)
@@ -136,9 +145,9 @@ def test_pre_2000_target():
     target = geodetic_target_NVE(max_year=2002)
     assert len(target) == 40 and target.RGIId.nunique() == 32
     assert target.y1.max() <= 2002
-    # Divides of 1995 that do not match RGI 6.2 on Hardangerjøkulen
-    assert not {"NVE-2971", "NVE-2972"} & set(target.RGIId)
-    assert {"NVE-2971", "NVE-2972"} <= set(
+    # Divides of 1995 that do not match the GAO basins on Hardangerjøkulen
+    assert not {"NVE-2971", "NVE-2973"} & set(target.RGIId)
+    assert {"NVE-2971", "NVE-2973"} <= set(
         geodetic_target_NVE(max_year=2002, max_area_ratio=None).RGIId
     )
     for _, g in target.groupby("RGIId"):
@@ -162,12 +171,16 @@ def test_crosswalk_and_outlines():
     lan = table[table.RGIId == "RGI60-08.01258"]
     assert set(lan.custom_id) == {"NVE-54", entity_id(LANGFJORDJOKELEN)}
 
-    group = entity_id(LANGFJORDJOKELEN)
-    outlines = load_nve_outlines([group, "NVE-54"]).set_index("NVE_ID")
-    assert len(outlines.loc[group].rgi_ids) == len(LANGFJORDJOKELEN)
-    assert outlines.loc[group].area_rgi == pytest.approx(
-        table[table.custom_id == group].area_rgi.sum()
+    # Langfjordjøkelen has a period of its own after 1985, its outlets as a group
+    # before only
+    outlines = load_nve_outlines(["NVE-54"]).set_index("NVE_ID")
+    assert outlines.loc["NVE-54"].area_km2 == pytest.approx(
+        table[table.custom_id == "NVE-54"].area_rgi.sum()
     )
+    group = entity_id(LANGFJORDJOKELEN)
+    outlines = load_nve_outlines([group, "NVE-54"], inventory="GAO")
+    outlines = outlines.set_index("NVE_ID")
+    assert len(outlines.loc[group].rgi_ids) == len(LANGFJORDJOKELEN)
     assert outlines.loc[group].geometry.area > outlines.loc["NVE-54"].geometry.area
 
 
@@ -195,3 +208,50 @@ def test_named_periods():
         geodetic_target_NVE(periods={"NVE-2078": [[1968, 1990]]})
     with pytest.raises(AssertionError):
         geodetic_target_NVE(periods=periods, max_year=2000)
+
+
+def test_periods_before_1985_are_on_the_gao_outlines(periods):
+    assert ((periods.y0 < 1985) == (periods.outlines == "GAO")).all()
+    rgi = periods[periods.outlines == "RGI"]
+    assert (rgi.area_outlines == rgi.area_rgi).all()
+    # On no N50 map, and with no period after 1985
+    tiny = {f"NVE-{b}" for b in (2602, 2773, 2774, 2776)}
+    assert not tiny & set(periods.RGIId)
+    p = periods.set_index(["RGIId", "y0", "y1"])
+    # Storsteinsfjellbreen shares its GAO polygon with its neighbours (12.2 km²): its
+    # basin holds the 6.24 km² of the map of 1960
+    sto = p.loc[("NVE-675", 1960, 1993)]
+    assert sto.area_outlines == pytest.approx(6.24, rel=0.01)
+    # Jostefonn of 1966 is larger than its RGI outlines, as is its GAO outline
+    jos = p.loc[(entity_id(JOSTEFONN), 1966, 1993)]
+    assert jos.area_rgi < 0.85 * jos.area_y0_km2
+    assert jos.area_ratio == pytest.approx(1, abs=0.05)
+
+
+def test_gao_basins_split_the_ice_masses():
+    basins = _gao_basins()
+    rgi_of = _rgi_of_breid()
+    # The 20 glaciers of the southern Folgefonna, one GAO polygon, get disjoint basins
+    south = [basins[rgi_of[b]] for b in range(3124, 3144)]
+    union = shapely.union_all(south)
+    assert sum(b.area for b in south) == pytest.approx(union.area, rel=1e-6)
+    assert union.area / 1e6 == pytest.approx(170.9, rel=0.02)
+    # A basin does not depend on the other outlines asked for
+    jostefonn = [rgi_of[b] for b in JOSTEFONN]
+    alone = gao_basins(jostefonn)
+    assert all(alone[r].equals(basins[r]) for r in jostefonn)
+
+
+def test_outlines_of_each_inventory(periods):
+    # Storbreen has periods on both
+    gao = load_nve_outlines(["NVE-2636"], inventory="GAO").iloc[0]
+    rgi = load_nve_outlines(["NVE-2636"], inventory="RGI").iloc[0]
+    p = periods[periods.RGIId == "NVE-2636"].set_index("outlines").area_outlines
+    assert gao.area_km2 == pytest.approx(p.loc[["GAO"]].iloc[0])
+    assert rgi.area_km2 == pytest.approx(p.loc[["RGI"]].iloc[0])
+    assert gao.area_km2 > rgi.area_km2
+    assert gao.rgi_ids == rgi.rgi_ids
+    # Entities with no period on an inventory have no outline in it:
+    # Storsteinsfjellbreen has none after 1985
+    with pytest.raises(AssertionError):
+        load_nve_outlines(["NVE-675"], inventory="RGI")

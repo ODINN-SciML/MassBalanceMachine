@@ -62,17 +62,33 @@ gives no position for cannot be built and its period is left out: the fifteen
 glaciers of Strupbreen 1953-2010. Ramnabergbreen's neighbour 2963 1961-1995
 "probably also includes 2961" (no position either) and is kept as 2963.
 
-**Geometry.** The table gives the area at both surveys but not the outlines. Every
-period is gridded on the RGI 6.2 outlines, from NVE's inventory of Landsat scenes of
-1999 to 2006: one outline per glacier, found as the one holding the position of the
-glacier (`utm_east`, `utm_north`; the columns `latitude` and `logitude` are swapped).
-All 185 positions fall in an RGI outline, a different one each. The ice divides of
-the old maps do not always match those of the inventory: on Hardangerjøkulen the
-areas of 1995 of Austra Leirebottsskåka (11.9 km²) and of 2972 (1.8) are 1.8 and
-1.6 times those of their RGI outlines, while the ice cap as a whole agrees. The
-ratio of the mean area of the surveys to the area of the entity is kept as
-`area_ratio`, and the periods for which it exceeds `max_area_ratio` either way are
-left out of the target by default.
+**Geometry.** The table gives the area at both surveys but not the outlines. Each
+glacier is first matched to one RGI 6.2 outline, from NVE's inventory of Landsat
+scenes of 1999 to 2006, the one holding the position of the glacier (`utm_east`,
+`utm_north`; the columns `latitude` and `logitude` are swapped). All 185 positions
+fall in an RGI outline, a different one each.
+
+The periods whose first survey is before `GAO_BEFORE_YEAR` (1985) are gridded on the
+outlines the old maps were measured on, the Glacier Area Outline (GAO) 1947-1985 of
+Winsvold et al. (2014), digitised from the first edition of the N50 maps
+(`gao_file`, downloaded from NVA, CC BY-NC-SA 4.0). That file gives neither the
+Bre-ID nor the ice divides: a polygon is a whole ice mass, Jostedalsbreen one of
+543 km² holding 48 glaciers of the table. Each ice mass is split between the RGI 6.2
+outlines it touches: the ice inside an RGI outline goes to it, and the ice beyond them,
+where the glaciers have retreated since, to the nearest one (`gao_basins`, which needs
+only public data). A glacier's GAO outline is the basin of its RGI outline. Four small
+glaciers (2602, 2773, 2774, 2776) are on no N50 map, so their periods before 1985
+are left out. The other periods are gridded on the RGI 6.2 outlines. The inventory of
+a period is its `outlines` column ("GAO" or "RGI"), and its entity is gridded on
+each inventory its periods use (`load_nve_outlines`).
+
+The ice divides of the old maps do not always match those of the inventory: on
+Hardangerjøkulen the 1961-1995 periods give the areas of 1995 of Austra
+Leirebottsskåka (11.9 km²) and of 2973 (2.3) as 1.7 and 0.6 times those of their GAO
+basins, while the ice cap as a whole agrees, and the 1961-2010 periods agree with
+the basins within 5%. The ratio of the mean area of the surveys to the area of the
+entity on the outlines of the period is kept as `area_ratio`, and the periods for
+which it exceeds `max_area_ratio` either way are left out of the target by default.
 
 **Calving.** Austdalsbreen (2478) calves into a regulated lake, see Andreassen16: its
 periods are left out by default.
@@ -84,11 +100,15 @@ in its own entity and in every group holding it.
 """
 
 import functools
+import json
 import os
+import urllib.request
+import zipfile
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+import shapely
 
 from data_processing.andreassen16 import NORWAY_REGION_ID, OUTLINES_YEAR
 from data_processing.custom_outlines import CustomOutlineSpec
@@ -156,8 +176,32 @@ DEFAULT_SIGMA_MWE = {"laser": 0.5, "other": 2.0}
 LASER_METHODS = {"l", "L"}
 
 # Largest ratio, either way, between the mean area of the surveys and the area of the
-# RGI outlines of the entity, for the period to be a target by default
+# outlines of the entity, for the period to be a target by default
 MAX_AREA_RATIO = 1.5
+
+# Glacier Area Outline (GAO) 1947-1985 (Winsvold et al., 2014), the NVA record of the
+# dataset and its file. NVA hands out a signed link to the file at `GAO_LINK_URL`.
+GAO_RECORD = "0185ca7d0a25-5fa9f372-5b58-463b-baa8-cf1d0885b248"
+GAO_FILE_ID = "d19d9af8-7757-45a2-a808-4ef43f353196"
+GAO_LINK_URL = (
+    f"https://api.nva.unit.no/publication/{GAO_RECORD}/filelink/{GAO_FILE_ID}"
+)
+GAO_ARCHIVE = "cryoclim_GAO_NO_1947_1985_UTM_33N"
+GAO_CRS = "EPSG:25833"
+
+# Periods whose first survey is before this year are gridded on the GAO outlines
+GAO_BEFORE_YEAR = 1985
+
+# Year the GAO outlines are dated to for OGGM, which only reads it as the date of the
+# geometry: the first survey of most of the periods gridded on them
+GAO_OUTLINES_YEAR = 1966
+
+# Spacing in metres of the points along the RGI outlines whose Voronoi cells give the
+# nearest basin of the GAO ice beyond them
+GAO_DIVIDE_SPACING = 25
+
+# The outline inventories a period can be gridded on, see the module docstring
+OUTLINE_INVENTORIES = ("RGI", "GAO")
 
 
 def nve_data_folder():
@@ -219,26 +263,135 @@ def _rgi_of_breid():
     return dict(zip(joined.glacier_id, joined.RGIId))
 
 
+def gao_file():
+    """Path to the shapefile of the GAO outlines 1947-1985 in `.data/NVE/`, downloading
+    and extracting the archive from NVA if necessary."""
+    folder = os.path.join(nve_data_folder(), GAO_ARCHIVE)
+    if not os.path.isdir(folder):
+        zpath = folder + ".zip"
+        if not os.path.exists(zpath):
+            os.makedirs(nve_data_folder(), exist_ok=True)
+            with urllib.request.urlopen(GAO_LINK_URL) as response:
+                url = json.load(response)["id"]
+            print(f"downloading {GAO_ARCHIVE}.zip from NVA")
+            # Through a temporary name, so that an interrupted download is not
+            # mistaken for the archive on the next run
+            urllib.request.urlretrieve(url, zpath + ".part")
+            os.replace(zpath + ".part", zpath)
+        zipfile.ZipFile(zpath).extractall(folder + ".part")
+        os.replace(folder + ".part", folder)
+    return os.path.join(folder, f"{GAO_ARCHIVE}.shp")
+
+
+def outline_inventory(y0: int) -> str:
+    """Inventory of the outlines a period whose first survey is in `y0` is gridded on,
+    one of `OUTLINE_INVENTORIES`."""
+    return "GAO" if y0 < GAO_BEFORE_YEAR else "RGI"
+
+
+def _polygonal(geometry):
+    """The polygons of a geometry, which an overlay can leave with lines and points."""
+    parts = [p for p in shapely.get_parts(geometry) if p.geom_type == "Polygon"]
+    return shapely.union_all(parts)
+
+
+def _nearest_outline(ice, outlines):
+    """Split `ice` between `outlines` (a GeoSeries indexed by RGI id): the ice inside an
+    outline goes to it, and the ice beyond every outline to the nearest one, through
+    the Voronoi cells of points every `GAO_DIVIDE_SPACING` metres along the outlines,
+    merged per outline. Returns {RGI id: its part}, without the empty ones."""
+    if len(outlines) == 1:
+        return {outlines.index[0]: _polygonal(ice)}
+    points = outlines.boundary.segmentize(GAO_DIVIDE_SPACING).get_coordinates()
+    points = points[~points.duplicated()]
+    cells = shapely.voronoi_polygons(
+        shapely.MultiPoint(points.to_numpy()), extend_to=ice.envelope
+    )
+    owner = gpd.sjoin(
+        gpd.GeoDataFrame(geometry=list(shapely.get_parts(cells)), crs=GAO_CRS),
+        gpd.GeoDataFrame(
+            {"RGIId": points.index},
+            geometry=gpd.points_from_xy(points.x, points.y),
+            crs=GAO_CRS,
+        ),
+        predicate="contains",
+    )
+    nearest = owner.dissolve("RGIId").geometry
+    beyond = ice.difference(outlines.union_all())
+    parts = {}
+    for rgi_id, outline in outlines.items():
+        part = outline.intersection(ice)
+        if rgi_id in nearest.index:
+            part = part.union(nearest[rgi_id].intersection(beyond))
+        part = _polygonal(part)
+        if not part.is_empty:
+            parts[rgi_id] = part
+    return parts
+
+
+def gao_basins(rgi_ids):
+    """{RGI 6.2 id: the GAO ice of 1947-1985 in its basin}, in `GAO_CRS`, for the RGI
+    outlines `rgi_ids` of region 08 touching GAO ice.
+
+    Each ice mass of GAO is split between the RGI outlines it touches: the ice inside
+    an outline goes to it, the ice beyond them to the nearest one. The basin of an
+    outline is its share of every ice mass it touches. It only depends on the outline
+    and its neighbours, not on the other ids asked for, and only on public data, so
+    the GAO outline of an entity can be rebuilt from the RGI ids of its glaciers
+    without the NVE table. The basins do not overlap.
+    """
+    rgi = gpd.read_file(get_region_shape_file(f"{NORWAY_REGION_ID:02d}"))
+    rgi = rgi.set_index("RGIId").geometry.to_crs(GAO_CRS).make_valid()
+    wanted = rgi[sorted(set(rgi_ids))]
+    # The polygons of one ice mass split by the edge of a map sheet are joined
+    gao = gpd.read_file(gao_file()).to_crs(GAO_CRS).geometry.make_valid()
+    masses = gpd.GeoSeries(shapely.get_parts(_polygonal(gao.union_all())), crs=GAO_CRS)
+    masses = masses[masses.intersects(wanted.union_all())]
+
+    parts = {}
+    for mass in masses:
+        for rgi_id, part in _nearest_outline(mass, rgi[rgi.intersects(mass)]).items():
+            parts.setdefault(rgi_id, []).append(part)
+    return {r: shapely.union_all(parts[r]) for r in wanted.index if r in parts}
+
+
+@functools.cache
+def _gao_basins():
+    """`gao_basins` of the RGI outlines of the glaciers of the table."""
+    return gao_basins(_rgi_of_breid().values())
+
+
+def _gao_outline(members):
+    """GAO outline of the entity made of the glaciers `members` (Bre-IDs), the union
+    of the basins of their RGI outlines, in `GAO_CRS`. None when one of them is on no
+    N50 map."""
+    rgi_of, basins = _rgi_of_breid(), _gao_basins()
+    if not all(rgi_of[m] in basins for m in members):
+        return None
+    return shapely.union_all([basins[rgi_of[m]] for m in members])
+
+
 def _default_sigma(method1, method2):
     laser = method1 in LASER_METHODS and method2 in LASER_METHODS
     return DEFAULT_SIGMA_MWE["laser" if laser else "other"]
 
 
 def nve_periods():
-    """Every current period of the table that can be built on RGI 6.2 outlines, with
-    its entity, dates, rate, uncertainty and areas, one row per period.
+    """Every current period of the table that can be built on its outlines, with its
+    entity, dates, rate, uncertainty and areas, one row per period.
 
     Columns: RGIId (entity id), name, breid (the Bre-ID the value is stored under),
     members (the Bre-IDs of the entity), y0, y1, n_years, FROM_DATE and TO_DATE (the
     1st of October of y0 and y1), survey_from and survey_to (the survey dates),
     mwe_per_year, cumulative_mwe, sigma_mwe_per_year (all at 850 kg m-3),
     sigma_reported (whether the table gives it), density (of the table),
-    area_y0_km2, area_y1_km2, area_mean_km2 (the mean of the ones given), area_rgi
-    (of the RGI outlines of the entity), area_ratio (area_mean_km2 / area_rgi) and
-    reference.
+    area_y0_km2, area_y1_km2, area_mean_km2 (the mean of the ones given), outlines
+    (the inventory the period is gridded on, "GAO" or "RGI"), area_rgi (of the RGI
+    outlines of the entity), area_outlines (of the entity on the outlines of the
+    period), area_ratio (area_mean_km2 / area_outlines) and reference.
 
-    The periods of a group with a glacier of unknown position are left out, see the
-    module docstring.
+    The periods of a group with a glacier of unknown position, and those before 1985
+    of a glacier on no N50 map, are left out, see the module docstring.
     """
     raw = read_nve_table()
     raw = raw[raw.generation_no == 0]
@@ -255,6 +408,15 @@ def nve_periods():
         members = AGGREGATED_PERIODS.get((r.glacier_id, y0, y1), (r.glacier_id,))
         if not set(members) <= set(rgi_of):
             continue
+        area_rgi = sum(rgi_area[rgi_of[m]] for m in members)
+        inventory = outline_inventory(y0)
+        if inventory == "GAO":
+            outline = _gao_outline(members)
+            if outline is None:
+                continue
+            area_outlines = outline.area / 1e6
+        else:
+            area_outlines = area_rgi
         density = r.density_conv_factor
         factor = ICE_DENSITY / density if density in BULK_DENSITIES else 1.0
         n_years = y1 - y0
@@ -288,13 +450,15 @@ def nve_periods():
                 area_y0_km2=r.area_survey_year1,
                 area_y1_km2=r.area_survey_year2,
                 area_mean_km2=np.mean(areas) if areas else np.nan,
-                area_rgi=sum(rgi_area[rgi_of[m]] for m in members),
+                outlines=inventory,
+                area_rgi=area_rgi,
+                area_outlines=area_outlines,
                 reference=r.geod_reference,
             )
         )
     df = pd.DataFrame(rows)
     df["cumulative_mwe"] = df.mwe_per_year * df.n_years
-    df["area_ratio"] = df.area_mean_km2 / df.area_rgi
+    df["area_ratio"] = df.area_mean_km2 / df.area_outlines
     return df.sort_values(["RGIId", "FROM_DATE", "TO_DATE"]).reset_index(drop=True)
 
 
@@ -331,9 +495,10 @@ def geodetic_target_NVE(
     longest period, ties going to the lowest sigma.
 
     Args:
-        max_area_ratio: periods whose mean surveyed area differs from the area of the
-            RGI outlines of their entity by more than this factor, either way, are
-            left out; a period without an area is kept. None keeps them all.
+        max_area_ratio: periods whose mean surveyed area differs from the area of
+            their entity on the outlines of the period by more than this factor,
+            either way, are left out; a period without an area is kept. None keeps
+            them all.
         exclude_calving: leave out the glaciers of `CALVING_GLACIERS`, whose geodetic
             balance includes a calving loss.
         periods: {entity id: [[y0, y1], ...]} names the periods to keep instead, by the
@@ -397,21 +562,27 @@ def _entity_rgi_ids(glacier_ids):
     ).drop_duplicates()
 
 
-def load_nve_outlines(glacier_ids_to_keep=None):
-    """Read the RGI 6.2 outlines of the entities, the outlines of a group dissolved
-    into one.
+def load_nve_outlines(glacier_ids_to_keep=None, inventory: str = "RGI"):
+    """Read the outlines of the entities in one inventory, the outlines of a group
+    dissolved into one.
+
+    With `inventory="RGI"` these are the RGI 6.2 outlines, with "GAO" the basins of
+    the GAO ice of 1947-1985 (see the module docstring), of the entities with a period
+    gridded on them.
 
     The returned frame is in EPSG:4326 with the entity id in a column named
     "NVE_ID", ready for `custom_outlines.build_custom_gdirs`, along with the
     RGI first- and second-order regions of the entity ("08", "02"), its name, the RGI
-    ids it is made of and its area in km², summed from the RGI areas. Every entity of
-    `nve_periods` is returned by default.
+    ids it is made of and its area in km² (`area_km2`), summed from the RGI areas for
+    RGI. Every entity of `nve_periods` with a period on `inventory` is returned by
+    default.
     """
+    assert inventory in OUTLINE_INVENTORIES, f"No outline inventory {inventory!r}."
     periods = nve_periods()
-    ids = sorted(periods.RGIId.unique())
+    ids = sorted(periods[periods.outlines == inventory].RGIId.unique())
     if glacier_ids_to_keep is not None:
         missing = set(glacier_ids_to_keep).difference(ids)
-        assert not missing, f"NVE has no glacier {sorted(missing)}."
+        assert not missing, f"NVE has no glacier {sorted(missing)} on {inventory}."
         ids = sorted(set(glacier_ids_to_keep))
     pairs = _entity_rgi_ids(ids)
     rgi = gpd.read_file(get_region_shape_file(f"{NORWAY_REGION_ID:02d}"))
@@ -426,7 +597,13 @@ def load_nve_outlines(glacier_ids_to_keep=None):
     outlines["rgi_ids"] = outlines.NVE_ID.map(
         pairs.groupby("NVE_ID").RGIId.apply(lambda s: tuple(sorted(s)))
     )
-    outlines = outlines.rename(columns={"Area": "area_rgi"})
+    outlines = outlines.rename(columns={"Area": "area_km2"})
+    if inventory == "GAO":
+        gao = gpd.GeoSeries(
+            [_gao_outline(entity_members(g)) for g in outlines.NVE_ID], crs=GAO_CRS
+        )
+        outlines["area_km2"] = gao.area.to_numpy() / 1e6
+        outlines = outlines.set_geometry(gao.to_crs(outlines.crs).to_numpy())
     outlines["o1_region"] = outlines.O1Region.astype(int).map("{:02d}".format)
     outlines["o2_region"] = outlines.O2Region.astype(int).map("{:02d}".format)
     names = periods.drop_duplicates("RGIId").set_index("RGIId").name
@@ -439,7 +616,7 @@ def load_nve_outlines(glacier_ids_to_keep=None):
                 "o2_region",
                 "name",
                 "rgi_ids",
-                "area_rgi",
+                "area_km2",
                 "geometry",
             ]
         ]
@@ -449,20 +626,24 @@ def load_nve_outlines(glacier_ids_to_keep=None):
     )
 
 
-def nve_outline_spec(dem_source: str = "COPDEM30", **overrides):
-    """Description of the Norwegian outlines for the generic custom-outline machinery.
+def nve_outline_spec(dem_source: str = "COPDEM30", inventory: str = "RGI", **overrides):
+    """Description of the Norwegian outlines of one inventory (see
+    `load_nve_outlines`) for the generic custom-outline machinery. The grids on the
+    RGI outlines are in the `NVE` tree, those on the GAO outlines in `NVE_GAO`.
 
     As for Andreassen16, the DEM defaults to the Copernicus GLO-30 DEM, since SRTM
     stops at 60°N, and the second-order region is left to the `o2_region` column of
     the outlines.
     """
+    assert inventory in OUTLINE_INVENTORIES, f"No outline inventory {inventory!r}."
+    year = OUTLINES_YEAR if inventory == "RGI" else GAO_OUTLINES_YEAR
     spec = dict(
-        name="NVE",
+        name="NVE" if inventory == "RGI" else f"NVE_{inventory}",
         id_column="NVE_ID",
         o1_region=f"{NORWAY_REGION_ID:02d}",
         o2_region=None,
-        src_date=f"{OUTLINES_YEAR}-01-01 00:00:00",
-        bgndate=f"{OUTLINES_YEAR}0101",
+        src_date=f"{year}-01-01 00:00:00",
+        bgndate=f"{year}0101",
         dem_source=dem_source,
     )
     spec.update(overrides)
