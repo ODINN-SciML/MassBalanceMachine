@@ -7,6 +7,7 @@ from data_processing.Dataset import (
     MBSequenceDatasetTL,
 )
 import data_processing.climate_projections
+import data_processing.gswp3_w5e5
 import data_processing.utils
 from data_processing.wgms import (
     check_and_download_wgms,
@@ -28,8 +29,10 @@ from data_processing.gridded_utils import (
     create_gridded_features_Fischer11,
     create_gridded_features_Hagg12,
     create_gridded_features_Maurer19,
+    create_gridded_features_Maurer19_Hugonnet21,
     create_gridded_features_Belart20,
     create_gridded_features_Andreassen16,
+    create_gridded_features_NVE,
     geodetic_glacier_locations,
     geodetic_input_Hugonnet21,
     geodetic_input_PGO,
@@ -39,8 +42,10 @@ from data_processing.gridded_utils import (
     geodetic_input_Hagg12,
     geodetic_input_Maurer19,
     geodetic_input_Maurer19_2000,
+    geodetic_input_Maurer19_Hugonnet21,
     geodetic_input_Belart20,
     geodetic_input_Andreassen16,
+    geodetic_input_NVE,
     geodetic_target_Hugonnet21,
     geodetic_target_region_Hugonnet21,
     generate_grid_multi_years,
@@ -81,6 +86,8 @@ from data_processing.maurer19 import (
     download_maurer19_avg,
     download_maurer19_gridded,
     geodetic_target_Maurer19,
+    geodetic_target_Maurer19_Hugonnet21,
+    geodetic_target_Maurer19_with_Hugonnet21,
     lake_terminating_maurer19,
     load_maurer19_outlines,
     load_maurer19_table,
@@ -101,4 +108,12 @@ from data_processing.andreassen16 import (
     geodetic_target_Andreassen16,
     load_andreassen16_outlines,
     table_RGI62_to_Andreassen16,
+)
+from data_processing.nve_geodetic import (
+    nve_outline_spec,
+    nve_periods,
+    geodetic_target_NVE,
+    load_nve_outlines,
+    read_nve_table,
+    table_RGI62_to_NVE,
 )

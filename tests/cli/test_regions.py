@@ -194,3 +194,148 @@ def test_test_splits_per_region():
     (name,) = testSplits(flat, df_test)
     assert name is None
     assert testSplits(flat, df_test)[None]["stakes"] is df_test
+
+
+def test_test_year_split_per_region():
+    from dataloader.SourceManager import isTestYear, yearSplitPerRgiRegion
+
+    merged = mergeRegions(
+        {
+            "splitTest": "YEAR:<2000",
+            "regions": {
+                "ceu": EUROPE,
+                "him": {**HIMALAYA, "splitTest": "YEAR:<2010"},
+            },
+        },
+        ".",
+    )
+    rules = yearSplitPerRgiRegion({"training": merged}, merged["splitTest"])
+    assert rules == {13: "YEAR:<2010", 14: "YEAR:<2010", 15: "YEAR:<2010"}
+    # Central Europe keeps the rule of the training section
+    assert rules.get(11, merged["splitTest"]) == "YEAR:<2000"
+    assert isTestYear(2005, "YEAR:<2000") and not isTestYear(2005, "YEAR:<2010")
+    assert isTestYear(2010, "YEAR:<2010") and not isTestYear(1999, "YEAR:<2000")
+
+    # Without a region rule, the single rule of the training section applies, as before
+    plain = mergeRegions({"splitTest": "YEAR:<2000", "regions": {"ceu": EUROPE}}, ".")
+    assert yearSplitPerRgiRegion({"training": plain}, plain["splitTest"]) == {}
+    # A region rule needs the training section to split by year too
+    with pytest.raises(AssertionError, match="not a split by year"):
+        yearSplitPerRgiRegion({"training": merged}, "RGIId")
+
+
+def test_source_manager_splits_each_region_with_its_test_year():
+    from calendar import month_abbr
+
+    from dataloader.SourceManager import SourceManager
+
+    HYDRO_MONTHS = [m.lower() for m in month_abbr[10:] + month_abbr[1:10]]
+
+    rows = [
+        # RGIId, year, measurement ID
+        ("RGI60-11.00001", 1995, 0),  # train
+        ("RGI60-11.00001", 2005, 1),  # test in Central Europe (2000)
+        ("RGI60-13.00001", 2005, 2),  # train in the Himalaya (2010)
+        ("RGI60-15.00001", 2012, 3),  # test
+    ]
+    df = pd.DataFrame(
+        [(g, y, i, m, 0.1 * i, 1.0) for g, y, i in rows for m in HYDRO_MONTHS],
+        columns=["RGIId", "YEAR", "ID", "MONTHS", "POINT_BALANCE", "t2m"],
+    ).assign(POINT_LAT=46.0, POINT_LON=8.0, POINT_ELEVATION=3000.0)
+    merged = mergeRegions(
+        {
+            "splitTest": "YEAR:<2000",
+            "regions": {"ceu": EUROPE, "him": {**HIMALAYA, "splitTest": "YEAR:<2010"}},
+        },
+        ".",
+    )
+
+    class Stakes(SourceManager):
+        train_glaciers = merged["train_glaciers"]
+        test_glaciers = merged["test_glaciers"]
+
+        def load_stakes_data(self):
+            return df.copy()
+
+    cfg = mbm.Config(metaData=["RGIId", "ID", "YEAR", "MONTHS"])
+    manager = Stakes(cfg, {"training": merged}, test_split_on=merged["splitTest"])
+    train_set, test_set, _, _ = manager.train_test_sets()
+    assert sorted(train_set["df_X"].ID.unique()) == [0, 2]
+    assert sorted(test_set["df_X"].ID.unique()) == [1, 3]
+
+
+def test_train_val_data_per_stake():
+    from cli.common import stakeKeys
+
+    rows = [
+        # RGIId, year, measurement ID, latitude
+        ("RGI60-15.00001", 2005, 0, 28.0),
+        ("RGI60-15.00001", 2006, 1, 28.0),  # same stake, another year: validation too
+        ("RGI60-15.00001", 2005, 2, 28.1),  # another stake of the glacier: train
+        ("RGI60-13.00001", 2005, 3, 40.0),
+    ]
+    df = pd.DataFrame(
+        [
+            (g, y, i, lat, m, 0.1 * i, 1.0)
+            for g, y, i, lat in rows
+            for m in ("oct", "nov")
+        ],
+        columns=["RGIId", "YEAR", "ID", "POINT_LAT", "MONTHS", "POINT_BALANCE", "t2m"],
+    ).assign(POINT_LON=86.0, ALTITUDE_CLIMATE=5000.0)
+    val_stake = stakeKeys(df.iloc[[0]]).iloc[0]
+    assert val_stake == "RGI60-15.00001_28.000000_86.000000"
+    cfg = mbm.Config(metaData=["RGIId", "ID", "YEAR", "MONTHS"])
+    cfg.setFeatures(["t2m"])
+    region = {
+        **HIMALAYA,
+        "splitVal": "group-stake",
+        "val_stakes": [val_stake],
+        "val_glaciers": ["RGI60-15.00001"],
+    }
+    merged = mergeRegions({"regions": {"him": region}}, ".")
+
+    df_X_train, _, df_X_val, _ = trainValData(
+        cfg,
+        {"df_X": df, "y": df.POINT_BALANCE},
+        ["t2m"],
+        split_key="per-region",
+        regions=merged["regions"],
+    )
+    assert sorted(df_X_val.ID.unique()) == [0, 1]
+    assert sorted(df_X_train.ID.unique()) == [2, 3]
+
+
+def test_train_val_data_per_glacier_and_year():
+    # Each glacier has its own validation years: the stakes of one year can be in
+    # validation on one glacier and in training on another
+    rows = [
+        # RGIId, year, measurement ID
+        ("RGI60-08.00001", 1980, 0),
+        ("RGI60-08.00001", 1990, 1),  # validation year of this glacier
+        ("RGI60-08.00002", 1990, 2),  # same year, glacier without validation years
+        ("RGI60-08.00002", 1980, 3),
+        ("RGI60-08.00003", 1980, 4),  # validation year of this glacier
+    ]
+    df = pd.DataFrame(
+        [(g, y, i, m, 0.1 * i, 1.0) for g, y, i in rows for m in ("oct", "nov")],
+        columns=["RGIId", "YEAR", "ID", "MONTHS", "POINT_BALANCE", "t2m"],
+    ).assign(POINT_LAT=61.0, POINT_LON=7.0, ALTITUDE_CLIMATE=1000.0)
+    cfg = mbm.Config(metaData=["RGIId", "ID", "YEAR", "MONTHS"])
+    cfg.setFeatures(["t2m"])
+    region = {
+        "rgi_regions": [8],
+        "splitVal": "group-glacier-year",
+        "val_glacier_years": {"RGI60-08.00001": [1990, 1991], "RGI60-08.00003": [1980]},
+        "geodetic_source": ["NVE"],
+    }
+    merged = mergeRegions({"regions": {"nor": region}}, ".")
+
+    df_X_train, _, df_X_val, _ = trainValData(
+        cfg,
+        {"df_X": df, "y": df.POINT_BALANCE},
+        ["t2m"],
+        split_key="per-region",
+        regions=merged["regions"],
+    )
+    assert sorted(df_X_val.ID.unique()) == [1, 4]
+    assert sorted(df_X_train.ID.unique()) == [0, 2, 3]

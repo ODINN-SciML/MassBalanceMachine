@@ -1,1 +1,3 @@
 import data_preprocessing.iceland
+import data_preprocessing.nve
+import data_preprocessing.stakes

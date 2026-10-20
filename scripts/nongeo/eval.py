@@ -13,6 +13,8 @@ import argparse
 
 from scripts.nongeo.utils import (
     getMetaData,
+    setNormalizationBounds,
+    setClimateSource,
     buildArgs,
     trainValData,
     testData,
@@ -67,6 +69,8 @@ elif "wgms" in sourceData:
     )
 else:
     raise ValueError(f"source_data={sourceData} is unknown")
+setNormalizationBounds(cfg, params)
+setClimateSource(cfg, params)
 
 
 if torch.cuda.is_available():

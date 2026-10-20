@@ -54,6 +54,7 @@ from data_processing.hagg12 import (
 )
 from data_processing.maurer19 import (
     OUTLINES_YEAR as MAURER19_OUTLINES_YEAR,
+    END_DATE as MAURER19_END_DATE,
     maurer19_outline_spec,
     load_maurer19_outlines,
 )
@@ -66,6 +67,11 @@ from data_processing.andreassen16 import (
     andreassen16_outline_spec,
     load_andreassen16_outlines,
     NORWAY_REGION_ID,
+)
+from data_processing.nve_geodetic import (
+    nve_outline_spec,
+    load_nve_outlines,
+    outline_inventory as nve_outline_inventory,
 )
 from data_processing.glacier_utils import (
     create_glacier_grid_RGI,
@@ -585,6 +591,39 @@ def create_gridded_features_Maurer19(
         )
 
 
+def maurer19_hugonnet21_tree(year):
+    """Grid tree of the source `Maurer19_Hugonnet21` holding `year`: the 1975 outlines
+    (`Maurer19`) before 2000, those of 2000 (`Maurer19_2000`) from 2000 on."""
+    return "Maurer19" if year < MAURER19_END_DATE.year else "Maurer19_2000"
+
+
+def create_gridded_features_Maurer19_Hugonnet21(cfg, time_ranges, **kwargs):
+    """Generate the gridded products of the source `Maurer19_Hugonnet21`: the windows
+    ending by 2000 on the 1975 outlines, in the `Maurer19` tree, and those starting from
+    2000 on the outlines of 2000, in the `Maurer19_2000` tree, see
+    `data_processing.maurer19.geodetic_target_Maurer19_with_Hugonnet21`.
+
+    Args:
+        time_ranges: {RGI 5.0 id: [(start_date, end_date), ...]}.
+        kwargs: forwarded to `create_gridded_features_Maurer19`.
+    """
+    per_epoch = {MAURER19_OUTLINES_YEAR: {}, MAURER19_END_DATE.year: {}}
+    for glacier_id, windows in time_ranges.items():
+        for start, end in windows:
+            if pd.Timestamp(end) <= MAURER19_END_DATE:
+                epoch = MAURER19_OUTLINES_YEAR
+            else:
+                assert pd.Timestamp(start) >= MAURER19_END_DATE, (
+                    f"The window {start} - {end} of {glacier_id} spans the switch of "
+                    f"outlines, {MAURER19_END_DATE.date()}."
+                )
+                epoch = MAURER19_END_DATE.year
+            per_epoch[epoch].setdefault(glacier_id, []).append((start, end))
+    for epoch, ranges in per_epoch.items():
+        if ranges:
+            create_gridded_features_Maurer19(cfg, ranges, epoch=epoch, **kwargs)
+
+
 def create_gridded_features_Belart20(
     cfg,
     time_ranges,
@@ -657,6 +696,55 @@ def create_gridded_features_Andreassen16(
         num_workers=num_workers,
         climate=climate,
     )
+
+
+def create_gridded_features_NVE(
+    cfg,
+    time_ranges,
+    dem_source: str = "COPDEM30",
+    multi=True,
+    num_workers=None,
+    climate=None,
+):
+    """Generate the gridded products of the Norwegian glaciers of the NVE glacier
+    database, keyed by their entity id ("NVE-2297", or "NVE-3113+3115+3117" for a
+    group of glaciers, whose outlines are dissolved into one).
+
+    The table gives no outlines. The windows starting before 1985 are gridded on the
+    GAO outlines of 1947-1985, in the `NVE_GAO` tree, the others on the RGI 6.2
+    outlines, dated 1999-2006, in the `NVE` tree; see `data_processing.nve_geodetic`
+    and `nve_tree`. `dem_source` defaults to the Copernicus GLO-30 DEM, see
+    `data_processing.nve_geodetic.nve_outline_spec`.
+
+    Args:
+        time_ranges: {entity id: [(start_date, end_date), ...]}, the geodetic periods
+            of every entity.
+        num_workers (int): number of processes to use. Left to None it follows the
+            memory free on the machine, see `parallel_utils.worker_count`.
+    """
+    per_inventory = {}
+    for glacier_id, windows in time_ranges.items():
+        for start, end in windows:
+            inventory = nve_outline_inventory(pd.Timestamp(start).year)
+            per_inventory.setdefault(inventory, {}).setdefault(glacier_id, [])
+            per_inventory[inventory][glacier_id].append((start, end))
+    for inventory, ranges in sorted(per_inventory.items()):
+        _create_gridded_features_custom_outlines(
+            cfg,
+            ranges,
+            load_nve_outlines(glacier_ids_to_keep=list(ranges), inventory=inventory),
+            nve_outline_spec(dem_source=dem_source, inventory=inventory),
+            NORWAY_REGION_ID,
+            multi=multi,
+            num_workers=num_workers,
+            climate=climate,
+        )
+
+
+def nve_tree(year):
+    """Grid tree of the source `NVE` holding a window starting in `year`: the GAO
+    outlines (`NVE_GAO`) before 1985, the RGI 6.2 outlines (`NVE`) after."""
+    return nve_outline_spec(inventory=nve_outline_inventory(year)).name
 
 
 def create_gridded_features_RGI(
@@ -822,36 +910,65 @@ def _geodetic_input_windowed(glacier_id, time_range, product_source):
     least one window, once: a month shared by two windows is predicted once and
     weighted into both by `geodetic_window_weights`. With a single window this
     clips the first and the last year to the months the window actually covers.
+
+    Each window is read from the grid tree of the outlines it lies on, `grid_tree` of
+    its first year, which is `product_source` except for a source whose windows lie on
+    outlines of different epochs. Two such windows can meet inside one year (NVE
+    1984-1997 on the GAO outlines and 1997-2009 on RGI 6.2), whose months are then
+    read from both trees, but they cannot share a month.
     """
-    grid_path = os.path.join(get_data_path(), "grids", product_source)
-    bounds = [_window_month_bounds(window) for window in time_range]
+    windows_of_tree = {}
+    for window in time_range:
+        tree = grid_tree(product_source, pd.Timestamp(window[0]).year)
+        windows_of_tree.setdefault(tree, []).append(window)
+    bounds_of_tree = {
+        tree: [_window_month_bounds(window) for window in windows]
+        for tree, windows in windows_of_tree.items()
+    }
+    years_of_tree = {
+        tree: set(years_from_time_ranges(windows))
+        for tree, windows in windows_of_tree.items()
+    }
     years = years_from_time_ranges(time_range)
 
     df_X_geod = pd.DataFrame()
     maxId = -1
     for year in years:
-        file_path = os.path.abspath(
-            os.path.join(
-                grid_path, *glacier_id_to_folders(glacier_id), f"{year}.parquet"
+        months_read = []
+        for tree in sorted(windows_of_tree):
+            if year not in years_of_tree[tree]:
+                continue
+            file_path = os.path.abspath(
+                os.path.join(
+                    get_data_path(),
+                    "grids",
+                    tree,
+                    *glacier_id_to_folders(glacier_id),
+                    f"{year}.parquet",
+                )
             )
+            df_grid = pd.read_parquet(file_path)
+            month_index = year * 12 + df_grid.MONTHS.map(MONTH_TO_ID).to_numpy() - 1
+            in_a_window = np.zeros(len(df_grid), dtype=bool)
+            for lo, hi in bounds_of_tree[tree]:
+                in_a_window |= (month_index >= lo) & (month_index < hi)
+            df_grid = df_grid[in_a_window]
+            months_read.extend(df_grid.MONTHS.unique())
+
+            # Remap ID so that one ID covers only one year of one tree
+            df_grid["ID"] = df_grid["ID"] + maxId + 1
+
+            df_grid["GLWD_M_ID"] = f"{glacier_id}_{year}_" + df_grid.MONTHS
+
+            # Append to the final dataframe
+            df_X_geod = pd.concat([df_X_geod, df_grid], ignore_index=True)
+
+            # Update the ID counter
+            maxId = df_X_geod.ID.max()
+        assert len(months_read) == len(set(months_read)), (
+            f"Windows of {glacier_id} on different outlines share months of {year}: "
+            f"{time_range}."
         )
-        df_grid = pd.read_parquet(file_path)
-        month_index = year * 12 + df_grid.MONTHS.map(MONTH_TO_ID).to_numpy() - 1
-        in_a_window = np.zeros(len(df_grid), dtype=bool)
-        for lo, hi in bounds:
-            in_a_window |= (month_index >= lo) & (month_index < hi)
-        df_grid = df_grid[in_a_window]
-
-        # Remap ID so that one ID covers only one year
-        df_grid["ID"] = df_grid["ID"] + maxId + 1
-
-        df_grid["GLWD_M_ID"] = f"{glacier_id}_{year}_" + df_grid.MONTHS
-
-        # Append to the final dataframe
-        df_X_geod = pd.concat([df_X_geod, df_grid], ignore_index=True)
-
-        # Update the ID counter
-        maxId = df_X_geod.ID.max()
 
     df_X_geod["GLWD_ID"] = f"{glacier_id}"
 
@@ -889,12 +1006,20 @@ def geodetic_input_Maurer19_2000(rgi50_id, time_range):
     return _geodetic_input_windowed(rgi50_id, time_range, "Maurer19_2000")
 
 
+def geodetic_input_Maurer19_Hugonnet21(rgi50_id, time_range):
+    return _geodetic_input_windowed(rgi50_id, time_range, "Maurer19_Hugonnet21")
+
+
 def geodetic_input_Belart20(glacier_id, time_range):
     return _geodetic_input_windowed(glacier_id, time_range, "Belart20")
 
 
 def geodetic_input_Andreassen16(glacier_id, time_range):
     return _geodetic_input_windowed(glacier_id, time_range, "Andreassen16")
+
+
+def geodetic_input_NVE(glacier_id, time_range):
+    return _geodetic_input_windowed(glacier_id, time_range, "NVE")
 
 
 def geodetic_input_Hugonnet21(
@@ -956,6 +1081,33 @@ def _grid_dir(glacier_id, product_source, grid_root=None):
     return os.path.join(grid_root, *glacier_id_to_folders(glacier_id))
 
 
+def grid_tree(product_source, year):
+    """Grid tree holding the products of `product_source` for a window starting in
+    `year`: the source's own tree, except for `Maurer19_Hugonnet21`, which has none
+    (see `maurer19_hugonnet21_tree`), and `NVE`, whose windows before 1985 lie on
+    other outlines (see `nve_tree`)."""
+    if product_source == "Maurer19_Hugonnet21":
+        return maurer19_hugonnet21_tree(year)
+    if product_source == "NVE":
+        return nve_tree(year)
+    return product_source
+
+
+def geodetic_grid_area(glacier_id, year, product_source):
+    """Area in km² of the grid a glacier-wide balance of `year` is averaged over: its
+    number of points times the area of a pixel of the glacier's DEM (`dem.nc`, written
+    on the same OGGM grid as the products)."""
+    tree = grid_tree(product_source, year)
+    months = pd.read_parquet(
+        _require_grid(glacier_id, year, tree), columns=["MONTHS"]
+    ).MONTHS
+    n_points = (months == months.iloc[0]).sum()
+    with xr.open_dataset(os.path.join(_grid_dir(glacier_id, tree), "dem.nc")) as dem:
+        dx = abs(float(dem.x[1] - dem.x[0]))
+        dy = abs(float(dem.y[1] - dem.y[0]))
+    return float(n_points * dx * dy / 1e6)
+
+
 def _grid_year_path(glacier_id, year, product_source, grid_root=None):
     return os.path.abspath(
         os.path.join(
@@ -993,6 +1145,18 @@ def _available_grid_years(glacier_id, product_source, grid_root=None):
     return sorted(years)
 
 
+def _location_trees(source):
+    """Grid trees a glacier of `source` is located from, in order of preference.
+    Maurer19_Hugonnet21 has no tree of its own: its glaciers are placed on their 1975
+    outlines. A glacier of NVE can have windows on the RGI 6.2 outlines, on the GAO
+    outlines, or on both."""
+    if source == "Maurer19_Hugonnet21":
+        return ["Maurer19"]
+    if source == "NVE":
+        return [nve_outline_spec(inventory=i).name for i in ("RGI", "GAO")]
+    return [source]
+
+
 def geodetic_glacier_locations(glacier_ids, sources):
     """Location of the glaciers of a geodetic product, from their gridded products.
 
@@ -1010,12 +1174,14 @@ def geodetic_glacier_locations(glacier_ids, sources):
     """
     rows = []
     for glacier_id in glacier_ids:
-        for source in sources:
-            years = _available_grid_years(glacier_id, source)
+        for source, tree in [
+            (source, tree) for source in sources for tree in _location_trees(source)
+        ]:
+            years = _available_grid_years(glacier_id, tree)
             if len(years) == 0:
                 continue
             points = pd.read_parquet(
-                _grid_year_path(glacier_id, years[0], source),
+                _grid_year_path(glacier_id, years[0], tree),
                 columns=["POINT_LAT", "POINT_LON"],
             )
             rows.append(
@@ -1338,6 +1504,9 @@ def per_glacier_rates_Hugonnet21():
 
 
 def geodetic_target_Hugonnet21(rgi_ids):
+    """Geodetic target over 2000-2020 of `rgi_ids`. Glaciers that Hugonnet21 did not
+    measure (no valid observation, NaN rates, mostly glaciers of a few hectares) are
+    left out."""
     mbdf = per_glacier_rates_Hugonnet21()
     geo_target_data = {}
     for rgi_id in rgi_ids:
@@ -1351,7 +1520,8 @@ def geodetic_target_Hugonnet21(rgi_ids):
         area = data.area  # glacier area m²
         err_pmb = data.err_dmdtda
         mean_mb = data.dmdtda
-        assert mean_mb is not None and err_pmb is not None
+        if pd.isna(mean_mb) or pd.isna(err_pmb):
+            continue
 
         geo_target_data[rgi_id] = {"mean": mean_mb, "err": err_pmb, "area": area}
 
@@ -1382,8 +1552,10 @@ GEODETIC_INPUT_FN = {
     "Hagg12": geodetic_input_Hagg12,
     "Maurer19": geodetic_input_Maurer19,
     "Maurer19_2000": geodetic_input_Maurer19_2000,
+    "Maurer19_Hugonnet21": geodetic_input_Maurer19_Hugonnet21,
     "Belart20": geodetic_input_Belart20,
     "Andreassen16": geodetic_input_Andreassen16,
+    "NVE": geodetic_input_NVE,
 }
 
 # Sources whose geodetic target covers an arbitrary date window rather than a whole
@@ -1397,8 +1569,10 @@ WINDOWED_SOURCES = {
     "Hagg12",
     "Maurer19",
     "Maurer19_2000",
+    "Maurer19_Hugonnet21",
     "Belart20",
     "Andreassen16",
+    "NVE",
 }
 
 

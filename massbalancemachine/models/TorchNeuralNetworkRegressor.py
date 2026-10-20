@@ -112,22 +112,47 @@ class TILikeModel(nn.Module):
         self.ind_inp_cor_abl = sorted(
             [self.input_labels.index(inp) for inp in self.inp_cor_abl]
         )
-        self.beta1 = 10.0
-        self.beta2 = 0.0049
-        init_tau_P_s = 1.5
+        # Scaling of the accumulation term
+        self.beta1 = float(modelParams.get("beta1", 10.0))
+        assert self.beta1 > 0, f"beta1 must be positive, got {self.beta1}."
+        # Scaling of the ablation term, melt = beta2 * cor_abl * PDD in m w.e. per month.
+        # With beta2 = 1, cor_abl is the degree-day factor in m w.e. K-1 month-1
+        self.beta2 = float(modelParams.get("beta2", 0.0049))
+        assert self.beta2 > 0, f"beta2 must be positive, got {self.beta2}."
+        # Range of the slope of the snow fraction sigmoid,
+        # slope = s_min + (s_max - s_min) * (tanh(tau_P_s) + 1) / 2
+        snow_slope_params = modelParams.get("snow_slope", {})
+        self.snow_slope_min = float(snow_slope_params.get("min", 0.0))
+        self.snow_slope_max = float(snow_slope_params.get("max", 4.0))
+        init_tau_P_s = float(snow_slope_params.get("init", 1.5))
+        assert (
+            0.0 <= self.snow_slope_min < init_tau_P_s < self.snow_slope_max
+        ), f"The snow slope must satisfy 0 <= min < init < max, got min={self.snow_slope_min}, init={init_tau_P_s}, max={self.snow_slope_max}."
         init_tau_P_c = 1.0
         init_beta_pdd = 1.0
         init_lapse_rate_P_cor = 0.1
         self.tau_P_s = torch.nn.Parameter(
-            torch.arctanh((torch.ones(1) * init_tau_P_s / 2) - 1.1)
+            torch.arctanh(
+                torch.ones(1)
+                * (
+                    2
+                    * (init_tau_P_s - self.snow_slope_min)
+                    / (self.snow_slope_max - self.snow_slope_min)
+                    - 1
+                )
+            )
         )
         self.tau_P_c = torch.nn.Parameter(torch.ones(1) * init_tau_P_c)
         self.beta_pdd = torch.nn.Parameter(
             torch.arctanh((torch.ones(1) * init_beta_pdd / 2) - 1)
         )
-        self.tau_P_s.requires_grad = True
-        self.tau_P_c.requires_grad = True
-        self.beta_pdd.requires_grad = True
+        # Whether each scalar is optimized, otherwise it keeps its initial value
+        trainable = modelParams.get("trainable", {})
+        unknown = set(trainable) - {"tau_P_c", "tau_P_s", "beta_pdd"}
+        assert not unknown, f"Unknown trainable parameters: {sorted(unknown)}."
+        self.tau_P_s.requires_grad = bool(trainable.get("tau_P_s", True))
+        self.tau_P_c.requires_grad = bool(trainable.get("tau_P_c", True))
+        self.beta_pdd.requires_grad = bool(trainable.get("beta_pdd", True))
         self.lapse_rate_P_cor = torch.nn.Parameter(
             torch.arctanh((torch.ones(1) * (init_lapse_rate_P_cor / 0.2) * 2) - 1)
         )  # 0.2*(tanh(x)+1)/2
@@ -144,6 +169,20 @@ class TILikeModel(nn.Module):
         # Range of the temperature bias, bias = b_max * tanh
         self.b_max = float(modelParams.get("bias_T", {}).get("b_max", 5.0))
         assert self.b_max > 0, f"b_max must be positive, got {self.b_max}."
+        # Range of the temperature lapse rate, alpha = max - (max - min) * sigmoid, in
+        # °C/km. The default range is [-15, -2]
+        default_lapse_rate = (-15.0, -2.0)
+        grad_T_bnds = modelParams.get("grad_T", {})
+        self.lapse_rate_min = float(grad_T_bnds.get("min", default_lapse_rate[0]))
+        self.lapse_rate_max = float(grad_T_bnds.get("max", default_lapse_rate[1]))
+        assert (
+            self.lapse_rate_min < self.lapse_rate_max
+        ), f"The lapse rate range must satisfy min < max, got [{self.lapse_rate_min}, {self.lapse_rate_max}]."
+        # Range of the shortwave radiation contribution, R_sw = R_sw_max * sigmoid
+        self.R_sw_max = float(modelParams.get("sw_contrib", {}).get("max", 1.0))
+        assert (
+            self.R_sw_max > 0
+        ), f"The maximum of R_sw must be positive, got {self.R_sw_max}."
 
         if "bias_cor" in modelParams:
             self.inp_bias_cor = modelParams["bias_cor"]["inputs"]
@@ -318,8 +357,59 @@ class TILikeModel(nn.Module):
             )
         cor_abl.append(nn.ReLU())
         cor_abl.append(nn.Linear(cor_abl_params["layers"][-1], 1))
-        cor_abl.append(nn.Softplus())
         self.cor_abl = nn.Sequential(*cor_abl)
+        # Output of the ablation factor: "softplus" (unbounded, the default) or
+        # "sigmoid", cor_abl = min + (max - min) * sigmoid, within prescribed bounds
+        self.cor_abl_output = cor_abl_params.get("output", "softplus")
+        assert self.cor_abl_output in (
+            "softplus",
+            "sigmoid",
+        ), f"cor_abl.output must be 'softplus' or 'sigmoid', got {self.cor_abl_output}."
+        if self.cor_abl_output == "sigmoid":
+            assert (
+                "min" in cor_abl_params and "max" in cor_abl_params
+            ), "cor_abl.output 'sigmoid' needs the bounds cor_abl.min and cor_abl.max."
+            self.cor_abl_min = float(cor_abl_params["min"])
+            self.cor_abl_max = float(cor_abl_params["max"])
+            assert (
+                0.0 <= self.cor_abl_min < self.cor_abl_max
+            ), f"The ablation factor range must satisfy 0 <= min < max, got [{self.cor_abl_min}, {self.cor_abl_max}]."
+        else:
+            assert (
+                "min" not in cor_abl_params and "max" not in cor_abl_params
+            ), "cor_abl.min and cor_abl.max only apply with cor_abl.output 'sigmoid'."
+
+    def snow_slope(self):
+        """Slope (1/°C) of the sigmoid splitting precipitation into snow, from the
+        learnable tau_P_s, within [snow_slope_min, snow_slope_max]."""
+        return (
+            self.snow_slope_min
+            + (self.snow_slope_max - self.snow_slope_min)
+            * (torch.tanh(self.tau_P_s) + 1)
+            / 2
+        )
+
+    def pdd_curvature(self):
+        """Curvature (1/°C) of the softplus giving the positive degree days, from
+        the learnable beta_pdd. The larger, the closer to max(T, 0)."""
+        return (torch.tanh(self.beta_pdd) + 1) * 2
+
+    def scalar_parameters(self):
+        """Values of the learnable scalars as the model uses them.
+
+        Returns a dict with the slope of the snow fraction sigmoid (1/°C), its
+        threshold temperature tau_P_c (°C) and the curvature of the PDD softplus
+        (1/°C), together with the raw parameters they are computed from.
+        """
+        with torch.no_grad():
+            return {
+                "snow_slope": self.snow_slope().item(),
+                "snow_threshold": self.tau_P_c.item(),
+                "pdd_curvature": self.pdd_curvature().item(),
+                "tau_P_s": self.tau_P_s.item(),
+                "tau_P_c": self.tau_P_c.item(),
+                "beta_pdd": self.beta_pdd.item(),
+            }
 
     def _net_from_df(self, net, columns, df, name):
         """Raw output of `net` on the unnormalized `columns` of df."""
@@ -343,6 +433,22 @@ class TILikeModel(nn.Module):
                 inputs[:, column_index], lower_bound, upper_bound
             )
         return net(inputs)[:, 0]
+
+    def _lapse_rate(self, inp_grad_T):
+        """Temperature lapse rate, within [lapse_rate_min, lapse_rate_max]."""
+        return self.lapse_rate_max - (
+            self.lapse_rate_max - self.lapse_rate_min
+        ) * F.sigmoid(self.grad_T(inp_grad_T)[:, 0])
+
+    def _ablation_factor(self, inp_cor_abl):
+        """Ablation factor of the normalized inputs of cor_abl, unbounded (softplus) or
+        within [cor_abl_min, cor_abl_max] (sigmoid)."""
+        raw = self.cor_abl(inp_cor_abl).view(-1)
+        if self.cor_abl_output == "sigmoid":
+            return self.cor_abl_min + (self.cor_abl_max - self.cor_abl_min) * F.sigmoid(
+                raw
+            )
+        return F.softplus(raw)
 
     def _P_cor(self, inputs):
         """Precipitation correction of the normalized model inputs."""
@@ -427,12 +533,13 @@ class TILikeModel(nn.Module):
             # grad_T_val = self.grad_T(inp_grad_T)
             # bias_T_val = self.bias_T(inp_bias_T)
             # cor_T_val = torch.concatenate([grad_T_val, bias_T_val], dim=1)
-            elev_diff = inputs[:, self.ind_elev_diff]
+            # In km, so that the lapse rate is in °C/km whatever the normalization
+            elev_diff = elev_diff_unorm / 1000
             # cor_T = elev_diff * cor_T_val[:, 0] + cor_T_val[:, 1]
 
             inp_dir = inputs[:, self.ind_inp_dir]
             inp_terrain = inputs[:, self.ind_inp_terrain]
-            alpha = 1 - 15 * F.sigmoid(self.grad_T(inp_grad_T)[:, 0])
+            alpha = self._lapse_rate(inp_grad_T)
             # alpha = self.grad_T(inp_grad_T)[:, 0]
             bias = self.b_max * F.tanh(self.bias_T(inp_bias_T)[:, 0])
             svf_unorm = Normalizer._unorm(
@@ -464,15 +571,16 @@ class TILikeModel(nn.Module):
 
             R_sw = 0.0
         else:
-            elev_diff = inputs[:, self.ind_elev_diff]
+            # In km, so that the lapse rate is in °C/km whatever the normalization
+            elev_diff = elev_diff_unorm / 1000
             inp_sw_contrib = inputs[:, self.ind_inp_sw_contrib]
-            alpha = -2 - 13 * F.sigmoid(self.grad_T(inp_grad_T)[:, 0])
+            alpha = self._lapse_rate(inp_grad_T)
             bias = self.b_max * F.tanh(self.bias_T(inp_bias_T)[:, 0])
             cor_T_val = torch.stack([alpha, bias], dim=1)
             cor_T = elev_diff * alpha + bias
 
             # Short wave radiation contribution
-            R_sw = F.sigmoid(self.R_sw_contrib(inp_sw_contrib).view(-1))
+            R_sw = self.R_sw_max * F.sigmoid(self.R_sw_contrib(inp_sw_contrib).view(-1))
 
         if self.bias_cor is not None:
             # P_cor = (
@@ -485,16 +593,12 @@ class TILikeModel(nn.Module):
             P_cor = self._P_cor(inputs)
         else:
             P_cor = 1.0
-        P_solid = (
-            P
-            * P_cor
-            * F.sigmoid((torch.tanh(self.tau_P_s) + 1) * 2 * (self.tau_P_c - cor_T - T))
-        )
-        curv_pdd = (torch.tanh(self.beta_pdd) + 1) * 2
+        snow_slope, curv_pdd = self.snow_slope(), self.pdd_curvature()
+        P_solid = P * P_cor * F.sigmoid(snow_slope * (self.tau_P_c - cor_T - T))
         PDD = F.softplus((T + cor_T) * curv_pdd) / curv_pdd
 
-        cor_acc = F.sigmoid(self.cor_acc(inp_cor_acc).view(-1))
-        cor_abl = self.cor_abl(inp_cor_abl).view(-1)
+        cor_acc = self.cor_acc(inp_cor_acc).view(-1)
+        cor_abl = self._ablation_factor(inp_cor_abl)
 
         return (
             cor_T,
@@ -544,12 +648,13 @@ class TILikeModel(nn.Module):
             # grad_T_val = self.grad_T(inp_grad_T)
             # bias_T_val = self.bias_T(inp_bias_T)
             # cor_T_val = torch.concatenate([grad_T_val, bias_T_val], dim=1)
-            elev_diff = inputs[:, self.ind_elev_diff]
+            # In km, so that the lapse rate is in °C/km whatever the normalization
+            elev_diff = elev_diff_unorm / 1000
             # cor_T = elev_diff * cor_T_val[:, 0] + cor_T_val[:, 1]
 
             inp_dir = inputs[:, self.ind_inp_dir]
             inp_terrain = inputs[:, self.ind_inp_terrain]
-            alpha = 1 - 15 * F.sigmoid(self.grad_T(inp_grad_T)[:, 0])
+            alpha = self._lapse_rate(inp_grad_T)
             # alpha = self.grad_T(inp_grad_T)[:, 0]
             bias = self.b_max * F.tanh(self.bias_T(inp_bias_T)[:, 0])
             # svf_unorm = Normalizer._unorm(
@@ -570,14 +675,15 @@ class TILikeModel(nn.Module):
 
             R_sw = 0.0
         else:
-            elev_diff = inputs[:, self.ind_elev_diff]
+            # In km, so that the lapse rate is in °C/km whatever the normalization
+            elev_diff = elev_diff_unorm / 1000
             inp_sw_contrib = inputs[:, self.ind_inp_sw_contrib]
-            alpha = -2 - 13 * F.sigmoid(self.grad_T(inp_grad_T)[:, 0])
+            alpha = self._lapse_rate(inp_grad_T)
             bias = self.b_max * F.tanh(self.bias_T(inp_bias_T)[:, 0])
             cor_T = elev_diff * alpha + bias
 
             # Short wave radiation contribution
-            R_sw = F.sigmoid(self.R_sw_contrib(inp_sw_contrib).view(-1))
+            R_sw = self.R_sw_max * F.sigmoid(self.R_sw_contrib(inp_sw_contrib).view(-1))
 
         if self.bias_cor is not None:
             # P_cor = (
@@ -590,19 +696,15 @@ class TILikeModel(nn.Module):
             P_cor = self._P_cor(inputs)
         else:
             P_cor = 1.0
-        P_solid = (
-            P
-            * P_cor
-            * F.sigmoid((torch.tanh(self.tau_P_s) + 1) * 2 * (self.tau_P_c - cor_T - T))
-        )
-        curv_pdd = (torch.tanh(self.beta_pdd) + 1) * 2
+        snow_slope, curv_pdd = self.snow_slope(), self.pdd_curvature()
+        P_solid = P * P_cor * F.sigmoid(snow_slope * (self.tau_P_c - cor_T - T))
         PDD = F.softplus((T + cor_T) * curv_pdd) / curv_pdd
 
         # Accumulation factor correction
-        cor_acc = F.sigmoid(self.cor_acc(inp_cor_acc).view(-1))
+        cor_acc = self.cor_acc(inp_cor_acc).view(-1)
 
         # Ablation factor correction
-        cor_abl = self.cor_abl(inp_cor_abl).view(-1)
+        cor_abl = self._ablation_factor(inp_cor_abl)
 
         MB = self.beta1 * cor_acc * P_solid - self.beta2 * cor_abl * PDD - R_sw
         # TODO: changer scaling de beta2 pour correspondre aux valeurs typiques calées avec ODINN

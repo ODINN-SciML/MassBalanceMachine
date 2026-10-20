@@ -21,11 +21,14 @@ REGION_LIST_KEYS = [
 REGION_OWNED_KEYS = REGION_LIST_KEYS + [
     "splitVal",
     "val_years",
+    "val_stakes",
+    "val_glacier_years",
     "geodetic_source",
     "geodetic_source_options",
     "geodetic_source_options_val",
     "geodetic_source_test",
     "geodetic_source_test_options",
+    "stake_sources",
 ]
 
 
@@ -38,7 +41,11 @@ def mergeRegions(training, netcfgFolder):
     `source_data` is the union of their RGI regions. The returned section has
     `splitVal="per-region"`, and keeps every region block, as read, under `regions`:
     `trainValData` splits each region with its own rule, and the evaluation tests each
-    region on its own geodetic source.
+    region on its own geodetic source. A region may set its own split by year,
+    `splitTest` (e.g. "YEAR:<2010"); the others keep the `splitTest` of the training
+    section, see `dataloader.SourceManager.yearSplitPerRgiRegion`. A region may also
+    combine several stake sources, `stake_sources` (e.g. [wgms, nve]), see
+    `dataloader.SourceManager.stakeSourcesPerRgiRegion`.
     """
     owned = [k for k in REGION_OWNED_KEYS if k in training]
     assert (
@@ -56,7 +63,12 @@ def mergeRegions(training, netcfgFolder):
         assert block.get("splitVal") in (
             "group-year",
             "group-rgi",
-        ), f"Region {name}: splitVal must be group-year or group-rgi, not {block.get('splitVal')}."
+            "group-stake",
+            "group-glacier-year",
+        ), (
+            f"Region {name}: splitVal must be group-year, group-rgi, group-stake or "
+            f"group-glacier-year, not {block.get('splitVal')}."
+        )
         regions[name] = block
 
     merged = {k: v for k, v in training.items() if k != "regions"}
@@ -152,8 +164,33 @@ def testSplits(params, df_test, keyGlacier="RGIId"):
     return splits
 
 
-def _valMask(df, splitVal, val_years=None, val_glaciers=None):
-    """Stakes of `df` that go to validation with a split by year or by glacier."""
+def stakeKeys(df):
+    """The stake of every row of `df`, "<RGIId>_<POINT_LAT>_<POINT_LON>" with the
+    coordinates to 6 decimals: WGMS gives no stake id, and a stake is one position on its
+    glacier, measured over several periods and years."""
+    missing = {"RGIId", "POINT_LAT", "POINT_LON"} - set(df.columns)
+    assert not missing, f"A split per stake needs the columns {sorted(missing)}."
+    return (
+        df.RGIId.astype(str)
+        + "_"
+        + df.POINT_LAT.map("{:.6f}".format)
+        + "_"
+        + df.POINT_LON.map("{:.6f}".format)
+    )
+
+
+def _valMask(
+    df,
+    splitVal,
+    val_years=None,
+    val_glaciers=None,
+    val_stakes=None,
+    val_glacier_years=None,
+):
+    """Stakes of `df` that go to validation with a split by year, by glacier, by stake
+    (`stakeKeys`), or by year glacier by glacier (`val_glacier_years`, {RGIId: [years]}:
+    each glacier keeps its own validation years, so that its stakes follow the geodetic
+    windows of its own side; a glacier left out has no validation stake)."""
     if splitVal == "group-year":
         assert (
             val_years is not None
@@ -161,6 +198,22 @@ def _valMask(df, splitVal, val_years=None, val_glaciers=None):
         return df.YEAR.isin(set(int(y) for y in val_years)).values
     if splitVal == "group-rgi":
         return df.RGIId.isin(val_glaciers or []).values
+    if splitVal == "group-stake":
+        assert (
+            val_stakes is not None
+        ), "With splitVal='group-stake', val_stakes must be provided."
+        return stakeKeys(df).isin(set(val_stakes)).values
+    if splitVal == "group-glacier-year":
+        assert (
+            val_glacier_years is not None
+        ), "With splitVal='group-glacier-year', val_glacier_years must be provided."
+        valKeys = {
+            (str(g), int(y)) for g, years in val_glacier_years.items() for y in years
+        }
+        return pd.Series(
+            [(str(g), int(y)) in valKeys for g, y in zip(df.RGIId, df.YEAR)],
+            index=df.index,
+        ).values
     raise ValueError(f"No validation mask for splitVal={splitVal}.")
 
 
@@ -235,6 +288,45 @@ def getMetaData(featuresInpModel, sourceData):
     return metaData
 
 
+def setNormalizationBounds(cfg, params):
+    """Override the normalization bounds of `cfg` with those of `params["model"]
+    ["normalization"]` ({feature: [lower, upper]}); the features it does not list keep
+    the bounds of `cfg`, by default the global `DEFAULT_BNDS`.
+
+    The bounds go into the model and the normalization of every input, so they must be
+    applied wherever a config is built from the params of a model, before any
+    dataloader or model is built from it."""
+    for feature, bounds in (params["model"].get("normalization") or {}).items():
+        assert (
+            len(bounds) == 2
+        ), f"The normalization bounds of {feature} must be [lower, upper], got {bounds}."
+        lower, upper = float(bounds[0]), float(bounds[1])
+        assert (
+            lower < upper
+        ), f"The normalization bounds of {feature} must satisfy lower < upper, got [{lower}, {upper}]."
+        cfg.bnds[feature] = (lower, upper)
+
+
+def setClimateSource(cfg, params):
+    """Set the climate source of `cfg` from `params["training"]["climate_source"]`:
+    "era5land" (the default, the climate stored in the stake tables and grids) or
+    "gswp3_w5e5" (t2m, tp, tp_sum, ALTITUDE_CLIMATE and ELEVATION_DIFFERENCE replaced
+    when they are read, see `data_processing.gswp3_w5e5`).
+
+    Like the normalization bounds, it must be applied wherever a config is built from
+    the params of a model, before any dataloader is built from it, so that a model is
+    evaluated with the climate it was trained on."""
+    # The top-level module, which `import massbalancemachine` puts on the path: the
+    # attribute `mbm.data_processing` can be rebound to a partial copy of the package
+    from data_processing.gswp3_w5e5 import CLIMATE_SOURCES, DEFAULT_CLIMATE_SOURCE
+
+    source = params["training"].get("climate_source", DEFAULT_CLIMATE_SOURCE)
+    assert (
+        source in CLIMATE_SOURCES
+    ), f"training.climate_source must be one of {CLIMATE_SOURCES}, got {source}."
+    cfg.climate_source = source
+
+
 def setFeatures(cfg, data_train, featuresInpModel):
     # feature_columns = list(
     #     data_train.columns.difference(cfg.metaData)
@@ -266,7 +358,7 @@ def trainValData(
         - split_key (str): Type of split between the train and validation sets.
         - val_glaciers (list or None): Optional list of glaciers to be kept aside for validation. If this option is used the split is done per glacier and split_key is ignored.
         - val_years (list or None): Years kept aside for validation, with `split_key="group-year"`. A measurement goes to the side holding the year it was measured in, so that the geodetic windows of each side stay in that side's years.
-        - regions (dict or None): With `split_key="per-region"`, the regions of `mergeRegions`: each stake is split with the rule (`splitVal`, `val_years`, `val_glaciers`) of the region its RGI id belongs to.
+        - regions (dict or None): With `split_key="per-region"`, the regions of `mergeRegions`: each stake is split with the rule (`splitVal`, `val_years`, `val_glaciers`, `val_stakes`, `val_glacier_years`) of the region its RGI id belongs to.
     """
     # Validation and train split:
     data_train = train_set["df_X"]
@@ -306,6 +398,8 @@ def trainValData(
                 region["splitVal"],
                 val_years=region.get("val_years"),
                 val_glaciers=region.get("val_glaciers"),
+                val_stakes=region.get("val_stakes"),
+                val_glacier_years=region.get("val_glacier_years"),
             )
             is_val |= regionVal
             print(

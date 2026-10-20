@@ -293,6 +293,7 @@ def geodetic_target_Belart20(
     max_outside_years: int = 0,
     multi_period: bool = True,
     tie_break: str = "sigma",
+    periods: dict = None,
 ):
     """Geodetic targets of Belart et al. (2020), one row per period between two surveys.
 
@@ -310,7 +311,29 @@ def geodetic_target_Belart20(
     nested (1960-1980, 1960-1994 and 1980-1994), so with `multi_period` a glacier keeps
     the best chain of non-overlapping periods, see `utils.periods.best_period_chain`,
     and without it the longest period, ties going to the lowest sigma.
+
+    `periods` ({glacier code: [[y0, y1], ...]}) instead names the periods to keep by
+    the years of their two surveys, for instance the ones a train/validation split
+    assigns to each side; `glacier_ids_to_keep` still applies, the other selection
+    arguments must keep their defaults.
     """
+    if periods is not None:
+        assert (max_year, min_year, min_period_years, allowed_years) == (
+            None,
+            None,
+            1,
+            None,
+        ), "periods names the periods: leave the other selection arguments out."
+        df = belart20_periods()
+        wanted = {(g, int(y0), int(y1)) for g, ys in periods.items() for y0, y1 in ys}
+        df = df[[(g, y0, y1) in wanted for g, y0, y1 in zip(df.RGIId, df.y0, df.y1)]]
+        found = set(zip(df.RGIId, df.y0, df.y1))
+        assert found == wanted, f"No Belart20 period {sorted(wanted - found)}."
+        assert len(df) == len(wanted), "Two Belart20 periods share their survey years."
+        if glacier_ids_to_keep is not None:
+            df = df[df.RGIId.isin(glacier_ids_to_keep)]
+        return df.sort_values(["RGIId", "FROM_DATE"]).reset_index(drop=True)
+
     df = select_dem_periods(
         belart20_periods(),
         max_year=max_year,

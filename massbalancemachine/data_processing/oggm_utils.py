@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import rasterio
+import shapely
 import xarray as xr
 from oggm import workflow, tasks
 from oggm import cfg as oggmCfg
@@ -100,6 +101,28 @@ def _define_glacier_region_with_dem(gdirs, dem_source, dem_file):
         oggmCfg.PATHS["dem_file"] = prev_dem_file
 
 
+# Variables of OGGM's gridded data that `_initialize_custom_glacier_directories` removes
+# once it has replaced the glacier mask by the true outline
+_CUSTOM_DROPPED_VARIABLES = [
+    "glacier_ext",
+    "glacier_ext_erosion",
+    "ice_divides",
+    "dis_from_border",
+    "topo_valid_mask",
+]
+
+
+def _custom_gdir_complete(gdir) -> bool:
+    """Whether a custom glacier directory went through the whole of
+    `_initialize_custom_glacier_directories`. A run interrupted after OGGM's tasks
+    leaves a `gridded_data` file with the mask of the convex hull and the variables the
+    last step removes, which the gridded features cannot be built from."""
+    if not gdir.has_file("gridded_data"):
+        return False
+    with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
+        return not any(v in ds for v in _CUSTOM_DROPPED_VARIABLES)
+
+
 def _initialize_custom_glacier_directories(
     df,
     splitdf,
@@ -134,42 +157,51 @@ def _initialize_custom_glacier_directories(
         force=reset,
     )
 
-    todo = gdirs if reset else [g for g in gdirs if not g.has_file("gridded_data")]
-    if not todo:
-        return gdirs
+    todo = gdirs if reset else [g for g in gdirs if not _custom_gdir_complete(g)]
+    if todo:
+        # Define the local map projection and get the DEM
+        _define_glacier_region_with_dem(todo, dem_source, dem_file)
 
-    # Define the local map projection and get the DEM
-    _define_glacier_region_with_dem(todo, dem_source, dem_file)
+        # Compute glacier masks, slope, and aspect
+        workflow.execute_entity_task(tasks.glacier_masks, todo)
 
-    # Compute glacier masks, slope, and aspect
-    workflow.execute_entity_task(tasks.glacier_masks, todo)
+        workflow.execute_entity_task(tasks.gridded_attributes, todo)
 
-    workflow.execute_entity_task(tasks.gridded_attributes, todo)
+        for gdir in todo:
+            rgi_id = gdir.rgi_id
+            with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
+                ds = ds.load()
+            mask = np.zeros_like(ds.glacier_mask.values)
+            true_geom = splitdf[splitdf[id_column] == rgi_id]
+            for i in range(true_geom.shape[0]):
+                out = gdir.grid.region_of_interest(geometry=true_geom.iloc[i].geometry)
+                mask = mask | out
+            ds["glacier_mask"].values = mask
+            ds = ds.drop(_CUSTOM_DROPPED_VARIABLES)
+            # Overwrite netcdf
+            save_path = gdir.get_filepath("gridded_data")
+            ds.to_netcdf(save_path)
 
-    for gdir in todo:
-        rgi_id = gdir.rgi_id
-        with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
-            ds = ds.load()
-        mask = np.zeros_like(ds.glacier_mask.values)
-        true_geom = splitdf[splitdf[id_column] == rgi_id]
-        for i in range(true_geom.shape[0]):
-            out = gdir.grid.region_of_interest(geometry=true_geom.iloc[i].geometry)
-            mask = mask | out
-        ds["glacier_mask"].values = mask
-        ds = ds.drop(
-            [
-                "glacier_ext",
-                "glacier_ext_erosion",
-                "ice_divides",
-                "dis_from_border",
-                "topo_valid_mask",
-            ]
-        )
-        # Overwrite netcdf
-        save_path = gdir.get_filepath("gridded_data")
-        ds.to_netcdf(save_path)
+    # Every opening of a directory rewrites its outlines with the area of the convex
+    # hull, so the true area goes back in each time, once the grid (whose resolution
+    # follows the area) is defined
+    for gdir in gdirs:
+        _write_true_area(gdir, splitdf[splitdf[id_column] == gdir.rgi_id])
 
     return gdirs
+
+
+def _write_true_area(gdir, polygons):
+    """Write the area of the union of `polygons`, the outline of the glacier, into
+    the outlines of its custom directory, which OGGM gave the area of their convex
+    hull. It is the area the elevation-band flowlines are scaled to
+    (`gdir.rgi_area_km2`)."""
+    outlines = gdir.read_shapefile("outlines")
+    true_geom = shapely.union_all(polygons.geometry.to_crs(outlines.crs).values)
+    outlines["Area"] = true_geom.area / 1e6
+    gdir.write_shapefile(outlines, "outlines")
+    # rgi_area_km2 is a lazy property: forget the area it read before
+    gdir.__dict__.pop("_lazy_rgi_area_km2", None)
 
 
 def _glacier_name(rgi_ids_list: list, cfg: config.Config, custom_working_dir=""):
