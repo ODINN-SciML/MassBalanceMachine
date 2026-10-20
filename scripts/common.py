@@ -99,6 +99,7 @@ def parseParams(params):
         if "snow_slope" in params["model"]:
             modelParams["snow_slope"] = params["model"]["snow_slope"]
         modelParams["beta1"] = float(params["model"].get("beta1", 10.0))
+        modelParams["beta2"] = float(params["model"].get("beta2", 0.0049))
         if "trainable" in params["model"]:
             modelParams["trainable"] = params["model"]["trainable"]
     trainingParams = {

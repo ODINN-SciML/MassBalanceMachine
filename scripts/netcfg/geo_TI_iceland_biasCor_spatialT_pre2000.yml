@@ -56,12 +56,13 @@ model:
             - str
         layers: [32, 16, 8]
         # Output of the ablation factor: softplus (unbounded, the default) or sigmoid,
-        # cor_abl = min + (max - min) * sigmoid. The melt is 0.0049 * cor_abl * PDD m w.e.
-        # per month, so a summer degree-day factor of 3-10 mm w.e. K-1 d-1 is a cor_abl of
-        # about 19-62.
-        # output: sigmoid
-        # min: 19.0
-        # max: 62.0
+        # cor_abl = min + (max - min) * sigmoid. The melt is beta2 * cor_abl * PDD m w.e.
+        # per month; with beta2 = 1, cor_abl is the degree-day factor in m w.e. K-1 month-1,
+        # so a summer degree-day factor of 3-10 mm w.e. K-1 d-1 is a cor_abl of about
+        # 0.091-0.304.
+        output: sigmoid
+        min: 0.091
+        max: 0.304
     bias_cor:
         inputs:
             - POINT_LAT
@@ -90,6 +91,9 @@ model:
         tau_P_s: false   # snow slope: stays at snow_slope.init
         beta_pdd: false  # PDD curvature: stays at 1.0
     beta1: 3.0
+    # Scaling of the ablation term (default 0.0049): 1 makes cor_abl a physical
+    # degree-day factor in m w.e. K-1 month-1.
+    beta2: 1.0
 training:
     regions:
         iceland:

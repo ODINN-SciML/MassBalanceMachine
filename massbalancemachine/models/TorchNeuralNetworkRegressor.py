@@ -115,7 +115,10 @@ class TILikeModel(nn.Module):
         # Scaling of the accumulation term
         self.beta1 = float(modelParams.get("beta1", 10.0))
         assert self.beta1 > 0, f"beta1 must be positive, got {self.beta1}."
-        self.beta2 = 0.0049
+        # Scaling of the ablation term, melt = beta2 * cor_abl * PDD in m w.e. per month.
+        # With beta2 = 1, cor_abl is the degree-day factor in m w.e. K-1 month-1
+        self.beta2 = float(modelParams.get("beta2", 0.0049))
+        assert self.beta2 > 0, f"beta2 must be positive, got {self.beta2}."
         # Range of the slope of the snow fraction sigmoid,
         # slope = s_min + (s_max - s_min) * (tanh(tau_P_s) + 1) / 2
         snow_slope_params = modelParams.get("snow_slope", {})
