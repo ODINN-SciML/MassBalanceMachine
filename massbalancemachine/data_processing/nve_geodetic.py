@@ -62,6 +62,16 @@ gives no position for cannot be built and its period is left out: the fifteen
 glaciers of Strupbreen 1953-2010. Ramnabergbreen's neighbour 2963 1961-1995
 "probably also includes 2961" (no position either) and is kept as 2963.
 
+**Ice caps given outlet by outlet.** Hardangerjøkulen was mapped as a whole in 1961,
+1995 and 2010, and the table gives the balance of each of its thirteen outlets between
+these maps. They are merged into one period of the ice cap per pair of surveys
+(`MERGED_SURVEYS`, `_merge_surveys`): the outlets share the errors of the two maps, so
+as separate targets they would weigh as thirteen independent measurements of what is
+one, and the ice divides of the maps do not match those of the outlines (see Geometry
+below), which the ice cap as a whole is free of. The 1961-1995 value of Rembesdalskåka
+is the current one, the reanalysis of Andreassen et al. (2016), stored as 1962-1995 but
+between the same surveys; its area is that of the older version of the period.
+
 **Geometry.** The table gives the area at both surveys but not the outlines. Each
 glacier is first matched to one RGI 6.2 outline, from NVE's inventory of Landsat
 scenes of 1999 to 2006, the one holding the position of the glacier (`utm_east`,
@@ -137,11 +147,28 @@ LANGFJORDJOKELEN = (49, 50, 51, 52, 53, 54, 55, 56)
 STRUPBREEN_KOPPANGSBREEN = (200, 205)
 STRUPBREEN_15 = tuple(range(195, 210))
 JOSTEFONN = (2141, 2142, 2143, 2145, 2146, 2147, 2148, 2149, 2150, 2152)
+# The thirteen outlets of Hardangerjøkulen the table gives a balance for
+HARDANGERJOKULEN = (
+    2960,
+    2962,
+    2963,
+    2964,
+    2966,
+    2968,
+    2969,
+    2970,
+    2971,
+    2972,
+    2973,
+    2974,
+    2975,
+)
 GROUP_NAMES = {
     LANGFJORDJOKELEN: "Langfjordjøkelen",
     STRUPBREEN_KOPPANGSBREEN: "Strupbreen and Koppangsbreen",
     STRUPBREEN_15: "Strupbreen and neighbours",
     JOSTEFONN: "Jostefonn",
+    HARDANGERJOKULEN: "Hardangerjøkulen",
 }
 FOLGEFONNA_GROUPS = {
     3115: (3113, 3115, 3117),
@@ -160,6 +187,14 @@ AGGREGATED_PERIODS = {
         for stored, members in FOLGEFONNA_GROUPS.items()
         for y0, y1 in ((1959, 1997), (1997, 2007), (2007, 2013))
     },
+}
+
+# Ice caps mapped as a whole whose balance the table gives outlet by outlet: the
+# current periods of their outlets between the same two surveys are merged into one
+# period of the ice cap, see the module docstring. {outlets: ((date of the first
+# survey, date of the second), ...)}
+MERGED_SURVEYS = {
+    HARDANGERJOKULEN: (("1961-08-31", "1995-08-31"), ("1961-08-31", "2010-09-30")),
 }
 
 # Glaciers losing mass by calving: Austdalsbreen ends in a hydropower lake
@@ -371,6 +406,87 @@ def _gao_outline(members):
     return shapely.union_all([basins[rgi_of[m]] for m in members])
 
 
+def _area_on_outlines(members, inventory, area_rgi):
+    """Area in km² of the entity made of `members` on the outlines of `inventory`,
+    `area_rgi` for RGI. None when it has no GAO outline."""
+    if inventory != "GAO":
+        return area_rgi
+    outline = _gao_outline(members)
+    return None if outline is None else outline.area / 1e6
+
+
+def _merge_surveys(df, raw_all):
+    """Replace, for every ice cap of `MERGED_SURVEYS`, the periods of its outlets
+    between one pair of surveys by one period of the ice cap.
+
+    The rate is the mean of those of the outlets weighted by their areas (the mean of
+    the areas the table gives for the surveys, or, where the current period gives none,
+    those of an older version of it). The outlets are measured on the same two maps,
+    so their errors are taken as fully correlated: the uncertainty is the
+    area-weighted mean of theirs.
+    """
+    merged = []
+    for members, surveys in MERGED_SURVEYS.items():
+        for d1, d2 in surveys:
+            d1, d2 = pd.Timestamp(d1), pd.Timestamp(d2)
+            sel = (
+                df.breid.isin(members)
+                & (df.members.map(len) == 1)
+                & (df.survey_from == d1)
+                & (df.survey_to == d2)
+            )
+            part = df[sel]
+            assert sorted(part.breid) == sorted(members), (
+                f"The outlets of {GROUP_NAMES[members]} do not have one current period "
+                f"each between {d1.date()} and {d2.date()}: {sorted(part.breid)}."
+            )
+            areas = part.area_mean_km2.copy()
+            for i in areas.index[areas.isna()]:
+                older = raw_all[
+                    (raw_all.glacier_id == part.breid[i])
+                    & (pd.to_datetime(raw_all.dt_survey_year1_date) == d1)
+                    & (pd.to_datetime(raw_all.dt_survey_year2_date) == d2)
+                ]
+                given = older[["area_survey_year1", "area_survey_year2"]].to_numpy()
+                areas[i] = given[given > 0].mean()
+            assert (
+                not areas.isna().any()
+            ), f"An outlet has no area: {part.breid[areas.isna()]}"
+            w = areas / areas.sum()
+            y0, y1 = d1.year, d2.year
+            inventory = outline_inventory(y0)
+            area_rgi = part.area_rgi.sum()
+            densities = part.density.dropna().unique()
+            merged.append(
+                dict(
+                    RGIId=entity_id(members),
+                    name=GROUP_NAMES[members],
+                    breid=min(members),
+                    members=tuple(sorted(members)),
+                    y0=y0,
+                    y1=y1,
+                    n_years=y1 - y0,
+                    FROM_DATE=pd.Timestamp(f"{y0}-10-01"),
+                    TO_DATE=pd.Timestamp(f"{y1}-10-01"),
+                    survey_from=d1,
+                    survey_to=d2,
+                    mwe_per_year=(w * part.mwe_per_year).sum(),
+                    sigma_mwe_per_year=(w * part.sigma_mwe_per_year).sum(),
+                    sigma_reported=bool(part.sigma_reported.all()),
+                    density=densities[0] if len(densities) == 1 else np.nan,
+                    area_y0_km2=part.area_y0_km2.sum(min_count=len(part)),
+                    area_y1_km2=part.area_y1_km2.sum(min_count=len(part)),
+                    area_mean_km2=areas.sum(),
+                    outlines=inventory,
+                    area_rgi=area_rgi,
+                    area_outlines=_area_on_outlines(members, inventory, area_rgi),
+                    reference="; ".join(dict.fromkeys(part.reference)),
+                )
+            )
+            df = df[~sel]
+    return pd.concat([df, pd.DataFrame(merged)], ignore_index=True)
+
+
 def _default_sigma(method1, method2):
     laser = method1 in LASER_METHODS and method2 in LASER_METHODS
     return DEFAULT_SIGMA_MWE["laser" if laser else "other"]
@@ -380,7 +496,8 @@ def nve_periods():
     """Every current period of the table that can be built on its outlines, with its
     entity, dates, rate, uncertainty and areas, one row per period.
 
-    Columns: RGIId (entity id), name, breid (the Bre-ID the value is stored under),
+    Columns: RGIId (entity id), name, breid (the Bre-ID the value is stored under,
+    the smallest of its outlets for an ice cap of `MERGED_SURVEYS`),
     members (the Bre-IDs of the entity), y0, y1, n_years, FROM_DATE and TO_DATE (the
     1st of October of y0 and y1), survey_from and survey_to (the survey dates),
     mwe_per_year, cumulative_mwe, sigma_mwe_per_year (all at 850 kg m-3),
@@ -391,10 +508,11 @@ def nve_periods():
     period), area_ratio (area_mean_km2 / area_outlines) and reference.
 
     The periods of a group with a glacier of unknown position, and those before 1985
-    of a glacier on no N50 map, are left out, see the module docstring.
+    of a glacier on no N50 map, are left out, and the periods of the outlets of an ice
+    cap of `MERGED_SURVEYS` are merged into one, see the module docstring.
     """
-    raw = read_nve_table()
-    raw = raw[raw.generation_no == 0]
+    raw_all = read_nve_table()
+    raw = raw_all[raw_all.generation_no == 0]
     rgi_of = _rgi_of_breid()
     rgi_area = (
         gpd.read_file(get_region_shape_file(f"{NORWAY_REGION_ID:02d}"))
@@ -410,13 +528,9 @@ def nve_periods():
             continue
         area_rgi = sum(rgi_area[rgi_of[m]] for m in members)
         inventory = outline_inventory(y0)
-        if inventory == "GAO":
-            outline = _gao_outline(members)
-            if outline is None:
-                continue
-            area_outlines = outline.area / 1e6
-        else:
-            area_outlines = area_rgi
+        area_outlines = _area_on_outlines(members, inventory, area_rgi)
+        if area_outlines is None:
+            continue
         density = r.density_conv_factor
         factor = ICE_DENSITY / density if density in BULK_DENSITIES else 1.0
         n_years = y1 - y0
@@ -456,7 +570,7 @@ def nve_periods():
                 reference=r.geod_reference,
             )
         )
-    df = pd.DataFrame(rows)
+    df = _merge_surveys(pd.DataFrame(rows), raw_all)
     df["cumulative_mwe"] = df.mwe_per_year * df.n_years
     df["area_ratio"] = df.area_mean_km2 / df.area_outlines
     return df.sort_values(["RGIId", "FROM_DATE", "TO_DATE"]).reset_index(drop=True)

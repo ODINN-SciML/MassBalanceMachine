@@ -16,6 +16,7 @@ import shapely
 from data_processing.andreassen16 import ANDREASSEN16_GLACIERS, andreassen16_periods
 from data_processing.nve_geodetic import (
     AGGREGATED_PERIODS,
+    HARDANGERJOKULEN,
     JOSTEFONN,
     LANGFJORDJOKELEN,
     RAW_FILE,
@@ -61,9 +62,10 @@ def test_coordinates_are_read_the_right_way_round():
 
 def test_only_current_periods_are_kept(periods):
     raw = read_nve_table()
-    # The fifteen glaciers of Strupbreen 1953-2010, and the periods before 1985 of the
-    # four glaciers on no N50 map
-    assert len(periods) == (raw.generation_no == 0).sum() - 1 - 4
+    # The fifteen glaciers of Strupbreen 1953-2010, the periods before 1985 of the
+    # four glaciers on no N50 map, and the thirteen outlets of Hardangerjøkulen merged
+    # into one on 1961-1995 and on 1961-2010
+    assert len(periods) == (raw.generation_no == 0).sum() - 1 - 4 - 2 * 12
     # Ålfotbreen 1988-1997: the reanalysis of 2016, not the value of 2004 (+0.50)
     alf = periods.set_index(["RGIId", "y0", "y1"]).loc[("NVE-2078", 1988, 1997)]
     assert alf.mwe_per_year == pytest.approx(0.87)
@@ -143,13 +145,12 @@ def test_agrees_with_andreassen16(periods):
 
 def test_pre_2000_target():
     target = geodetic_target_NVE(max_year=2002)
-    assert len(target) == 40 and target.RGIId.nunique() == 32
+    assert len(target) == 30 and target.RGIId.nunique() == 22
     assert target.y1.max() <= 2002
-    # Divides of 1995 that do not match the GAO basins on Hardangerjøkulen
-    assert not {"NVE-2971", "NVE-2973"} & set(target.RGIId)
-    assert {"NVE-2971", "NVE-2973"} <= set(
-        geodetic_target_NVE(max_year=2002, max_area_ratio=None).RGIId
-    )
+    # Hardangerjøkulen is one target, whose divides no longer matter
+    hardanger = target[target.RGIId == entity_id(HARDANGERJOKULEN)]
+    assert list(zip(hardanger.y0, hardanger.y1)) == [(1961, 1995)]
+    assert not any(f"NVE-{b}" in set(target.RGIId) for b in HARDANGERJOKULEN)
     for _, g in target.groupby("RGIId"):
         g = g.sort_values("FROM_DATE")
         assert (g.TO_DATE.to_numpy()[:-1] <= g.FROM_DATE.to_numpy()[1:]).all()
@@ -198,16 +199,46 @@ def test_nested_entities_map_to_the_one_with_a_target():
 
 
 def test_named_periods():
-    periods = {"NVE-2078": [[1968, 1988]], "NVE-2971": [[1961, 1995]]}
+    periods = {"NVE-2078": [[1968, 1988]], "NVE-50": [[1966, 2008]]}
     target = geodetic_target_NVE(periods=periods)
     assert list(zip(target.RGIId, target.y0, target.y1)) == [
         ("NVE-2078", 1968, 1988),
-        ("NVE-2971", 1961, 1995),  # named: kept whatever its area ratio
+        ("NVE-50", 1966, 2008),  # named: kept whatever its area ratio
     ]
     with pytest.raises(AssertionError):
         geodetic_target_NVE(periods={"NVE-2078": [[1968, 1990]]})
     with pytest.raises(AssertionError):
         geodetic_target_NVE(periods=periods, max_year=2000)
+
+
+def test_hardangerjokulen_is_merged(periods):
+    raw = read_nve_table()
+    raw = raw[raw.generation_no == 0]
+    hardanger = entity_id(HARDANGERJOKULEN)
+    p = periods.set_index(["RGIId", "y0", "y1"])
+    # No outlet keeps a period of the surveys of the ice cap: Rembesdalskåka only its
+    # 1995-2010 one
+    outlets = periods[periods.RGIId.isin({f"NVE-{b}" for b in HARDANGERJOKULEN})]
+    assert list(zip(outlets.RGIId, outlets.y0, outlets.y1)) == [
+        ("NVE-2968", 1995, 2010)
+    ]
+    # 1961-2010: the area-weighted mean of the rates of the table (all at 850 kg m-3)
+    rows = raw[raw.glacier_id.isin(HARDANGERJOKULEN) & (raw.survey_year2 == 2010)]
+    rows = rows[rows.survey_year1 == 1961]
+    assert len(rows) == len(HARDANGERJOKULEN)
+    areas = (rows.area_survey_year1 + rows.area_survey_year2) / 2
+    whole = p.loc[(hardanger, 1961, 2010)]
+    assert whole.mwe_per_year == pytest.approx(
+        (rows.mass_bal_avg_year * areas).sum() / areas.sum()
+    )
+    assert whole.area_mean_km2 == pytest.approx(areas.sum())
+    # 1961-1995 is on the GAO outlines, which the ice cap as a whole matches; its
+    # outlets reach 72.4 km² in 1995, Rembesdalskåka's from the older version
+    early = p.loc[(hardanger, 1961, 1995)]
+    assert early.outlines == "GAO"
+    assert early.area_mean_km2 == pytest.approx(72.4)
+    assert early.area_ratio == pytest.approx(1, abs=0.05)
+    assert early.sigma_mwe_per_year == pytest.approx(2 / 34, rel=0.05)
 
 
 def test_periods_before_1985_are_on_the_gao_outlines(periods):
