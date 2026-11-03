@@ -40,12 +40,11 @@ model:
             - POINT_LAT
             - POINT_LON
         layers: [32, 16, 8]
-        b_max: 3.0
+        b_max: 1.0
     cor_acc:
         inputs:
             - u10
             - v10
-            - slope
         layers: [32, 16, 8]
     cor_abl:
         inputs:
@@ -54,6 +53,7 @@ model:
             - sshf
             - ssrd
             - str
+            - ELEVATION_DIFFERENCE
         layers: [32, 16, 8]
         # Output of the ablation factor: softplus (unbounded, the default) or sigmoid,
         # cor_abl = min + (max - min) * sigmoid. The melt is beta2 * cor_abl * PDD m w.e.
@@ -67,8 +67,9 @@ model:
         inputs:
             - POINT_LAT
             - POINT_LON
-        layers: [32, 16, 8]
-        p_min: 0.1
+        layers: [16, 8]
+        p_min: 0.2
+        p_max: 1.5
     bias_cor_elev:
         inputs:
             - ELEVATION_DIFFERENCE
@@ -102,6 +103,8 @@ training:
     # 0 trains on the stakes only. The geodetic run reuses this file with --wGeo, so that
     # both experiments share the same split.
     wGeo: 0.0
+    wWinter: 2.0
+    wSummer: 2.0
     # Weight the geodetic loss term of every window by its area (normalized to a mean
     # of 1, see training.geodeticAreaWeights). The stake term is not weighted.
     areaWeightGeo: false
@@ -120,3 +123,4 @@ training:
     wGeoSchedule: [0.05]
     scalingStakes: full
     bestModelCriterion: lossVal
+    climate_source: gswp3_w5e5

@@ -93,3 +93,4 @@ training:
     wGeoSchedule: [1e-3, 1e-2]
     scalingStakes: full
     bestModelCriterion: lossVal
+    climate_source: gswp3_w5e5
