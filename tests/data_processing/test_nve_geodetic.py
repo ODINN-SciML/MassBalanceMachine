@@ -239,6 +239,10 @@ def test_hardangerjokulen_is_merged(periods):
     assert early.area_mean_km2 == pytest.approx(72.4)
     assert early.area_ratio == pytest.approx(1, abs=0.05)
     assert early.sigma_mwe_per_year == pytest.approx(2 / 34, rel=0.05)
+    # Its outlets lie in 08-02 and 08-03: it takes 08-02, which holds most of its area.
+    # Both of its periods start in 1961, so it only has GAO outlines
+    outline = load_nve_outlines([hardanger], inventory="GAO").iloc[0]
+    assert (outline.o1_region, outline.o2_region) == ("08", "02")
 
 
 def test_periods_before_1985_are_on_the_gao_outlines(periods):

@@ -686,7 +686,8 @@ def load_nve_outlines(glacier_ids_to_keep=None, inventory: str = "RGI"):
 
     The returned frame is in EPSG:4326 with the entity id in a column named
     "NVE_ID", ready for `custom_outlines.build_custom_gdirs`, along with the
-    RGI first- and second-order regions of the entity ("08", "02"), its name, the RGI
+    RGI first- and second-order regions of the entity ("08", "02"; for an entity across
+    two second-order regions, the one holding most of its area), its name, the RGI
     ids it is made of and its area in km² (`area_km2`), summed from the RGI areas for
     RGI. Every entity of `nve_periods` with a period on `inventory` is returned by
     default.
@@ -702,12 +703,16 @@ def load_nve_outlines(glacier_ids_to_keep=None, inventory: str = "RGI"):
     rgi = gpd.read_file(get_region_shape_file(f"{NORWAY_REGION_ID:02d}"))
     rgi = pairs.merge(rgi, on="RGIId")
     rgi = gpd.GeoDataFrame(rgi, geometry="geometry", crs="EPSG:4326")
-    o2 = rgi.groupby("NVE_ID").O2Region.nunique()
-    assert (o2 == 1).all(), f"Entities across O2 regions: {list(o2[o2 > 1].index)}."
+    # An entity spanning two second-order regions (Hardangerjøkulen, across the
+    # boundary of 08-02 and 08-03) takes the one holding most of its RGI area: OGGM
+    # only reads the code as metadata
+    o2_area = rgi.groupby(["NVE_ID", "O2Region"]).Area.sum()
+    o2 = o2_area.groupby(level="NVE_ID").idxmax().map(lambda key: key[1])
     outlines = rgi.dissolve(
         "NVE_ID",
-        aggfunc={"Area": "sum", "O1Region": "first", "O2Region": "first"},
+        aggfunc={"Area": "sum", "O1Region": "first"},
     ).reset_index()
+    outlines["O2Region"] = outlines.NVE_ID.map(o2)
     outlines["rgi_ids"] = outlines.NVE_ID.map(
         pairs.groupby("NVE_ID").RGIId.apply(lambda s: tuple(sorted(s)))
     )
