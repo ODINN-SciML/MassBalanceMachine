@@ -52,6 +52,20 @@ The paper converts volume changes to water equivalent with a density of
 850 kg m-3, the one of this workflow, so no conversion is needed. Its uncertainties
 are at the 95 % confidence level, and are divided by 1.96 to give one sigma.
 
+**Non-surface balance (possible improvement).** The balances are geodetic, so they
+include basal and internal melt, which a surface model does not compute. Jóhannesson
+et al. (2020, J. Glaciol., 66, 685-697, doi:10.1017/jog.2020.37) estimate 45-375 mm
+w.e. per year of non-surface melt in 1995-2019 on the main ice caps (geothermal and
+volcanic melt, dissipation of the energy of flowing water and ice, 20-150 mm w.e. per
+year), largest on Mýrdalsjökull, south Vatnajökull and Eyjafjallajökull. The glaciers
+kept here are outside those areas: no eruption under them is known since 1960 (to be
+confirmed against the Smithsonian Global Volcanism Program eruption list, intersected
+with the outlines), and ÍSOR reports no surface geothermal heat on Tungnafellsjökull,
+the high-temperature field of Vonarskarð being outside the ice. A background of about
+20-50 mm w.e. per year is expected, and largely cancels between calibration and test
+periods since both are geodetic. If needed, the per-ice-cap estimates of the paper
+could be subtracted to calibrate on surface balances.
+
 **Known errors of the WGMS copy.** WGMS gives Hofsjökull Eystri 1967-1990 with the
 wrong sign (S1 gives -0.22, consistent with its three sub-periods) and holds two rows
 of Eiríksjökull 1960-1995 but none of 1960-1978; the values of S1 are kept.
