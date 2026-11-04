@@ -193,13 +193,13 @@ class TILikeModel(nn.Module):
             bias_cor_params = modelParams["bias_cor"]
             bias_cor = [nn.Linear(len(self.inp_bias_cor), bias_cor_params["layers"][0])]
             for i in range(len(bias_cor_params["layers"]) - 1):
-                bias_cor.append(nn.ReLU())
+                bias_cor.append(nn.LeakyReLU())
                 bias_cor.append(
                     nn.Linear(
                         bias_cor_params["layers"][i], bias_cor_params["layers"][i + 1]
                     )
                 )
-            bias_cor.append(nn.ReLU())
+            bias_cor.append(nn.LeakyReLU())
             bias_cor.append(nn.Linear(bias_cor_params["layers"][-1], 1))
             self.bias_cor = nn.Sequential(*bias_cor)
         else:
@@ -225,14 +225,14 @@ class TILikeModel(nn.Module):
                 )
             ]
             for i in range(len(bias_cor_elev_params["layers"]) - 1):
-                bias_cor_elev.append(nn.ReLU())
+                bias_cor_elev.append(nn.LeakyReLU())
                 bias_cor_elev.append(
                     nn.Linear(
                         bias_cor_elev_params["layers"][i],
                         bias_cor_elev_params["layers"][i + 1],
                     )
                 )
-            bias_cor_elev.append(nn.ReLU())
+            bias_cor_elev.append(nn.LeakyReLU())
             bias_cor_elev.append(nn.Linear(bias_cor_elev_params["layers"][-1], 1))
             self.bias_cor_elev = nn.Sequential(*bias_cor_elev)
         else:
