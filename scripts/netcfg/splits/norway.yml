@@ -80,6 +80,10 @@ val_glacier_years:
   - 1992
   - 1993
   - 1994
+  RGI60-08.01657:
+  - 1994
+  - 1995
+  - 1996
   RGI60-08.01779:
   - 1996
   - 1997
@@ -200,6 +204,7 @@ val_glaciers:
 - RGI60-08.01258
 - RGI60-08.01484
 - RGI60-08.01598
+- RGI60-08.01657
 - RGI60-08.01779
 - RGI60-08.02014
 - RGI60-08.02017
@@ -251,9 +256,6 @@ geodetic_source:
 geodetic_source_options:
   NVE:
     periods:
-      NVE-1094:
-      - - 1968
-        - 2001
       NVE-1144:
       - - 1972
         - 1998
@@ -342,7 +344,6 @@ geodetic_source_options_val:
         - 1997
 geodetic_source_test: Hugonnet21
 train_glaciers_geo:
-- NVE-1094
 - NVE-1144
 - NVE-200+205
 - NVE-2078
@@ -391,7 +392,6 @@ test_glaciers_geo:
 - RGI60-08.01257
 - RGI60-08.01258
 - RGI60-08.01259
-- RGI60-08.01657
 - RGI60-08.01771
 - RGI60-08.01773
 - RGI60-08.01774
@@ -439,6 +439,8 @@ provenance:
     max_area_ratio: 1.5
     calving_excluded:
     - 2478
+    geodetic_excluded:
+      NVE-1094: Engabreen, internal ablation
   val_min_start: 1978
   geo_elevation_tolerance: 50.0
   stake_cut: 1984
@@ -469,4 +471,4 @@ provenance:
   - v10
   max_measurements_per_glacier: 10000
   n_trials: 500
-  score: 0.44661006331443787
+  score: 0.4470280408859253
