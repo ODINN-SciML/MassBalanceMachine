@@ -50,8 +50,8 @@ model:
         # in the checkpoint. Disabled when absent. With the normalization above, Strupbreen
         # and Langfjordjøkelen are 0.04 (lat) and 0.09 (lon) apart. Same option in bias_cor.
         fourier_features:
-            n_frequencies: 32
-            sigma: 10.0
+            n_frequencies: 8
+            sigma: 2.0
             seed: 0              # default 0
             include_input: true  # keep lat/lon next to the features, default true
     cor_acc:
@@ -86,7 +86,7 @@ model:
         # of the last hidden layer died in Norway (geo_20261103_231008), which left the
         # correction constant.
         activation: leaky_relu
-        fourier_features: {n_frequencies: 32, sigma: 10.0, seed: 0, include_input: true}  # see bias_T, disabled when absent
+        fourier_features: {n_frequencies: 8, sigma: 2.0, seed: 0, include_input: true}  # see bias_T, disabled when absent
     bias_cor_elev:
         inputs:
             - ELEVATION_DIFFERENCE
@@ -140,7 +140,7 @@ training:
     scheduler_step_size: 500
     Nepochs: 2000
     NepochsGeo: 1000
-    wGeoSchedule: [0.05]
+    wGeoSchedule: [0.05, 0.1]
     scalingStakes: full
     bestModelCriterion: lossVal
     climate_source: gswp3_w5e5
