@@ -8,6 +8,21 @@ import copy
 
 from data_processing.Dataset import Normalizer
 
+# Hidden-layer activations of the precipitation correction networks (bias_cor and
+# bias_cor_elev), chosen per network by its `activation` key in the model config
+ACTIVATIONS = {"relu": nn.ReLU, "leaky_relu": nn.LeakyReLU}
+
+
+def _activation(netParams, name):
+    """Activation class of the network `name` of the model config: `activation`, "relu"
+    (default) or "leaky_relu". With ReLU, the units of the small last hidden layer can all
+    die, which leaves the correction constant."""
+    key = netParams.get("activation", "relu")
+    assert (
+        key in ACTIVATIONS
+    ), f"{name}.activation must be one of {sorted(ACTIVATIONS)}, got {key!r}."
+    return ACTIVATIONS[key]
+
 
 class TILikeModel(nn.Module):
     def __init__(self, modelParams, normalizing_bounds, *args, **kwargs):
@@ -191,15 +206,16 @@ class TILikeModel(nn.Module):
             )
 
             bias_cor_params = modelParams["bias_cor"]
+            act = _activation(bias_cor_params, "bias_cor")
             bias_cor = [nn.Linear(len(self.inp_bias_cor), bias_cor_params["layers"][0])]
             for i in range(len(bias_cor_params["layers"]) - 1):
-                bias_cor.append(nn.LeakyReLU())
+                bias_cor.append(act())
                 bias_cor.append(
                     nn.Linear(
                         bias_cor_params["layers"][i], bias_cor_params["layers"][i + 1]
                     )
                 )
-            bias_cor.append(nn.LeakyReLU())
+            bias_cor.append(act())
             bias_cor.append(nn.Linear(bias_cor_params["layers"][-1], 1))
             self.bias_cor = nn.Sequential(*bias_cor)
         else:
@@ -219,20 +235,21 @@ class TILikeModel(nn.Module):
             )
 
             bias_cor_elev_params = modelParams["bias_cor_elev"]
+            act = _activation(bias_cor_elev_params, "bias_cor_elev")
             bias_cor_elev = [
                 nn.Linear(
                     len(self.inp_bias_cor_elev), bias_cor_elev_params["layers"][0]
                 )
             ]
             for i in range(len(bias_cor_elev_params["layers"]) - 1):
-                bias_cor_elev.append(nn.LeakyReLU())
+                bias_cor_elev.append(act())
                 bias_cor_elev.append(
                     nn.Linear(
                         bias_cor_elev_params["layers"][i],
                         bias_cor_elev_params["layers"][i + 1],
                     )
                 )
-            bias_cor_elev.append(nn.LeakyReLU())
+            bias_cor_elev.append(act())
             bias_cor_elev.append(nn.Linear(bias_cor_elev_params["layers"][-1], 1))
             self.bias_cor_elev = nn.Sequential(*bias_cor_elev)
         else:

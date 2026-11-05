@@ -63,10 +63,15 @@ model:
             - POINT_LON
         layers: [32, 16, 8]
         p_min: 0.1
+        # Hidden-layer activation, "relu" (default) or "leaky_relu". With ReLU all the units
+        # of the last hidden layer died in Norway (geo_20261103_231008), which left the
+        # correction constant.
+        activation: leaky_relu
     bias_cor_elev:
         inputs:
             - ELEVATION_DIFFERENCE
         layers: [16, 8]
+        activation: leaky_relu  # "relu" (default) or "leaky_relu"
     sw_contrib:
         inputs:
             - aspect
