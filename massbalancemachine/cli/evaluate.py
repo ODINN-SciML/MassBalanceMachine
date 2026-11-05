@@ -136,6 +136,13 @@ def main(argv=None):
         help="Only compute the glacier-wide predictions on the training and validation geodetic windows and save them, with their residuals, in <log_dir>/geodetic_train_windows_<checkpoint>.csv, without evaluating anything else.",
     )
     parser.add_argument(
+        "--stakesOnly",
+        dest="stakesOnly",
+        default=False,
+        action="store_true",
+        help="Only predict every stake measurement of the training, validation and test sets and save them in <log_dir>/stakes_all.parquet (one row per measurement, with its split), without evaluating anything else.",
+    )
+    parser.add_argument(
         "--checkpoint",
         dest="checkpoint",
         type=str,
@@ -180,6 +187,7 @@ def main(argv=None):
     inspectOnly = args.inspectOnly
     geodeticTestOnly = args.geodeticTestOnly
     geodeticTrainOnly = args.geodeticTrainOnly
+    stakesOnly = args.stakesOnly
     skipGlacierPlots = args.skipGlacierPlots
     if os.path.isdir(modelFolder):
         pathFolder = modelFolder
@@ -198,8 +206,8 @@ def main(argv=None):
         geodeticTestOnly and noTest
     ), "Options geodeticTestOnly and noTest cannot be combined."
     assert (
-        sum([inspectOnly, geodeticTestOnly, geodeticTrainOnly]) <= 1
-    ), "Options inspectOnly, geodeticTestOnly and geodeticTrainOnly cannot be combined."
+        sum([inspectOnly, geodeticTestOnly, geodeticTrainOnly, stakesOnly]) <= 1
+    ), "Options inspectOnly, geodeticTestOnly, geodeticTrainOnly and stakesOnly cannot be combined."
 
     if len(maps) > 0:
         assert (
@@ -358,6 +366,47 @@ def main(argv=None):
             torch.load(bestModelPath, weights_only=True, map_location="cpu")
         )
     print(f"Loaded model {bestModelPath}")
+
+    if stakesOnly:
+        # Every stake measurement, whichever set it belongs to, predicted without any
+        # geodetic data. The position of each measurement is added so that it can be
+        # matched with stake tables whose ID numbering differs.
+        all_columns = list(set(featuresInpModel + cfg.fieldsNotFeatures))
+        sides = {"train": df_X_train, "val": df_X_val, "test": df_X_test_subset}
+        df_all = pd.concat(
+            [d[all_columns] for d in sides.values() if len(d) > 0], ignore_index=True
+        )
+        stakes_gdl = mbm.dataloader.GeoDataLoader(
+            cfg,
+            list(df_all[keyGlacier].unique()),
+            device=device,
+            trainStakesDf=df_all,
+            months_head_pad=months_head_pad,
+            months_tail_pad=months_tail_pad,
+            keyGlacierSel=keyGlacier,
+            noGeo=True,
+        )
+        df_stakes = model.evaluate_group_pred(stakes_gdl)
+        split = pd.concat(
+            [pd.Series(side, index=d.ID.unique()) for side, d in sides.items()]
+        )
+        assert split.index.is_unique, "A measurement belongs to several sets."
+        df_stakes["split"] = df_stakes.ID.map(split)
+        position = (
+            pd.concat(
+                [d[["ID", "POINT_LAT", "POINT_LON"]] for d in (data_train, data_test)]
+            )
+            .groupby("ID")
+            .first()
+        )
+        df_stakes = df_stakes.join(
+            position.drop(columns=df_stakes.columns, errors="ignore"), on="ID"
+        )
+        path = os.path.join(pathFolder, "stakes_all.parquet")
+        df_stakes.to_parquet(path, engine="pyarrow", compression="snappy")
+        print(f"Saved {len(df_stakes)} measurements in {path}")
+        print(df_stakes.groupby(["split", "PERIOD"]).size().to_string())
+        return
 
     if params["model"]["type"] == "TIlike" and not geodeticTrainOnly:
         # Learnable scalars of the snow fraction and PDD activation functions

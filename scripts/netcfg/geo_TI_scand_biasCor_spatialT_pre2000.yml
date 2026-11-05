@@ -43,6 +43,17 @@ model:
             - POINT_LON
         layers: [32, 16, 8]
         b_max: 3.0
+        # Optional random Fourier features of the (normalized) inputs, which let the
+        # correction vary over shorter distances than a plain MLP on lat/lon: inputs ->
+        # [inputs, sin(2 pi inputs B), cos(2 pi inputs B)], B of n_frequencies columns
+        # drawn from N(0, sigma^2) (cycles per normalized unit) with seed, fixed and saved
+        # in the checkpoint. Disabled when absent. With the normalization above, Strupbreen
+        # and Langfjordjøkelen are 0.04 (lat) and 0.09 (lon) apart. Same option in bias_cor.
+        fourier_features:
+            n_frequencies: 32
+            sigma: 10.0
+            seed: 0              # default 0
+            include_input: true  # keep lat/lon next to the features, default true
     cor_acc:
         inputs:
             - u10
@@ -75,6 +86,7 @@ model:
         # of the last hidden layer died in Norway (geo_20261103_231008), which left the
         # correction constant.
         activation: leaky_relu
+        fourier_features: {n_frequencies: 32, sigma: 10.0, seed: 0, include_input: true}  # see bias_T, disabled when absent
     bias_cor_elev:
         inputs:
             - ELEVATION_DIFFERENCE

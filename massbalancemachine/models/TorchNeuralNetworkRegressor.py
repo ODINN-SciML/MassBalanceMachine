@@ -24,6 +24,64 @@ def _activation(netParams, name):
     return ACTIVATIONS[key]
 
 
+class FourierFeatures(nn.Module):
+    """Random Fourier features of the normalized inputs of a network (Tancik et al.,
+    2020): x -> [x, sin(2 pi x B), cos(2 pi x B)], with B a fixed (not trained) matrix of
+    n_frequencies columns drawn from N(0, sigma^2) with `seed`. sigma is in cycles per unit
+    of normalized input: a feature normalized over [lower, upper] is resolved down to
+    about (upper - lower) / sigma, so that a larger sigma lets the network that follows
+    vary over shorter distances. B is a buffer, saved with the checkpoint."""
+
+    def __init__(self, n_inputs, n_frequencies, sigma, seed=0, include_input=True):
+        super().__init__()
+        generator = torch.Generator().manual_seed(int(seed))
+        self.register_buffer(
+            "B",
+            float(sigma) * torch.randn(n_inputs, n_frequencies, generator=generator),
+        )
+        self.include_input = include_input
+        self.n_out = 2 * n_frequencies + (n_inputs if include_input else 0)
+
+    def forward(self, x):
+        projection = 2 * np.pi * x @ self.B
+        features = [torch.sin(projection), torch.cos(projection)]
+        if self.include_input:
+            features.insert(0, x)
+        return torch.cat(features, dim=1)
+
+
+FOURIER_FEATURES_KEYS = {"n_frequencies", "sigma", "seed", "include_input"}
+
+
+def _input_encoding(netParams, n_inputs, name):
+    """Layers that encode the inputs of the network `name` before its first linear
+    layer, and the number of features they give. Optional `fourier_features` of the
+    network config (`FourierFeatures`, keys n_frequencies and sigma, and seed (0) and
+    include_input (true)); without it, none: the network reads its inputs as they are.
+    """
+    options = netParams.get("fourier_features")
+    if options is None:
+        return [], n_inputs
+    unknown = set(options) - FOURIER_FEATURES_KEYS
+    assert not unknown, (
+        f"Unknown {name}.fourier_features options {sorted(unknown)}, expected some of "
+        f"{sorted(FOURIER_FEATURES_KEYS)}."
+    )
+    for key in ("n_frequencies", "sigma"):
+        assert key in options, f"{name}.fourier_features needs {key}."
+    assert (
+        int(options["n_frequencies"]) > 0 and float(options["sigma"]) > 0
+    ), f"{name}.fourier_features needs n_frequencies > 0 and sigma > 0."
+    encoding = FourierFeatures(
+        n_inputs,
+        int(options["n_frequencies"]),
+        float(options["sigma"]),
+        seed=options.get("seed", 0),
+        include_input=bool(options.get("include_input", True)),
+    )
+    return [encoding], encoding.n_out
+
+
 class TILikeModel(nn.Module):
     def __init__(self, modelParams, normalizing_bounds, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -207,7 +265,10 @@ class TILikeModel(nn.Module):
 
             bias_cor_params = modelParams["bias_cor"]
             act = _activation(bias_cor_params, "bias_cor")
-            bias_cor = [nn.Linear(len(self.inp_bias_cor), bias_cor_params["layers"][0])]
+            encoding, n_features = _input_encoding(
+                bias_cor_params, len(self.inp_bias_cor), "bias_cor"
+            )
+            bias_cor = encoding + [nn.Linear(n_features, bias_cor_params["layers"][0])]
             for i in range(len(bias_cor_params["layers"]) - 1):
                 bias_cor.append(act())
                 bias_cor.append(
@@ -286,7 +347,10 @@ class TILikeModel(nn.Module):
             self.grad_T = None
         if "bias_T" in modelParams:
             bias_T_params = modelParams["bias_T"]
-            bias_T = [nn.Linear(len(self.inp_bias_T), bias_T_params["layers"][0])]
+            encoding, n_features = _input_encoding(
+                bias_T_params, len(self.inp_bias_T), "bias_T"
+            )
+            bias_T = encoding + [nn.Linear(n_features, bias_T_params["layers"][0])]
             for i in range(len(bias_T_params["layers"]) - 1):
                 bias_T.append(nn.ReLU())
                 bias_T.append(
@@ -939,6 +1003,7 @@ class CustomTorchNeuralNetRegressor(nn.Module):
                 d = {
                     "target": trueMean.cpu(),
                     "ID_int": grouped_ids_glacier.index,
+                    "ID": grouped_ids_glacier.ID,
                     "pred": predSum.cpu(),
                     "PERIOD": grouped_ids_glacier.PERIOD,
                     "YEAR": grouped_ids_glacier.YEAR,
