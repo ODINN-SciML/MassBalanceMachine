@@ -129,6 +129,20 @@ def main(argv=None):
         help="Only compute the glacier-wide predictions on the geodetic test set and save them in <log_dir>/gridded_geodetic_test.parquet, without evaluating anything else.",
     )
     parser.add_argument(
+        "--geodeticTrainOnly",
+        dest="geodeticTrainOnly",
+        default=False,
+        action="store_true",
+        help="Only compute the glacier-wide predictions on the training and validation geodetic windows and save them, with their residuals, in <log_dir>/geodetic_train_windows_<checkpoint>.csv, without evaluating anything else.",
+    )
+    parser.add_argument(
+        "--checkpoint",
+        dest="checkpoint",
+        type=str,
+        default=None,
+        help="File name of the checkpoint of modelFolder to evaluate, e.g. model_epoch0_lossVal2.0977.pt. Defaults to the best one.",
+    )
+    parser.add_argument(
         "--skipGlacierPlots",
         dest="skipGlacierPlots",
         default=False,
@@ -165,6 +179,7 @@ def main(argv=None):
     overwrite = args.overwrite
     inspectOnly = args.inspectOnly
     geodeticTestOnly = args.geodeticTestOnly
+    geodeticTrainOnly = args.geodeticTrainOnly
     skipGlacierPlots = args.skipGlacierPlots
     if os.path.isdir(modelFolder):
         pathFolder = modelFolder
@@ -182,6 +197,9 @@ def main(argv=None):
     assert not (
         geodeticTestOnly and noTest
     ), "Options geodeticTestOnly and noTest cannot be combined."
+    assert (
+        sum([inspectOnly, geodeticTestOnly, geodeticTrainOnly]) <= 1
+    ), "Options inspectOnly, geodeticTestOnly and geodeticTrainOnly cannot be combined."
 
     if len(maps) > 0:
         assert (
@@ -332,10 +350,16 @@ def main(argv=None):
     model = model.to(device)
 
     # Load model and set to CPU
-    bestModelPath, _ = mbm.training.loadBestModel(pathFolder, model)
+    if args.checkpoint is None:
+        bestModelPath, _ = mbm.training.loadBestModel(pathFolder, model)
+    else:
+        bestModelPath = os.path.join(pathFolder, args.checkpoint)
+        model.load_state_dict(
+            torch.load(bestModelPath, weights_only=True, map_location="cpu")
+        )
     print(f"Loaded model {bestModelPath}")
 
-    if params["model"]["type"] == "TIlike":
+    if params["model"]["type"] == "TIlike" and not geodeticTrainOnly:
         # Learnable scalars of the snow fraction and PDD activation functions
         with open(os.path.join(pathFolder, "ti_parameters.json"), "w") as f:
             json.dump(model.module.scalar_parameters(), f, indent=4)
@@ -1031,7 +1055,7 @@ def main(argv=None):
         return resTest, grouped_ids, None
 
     test_glacierNames = {}
-    if len(df_X_test_subset) > 0 and not noTest:
+    if len(df_X_test_subset) > 0 and not noTest and not geodeticTrainOnly:
         test_glacierNames = mbm.data_processing.oggm_utils._glacier_name(
             list(data_test.RGIId.unique()), cfg
         )
@@ -1074,7 +1098,7 @@ def main(argv=None):
     else:
         resTest = None
 
-    if len(inspectGlaciers) > 0:
+    if len(inspectGlaciers) > 0 and not geodeticTrainOnly:
         inspect_glaciers()
 
     if sourceData == "switzerland":
@@ -1135,6 +1159,25 @@ def main(argv=None):
         df_X_val,
         params["training"].get("geodetic_source_options_val") or geodeticSourceOptions,
     )
+
+    if geodeticTrainOnly:
+        # Residual of every training and validation window, the per-window view of the
+        # geodetic loss terms: z is the residual over the error the loss divides by
+        errFloor = params["training"].get("errGeoFloor") or 0.0
+        tables = []
+        for side, side_gdl in (("train", train_gdl), ("val", val_gdl)):
+            pred, target, err, _ = mbm.training.eval_geodetic(model, side_gdl)
+            tables.append(geodetic_table(target, err, pred, side_gdl).assign(side=side))
+        df_geo = pd.concat(tables, ignore_index=True)
+        df_geo["residual"] = df_geo.pred - df_geo.target
+        df_geo["z"] = df_geo.residual / np.maximum(df_geo.err, errFloor)
+        df_geo = df_geo.sort_values("z", key=np.abs, ascending=False)
+        name = os.path.splitext(os.path.basename(bestModelPath))[0]
+        path = os.path.join(pathFolder, f"geodetic_train_windows_{name}.csv")
+        df_geo.to_csv(path, index=False)
+        print(df_geo.to_string(index=False))
+        print(f"Saved {path}")
+        return
 
     with torch.no_grad():
         resVal = mbm.training.assessOnVal(model, val_gdl, params, separateLoader=True)
