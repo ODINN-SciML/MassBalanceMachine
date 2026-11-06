@@ -1,5 +1,8 @@
 rgi_regions:
 - 11
+stake_sources:
+- wgms
+- glacioclim
 splitVal: group-year
 val_years:
 - 1957
@@ -19,8 +22,6 @@ val_years:
 - 1971
 - 1972
 - 1973
-- 1974
-- 1975
 train_glaciers:
 - RGI60-11.00804
 - RGI60-11.00817
@@ -41,6 +42,14 @@ train_glaciers:
 - RGI60-11.02746
 - RGI60-11.02766
 - RGI60-11.02774
+- RGI60-11.03466
+- RGI60-11.03475
+- RGI60-11.03638
+- RGI60-11.03642
+- RGI60-11.03643
+- RGI60-11.03671
+- RGI60-11.03674
+- RGI60-11.03756
 val_glaciers:
 - RGI60-11.00804
 - RGI60-11.00817
@@ -60,6 +69,7 @@ val_glaciers:
 - RGI60-11.02704
 - RGI60-11.02746
 - RGI60-11.02774
+- RGI60-11.03674
 test_glaciers:
 - RGI60-11.00002
 - RGI60-11.00006
@@ -128,6 +138,14 @@ test_glaciers:
 - RGI60-11.02801
 - RGI60-11.03135
 - RGI60-11.03166
+- RGI60-11.03466
+- RGI60-11.03475
+- RGI60-11.03638
+- RGI60-11.03642
+- RGI60-11.03643
+- RGI60-11.03671
+- RGI60-11.03674
+- RGI60-11.03756
 geodetic_source:
 - GLAMOS
 - Rabatel16
@@ -145,6 +163,8 @@ geodetic_source_options:
     - 1954
     - 1955
     - 1956
+    - 1974
+    - 1975
     - 1976
     - 1977
     - 1978
@@ -179,6 +199,8 @@ geodetic_source_options:
     - 1954
     - 1955
     - 1956
+    - 1974
+    - 1975
     - 1976
     - 1977
     - 1978
@@ -215,6 +237,8 @@ geodetic_source_options:
     - 1954
     - 1955
     - 1956
+    - 1974
+    - 1975
     - 1976
     - 1977
     - 1978
@@ -252,6 +276,8 @@ geodetic_source_options:
     - 1954
     - 1955
     - 1956
+    - 1974
+    - 1975
     - 1976
     - 1977
     - 1978
@@ -300,8 +326,6 @@ geodetic_source_options_val:
     - 1971
     - 1972
     - 1973
-    - 1974
-    - 1975
     max_outside_years: 1
   Rabatel16:
     min_period_years: 5
@@ -323,8 +347,6 @@ geodetic_source_options_val:
     - 1971
     - 1972
     - 1973
-    - 1974
-    - 1975
   Fischer11:
     min_year: 1950
     max_year: 2000
@@ -348,8 +370,6 @@ geodetic_source_options_val:
     - 1971
     - 1972
     - 1973
-    - 1974
-    - 1975
     max_outside_years: 1
   Hagg12:
     min_year: 1950
@@ -374,12 +394,12 @@ geodetic_source_options_val:
     - 1971
     - 1972
     - 1973
-    - 1974
-    - 1975
     max_outside_years: 1
 geodetic_source_test: Hugonnet21
 train_glaciers_geo:
 - '2125'
+- A10g-05
+- A10g-08
 - A50d-01
 - A50i-06
 - A50i-07
@@ -526,16 +546,16 @@ provenance:
   notebook: split_train_test_wgms_bruteforce_glamos_year.ipynb
   year_split: 2000
   val_fraction_target: 0.37
-  score: 0.10439126193523407
+  score: 0.1450875699520111
   blocks:
   - side: train
     first: 1951
     last: 1956
   - side: val
     first: 1957
-    last: 1975
+    last: 1973
   - side: train
-    first: 1976
+    first: 1974
     last: 1999
   max_outside_years: 1
   max_shared_years: 2
