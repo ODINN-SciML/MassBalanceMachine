@@ -19,12 +19,14 @@ from data_processing.wgms import load_processed_wgms
 import data_preprocessing.wgms
 import data_preprocessing.nve
 import data_preprocessing.iceland
+import data_preprocessing.glacioclim
 
 # Source name: RGI regions it covers (None for all)
 STAKE_SOURCES = {
     "wgms": None,
     "nve": [8],
     "iceland": [6],
+    "glacioclim": [11],
 }
 DEFAULT_STAKE_SOURCES = ["wgms"]
 
@@ -71,6 +73,10 @@ def load_points(source, rgi_region):
         )
     elif source == "nve":
         points = data_preprocessing.nve.load_points()
+        points = get_rgi(data=points, region=rgi_region)
+        points = data_preprocessing.wgms.filter_points(points)
+    elif source == "glacioclim":
+        points = data_preprocessing.glacioclim.load_points()
         points = get_rgi(data=points, region=rgi_region)
         points = data_preprocessing.wgms.filter_points(points)
     elif source == "iceland":
