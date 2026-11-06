@@ -115,6 +115,13 @@ def main(argv=None):
         help="Glaciers for which to plot the intermediate variables of a TIlike model on the geodetic grid. Figures are saved in <log_dir>/inspect/<RGIId> and the variables in <log_dir>/inspect/<RGIId>_<first year>-<last year>.parquet.",
     )
     parser.add_argument(
+        "--inspectFirstYear",
+        dest="inspectFirstYear",
+        default=None,
+        type=int,
+        help="First year of the inspection of glaciers tested on Hugonnet21, whose geodetic grid covers 2000-2019: the years from it to 1999 are added to the grid (their gridded products generated when missing).",
+    )
+    parser.add_argument(
         "--inspectOnly",
         dest="inspectOnly",
         default=False,
@@ -185,6 +192,7 @@ def main(argv=None):
     inspectGlaciers = args.inspect
     overwrite = args.overwrite
     inspectOnly = args.inspectOnly
+    inspectFirstYear = args.inspectFirstYear
     geodeticTestOnly = args.geodeticTestOnly
     geodeticTrainOnly = args.geodeticTrainOnly
     stakesOnly = args.stakesOnly
@@ -444,6 +452,16 @@ def main(argv=None):
         inspect_gdls = {}
         for name, glaciers in sourceBlocks.items():
             block = regions[name] if regions else training
+            geodeticSource = (
+                block.get("geodetic_source_test") or block["geodetic_source"]
+            )
+            if inspectFirstYear is not None:
+                assert (
+                    geodeticSource == "Hugonnet21"
+                ), f"Option inspectFirstYear needs glaciers tested on Hugonnet21, not on {geodeticSource}."
+                assert (
+                    inspectFirstYear < 2000
+                ), f"Option inspectFirstYear must be before 2000, got {inspectFirstYear}."
             gdl = mbm.dataloader.GeoDataLoader(
                 cfg,
                 glaciers,
@@ -452,10 +470,14 @@ def main(argv=None):
                 months_head_pad=months_head_pad,
                 months_tail_pad=months_tail_pad,
                 keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
-                geodeticSource=block.get("geodetic_source_test")
-                or block["geodetic_source"],
+                geodeticSource=geodeticSource,
                 geodeticSourceOptions=block.get("geodetic_source_test_options")
                 or block.get("geodetic_source_options"),
+                additionalYears=(
+                    list(range(inspectFirstYear, 2000))
+                    if inspectFirstYear is not None
+                    else []
+                ),
             )
             for rgi_id in glaciers:
                 assert gdl.hasGeo(
