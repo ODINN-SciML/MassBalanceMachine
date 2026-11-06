@@ -42,7 +42,6 @@ model:
             - fal
             - slhf
             - sshf
-            - ssrd
             - str
         layers: [32, 16, 8]
     bias_cor:
@@ -64,6 +63,10 @@ model:
             - fal
             - ELEVATION_DIFFERENCE
         layers: [32, 16, 8]
+    trainable:
+        tau_P_c: true    # snow/rain threshold temperature
+        tau_P_s: false   # snow slope: stays at snow_slope.init
+        beta_pdd: false  # PDD curvature: stays at 1.0
 training:
     # Central Europe (RGI 11) and the Himalayas (RGI 13, 14, 15), each with its own
     # validation split, written by its split notebook. source_data, the glacier lists and
@@ -80,11 +83,11 @@ training:
     areaWeightGeo: false
     optim: ADAM
     scheduler: StepLR
-    lr: 1e-3
+    lr: 2e-4
     scheduler_step_size: 500
     Nepochs: 2000
-    # NepochsGeo: 200
-    # wGeoSchedule: [5e-2, 5e-1]
+    NepochsGeo: 200
+    wGeoSchedule: [5e-2]
     scalingStakes: full
     bestModelCriterion: lossVal
     climate_source: gswp3_w5e5
