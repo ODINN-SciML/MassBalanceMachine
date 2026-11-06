@@ -220,6 +220,10 @@ class Config:
             scale them (useful for the neural network). These bounds don't clip
             the data and if a variable exceeds the bounds, its normalized
             counterpart will simply be outside of [0, 1].
+        - climate_source (str): Where t2m, tp, tp_sum, ALTITUDE_CLIMATE and
+            ELEVATION_DIFFERENCE come from: "era5land" (as stored in the stake tables
+            and grids) or "gswp3_w5e5" (replaced when they are read, see
+            `data_processing.gswp3_w5e5`).
     """
 
     numJobs: int = -1
@@ -236,6 +240,7 @@ class Config:
     )
     dataPath: str = field(default_factory=lambda: _normalize_data_path(None))
     prepro_level: int = 2
+    climate_source: str = "era5land"
 
     # runtime populated
     featureColumns: List[str] = field(default_factory=list)

@@ -3,6 +3,8 @@ import sys, os
 mbm_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 sys.path.append(mbm_path)  # Add root of repo to import MBM
 
+import copy
+import datetime
 import numpy as np
 import torch
 import json
@@ -13,6 +15,8 @@ from scripts.common import loadParams
 from scripts.nongeo.utils import (
     getMetaData,
     setFeatures,
+    setNormalizationBounds,
+    setClimateSource,
     trainValData,
     testData,
     testSplits,
@@ -62,6 +66,19 @@ parser.add_argument(
     help="Weight of the geodetic term.",
 )
 parser.add_argument(
+    "--wGeoSchedule",
+    type=float,
+    default=None,
+    nargs="+",
+    help="Weights of the geodetic term of the stages that follow the first one, each trained from the best model of the previous stage.",
+)
+parser.add_argument(
+    "--NepochsGeo",
+    type=int,
+    default=None,
+    help="Number of epochs of each stage of the geodetic schedule.",
+)
+parser.add_argument(
     "--gridsearch",
     dest="gridsearch",
     default=[],
@@ -77,6 +94,14 @@ suffix = args.suffix
 timeExec = args.time
 prof = args.prof
 wGeo = args.wGeo
+
+
+def parseNumber(x):
+    try:
+        return int(x)
+    except ValueError:
+        return float(x)
+
 
 gridsearch = args.gridsearch
 do_gridsearch = len(gridsearch) > 0
@@ -95,9 +120,13 @@ if do_gridsearch:
             print(exc)
 
     search_space = flatten_dict(gridsearch_params)
+    # Optuna only takes scalar choices: a list value (layers, a schedule of weights...)
+    # is stored as a comma-separated string and decoded once suggested
+    listKeys = set()
     for k, v in search_space.items():
         if isinstance(v, (list, tuple)) and isinstance(v[0], (list, tuple)):
             search_space[k] = tuple([",".join([str(e) for e in t]) for t in v])
+            listKeys.add(k)
     print(f"{search_space=}")
 
     # Avoid concurrent access since we write to the optuna study by queuing next parameters and then we ask optuna to suggest based on that queue
@@ -139,8 +168,8 @@ if do_gridsearch:
             k: trial.suggest_categorical(k, v) for k, v in search_space.items()
         }
         for k, v in candidate_params.items():
-            if isinstance(v, str):
-                candidate_params[k] = [int(e) for e in v.split(",")]
+            if k in listKeys:
+                candidate_params[k] = [parseNumber(e) for e in v.split(",") if e != ""]
         print(f"{candidate_params=}")
         recursive_update_from_flat(params, candidate_params)
     # Lock is released here
@@ -149,11 +178,27 @@ else:
 
 if wGeo is not None:  # Overwrite geodetic weight
     params["training"]["wGeo"] = wGeo
-wGeo = params["training"]["wGeo"]
-if params["training"]["log_suffix"] == "":
-    params["training"]["log_suffix"] = f"wgeo={wGeo}" if wGeo > 0 else ""
-if suffix is not None:
-    params["training"]["log_suffix"] += f"_{suffix}"
+if args.wGeoSchedule is not None:
+    params["training"]["wGeoSchedule"] = args.wGeoSchedule
+if args.NepochsGeo is not None:
+    params["training"]["NepochsGeo"] = args.NepochsGeo
+
+# The first stage trains over Nepochs with wGeo, usually 0 (stakes only). Each weight of
+# wGeoSchedule then adds a stage of NepochsGeo epochs that starts from the best model of
+# the previous one. The validation loss depends on wGeo, so that the best model is
+# selected within each stage. A stage with no epoch is skipped.
+# Values from the grid search are cast here since they bypass parseParams.
+wGeoSchedule = [float(w) for w in params["training"]["wGeoSchedule"]]
+stages = [(int(params["training"]["Nepochs"]), float(params["training"]["wGeo"]))]
+if len(wGeoSchedule) > 0:
+    assert (
+        params["training"]["NepochsGeo"] is not None
+    ), "NepochsGeo must be given with wGeoSchedule."
+    stages += [(int(params["training"]["NepochsGeo"]), w) for w in wGeoSchedule]
+print(f"Training stages (Nepochs, wGeo): {stages}")
+# Largest weight over the stages: the dataloaders must hold the geodetic data if any
+# stage uses it
+wGeo = max(w for _, w in stages)
 
 featuresInpModel = params["model"]["inputs"]
 sourceData = params["training"]["source_data"]
@@ -197,6 +242,8 @@ elif "wgms" in sourceData:
     )
 else:
     raise ValueError(f"source_data={sourceData} is unknown")
+setNormalizationBounds(cfg, params)
+setClimateSource(cfg, params)
 
 
 keyGlacier = "GLACIER" if sourceData == "switzerland" else "RGIId"
@@ -287,7 +334,7 @@ elif "wgms" in sourceData:
     )
     if params["training"]["splitVal"] == "group-rgi":
         glaciers = list(set(glaciers).difference(glaciersVal))
-if wGeo:
+if wGeo > 0:
     assert params["training"]["splitVal"] in (
         "group-rgi",
         "group-year",
@@ -335,58 +382,46 @@ if modelToLoad != "":
         os.path.join("logs", modelToLoad), model
     )
     print(f"Loaded model {bestModelPath}")
-
-optimType = params["training"]["optim"]
-schedulerType = params["training"]["scheduler"]
-lr = params["training"]["lr"]
-momentum = params["training"]["momentum"]
-beta1 = params["training"]["beta1"]
-beta2 = params["training"]["beta2"]
-weight_decay = params["training"]["weight_decay"]
-if optimType == "ADAM":
-    optim = torch.optim.Adam(
-        model.parameters(), lr=lr, betas=(beta1, beta2), weight_decay=weight_decay
-    )
-elif optimType == "SGD":
-    optim = torch.optim.SGD(
-        model.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay
-    )
+    initModel = bestModelPath
 else:
-    raise ValueError(f"Optimizer {optimType} is not supported.")
+    initModel = None
 
-if schedulerType is None:
-    scheduler = None
-elif schedulerType == "StepLR":
-    gamma = params["training"]["scheduler_gamma"]
-    step_size = params["training"]["scheduler_step_size"]
-    scheduler = torch.optim.lr_scheduler.StepLR(optim, step_size=step_size, gamma=gamma)
-else:
-    raise ValueError(f"Scheduler {schedulerType} is not supported.")
+
+def buildOptimizer(params):
+    optimType = params["training"]["optim"]
+    schedulerType = params["training"]["scheduler"]
+    lr = params["training"]["lr"]
+    momentum = params["training"]["momentum"]
+    beta1 = params["training"]["beta1"]
+    beta2 = params["training"]["beta2"]
+    weight_decay = params["training"]["weight_decay"]
+    if optimType == "ADAM":
+        optim = torch.optim.Adam(
+            model.parameters(), lr=lr, betas=(beta1, beta2), weight_decay=weight_decay
+        )
+    elif optimType == "SGD":
+        optim = torch.optim.SGD(
+            model.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay
+        )
+    else:
+        raise ValueError(f"Optimizer {optimType} is not supported.")
+
+    if schedulerType is None:
+        scheduler = None
+    elif schedulerType == "StepLR":
+        gamma = params["training"]["scheduler_gamma"]
+        step_size = params["training"]["scheduler_step_size"]
+        scheduler = torch.optim.lr_scheduler.StepLR(
+            optim, step_size=step_size, gamma=gamma
+        )
+    else:
+        raise ValueError(f"Scheduler {schedulerType} is not supported.")
+    return optim, scheduler
 
 
 data_test = testData(cfg, test_set, featuresInpModel)
 # One test set per region, each on its own geodetic test source, or a single one
 testSets = testSplits(params, data_test, keyGlacier=keyGlacier)
-
-ret = mbm.training.train_geo(
-    model,
-    gdl,
-    optim,
-    params,
-    scheduler=scheduler,
-    timeExec=timeExec,
-    useProfiler=prof,
-    geodataloaderVal=gdlVal,
-)
-
-print()
-bestModelPath, bestVal = mbm.training.loadBestModel(ret["misc"]["log_dir"], model)
-print(f"Best model is {bestModelPath}")
-
-
-# Save the best model in .json format along with the normalization values
-model.eval()
-st = model.module.state_dict()
 
 
 class EncodeTensor(json.JSONEncoder, torch.utils.data.Dataset):
@@ -396,30 +431,35 @@ class EncodeTensor(json.JSONEncoder, torch.utils.data.Dataset):
         return super(EncodeTensor, self).default(obj)
 
 
-norm = mbm.data_processing.Normalizer({k: cfg.bnds[k] for k in cfg.featureColumns})
-norm_values = norm.export_bounds()
-with open(os.path.join(ret["misc"]["log_dir"], "best_model.json"), "w") as f:
-    info = {"norm": norm_values, "model": st, "inputs": cfg.featureColumns}
-    json.dump(info, f, cls=EncodeTensor, sort_keys=True)
-with open(os.path.join(ret["misc"]["log_dir"], "sample_inputs.json"), "w") as f:
-    features, metadata, y, _ = gdl.stakes(glaciers[0])
-    with torch.no_grad():
-        features_torch = torch.tensor(features.astype(np.float32)).to(gdl.device)
-        pred = model.forward(features_torch)[:, 0]
-    info = {
-        "features": features.tolist(),
-        "y": y.tolist(),
-        "pred": pred.cpu().detach().numpy().tolist(),
-    }
-    json.dump(info, f, sort_keys=True)
-X = gdl.trainStakesDf[
-    gdl.trainStakesDf["GLACIER" if sourceData == "switzerland" else "RGIId"]
-    == glaciers[0]
-]
-X.to_csv(os.path.join(ret["misc"]["log_dir"], "sample_inputs_before_norm.csv"))
+def saveModel(log_dir):
+    """Save the model in .json format along with the normalization values"""
+    model.eval()
+    st = model.module.state_dict()
+    norm = mbm.data_processing.Normalizer({k: cfg.bnds[k] for k in cfg.featureColumns})
+    norm_values = norm.export_bounds()
+    with open(os.path.join(log_dir, "best_model.json"), "w") as f:
+        info = {"norm": norm_values, "model": st, "inputs": cfg.featureColumns}
+        json.dump(info, f, cls=EncodeTensor, sort_keys=True)
+    with open(os.path.join(log_dir, "sample_inputs.json"), "w") as f:
+        features, metadata, y, _ = gdl.stakes(glaciers[0])
+        with torch.no_grad():
+            features_torch = torch.tensor(features.astype(np.float32)).to(gdl.device)
+            pred = model.forward(features_torch)[:, 0]
+        info = {
+            "features": features.tolist(),
+            "y": y.tolist(),
+            "pred": pred.cpu().detach().numpy().tolist(),
+        }
+        json.dump(info, f, sort_keys=True)
+    X = gdl.trainStakesDf[
+        gdl.trainStakesDf["GLACIER" if sourceData == "switzerland" else "RGIId"]
+        == glaciers[0]
+    ]
+    X.to_csv(os.path.join(log_dir, "sample_inputs_before_norm.csv"))
 
 
-def assessTestSet(testSet, testFolder):
+def assessTestSet(testSet, testFolder, params):
+    wGeo = params["training"]["wGeo"]
     gdl_test = mbm.dataloader.GeoDataLoader(
         cfg,
         testSet["glaciers"],
@@ -442,33 +482,95 @@ def assessTestSet(testSet, testFolder):
     )
 
 
-model.eval()
-with torch.no_grad():
-    print("Computing performance on test set")
-    if list(testSets) == [None]:
-        resTest = assessTestSet(testSets[None], ret["misc"]["log_dir"])
-    else:
-        # The results and the figures of every region, in a folder of its own
-        resTest = {
-            name: assessTestSet(testSet, os.path.join(ret["misc"]["log_dir"], name))
-            for name, testSet in testSets.items()
-        }
-    resVal = mbm.training.assessOnVal(model, gdlVal, params, separateLoader=True)
-    with open(os.path.join(ret["misc"]["log_dir"], "perf.json"), "w") as f:
-        json.dump({"test": resTest, "val": resVal}, f, indent=4)
-print("Performance:")
-print(
-    json.dumps(
-        json.loads(
-            json.dumps({"test": resTest, "val": resVal}),
-            parse_float=lambda x: round(float(x), 3),
-        ),
-        indent=2,
+def assessPerformance(log_dir, params):
+    model.eval()
+    with torch.no_grad():
+        print("Computing performance on test set")
+        if list(testSets) == [None]:
+            resTest = assessTestSet(testSets[None], log_dir, params)
+        else:
+            # The results and the figures of every region, in a folder of its own
+            resTest = {
+                name: assessTestSet(testSet, os.path.join(log_dir, name), params)
+                for name, testSet in testSets.items()
+            }
+        resVal = mbm.training.assessOnVal(model, gdlVal, params, separateLoader=True)
+        with open(os.path.join(log_dir, "perf.json"), "w") as f:
+            json.dump({"test": resTest, "val": resVal}, f, indent=4)
+    print("Performance:")
+    print(
+        json.dumps(
+            json.loads(
+                json.dumps({"test": resTest, "val": resVal}),
+                parse_float=lambda x: round(float(x), 3),
+            ),
+            indent=2,
+        )
     )
-)
+    return resVal
 
+
+# The stages share the date of their folder names, which then differ by their suffix
+runName = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+configSuffix = params["training"]["log_suffix"]
+
+
+def stageSuffix(iStage, wGeoStage):
+    wGeoTag = f"wgeo={wGeoStage}" if wGeoStage > 0 else ""
+    if len(stages) == 1:
+        parts = [configSuffix or wGeoTag]
+    else:
+        parts = [configSuffix, f"stage{iStage}", wGeoTag]
+    parts.append(suffix or "")
+    return "_".join(p for p in parts if p)
+
+
+stageLogDirs = []
+for iStage, (NepochsStage, wGeoStage) in enumerate(stages):
+    if NepochsStage == 0:
+        print(f"Skipping stage {iStage} which has no epoch")
+        continue
+    print(f"\nStage {iStage}: {NepochsStage} epochs with wGeo={wGeoStage}")
+    stageParams = copy.deepcopy(params)
+    stageParams["training"]["Nepochs"] = NepochsStage
+    stageParams["training"]["wGeo"] = wGeoStage
+    stageParams["training"]["log_suffix"] = stageSuffix(iStage, wGeoStage)
+    stageParams["training"]["run_name"] = runName
+    if params["training"]["log_dir"] is not None and len(stages) > 1:
+        stageParams["training"]["log_dir"] = (
+            params["training"]["log_dir"] + "_" + stageParams["training"]["log_suffix"]
+        )
+    stageParams["stage"] = {"index": iStage, "init_model": initModel}
+
+    # The optimizer and the scheduler start afresh at every stage
+    optim, scheduler = buildOptimizer(stageParams)
+    ret = mbm.training.train_geo(
+        model,
+        gdl,
+        optim,
+        stageParams,
+        scheduler=scheduler,
+        timeExec=timeExec,
+        useProfiler=prof,
+        geodataloaderVal=gdlVal,
+    )
+    log_dir = ret["misc"]["log_dir"]
+    stageLogDirs.append(log_dir)
+
+    print()
+    bestModelPath, bestVal = mbm.training.loadBestModel(log_dir, model)
+    print(f"Best model of stage {iStage} is {bestModelPath}")
+    initModel = bestModelPath
+
+    saveModel(log_dir)
+    resVal = assessPerformance(log_dir, stageParams)
+
+assert len(stageLogDirs) > 0, "No stage has any epoch."
+
+# The trial is scored by the best model of the last stage
 if trial is not None:
-    trial.set_user_attr("log_dir", ret["misc"]["log_dir"])
+    trial.set_user_attr("log_dir", stageLogDirs[-1])
+    trial.set_user_attr("log_dirs", stageLogDirs)
     trial.set_user_attr("r2", resVal["r2"])
     trial.set_user_attr("bias", resVal["bias"])
     trial.set_user_attr("lossValStake", resVal["lossValStake"])

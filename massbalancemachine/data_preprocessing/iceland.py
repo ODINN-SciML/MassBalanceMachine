@@ -35,7 +35,16 @@ def raw_data():
 def parse_raw_data():
     # download_all_stakes_data()
 
-    all_files = glob.glob(os.path.join(iceland_path(), "*.csv"))
+    # One file per stake, the tables generated in the same folder excluded
+    generated = {
+        os.path.abspath(p)
+        for p in [raw_stakes_path(), processed_features_stakes_path()]
+    }
+    all_files = [
+        f
+        for f in glob.glob(os.path.join(iceland_path(), "*.csv"))
+        if os.path.abspath(f) not in generated
+    ]
 
     # Initialize empty list to store dataframes
     dfs = []

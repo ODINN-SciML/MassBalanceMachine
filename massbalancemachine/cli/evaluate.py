@@ -22,6 +22,8 @@ import massbalancemachine as mbm
 from massbalancemachine.cli.common import (
     getMetaData,
     setFeatures,
+    setNormalizationBounds,
+    setClimateSource,
     trainValData,
     testData,
     testSplits,
@@ -113,6 +115,13 @@ def main(argv=None):
         help="Glaciers for which to plot the intermediate variables of a TIlike model on the geodetic grid. Figures are saved in <log_dir>/inspect/<RGIId> and the variables in <log_dir>/inspect/<RGIId>_<first year>-<last year>.parquet.",
     )
     parser.add_argument(
+        "--inspectFirstYear",
+        dest="inspectFirstYear",
+        default=None,
+        type=int,
+        help="First year of the inspection of glaciers tested on Hugonnet21, whose geodetic grid covers 2000-2019: the years from it to 1999 are added to the grid (their gridded products generated when missing).",
+    )
+    parser.add_argument(
         "--inspectOnly",
         dest="inspectOnly",
         default=False,
@@ -125,6 +134,34 @@ def main(argv=None):
         default=False,
         action="store_true",
         help="Only compute the glacier-wide predictions on the geodetic test set and save them in <log_dir>/gridded_geodetic_test.parquet, without evaluating anything else.",
+    )
+    parser.add_argument(
+        "--geodeticTrainOnly",
+        dest="geodeticTrainOnly",
+        default=False,
+        action="store_true",
+        help="Only compute the glacier-wide predictions on the training and validation geodetic windows and save them, with their residuals, in <log_dir>/geodetic_train_windows_<checkpoint>.csv, without evaluating anything else.",
+    )
+    parser.add_argument(
+        "--stakesOnly",
+        dest="stakesOnly",
+        default=False,
+        action="store_true",
+        help="Only predict every stake measurement of the training, validation and test sets and save them in <log_dir>/stakes_all.parquet (one row per measurement, with its split), without evaluating anything else.",
+    )
+    parser.add_argument(
+        "--checkpoint",
+        dest="checkpoint",
+        type=str,
+        default=None,
+        help="File name of the checkpoint of modelFolder to evaluate, e.g. model_epoch0_lossVal2.0977.pt. Defaults to the best one.",
+    )
+    parser.add_argument(
+        "--skipGlacierPlots",
+        dest="skipGlacierPlots",
+        default=False,
+        action="store_true",
+        help="Skip the figures with one panel per glacier (stake predictions, MB profiles and cumulated mass change of each glacier) and the gridded predictions they are drawn from, unless savePred or maps need them. This speeds up the evaluation of regions with many glaciers. Scores and the other figures are still produced.",
     )
     parser.add_argument(
         "--dataPath",
@@ -155,7 +192,11 @@ def main(argv=None):
     inspectGlaciers = args.inspect
     overwrite = args.overwrite
     inspectOnly = args.inspectOnly
+    inspectFirstYear = args.inspectFirstYear
     geodeticTestOnly = args.geodeticTestOnly
+    geodeticTrainOnly = args.geodeticTrainOnly
+    stakesOnly = args.stakesOnly
+    skipGlacierPlots = args.skipGlacierPlots
     if os.path.isdir(modelFolder):
         pathFolder = modelFolder
     else:
@@ -172,11 +213,21 @@ def main(argv=None):
     assert not (
         geodeticTestOnly and noTest
     ), "Options geodeticTestOnly and noTest cannot be combined."
+    assert (
+        sum([inspectOnly, geodeticTestOnly, geodeticTrainOnly, stakesOnly]) <= 1
+    ), "Options inspectOnly, geodeticTestOnly, geodeticTrainOnly and stakesOnly cannot be combined."
 
     if len(maps) > 0:
         assert (
             len(yearsMaps) > 0
         ), "If distributed maps are generated, the option years must be provided."
+
+    # Gridded predictions to compute in the geodetic evaluations: with skipGlacierPlots,
+    # only those needed to save the predictions or to draw the maps
+    if skipGlacierPlots and not savePred:
+        gridPred = ["annual"] if len(maps) > 0 else []
+    else:
+        gridPred = ["annual", "monthly"]
 
     if not plot:
         # To avoid GC issues because of the threads, we run the script without a GUI
@@ -242,6 +293,8 @@ def main(argv=None):
         )
     else:
         raise ValueError(f"source_data={sourceData} is unknown")
+    setNormalizationBounds(cfg, params)
+    setClimateSource(cfg, params)
 
     if torch.cuda.is_available():
         print("CUDA is available")
@@ -313,8 +366,65 @@ def main(argv=None):
     model = model.to(device)
 
     # Load model and set to CPU
-    bestModelPath, _ = mbm.training.loadBestModel(pathFolder, model)
+    if args.checkpoint is None:
+        bestModelPath, _ = mbm.training.loadBestModel(pathFolder, model)
+    else:
+        bestModelPath = os.path.join(pathFolder, args.checkpoint)
+        model.load_state_dict(
+            torch.load(bestModelPath, weights_only=True, map_location="cpu")
+        )
     print(f"Loaded model {bestModelPath}")
+
+    if stakesOnly:
+        # Every stake measurement, whichever set it belongs to, predicted without any
+        # geodetic data. The position of each measurement is added so that it can be
+        # matched with stake tables whose ID numbering differs.
+        all_columns = list(set(featuresInpModel + cfg.fieldsNotFeatures))
+        sides = {"train": df_X_train, "val": df_X_val, "test": df_X_test_subset}
+        df_all = pd.concat(
+            [d[all_columns] for d in sides.values() if len(d) > 0], ignore_index=True
+        )
+        stakes_gdl = mbm.dataloader.GeoDataLoader(
+            cfg,
+            list(df_all[keyGlacier].unique()),
+            device=device,
+            trainStakesDf=df_all,
+            months_head_pad=months_head_pad,
+            months_tail_pad=months_tail_pad,
+            keyGlacierSel=keyGlacier,
+            noGeo=True,
+        )
+        df_stakes = model.evaluate_group_pred(stakes_gdl)
+        split = pd.concat(
+            [pd.Series(side, index=d.ID.unique()) for side, d in sides.items()]
+        )
+        assert split.index.is_unique, "A measurement belongs to several sets."
+        df_stakes["split"] = df_stakes.ID.map(split)
+        position = (
+            pd.concat(
+                [d[["ID", "POINT_LAT", "POINT_LON"]] for d in (data_train, data_test)]
+            )
+            .groupby("ID")
+            .first()
+        )
+        df_stakes = df_stakes.join(
+            position.drop(columns=df_stakes.columns, errors="ignore"), on="ID"
+        )
+        path = os.path.join(pathFolder, "stakes_all.parquet")
+        df_stakes.to_parquet(path, engine="pyarrow", compression="snappy")
+        print(f"Saved {len(df_stakes)} measurements in {path}")
+        print(df_stakes.groupby(["split", "PERIOD"]).size().to_string())
+        return
+
+    if params["model"]["type"] == "TIlike" and not geodeticTrainOnly:
+        # Learnable scalars of the snow fraction and PDD activation functions
+        with open(os.path.join(pathFolder, "ti_parameters.json"), "w") as f:
+            json.dump(model.module.scalar_parameters(), f, indent=4)
+        fig = mbm.plots.scalarParameters(model.module)
+        fig.savefig(os.path.join(pathFolder, "ti_parameters.png"))
+        if plot:
+            plt.show()
+        plt.close(fig)
 
     def inspect_glaciers():
         """Plot and save the intermediate variables of the glaciers of option inspect."""
@@ -342,6 +452,16 @@ def main(argv=None):
         inspect_gdls = {}
         for name, glaciers in sourceBlocks.items():
             block = regions[name] if regions else training
+            geodeticSource = (
+                block.get("geodetic_source_test") or block["geodetic_source"]
+            )
+            if inspectFirstYear is not None:
+                assert (
+                    geodeticSource == "Hugonnet21"
+                ), f"Option inspectFirstYear needs glaciers tested on Hugonnet21, not on {geodeticSource}."
+                assert (
+                    inspectFirstYear < 2000
+                ), f"Option inspectFirstYear must be before 2000, got {inspectFirstYear}."
             gdl = mbm.dataloader.GeoDataLoader(
                 cfg,
                 glaciers,
@@ -350,10 +470,14 @@ def main(argv=None):
                 months_head_pad=months_head_pad,
                 months_tail_pad=months_tail_pad,
                 keyGlacierSel="GLACIER" if sourceData == "switzerland" else "RGIId",
-                geodeticSource=block.get("geodetic_source_test")
-                or block["geodetic_source"],
+                geodeticSource=geodeticSource,
                 geodeticSourceOptions=block.get("geodetic_source_test_options")
                 or block.get("geodetic_source_options"),
+                additionalYears=(
+                    list(range(inspectFirstYear, 2000))
+                    if inspectFirstYear is not None
+                    else []
+                ),
             )
             for rgi_id in glaciers:
                 assert gdl.hasGeo(
@@ -548,17 +672,24 @@ def main(argv=None):
                 ],
                 ignore_index=True,
             )
-            # A correction on ELEVATION_DIFFERENCE needs the altitude of the ERA5 cell
-            # of each glacier, which each RGI region has its own file for
+            # A correction on ELEVATION_DIFFERENCE needs the altitude of the climate
+            # cell of each glacier: of ERA5-Land, which each RGI region has its own file
+            # for, or of the climate source of the model
             correctionInputs = (module.inp_bias_T or []) + (module.inp_P_cor or [])
             if "ELEVATION_DIFFERENCE" in correctionInputs:
                 glaciers["ALTITUDE_CLIMATE"] = np.nan
                 for r, idx in glaciers.groupby("RGI_REGION").groups.items():
-                    glaciers.loc[idx, "ALTITUDE_CLIMATE"] = (
-                        mbm.data_processing.get_climate_data.altitude_climate_at(
-                            r, glaciers.CenLat[idx], glaciers.CenLon[idx]
+                    if cfg.climate_source == "gswp3_w5e5":
+                        altitude = mbm.data_processing.gswp3_w5e5.altitude_climate_at(
+                            glaciers.CenLat[idx], glaciers.CenLon[idx]
                         )
-                    )
+                    else:
+                        altitude = (
+                            mbm.data_processing.get_climate_data.altitude_climate_at(
+                                r, glaciers.CenLat[idx], glaciers.CenLon[idx]
+                            )
+                        )
+                    glaciers.loc[idx, "ALTITUDE_CLIMATE"] = altitude
             # Elevations spanning the glaciers of the region (missing values are < 0)
             zmin = np.percentile(glaciers.Zmin[glaciers.Zmin > 0], 5)
             zmax = np.percentile(glaciers.Zmax[glaciers.Zmax > 0], 95)
@@ -665,12 +796,12 @@ def main(argv=None):
         geoPred, geoTarget, geoErr, dict_df_gridded = mbm.training.eval_geodetic(
             model,
             pgo_gdl,
-            return_grid_pred=["annual", "monthly"],
+            return_grid_pred=gridPred,
             callback_annual=(callback_save_geodetic_annual if savePred else None),
             callback_monthly=(callback_save_geodetic_monthly if savePred else None),
         )
-        df_gridded_annual = dict_df_gridded["annual"]
-        df_gridded_monthly = dict_df_gridded["monthly"]
+        df_gridded_annual = dict_df_gridded.get("annual")
+        df_gridded_monthly = dict_df_gridded.get("monthly")
         del dict_df_gridded
         df_geo = geodetic_table(geoTarget, geoErr, geoPred, pgo_gdl)
         if savePred:
@@ -706,20 +837,22 @@ def main(argv=None):
                 )
 
         # Plot cumulated mass change
-        fig, _ = mbm.plots.cumulatedMassChange(
-            df_gridded_monthly,
-            geo=geodetic_windows(df_geo),
-        )
-        fig.savefig(f"{pathFolderPGO}/cumulated_mass_change_glaciers_test.pdf")
-        if plot:
-            plt.show()
-        plt.close(fig)
+        if not skipGlacierPlots:
+            fig, _ = mbm.plots.cumulatedMassChange(
+                df_gridded_monthly,
+                geo=geodetic_windows(df_geo),
+            )
+            fig.savefig(f"{pathFolderPGO}/cumulated_mass_change_glaciers_test.pdf")
+            if plot:
+                plt.show()
+            plt.close(fig)
 
         # Geodetic performance
         fig = mbm.plots.predVSTruthGlacierWide(
             geoTarget,
             geoPred,
             geoErr,
+            geoArea={g: pgo_gdl.geodetic_areas(g) for g in geoPred},
             title="Glacier wide MB on PGO",
             ax_xlim=(-2.5, 1.0),
             ax_ylim=(-2.5, 1.0),
@@ -860,14 +993,15 @@ def main(argv=None):
                 compression="snappy",
             )
 
-        fig = mbm.plots.predVSTruthPerGlacier(
-            grouped_ids,
-            custom_order=test_gl_per_el,
-        )
-        fig.savefig(f"{testFolder}/individual_glaciers_test_PMB.pdf")
-        if plot:
-            plt.show()
-        plt.close(fig)
+        if not skipGlacierPlots:
+            fig = mbm.plots.predVSTruthPerGlacier(
+                grouped_ids,
+                custom_order=test_gl_per_el,
+            )
+            fig.savefig(f"{testFolder}/individual_glaciers_test_PMB.pdf")
+            if plot:
+                plt.show()
+            plt.close(fig)
 
         # Geodetic performance
         with torch.no_grad():
@@ -896,12 +1030,12 @@ def main(argv=None):
         geoPred, geoTarget, geoErr, dict_df_gridded = mbm.training.eval_geodetic(
             model,
             test_gdl,
-            return_grid_pred=["annual", "monthly"],
+            return_grid_pred=gridPred,
             callback_annual=(callback_save_geodetic_annual if savePred else None),
             callback_monthly=(callback_save_geodetic_monthly if savePred else None),
         )
-        df_gridded_annual = dict_df_gridded["annual"]
-        df_gridded_monthly = dict_df_gridded["monthly"]
+        df_gridded_annual = dict_df_gridded.get("annual")
+        df_gridded_monthly = dict_df_gridded.get("monthly")
         del dict_df_gridded
         df_geo = geodetic_table(geoTarget, geoErr, geoPred, test_gdl)
         if savePred:
@@ -924,20 +1058,21 @@ def main(argv=None):
 
         # Plot MB profile
         # TODO: ignore years outside of the geodetic time window
-        fig = mbm.plots.profilePerGlacier(
-            df_gridded_annual,
-            custom_order=test_gl_per_el,
-            # titles={
-            #     k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
-            #     for k in glacierNames
-            # },
-            df_stakes=grouped_ids,
-            average_stakes=False,
-        )
-        fig.savefig(f"{testFolder}/PMB_profile_individual_glaciers_test.pdf")
-        if plot:
-            plt.show()
-        plt.close(fig)
+        if not skipGlacierPlots:
+            fig = mbm.plots.profilePerGlacier(
+                df_gridded_annual,
+                custom_order=test_gl_per_el,
+                # titles={
+                #     k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
+                #     for k in glacierNames
+                # },
+                df_stakes=grouped_ids,
+                average_stakes=False,
+            )
+            fig.savefig(f"{testFolder}/PMB_profile_individual_glaciers_test.pdf")
+            if plot:
+                plt.show()
+            plt.close(fig)
 
         # # Plot MB profile per month
         # # TODO: ignore years outside of the geodetic time window
@@ -956,14 +1091,15 @@ def main(argv=None):
         # assert False
 
         # Plot cumulated mass change
-        fig, _ = mbm.plots.cumulatedMassChange(
-            df_gridded_monthly,
-            geo=geodetic_windows(df_geo),
-        )
-        fig.savefig(f"{testFolder}/cumulated_mass_change_glaciers_test.pdf")
-        if plot:
-            plt.show()
-        plt.close(fig)
+        if not skipGlacierPlots:
+            fig, _ = mbm.plots.cumulatedMassChange(
+                df_gridded_monthly,
+                geo=geodetic_windows(df_geo),
+            )
+            fig.savefig(f"{testFolder}/cumulated_mass_change_glaciers_test.pdf")
+            if plot:
+                plt.show()
+            plt.close(fig)
 
         if any([m in test_glaciers for m in maps]):
             mapsFolder = f"{testFolder}/maps"
@@ -990,7 +1126,7 @@ def main(argv=None):
         return resTest, grouped_ids, None
 
     test_glacierNames = {}
-    if len(df_X_test_subset) > 0 and not noTest:
+    if len(df_X_test_subset) > 0 and not noTest and not geodeticTrainOnly:
         test_glacierNames = mbm.data_processing.oggm_utils._glacier_name(
             list(data_test.RGIId.unique()), cfg
         )
@@ -1033,7 +1169,7 @@ def main(argv=None):
     else:
         resTest = None
 
-    if len(inspectGlaciers) > 0:
+    if len(inspectGlaciers) > 0 and not geodeticTrainOnly:
         inspect_glaciers()
 
     if sourceData == "switzerland":
@@ -1095,6 +1231,25 @@ def main(argv=None):
         params["training"].get("geodetic_source_options_val") or geodeticSourceOptions,
     )
 
+    if geodeticTrainOnly:
+        # Residual of every training and validation window, the per-window view of the
+        # geodetic loss terms: z is the residual over the error the loss divides by
+        errFloor = params["training"].get("errGeoFloor") or 0.0
+        tables = []
+        for side, side_gdl in (("train", train_gdl), ("val", val_gdl)):
+            pred, target, err, _ = mbm.training.eval_geodetic(model, side_gdl)
+            tables.append(geodetic_table(target, err, pred, side_gdl).assign(side=side))
+        df_geo = pd.concat(tables, ignore_index=True)
+        df_geo["residual"] = df_geo.pred - df_geo.target
+        df_geo["z"] = df_geo.residual / np.maximum(df_geo.err, errFloor)
+        df_geo = df_geo.sort_values("z", key=np.abs, ascending=False)
+        name = os.path.splitext(os.path.basename(bestModelPath))[0]
+        path = os.path.join(pathFolder, f"geodetic_train_windows_{name}.csv")
+        df_geo.to_csv(path, index=False)
+        print(df_geo.to_string(index=False))
+        print(f"Saved {path}")
+        return
+
     with torch.no_grad():
         resVal = mbm.training.assessOnVal(model, val_gdl, params, separateLoader=True)
         with open(os.path.join(pathFolder, "perf.json"), "w") as f:
@@ -1154,27 +1309,6 @@ def main(argv=None):
         datasetManager.mean_stakes_elevation
     )
 
-    scores = {}
-    for train_gl in datasetManager.train_glaciers:
-        scores_glacier = mbm.metrics.seasonal_scores(
-            grouped_ids_train[grouped_ids_train[keyGlacier] == train_gl],
-            target_col="target",
-            pred_col="pred",
-        )
-        scores[train_gl] = {"rmse": {}, "r2": {}, "bias": {}}
-        if "annual" in scores_glacier:
-            scores[train_gl]["rmse"]["a"] = scores_glacier["annual"]["rmse"]
-            scores[train_gl]["r2"]["a"] = scores_glacier["annual"]["r2"]
-            scores[train_gl]["bias"]["a"] = scores_glacier["annual"]["bias"]
-        if "winter" in scores_glacier:
-            scores[train_gl]["rmse"]["w"] = scores_glacier["winter"]["rmse"]
-            scores[train_gl]["r2"]["w"] = scores_glacier["winter"]["r2"]
-            scores[train_gl]["bias"]["w"] = scores_glacier["winter"]["bias"]
-        if "summer" in scores_glacier:
-            scores[train_gl]["rmse"]["s"] = scores_glacier["summer"]["rmse"]
-            scores[train_gl]["r2"]["s"] = scores_glacier["summer"]["r2"]
-            scores[train_gl]["bias"]["s"] = scores_glacier["summer"]["bias"]
-
     grouped_ids_train_valid = pd.concat(
         [grouped_ids_train, grouped_ids_valid], ignore_index=True
     )
@@ -1185,16 +1319,38 @@ def main(argv=None):
             engine="pyarrow",
             compression="snappy",
         )
-    fig = mbm.plots.predVSTruthPerGlacier(
-        grouped_ids_train_valid,
-        scores=scores,
-        custom_order=train_gl_per_el,
-        hue="PERIOD",
-    )
-    fig.savefig(f"{pathFolder}/individual_glaciers_train_PMB.pdf")
-    if plot:
-        plt.show()
-    plt.close(fig)
+
+    if not skipGlacierPlots:
+        scores = {}
+        for train_gl in datasetManager.train_glaciers:
+            scores_glacier = mbm.metrics.seasonal_scores(
+                grouped_ids_train[grouped_ids_train[keyGlacier] == train_gl],
+                target_col="target",
+                pred_col="pred",
+            )
+            scores[train_gl] = {"rmse": {}, "r2": {}, "bias": {}}
+            if "annual" in scores_glacier:
+                scores[train_gl]["rmse"]["a"] = scores_glacier["annual"]["rmse"]
+                scores[train_gl]["r2"]["a"] = scores_glacier["annual"]["r2"]
+                scores[train_gl]["bias"]["a"] = scores_glacier["annual"]["bias"]
+            if "winter" in scores_glacier:
+                scores[train_gl]["rmse"]["w"] = scores_glacier["winter"]["rmse"]
+                scores[train_gl]["r2"]["w"] = scores_glacier["winter"]["r2"]
+                scores[train_gl]["bias"]["w"] = scores_glacier["winter"]["bias"]
+            if "summer" in scores_glacier:
+                scores[train_gl]["rmse"]["s"] = scores_glacier["summer"]["rmse"]
+                scores[train_gl]["r2"]["s"] = scores_glacier["summer"]["r2"]
+                scores[train_gl]["bias"]["s"] = scores_glacier["summer"]["bias"]
+        fig = mbm.plots.predVSTruthPerGlacier(
+            grouped_ids_train_valid,
+            scores=scores,
+            custom_order=train_gl_per_el,
+            hue="PERIOD",
+        )
+        fig.savefig(f"{pathFolder}/individual_glaciers_train_PMB.pdf")
+        if plot:
+            plt.show()
+        plt.close(fig)
 
     # PMB validation
     scores_valid = mbm.metrics.seasonal_scores(
@@ -1256,7 +1412,7 @@ def main(argv=None):
     geoPred, geoTarget, geoErr, dict_df_gridded = mbm.training.eval_geodetic(
         model,
         train_gdl,
-        return_grid_pred=["annual", "monthly"],
+        return_grid_pred=gridPred,
         callback_annual=(callback_save_geodetic_annual if savePred else None),
         callback_monthly=(callback_save_geodetic_monthly if savePred else None),
     )
@@ -1264,7 +1420,7 @@ def main(argv=None):
         mbm.training.eval_geodetic(
             model,
             val_gdl,
-            return_grid_pred=["annual", "monthly"],
+            return_grid_pred=gridPred,
             callback_annual=(callback_save_geodetic_annual if savePred else None),
             callback_monthly=(callback_save_geodetic_monthly if savePred else None),
         )
@@ -1286,14 +1442,22 @@ def main(argv=None):
             merged[f"{glacier} (val)" if glacier in merged else glacier] = value
         return merged
 
+    geoArea = _merge_geodetic(
+        {g: train_gdl.geodetic_areas(g) for g in geoPred},
+        {g: val_gdl.geodetic_areas(g) for g in geoPredVal},
+    )
     geoPred = _merge_geodetic(geoPred, geoPredVal)
     geoTarget = _merge_geodetic(geoTarget, geoTargetVal)
     geoErr = _merge_geodetic(geoErr, geoErrVal)
-    df_gridded_annual = pd.concat(
-        [dict_df_gridded["annual"], dict_df_gridded_val["annual"]], ignore_index=True
-    )
-    df_gridded_monthly = pd.concat(
-        [dict_df_gridded["monthly"], dict_df_gridded_val["monthly"]], ignore_index=True
+    df_gridded_annual, df_gridded_monthly = (
+        (
+            pd.concat(
+                [dict_df_gridded[freq], dict_df_gridded_val[freq]], ignore_index=True
+            )
+            if freq in gridPred
+            else None
+        )
+        for freq in ("annual", "monthly")
     )
     del dict_df_gridded, dict_df_gridded_val
     if savePred:
@@ -1319,6 +1483,7 @@ def main(argv=None):
         geoTarget,
         geoPred,
         geoErr,
+        geoArea=geoArea,
         title="Glacier wide MB on train",
         ax_xlim=(-2.5, 1.0),
         ax_ylim=(-2.5, 1.0),
@@ -1330,32 +1495,33 @@ def main(argv=None):
         plt.show()
     plt.close(fig)
 
-    # Plot MB profile
-    # TODO: ignore years outside of the geodetic time window
-    fig = mbm.plots.profilePerGlacier(
-        df_gridded_annual,
-        custom_order=train_gl_per_el,
-        titles={
-            k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
-            for k in glacierNames
-        },
-        df_stakes=grouped_ids_train,
-        average_stakes=False,
-    )
-    fig.savefig(f"{pathFolder}/PMB_profile_individual_glaciers_train.pdf")
-    if plot:
-        plt.show()
-    plt.close(fig)
+    if not skipGlacierPlots:
+        # Plot MB profile
+        # TODO: ignore years outside of the geodetic time window
+        fig = mbm.plots.profilePerGlacier(
+            df_gridded_annual,
+            custom_order=train_gl_per_el,
+            titles={
+                k: (f"{k} ({glacierNames[k]})" if glacierNames[k] is not None else None)
+                for k in glacierNames
+            },
+            df_stakes=grouped_ids_train,
+            average_stakes=False,
+        )
+        fig.savefig(f"{pathFolder}/PMB_profile_individual_glaciers_train.pdf")
+        if plot:
+            plt.show()
+        plt.close(fig)
 
-    # Plot cumulated mass change
-    fig, _ = mbm.plots.cumulatedMassChange(
-        df_gridded_monthly,
-        geo=geodetic_windows(df_geo),
-    )
-    fig.savefig(f"{pathFolder}/cumulated_mass_change_glaciers_train.pdf")
-    if plot:
-        plt.show()
-    plt.close(fig)
+        # Plot cumulated mass change
+        fig, _ = mbm.plots.cumulatedMassChange(
+            df_gridded_monthly,
+            geo=geodetic_windows(df_geo),
+        )
+        fig.savefig(f"{pathFolder}/cumulated_mass_change_glaciers_train.pdf")
+        if plot:
+            plt.show()
+        plt.close(fig)
 
     if any([m in train_glaciers for m in maps]):
         mapsFolder = f"{pathFolder}/maps"
@@ -1412,6 +1578,7 @@ def main(argv=None):
             geoTarget,
             geoPred,
             geoErr,
+            geoArea={g: region_gdl.geodetic_areas(g) for g in geoPred},
             title="Glacier wide MB on the whole region",
             legend=False,
         )
