@@ -49,3 +49,11 @@ def test_drop_duplicate_measurements():
     # The measurement of the source listed first is kept, with its balance
     assert not ((points.SOURCE == "nve") & (points.FROM_DATE == "20101004")).any()
     assert points[points.PERIOD == "annual"].POINT_BALANCE.tolist() == [-1.00]
+
+
+def test_every_stake_source_has_a_data_credit():
+    # SourceManagerWGMS prints the credit of every stake source it loads
+    from dataloader.SourceManager import _stake_source_credits
+    from data_preprocessing.stakes import STAKE_SOURCES
+
+    assert set(STAKE_SOURCES) <= set(_stake_source_credits)

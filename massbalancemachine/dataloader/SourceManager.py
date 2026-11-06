@@ -198,6 +198,11 @@ _stake_source_credits = {
             "Kjøllmoen, B. (Ed.), Andreassen, L. M., Elvehøy, H. and Storheil, S. (2022): Glaciological investigations in Norway 2021. NVE Rapport 27-2022.",
         ],
     ),
+    "glacioclim": (
+        "GLACIOCLIM: Données des bilans de masse des Alpes. GLACIOCLIM. Retrieved from https://glacioclim.osug.fr/Donnees-des-Alpes",
+        'Acknowledge with: "Les auteurs remercient le Service National d\'Observation GLACIOCLIM (programme du CNRS-INSU, OSUG, IRD, INRAE, IPEV, Météo France) pour les données fournies."',
+        [],
+    ),
 }
 
 
