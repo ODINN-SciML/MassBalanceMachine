@@ -24,6 +24,7 @@ from massbalancemachine.cli.common import (
     setFeatures,
     setNormalizationBounds,
     setClimateSource,
+    setSurfaceType,
     trainValData,
     testData,
     testSplits,
@@ -295,6 +296,7 @@ def main(argv=None):
         raise ValueError(f"source_data={sourceData} is unknown")
     setNormalizationBounds(cfg, params)
     setClimateSource(cfg, params)
+    setSurfaceType(cfg, params)
 
     if torch.cuda.is_available():
         print("CUDA is available")

@@ -10,6 +10,7 @@ from functools import lru_cache
 import urllib
 
 from data_processing.Dataset import Dataset
+from data_processing.transform_to_monthly import SPINUP_COLUMN as _SPINUP_COLUMN
 from data_processing.Product import Product
 from data_processing.product_utils import (
     rgi_id_to_folders,
@@ -84,7 +85,7 @@ from data_processing.utils.data_preprocessing import get_hash
 # Defined in `data_processing.utils.years`, which the geodetic sources import too: they
 # have to know the years of a window to keep it inside one side of a split, and they are
 # imported by this module.
-from data_processing.utils.years import years_from_time_range
+from data_processing.utils.years import contiguous_year_runs, years_from_time_range
 
 
 def years_from_time_ranges(time_ranges):
@@ -132,6 +133,38 @@ def _window_month_bounds(window):
     return start.year * 12 + start.month - 1, end.year * 12 + end.month - 1
 
 
+# Spin-up of the surface type of the TIlike model (`sfc_type`): its snow cover is the
+# cumulative balance since the 1st of October, so a geodetic grid also holds, with
+# `spinup=True`, the months between the 1st of October preceding every window and its
+# start. These rows are flagged `SFC_SPINUP`: the model sets their balance to zero and
+# `geodetic_window_weights` leaves them out of every window.
+SPINUP_COLUMN = _SPINUP_COLUMN  # As in the stake tables, see `transform_to_monthly`
+GRID_TREE_COLUMN = "GRID_TREE"
+
+
+def _spinup_lower_bound(lo):
+    """Month (counted since year 0) of the 1st of October at or before month `lo`."""
+    return lo - ((lo % 12) - 9) % 12
+
+
+def spinup_years(time_ranges):
+    """Calendar years holding the spin-up months of geodetic windows that the windows
+    themselves do not cover, see `_spinup_lower_bound`."""
+    years = set()
+    for window in time_ranges:
+        lo, _ = _window_month_bounds(window)
+        years |= set(range(_spinup_lower_bound(lo) // 12, (lo - 1) // 12 + 1))
+    return sorted(years.difference(years_from_time_ranges(time_ranges)))
+
+
+def spinup_years_calendar(years):
+    """Spin-up years of a grid made of whole calendar years (Hugonnet21): the year
+    before every run of consecutive years, whose October to December are needed."""
+    return sorted(
+        {first - 1 for first, _ in contiguous_year_runs(years)}.difference(years)
+    )
+
+
 def geodetic_window_weights(metadata, periods):
     """Matrix turning the glacier-wide monthly predictions into the mean annual mass
     balance of every geodetic window.
@@ -148,17 +181,26 @@ def geodetic_window_weights(metadata, periods):
     is the order the monthly predictions are aggregated in, so the product of this
     matrix with the monthly glacier-wide predictions is the rate of every window.
     """
-    months = metadata.groupby("GLWD_M_ID_int").agg({"YEAR": "first", "MONTHS": "first"})
+    agg = {"YEAR": "first", "MONTHS": "first"}
+    if SPINUP_COLUMN in metadata.columns:
+        agg[SPINUP_COLUMN] = "first"
+    months = metadata.groupby("GLWD_M_ID_int").agg(agg)
     assert (months.index.to_numpy() == np.arange(len(months))).all()
     month_index = (
         months.YEAR.to_numpy().astype(np.int64) * 12
         + months.MONTHS.map(MONTH_TO_ID).to_numpy()
         - 1
     )
+    # The spin-up months of the surface type are in no window
+    spinup = (
+        months[SPINUP_COLUMN].to_numpy(dtype=bool)
+        if SPINUP_COLUMN in months.columns
+        else np.zeros(len(months), dtype=bool)
+    )
     weights = np.zeros((len(periods), len(months)), dtype=np.float32)
     for k, window in enumerate(periods):
         lo, hi = _window_month_bounds(window)
-        inside = (month_index >= lo) & (month_index < hi)
+        inside = (month_index >= lo) & (month_index < hi) & ~spinup
         assert (
             inside.sum() == hi - lo
         ), f"The geodetic grid has {inside.sum()} months inside the window {window}, which spans {hi - lo} months."
@@ -320,6 +362,9 @@ def _create_gridded_features_custom_outlines(
     glacier_id_to_years = {}
     for glacier_id in glacier_ids:
         years = years_from_time_ranges(time_ranges[glacier_id])
+        if getattr(cfg, "surface_type", False):
+            # The months before the windows the surface type spins up on
+            years = sorted(set(years).union(spinup_years(time_ranges[glacier_id])))
         glacier_id_to_years[glacier_id] = years
         paths[glacier_id], products[glacier_id] = _glacier_grid_products(
             grid_path, glacier_id, years, svf_grid_path
@@ -900,7 +945,7 @@ def create_gridded_features_from_mask_per_year(args):
     return year
 
 
-def _geodetic_input_windowed(glacier_id, time_range, product_source):
+def _geodetic_input_windowed(glacier_id, time_range, product_source, spinup=False):
     """Assemble the per-year gridded products of one glacier over its geodetic
     windows.
 
@@ -916,6 +961,12 @@ def _geodetic_input_windowed(glacier_id, time_range, product_source):
     outlines of different epochs. Two such windows can meet inside one year (NVE
     1984-1997 on the GAO outlines and 1997-2009 on RGI 6.2), whose months are then
     read from both trees, but they cannot share a month.
+
+    With `spinup`, the grid also holds the spin-up months of the surface type before
+    every window (see `_spinup_lower_bound`), read from the tree of the window, and
+    the columns `SFC_SPINUP` (the month is in no window of its tree) and `GRID_TREE`.
+    A spin-up month can then be a month of a window of another tree: its rows get a
+    glacier-wide id of their own, so that they do not mix with the other outlines.
     """
     windows_of_tree = {}
     for window in time_range:
@@ -929,7 +980,14 @@ def _geodetic_input_windowed(glacier_id, time_range, product_source):
         tree: set(years_from_time_ranges(windows))
         for tree, windows in windows_of_tree.items()
     }
-    years = years_from_time_ranges(time_range)
+    if spinup:
+        spinup_bounds_of_tree = {
+            tree: [(_spinup_lower_bound(lo), lo) for lo, _ in bounds]
+            for tree, bounds in bounds_of_tree.items()
+        }
+        for tree, windows in windows_of_tree.items():
+            years_of_tree[tree] |= set(spinup_years(windows))
+    years = sorted(set().union(*years_of_tree.values()))
 
     df_X_geod = pd.DataFrame()
     maxId = -1
@@ -952,13 +1010,23 @@ def _geodetic_input_windowed(glacier_id, time_range, product_source):
             in_a_window = np.zeros(len(df_grid), dtype=bool)
             for lo, hi in bounds_of_tree[tree]:
                 in_a_window |= (month_index >= lo) & (month_index < hi)
-            df_grid = df_grid[in_a_window]
-            months_read.extend(df_grid.MONTHS.unique())
+            in_spinup = np.zeros(len(df_grid), dtype=bool)
+            if spinup:
+                for lo, hi in spinup_bounds_of_tree[tree]:
+                    in_spinup |= (month_index >= lo) & (month_index < hi)
+                in_spinup &= ~in_a_window
+            df_grid = df_grid[in_a_window | in_spinup].copy()
+            in_spinup = in_spinup[in_a_window | in_spinup]
+            months_read.extend(df_grid.MONTHS[~in_spinup].unique())
 
             # Remap ID so that one ID covers only one year of one tree
             df_grid["ID"] = df_grid["ID"] + maxId + 1
 
             df_grid["GLWD_M_ID"] = f"{glacier_id}_{year}_" + df_grid.MONTHS
+            if spinup:
+                df_grid.loc[in_spinup, "GLWD_M_ID"] += f"_spinup_{tree}"
+                df_grid[SPINUP_COLUMN] = in_spinup
+                df_grid[GRID_TREE_COLUMN] = tree
 
             # Append to the final dataframe
             df_X_geod = pd.concat([df_X_geod, df_grid], ignore_index=True)
@@ -978,63 +1046,74 @@ def _geodetic_input_windowed(glacier_id, time_range, product_source):
     return df_X_geod
 
 
-def geodetic_input_PGO(rgi_id, time_range):
-    return _geodetic_input_windowed(rgi_id, time_range, "PGO")
+def geodetic_input_PGO(rgi_id, time_range, spinup=False):
+    return _geodetic_input_windowed(rgi_id, time_range, "PGO", spinup)
 
 
-def geodetic_input_GLAMOS(sgi_id, time_range):
-    return _geodetic_input_windowed(sgi_id, time_range, "GLAMOS")
+def geodetic_input_GLAMOS(sgi_id, time_range, spinup=False):
+    return _geodetic_input_windowed(sgi_id, time_range, "GLAMOS", spinup)
 
 
-def geodetic_input_Rabatel16(glims_id, time_range):
-    return _geodetic_input_windowed(glims_id, time_range, "Rabatel16")
+def geodetic_input_Rabatel16(glims_id, time_range, spinup=False):
+    return _geodetic_input_windowed(glims_id, time_range, "Rabatel16", spinup)
 
 
-def geodetic_input_Fischer11(gi_id, time_range):
-    return _geodetic_input_windowed(gi_id, time_range, "Fischer11")
+def geodetic_input_Fischer11(gi_id, time_range, spinup=False):
+    return _geodetic_input_windowed(gi_id, time_range, "Fischer11", spinup)
 
 
-def geodetic_input_Hagg12(glacier_id, time_range):
-    return _geodetic_input_windowed(glacier_id, time_range, "Hagg12")
+def geodetic_input_Hagg12(glacier_id, time_range, spinup=False):
+    return _geodetic_input_windowed(glacier_id, time_range, "Hagg12", spinup)
 
 
-def geodetic_input_Maurer19(rgi50_id, time_range):
-    return _geodetic_input_windowed(rgi50_id, time_range, "Maurer19")
+def geodetic_input_Maurer19(rgi50_id, time_range, spinup=False):
+    return _geodetic_input_windowed(rgi50_id, time_range, "Maurer19", spinup)
 
 
-def geodetic_input_Maurer19_2000(rgi50_id, time_range):
-    return _geodetic_input_windowed(rgi50_id, time_range, "Maurer19_2000")
+def geodetic_input_Maurer19_2000(rgi50_id, time_range, spinup=False):
+    return _geodetic_input_windowed(rgi50_id, time_range, "Maurer19_2000", spinup)
 
 
-def geodetic_input_Maurer19_Hugonnet21(rgi50_id, time_range):
-    return _geodetic_input_windowed(rgi50_id, time_range, "Maurer19_Hugonnet21")
+def geodetic_input_Maurer19_Hugonnet21(rgi50_id, time_range, spinup=False):
+    return _geodetic_input_windowed(rgi50_id, time_range, "Maurer19_Hugonnet21", spinup)
 
 
-def geodetic_input_Belart20(glacier_id, time_range):
-    return _geodetic_input_windowed(glacier_id, time_range, "Belart20")
+def geodetic_input_Belart20(glacier_id, time_range, spinup=False):
+    return _geodetic_input_windowed(glacier_id, time_range, "Belart20", spinup)
 
 
-def geodetic_input_Andreassen16(glacier_id, time_range):
-    return _geodetic_input_windowed(glacier_id, time_range, "Andreassen16")
+def geodetic_input_Andreassen16(glacier_id, time_range, spinup=False):
+    return _geodetic_input_windowed(glacier_id, time_range, "Andreassen16", spinup)
 
 
-def geodetic_input_NVE(glacier_id, time_range):
-    return _geodetic_input_windowed(glacier_id, time_range, "NVE")
+def geodetic_input_NVE(glacier_id, time_range, spinup=False):
+    return _geodetic_input_windowed(glacier_id, time_range, "NVE", spinup)
 
 
 def geodetic_input_Hugonnet21(
     rgi_id,
     years=range(2000, 2020),
+    spinup=False,
 ):
+    """Grid of a glacier on its RGI outlines over the calendar `years`. With
+    `spinup`, also October to December of the year before every run of consecutive
+    years, the spin-up of the surface type (see `spinup_years_calendar`), flagged in
+    the column `SFC_SPINUP`."""
     grid_path = os.path.join(get_data_path(), "grids", "Hugonnet21")
+    pad_years = set(spinup_years_calendar(years)) if spinup else set()
 
     df_X_geod = pd.DataFrame()
     maxId = -1
-    for year in years:
+    for year in sorted(set(years) | pad_years):
         file_path = os.path.abspath(
             os.path.join(grid_path, *glacier_id_to_folders(rgi_id), f"{year}.parquet")
         )
         df_grid = pd.read_parquet(file_path)
+        if year in pad_years:
+            df_grid = df_grid[df_grid.MONTHS.isin(["oct_", "nov_", "dec_"])].copy()
+        if spinup:
+            df_grid[SPINUP_COLUMN] = year in pad_years
+            df_grid[GRID_TREE_COLUMN] = "Hugonnet21"
 
         # Remap ID so that one ID covers only one year
         df_grid["ID"] = df_grid["ID"] + maxId + 1
@@ -1614,19 +1693,21 @@ def _period_key(years):
     return key
 
 
-def prepared_grid_dir_multi_years(rgi_id, years, product_source):
+def prepared_grid_dir_multi_years(rgi_id, years, product_source, spinup=False):
+    """Folder of the multi-year grid of a glacier; a grid with the spin-up months of
+    the surface type (`spinup`) has a folder of its own."""
     _check_product_source(product_source)
     return os.path.join(
         get_data_path(),
         "grids_multiyears",
         product_source,
-        _period_key(years),
+        _period_key(years) + ("_sfc" if spinup else ""),
         *(glacier_id_to_folders(rgi_id)[:-1]),
     )
 
 
-def prepared_metadata_dir(rgi_id, years, product_source, feature_columns):
-    base_dir = prepared_grid_dir_multi_years(rgi_id, years, product_source)
+def prepared_metadata_dir(rgi_id, years, product_source, feature_columns, spinup=False):
+    base_dir = prepared_grid_dir_multi_years(rgi_id, years, product_source, spinup)
     feature_hash = get_hash(",".join(sorted(feature_columns)))
     return os.path.join(base_dir, feature_hash)
 
@@ -1720,20 +1801,23 @@ def _prepared_metadata_dict(df_X_geod, feature_columns):
     }
 
 
-def prepare_precomputed_metadata(rgi_id, years, product_source, feature_columns):
+def prepare_precomputed_metadata(
+    rgi_id, years, product_source, feature_columns, spinup=False
+):
     _check_product_source(product_source)
     path_prepared = prepared_metadata_dir(
         rgi_id,
         years,
         product_source,
         feature_columns,
+        spinup,
     )
     os.makedirs(path_prepared, exist_ok=True)
 
     manifest_path = os.path.join(path_prepared, f"{rgi_id}_metadata_manifest.json")
     p = Product(manifest_path)
     if not p.is_up_to_date():
-        df_X_geod = load_grid_multi_years(rgi_id, years, product_source)
+        df_X_geod = load_grid_multi_years(rgi_id, years, product_source, spinup)
         precomputed_meta = _prepared_metadata_dict(df_X_geod, feature_columns)
 
         for key, df in {
@@ -1756,13 +1840,16 @@ def prepare_precomputed_metadata(rgi_id, years, product_source, feature_columns)
     return path_prepared
 
 
-def load_precomputed_metadata(rgi_id, years, product_source, feature_columns):
+def load_precomputed_metadata(
+    rgi_id, years, product_source, feature_columns, spinup=False
+):
     _check_product_source(product_source)
     path_prepared = prepared_metadata_dir(
         rgi_id,
         years,
         product_source,
         feature_columns,
+        spinup,
     )
     manifest_path = os.path.join(path_prepared, f"{rgi_id}_metadata_manifest.json")
 
@@ -1791,23 +1878,27 @@ def load_precomputed_metadata(rgi_id, years, product_source, feature_columns):
     return metadata
 
 
-def generate_grid_multi_years(rgi_id, years, product_source):
+def generate_grid_multi_years(rgi_id, years, product_source, spinup=False):
+    """Assemble the multi-year grid of a glacier from its per-year grids, with the
+    spin-up months of the surface type when `spinup` (see `SPINUP_COLUMN`)."""
     _check_product_source(product_source)
-    path_prepared = prepared_grid_dir_multi_years(rgi_id, years, product_source)
+    path_prepared = prepared_grid_dir_multi_years(rgi_id, years, product_source, spinup)
     path_prepared_df = os.path.join(path_prepared, f"{rgi_id}.parquet")
     p = Product(path_prepared_df)
     if not p.is_up_to_date():
         os.makedirs(path_prepared, exist_ok=True)
-        df_X_geod_rgi_id = GEODETIC_INPUT_FN[product_source](rgi_id, years)
+        df_X_geod_rgi_id = GEODETIC_INPUT_FN[product_source](
+            rgi_id, years, spinup=spinup
+        )
         df_X_geod_rgi_id.to_parquet(
             path_prepared_df, engine="pyarrow", compression="snappy"
         )
         p.gen_chk()
 
 
-def load_grid_multi_years(rgi_id, years, product_source):
+def load_grid_multi_years(rgi_id, years, product_source, spinup=False):
     _check_product_source(product_source)
-    path_prepared = prepared_grid_dir_multi_years(rgi_id, years, product_source)
+    path_prepared = prepared_grid_dir_multi_years(rgi_id, years, product_source, spinup)
     path_prepared_df = os.path.join(path_prepared, f"{rgi_id}.parquet")
     # TODO: determine these based on features and metadata
     columns = [
@@ -1843,5 +1934,7 @@ def load_grid_multi_years(rgi_id, years, product_source):
         # "ssrd_sum",
         # "str_sum",
     ]
+    if spinup:
+        columns = columns + [SPINUP_COLUMN, GRID_TREE_COLUMN]
     df = pd.read_parquet(path_prepared_df, columns=columns)
     return df

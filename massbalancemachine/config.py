@@ -224,6 +224,10 @@ class Config:
             ELEVATION_DIFFERENCE come from: "era5land" (as stored in the stake tables
             and grids) or "gswp3_w5e5" (replaced when they are read, see
             `data_processing.gswp3_w5e5`).
+        - surface_type (bool): Whether the stake tables and the geodetic grids have
+            the spin-up rows of the surface type of the TIlike model and the
+            dataloaders prepare the time order of the rows for it, see
+            `cli.common.setSurfaceType`.
     """
 
     numJobs: int = -1
@@ -241,6 +245,7 @@ class Config:
     dataPath: str = field(default_factory=lambda: _normalize_data_path(None))
     prepro_level: int = 2
     climate_source: str = "era5land"
+    surface_type: bool = False
 
     # runtime populated
     featureColumns: List[str] = field(default_factory=list)

@@ -19,10 +19,13 @@ import time
 
 from plots import predVSTruth, predVSTruthGlacierWide, glacierWideScores
 from data_processing.Dataset import Normalizer
+from data_processing.gridded_utils import SPINUP_COLUMN
 from models.TorchNeuralNetworkRegressor import (
     aggrPredict,
     aggrMetadata,
     aggrPredictGlwd,
+    forward_rows,
+    needs_time_order,
 )
 
 
@@ -96,7 +99,7 @@ def compute_stake_loss(
     int_id = precomputed_meta["int_id_torch"]
 
     # Make prediction
-    pred = model.forward(stakes)[:, 0]
+    pred = forward_rows(model, stakes, precomputed_meta.get("sfc"))[:, 0]
 
     nunique = precomputed_meta["nunique_ids"]
     trueMean = torch.zeros((nunique,), device=pred.device, dtype=pred.dtype)
@@ -180,9 +183,10 @@ def timeWindowGeodeticLoss(
         return (geodetic_MB_pred - geoTarget) ** 2 / errGeoTarget, geodetic_MB_pred
 
 
-def predict_monthly_gridded(model, geoGrid, metadata):
-    # Make prediction
-    pred = model.forward(geoGrid)[:, 0]
+def predict_monthly_gridded(model, geoGrid, metadata, sfc=None):
+    # Make prediction. `sfc` is the time order of the grid that a model with a
+    # surface type needs, `precomputed_meta["sfc"]` of the dataloader
+    pred = forward_rows(model, geoGrid, sfc)[:, 0]
     return pred
 
 
@@ -212,7 +216,7 @@ def ti_intermediates_gridded(model, geo_dataloader, glacierName):
     ), f"Model {type(module).__name__} does not expose the intermediate variables of a TIlike model."
     cfg = geo_dataloader.cfg
     with torch.no_grad():
-        geoGrid, metadata, _, _, _ = geo_dataloader.geo(glacierName)
+        geoGrid, metadata, _, _, precomputed_meta = geo_dataloader.geo(glacierName)
         geoGrid = geoGrid.to(geo_dataloader.device)
         cor_T, cor_T_val, P, T, _, P_scaling, _, _, cor_acc, cor_abl, R_sw = (
             module.get_cor_T(geoGrid)
@@ -239,6 +243,13 @@ def ti_intermediates_gridded(model, geo_dataloader, glacierName):
                 "R_sw": R_sw.cpu().numpy(),
             }
         )
+        if needs_time_order(module):
+            swe, f_snow, cor_abl_eff = module.snow_cover(
+                geoGrid, precomputed_meta["sfc"]
+            )
+            df["SWE"] = swe.cpu().numpy()
+            df["f_snow"] = f_snow.cpu().numpy()
+            df["cor_abl_eff"] = cor_abl_eff.cpu().numpy()
         # Location columns that are model inputs are not part of the metadata, so
         # they are recovered from the normalized features
         for col in ["POINT_LAT", "POINT_LON", "POINT_ELEVATION"]:
@@ -250,11 +261,16 @@ def ti_intermediates_gridded(model, geo_dataloader, glacierName):
                     cfg.bnds[col][0],
                     cfg.bnds[col][1],
                 )
+    if SPINUP_COLUMN in metadata.columns:
+        # The spin-up months of the surface type are in no geodetic window
+        df = df[~metadata[SPINUP_COLUMN].to_numpy(bool)].reset_index(drop=True)
     return df
 
 
 def predict_annual_gridded(model, geoGrid, metadata, precomputed_meta):
-    pred = predict_monthly_gridded(model, geoGrid, metadata)
+    pred = predict_monthly_gridded(
+        model, geoGrid, metadata, sfc=precomputed_meta.get("sfc")
+    )
 
     ID_int = precomputed_meta["ID_int"]
 
@@ -367,14 +383,26 @@ def eval_geodetic(
                         model, geoGrid, metadata, precomputed_meta
                     )
                     grouped_ids["pred"] = predSumAnnual.cpu()
+                    if SPINUP_COLUMN in metadata.columns:
+                        # The point-years made only of spin-up months of the surface
+                        # type are in no window
+                        spinup_only = metadata.groupby("ID_int")[SPINUP_COLUMN].all()
+                        grouped_ids = grouped_ids[
+                            ~spinup_only.reindex(grouped_ids.index).to_numpy()
+                        ]
                     if callback_annual is not None:
                         callback_annual(current_g, grouped_ids)
                     if return_annual:
                         grouped_ids = grouped_ids.drop(columns=["PERIOD"])
                         df_gridded_annual = pd.concat([df_gridded_annual, grouped_ids])
                 if callback_monthly is not None or return_monthly:
-                    predMonthly = predict_monthly_gridded(model, geoGrid, metadata)
-                    metadata["pred"] = predMonthly.cpu()
+                    predMonthly = predict_monthly_gridded(
+                        model, geoGrid, metadata, sfc=precomputed_meta.get("sfc")
+                    )
+                    metadata = metadata.assign(pred=predMonthly.cpu().numpy())
+                    if SPINUP_COLUMN in metadata.columns:
+                        # The spin-up months of the surface type are in no window
+                        metadata = metadata[~metadata[SPINUP_COLUMN].to_numpy(bool)]
                     if callback_monthly is not None:
                         callback_monthly(current_g, metadata)
                     if return_monthly:
@@ -401,7 +429,9 @@ def eval_geodetic(
 
 
 def predict_geo(model, geoGrid, metadata, ygeo, geod_periods, precomputed_meta):
-    pred = predict_monthly_gridded(model, geoGrid, metadata)
+    pred = predict_monthly_gridded(
+        model, geoGrid, metadata, sfc=precomputed_meta.get("sfc")
+    )
 
     idAggr = precomputed_meta["GLWD_M_ID_int"]
 
@@ -455,7 +485,7 @@ def compute_geo_loss(
 
     # Make prediction
     with record_function("geo_forward"):
-        pred = model.forward(geoGrid)[:, 0]
+        pred = forward_rows(model, geoGrid, precomputed_meta.get("sfc"))[:, 0]
 
     with record_function("aggregation_GLWD_M_ID"):
 
@@ -1206,8 +1236,9 @@ def train_geo(
         """Learnable scalars of a TIlike model, as the model uses them."""
         if hasattr(model.module, "scalar_parameters"):
             values = model.module.scalar_parameters()
-            for k in ["snow_slope", "snow_threshold", "pdd_curvature"]:
-                writer.add_scalar(f"Parameters/{k}", values[k], step)
+            for k in ["snow_slope", "snow_threshold", "pdd_curvature", "ice_ratio"]:
+                if k in values:
+                    writer.add_scalar(f"Parameters/{k}", values[k], step)
 
     logScalarParameters(-1)
 

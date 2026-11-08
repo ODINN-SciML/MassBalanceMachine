@@ -11,7 +11,7 @@ _month_to_number = {month_abbr[i].lower(): i for i in range(1, 13)}
 def _month_number(months):
     """Calendar month number of MONTHS entries; the padding months ("oct_", ...)
     are merged with the month they refer to."""
-    return months.str.rstrip("_").map(_month_to_number)
+    return months.str.strip("_").map(_month_to_number)
 
 
 # One hue per season (winter blue, spring green, summer red, autumn gold to ochre),

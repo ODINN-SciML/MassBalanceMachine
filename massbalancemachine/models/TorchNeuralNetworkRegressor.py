@@ -82,7 +82,20 @@ def _input_encoding(netParams, n_inputs, name):
     return [encoding], encoding.n_out
 
 
+# Default ratio of the melt factor of ice to the one of snow of the surface type
+# (`sfc_type`). PyGEM uses ddf_snow / ddf_ice = 0.7 (`ddfsnow_iceratio`). OGGM's
+# SfcTypeTIModel starts fresh snow at half the ice melt factor and ages it towards
+# ice, melt_f(t) = melt_f_ice * (1 - 0.5 * exp(-t / 1 yr)): the winter snow melted in
+# summer, 3 to 9 months old, melts at 0.6 to 0.75 of ice. The model has no aging, so
+# its snow is the seasonal snow at the time it melts, about 1 / 0.7 of ice for both.
+DEFAULT_ICE_RATIO = 1 / 0.7
+
+
 class TILikeModel(nn.Module):
+    # Whether the forward pass takes the time order of the rows, `forward(inputs,
+    # sfc)`: only a model with a surface type, see `TILikeSfcModel`
+    needs_time_order = False
+
     def __init__(self, modelParams, normalizing_bounds, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.input_labels = modelParams["inputs"]
@@ -460,6 +473,15 @@ class TILikeModel(nn.Module):
                 "min" not in cor_abl_params and "max" not in cor_abl_params
             ), "cor_abl.min and cor_abl.max only apply with cor_abl.output 'sigmoid'."
 
+        assert self.needs_time_order or "sfc_type" not in modelParams, (
+            "A model with a surface type (sfc_type) is a TILikeSfcModel, see "
+            "`createModel`."
+        )
+
+    def _mass_balance(self, P_solid, PDD, cor_acc, cor_abl, R_sw):
+        """Monthly mass balance (m w.e.) from the terms of the forward pass."""
+        return self.beta1 * cor_acc * P_solid - self.beta2 * cor_abl * PDD - R_sw
+
     def snow_slope(self):
         """Slope (1/°C) of the sigmoid splitting precipitation into snow, from the
         learnable tau_P_s, within [snow_slope_min, snow_slope_max]."""
@@ -479,7 +501,7 @@ class TILikeModel(nn.Module):
         """Values of the learnable scalars as the model uses them.
 
         Returns a dict with the slope of the snow fraction sigmoid (1/°C), its
-        threshold temperature tau_P_c (°C) and the curvature of the PDD softplus
+        threshold temperature tau_P_c (°C), the curvature of the PDD softplus
         (1/°C), together with the raw parameters they are computed from.
         """
         with torch.no_grad():
@@ -696,6 +718,13 @@ class TILikeModel(nn.Module):
         )
 
     def forward(self, inputs):
+        """Monthly mass balance (m w.e.) of the normalized inputs, one row per point
+        and month, shape (n, 1)."""
+        return self._mass_balance(*self._terms(inputs)).view(-1, 1)
+
+    def _terms(self, inputs):
+        """Terms of the mass balance of the normalized inputs: P_solid, PDD,
+        cor_acc, cor_abl and R_sw, one value per row."""
         P = Normalizer._unorm(
             inputs[:, self.ind_precip],
             self.normalizing_bounds["tp_sum"][0],
@@ -787,9 +816,155 @@ class TILikeModel(nn.Module):
         # Ablation factor correction
         cor_abl = self._ablation_factor(inp_cor_abl)
 
-        MB = self.beta1 * cor_acc * P_solid - self.beta2 * cor_abl * PDD - R_sw
         # TODO: changer scaling de beta2 pour correspondre aux valeurs typiques calées avec ODINN
-        return MB.view(-1, 1)
+        return P_solid, PDD, cor_acc, cor_abl, R_sw
+
+
+class TILikeSfcModel(TILikeModel):
+    """TILikeModel with a surface type (snow or ice) of the ablation, the `sfc_type`
+    block of the parameters: cor_abl is the melt factor of snow, the one of ice
+    being ice_ratio * cor_abl, mixed by the snow cover fraction of every row (see
+    `_snow_cover`). Its forward pass takes the time order of the rows, `sfc`."""
+
+    needs_time_order = True
+
+    def __init__(self, modelParams, normalizing_bounds, *args, **kwargs):
+        super().__init__(modelParams, normalizing_bounds, *args, **kwargs)
+        sfc_params = modelParams["sfc_type"] or {}
+        unknown = set(sfc_params) - {"snow_scale", "ice_ratio"}
+        assert not unknown, f"Unknown sfc_type options: {sorted(unknown)}."
+        # Snow water equivalent (m w.e.) at which the snow cover fraction is 0.73
+        self.snow_scale = float(sfc_params.get("snow_scale", 0.1))
+        assert (
+            self.snow_scale > 0
+        ), f"sfc_type.snow_scale must be positive, got {self.snow_scale}."
+        # Ratio of the melt factor of ice to the one of snow. Fixed by default, at
+        # DEFAULT_ICE_RATIO; with `trainable`, learned within [min, max] from
+        # `value`
+        ice_ratio = sfc_params.get("ice_ratio") or {}
+        unknown = set(ice_ratio) - {"value", "trainable", "min", "max"}
+        assert not unknown, f"Unknown sfc_type.ice_ratio options: {sorted(unknown)}."
+        value = float(ice_ratio.get("value", DEFAULT_ICE_RATIO))
+        self.ice_ratio_trainable = bool(ice_ratio.get("trainable", False))
+        if self.ice_ratio_trainable:
+            self.ice_ratio_min = float(ice_ratio.get("min", 1.0))
+            self.ice_ratio_max = float(ice_ratio.get("max", 3.0))
+            assert (
+                0.0 < self.ice_ratio_min < value < self.ice_ratio_max
+            ), f"The ice ratio must satisfy 0 < min < value < max, got min={self.ice_ratio_min}, value={value}, max={self.ice_ratio_max}."
+            frac = (value - self.ice_ratio_min) / (
+                self.ice_ratio_max - self.ice_ratio_min
+            )
+            self.ice_ratio_raw = torch.nn.Parameter(torch.logit(torch.ones(1) * frac))
+        else:
+            assert (
+                "min" not in ice_ratio and "max" not in ice_ratio
+            ), "sfc_type.ice_ratio.min and max only apply with trainable: true."
+            assert value > 0, f"The ice ratio must be positive, got {value}."
+            # Not saved in the checkpoints: the value is always that of the params
+            self.register_buffer(
+                "ice_ratio_value", torch.ones(1) * value, persistent=False
+            )
+
+    def forward(self, inputs, sfc):
+        """Monthly mass balance (m w.e.) of the normalized inputs, one row per point
+        and month, shape (n, 1). `sfc` is the time order of the rows
+        (`precomputed_meta["sfc"]` of the dataloader), see `_snow_cover`."""
+        return self._mass_balance_sfc(*self._terms(inputs), sfc).view(-1, 1)
+
+    def ice_ratio(self):
+        """Ratio of the melt factor of ice to the one of snow: the fixed
+        ice_ratio_value, or, when it is learned, from ice_ratio_raw within
+        [ice_ratio_min, ice_ratio_max]."""
+        if not self.ice_ratio_trainable:
+            return self.ice_ratio_value
+        return self.ice_ratio_min + (
+            self.ice_ratio_max - self.ice_ratio_min
+        ) * torch.sigmoid(self.ice_ratio_raw)
+
+    def _snow_cover(self, acc, melt_snow, R_sw, sfc):
+        """Snow water equivalent and snow fraction of every row.
+
+        The snow water equivalent (m w.e.) is the cumulative mass balance with the
+        melt factor of snow, `acc - melt_snow - R_sw`, of the previous months of the
+        same point since the start of the hydrological year, plus half of the
+        current month (its middle). It is not bounded below: once the snow is gone,
+        it keeps decreasing and summer snowfalls do not bring the snow back. The snow cover
+        fraction is sigmoid(swe / snow_scale).
+
+        `sfc` (dict) orders the rows in time, see `dataloader.surface_type`.
+
+        Returns two torch.Tensor with one value per row: swe and the snow cover
+        fraction f_snow.
+        """
+        if sfc is None:
+            raise ValueError(
+                "This model has a surface type (sfc_type) and needs the time order of "
+                "its inputs, `precomputed_meta['sfc']` built by the dataloader when "
+                "`cfg.surface_type` is set (see `cli.common.setSurfaceType`)."
+            )
+        perm = sfc["perm"].to(acc.device)
+        start = sfc["start"].to(acc.device)
+        assert perm.shape[0] == acc.shape[0], (
+            f"The time order covers {perm.shape[0]} rows but the inputs have "
+            f"{acc.shape[0]}."
+        )
+        # In double precision: the cumulative sum runs over all the sequences
+        delta = (acc - melt_snow - R_sw)[perm].double()
+        before = torch.cumsum(delta, 0) - delta
+        swe_sorted = before - before[start] + 0.5 * delta
+        swe = torch.empty_like(acc)
+        swe[perm] = swe_sorted.to(acc.dtype)
+        return swe, torch.sigmoid(swe / self.snow_scale)
+
+    def _mass_balance_sfc(self, P_solid, PDD, cor_acc, cor_abl, R_sw, sfc):
+        """Monthly mass balance (m w.e.) from the terms of the forward pass, the
+        melt factor mixing snow and ice."""
+        acc = self.beta1 * cor_acc * P_solid
+        melt = self.beta2 * cor_abl * PDD
+        _, f_snow = self._snow_cover(acc, melt, R_sw, sfc)
+        MB = acc - melt * (f_snow + (1 - f_snow) * self.ice_ratio()) - R_sw
+        if sfc.get("spinup") is not None:
+            # The spin-up rows only build the snow cover, see
+            # `data_processing.transform_to_monthly.transform_to_monthly`
+            MB = MB.masked_fill(sfc["spinup"].to(MB.device), 0.0)
+        return MB
+
+    def snow_cover(self, inputs, sfc):
+        """Snow water equivalent (m w.e.), snow cover fraction and effective ablation
+        factor (cor_abl times the snow/ice mix) of the normalized inputs, see
+        `_snow_cover`."""
+        P_solid, PDD, cor_acc, cor_abl, R_sw = self._terms(inputs)
+        acc = self.beta1 * cor_acc * P_solid
+        melt = self.beta2 * cor_abl * PDD
+        swe, f_snow = self._snow_cover(acc, melt, R_sw, sfc)
+        cor_abl_eff = cor_abl * (f_snow + (1 - f_snow) * self.ice_ratio())
+        return swe, f_snow, cor_abl_eff
+
+    def scalar_parameters(self):
+        """The scalars of `TILikeModel.scalar_parameters` and the ratio of the ice
+        to the snow melt factor (with ice_ratio_raw when it is learned)."""
+        params = super().scalar_parameters()
+        with torch.no_grad():
+            params["ice_ratio"] = self.ice_ratio().item()
+            if self.ice_ratio_trainable:
+                params["ice_ratio_raw"] = self.ice_ratio_raw.item()
+        return params
+
+
+def needs_time_order(model) -> bool:
+    """Whether the forward pass of `model` (a module or its
+    CustomTorchNeuralNetRegressor) takes the time order of the rows, see
+    `TILikeSfcModel`."""
+    return getattr(getattr(model, "module", model), "needs_time_order", False)
+
+
+def forward_rows(model, inputs, sfc=None):
+    """Forward pass of `model` on the rows `inputs`, given the time order `sfc` of
+    the rows (`precomputed_meta.get("sfc")`) when the model needs it."""
+    if needs_time_order(model):
+        return model.forward(inputs, sfc)
+    return model.forward(inputs)
 
 
 def createModel(cfg, modelParams, nInp=None):
@@ -813,6 +988,8 @@ def createModel(cfg, modelParams, nInp=None):
         assert len(modelParams["layers"]) > 0
         return SequentialDownscaledModel(modelParams, cfg.bnds)
     elif modelParams["type"] == "TIlike":
+        if "sfc_type" in modelParams:
+            return TILikeSfcModel(modelParams, cfg.bnds)
         return TILikeModel(modelParams, cfg.bnds)
     else:
         raise ValueError(f"Model {modelParams['type']} is not supported.")
@@ -950,11 +1127,18 @@ class CustomTorchNeuralNetRegressor(nn.Module):
         super().__init__(*args, **kwargs)
         self.module = module
 
-    def forward(self, x):
+    @property
+    def needs_time_order(self):
+        """Whether the forward pass takes the time order of the rows, see
+        `TILikeSfcModel`."""
+        return needs_time_order(self.module)
+
+    def forward(self, x, *args):
         """
-        Forward evaluation of the model.
+        Forward evaluation of the model, with the time order of the rows for a
+        model that needs it (`forward_rows`).
         """
-        return self.module(x)
+        return self.module(x, *args)
 
     def predict(self):
         # TODO: implement
@@ -981,7 +1165,9 @@ class CustomTorchNeuralNetRegressor(nn.Module):
                 stakesTorch = torch.tensor(stakes.astype(np.float32)).to(
                     geodataloader.device
                 )
-                pred = self.forward(stakesTorch)[:, 0]
+                pred = forward_rows(self, stakesTorch, precomputed_meta.get("sfc"))[
+                    :, 0
+                ]
 
                 # Aggregate per stake and periods
                 groundTruthTorch = torch.tensor(point_balance.astype(np.float32)).to(

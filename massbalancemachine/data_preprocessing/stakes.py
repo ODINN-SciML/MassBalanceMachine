@@ -50,8 +50,11 @@ def combined_stakes_folder(rgi_region):
     return os.path.join(get_data_path(), "stakes", "combined", f"region_{rgi_region}")
 
 
-def combined_monthly_path(rgi_region, sources):
-    return os.path.join(combined_stakes_folder(rgi_region), "+".join(sources) + ".csv")
+def combined_monthly_path(rgi_region, sources, spinup=False):
+    suffix = "_sfc" if spinup else ""
+    return os.path.join(
+        combined_stakes_folder(rgi_region), "+".join(sources) + suffix + ".csv"
+    )
 
 
 def combined_points_path(rgi_region, sources):
@@ -153,22 +156,24 @@ def combine_points(rgi_region, sources):
     return drop_duplicate_measurements(drop_identical_measurements(points))
 
 
-def load_monthly_data(rgi_region, sources=None, cfg=None):
+def load_monthly_data(rgi_region, sources=None, cfg=None, spinup=False):
     """The monthly stake table of an RGI region combining the stake measurements of
     `sources` (default `DEFAULT_STAKE_SOURCES`), built on first use and read from the data
     tree afterwards. With WGMS alone, it is the table of
     `data_preprocessing.wgms.load_monthly_data`. The combined point table, with the
     source of each measurement in the column SOURCE, is written next to the monthly
-    table. `cfg` defaults to `data_preprocessing.wgms.default_monthly_config()`."""
+    table. `cfg` defaults to `data_preprocessing.wgms.default_monthly_config()`. With
+    `spinup`, the table (one of its own) has the spin-up rows of the surface type, see
+    `data_processing.transform_to_monthly.transform_to_monthly`."""
     sources = list(sources or DEFAULT_STAKE_SOURCES)
     assert len(set(sources)) == len(sources), f"Stake sources repeated: {sources}"
     if sources == ["wgms"]:
-        return data_preprocessing.wgms.load_monthly_data(rgi_region, cfg)
+        return data_preprocessing.wgms.load_monthly_data(rgi_region, cfg, spinup)
 
     assert isinstance(
         rgi_region, int
     ), "Stake sources can only be combined for a single RGI region at a time."
-    path = combined_monthly_path(rgi_region, sources)
+    path = combined_monthly_path(rgi_region, sources, spinup)
     product = Product(path)
     if not product.is_up_to_date():
         points = combine_points(rgi_region, sources)
@@ -182,6 +187,7 @@ def load_monthly_data(rgi_region, sources=None, cfg=None):
             data_preprocessing.wgms.default_monthly_config() if cfg is None else cfg,
             rgi_region,
             path,
+            spinup=spinup,
         )
         product.gen_chk()
     return pd.read_csv(path)

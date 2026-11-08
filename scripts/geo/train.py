@@ -17,6 +17,7 @@ from scripts.nongeo.utils import (
     setFeatures,
     setNormalizationBounds,
     setClimateSource,
+    setSurfaceType,
     trainValData,
     testData,
     testSplits,
@@ -244,6 +245,7 @@ else:
     raise ValueError(f"source_data={sourceData} is unknown")
 setNormalizationBounds(cfg, params)
 setClimateSource(cfg, params)
+setSurfaceType(cfg, params)
 
 
 keyGlacier = "GLACIER" if sourceData == "switzerland" else "RGIId"
@@ -441,10 +443,12 @@ def saveModel(log_dir):
         info = {"norm": norm_values, "model": st, "inputs": cfg.featureColumns}
         json.dump(info, f, cls=EncodeTensor, sort_keys=True)
     with open(os.path.join(log_dir, "sample_inputs.json"), "w") as f:
-        features, metadata, y, _ = gdl.stakes(glaciers[0])
+        features, metadata, y, precomputed_meta = gdl.stakes(glaciers[0])
         with torch.no_grad():
             features_torch = torch.tensor(features.astype(np.float32)).to(gdl.device)
-            pred = model.forward(features_torch)[:, 0]
+            pred = mbm.models.forward_rows(
+                model, features_torch, precomputed_meta.get("sfc")
+            )[:, 0]
         info = {
             "features": features.tolist(),
             "y": y.tolist(),

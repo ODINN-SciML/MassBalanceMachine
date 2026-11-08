@@ -24,6 +24,7 @@ from data_processing.gswp3_w5e5 import (
     REPLACED_COLUMNS,
 )
 from data_processing.utils import _rebuild_month_index
+from dataloader.surface_type import stake_sequences, grid_sequences
 from data_processing.gridded_utils import (
     create_gridded_features_RGI,
     create_gridded_features_PGO,
@@ -37,6 +38,7 @@ from data_processing.gridded_utils import (
     create_gridded_features_Andreassen16,
     create_gridded_features_NVE,
     geodetic_input_Hugonnet21,
+    SPINUP_COLUMN,
     geodetic_target_Hugonnet21,
     geodetic_target_region_Hugonnet21,
     generate_grid_multi_years,
@@ -45,6 +47,7 @@ from data_processing.gridded_utils import (
     load_grid_multi_years,
     load_precomputed_metadata,
     prepare_precomputed_metadata,
+    spinup_years_calendar,
     GEODETIC_INPUT_FN,
     WINDOWED_SOURCES,
 )
@@ -368,12 +371,13 @@ class GeoDataLoader:
         self.periodToInt = {"annual": 0, "winter": 1, "summer": 2}
 
         _, self.month_pos = _rebuild_month_index(months_head_pad, months_tail_pad)
+        self.months_head_pad = months_head_pad
 
-        self.trainStakesDf = trainStakesDf
-        self.valStakesDf = valStakesDf
         self.geodeticSource = geodeticSource
         self.preloadGeodetic = preloadGeodetic
         self.keyGlacierSel = keyGlacierSel
+        self.trainStakesDf = self._checkSpinup(trainStakesDf)
+        self.valStakesDf = self._checkSpinup(valStakesDf)
         self.geoGlaciers = geoGlaciers
         self.ignoreGlaciers = ignoreGlaciers
         self.device = device
@@ -461,7 +465,9 @@ class GeoDataLoader:
                         self.glaciersWithGeo + self.glaciersValWithGeo
                     ):
                         self.df_X_geod[rgi_id] = self._withClimate(
-                            geodetic_input_Hugonnet21(rgi_id, years=self.years)
+                            geodetic_input_Hugonnet21(
+                                rgi_id, years=self.years, spinup=self._surfaceType()
+                            )
                         )
                 elif self.isWindowed:
                     print(f"Preloading {self.geodeticSource} geodetic grids")
@@ -474,6 +480,7 @@ class GeoDataLoader:
                             geodetic_input(
                                 glacier_id,
                                 time_range=self.periods_per_glacier[glacier_id],
+                                spinup=self._surfaceType(),
                             )
                         )
                 else:
@@ -489,12 +496,14 @@ class GeoDataLoader:
                             rgi_id,
                             self.years,
                             "Hugonnet21",
+                            spinup=self._surfaceType(),
                         )
                         prepare_precomputed_metadata(
                             rgi_id,
                             self.years,
                             "Hugonnet21",
                             self.cfg.featureColumns,
+                            spinup=self._surfaceType(),
                         )
                 elif self.isWindowed:
                     print(f"Preparing {self.geodeticSource} geodetic grids")
@@ -505,12 +514,14 @@ class GeoDataLoader:
                             glacier_id,
                             self.periods_per_glacier[glacier_id],
                             self.sourceOf(glacier_id),
+                            spinup=self._surfaceType(),
                         )
                         prepare_precomputed_metadata(
                             glacier_id,
                             self.periods_per_glacier[glacier_id],
                             self.sourceOf(glacier_id),
                             self.cfg.featureColumns,
+                            spinup=self._surfaceType(),
                         )
                 else:
                     raise ValueError(f"Unknown geodetic source {self.geodeticSource}.")
@@ -555,7 +566,9 @@ class GeoDataLoader:
                     if g in rgi_ids:
                         rgi_ids.remove(g)
                 self.years = list(range(2000, 2020)) + self.additionalYears
-                create_gridded_features_RGI(self.cfg, rgi_ids, years=self.years)
+                create_gridded_features_RGI(
+                    self.cfg, rgi_ids, years=self._gridYearsHugonnet()
+                )
                 geo_target_data = geodetic_target_Hugonnet21(rgi_ids)
             elif "region-" in self.geoGlaciers:
                 s = self.geoGlaciers.split("-")
@@ -569,7 +582,9 @@ class GeoDataLoader:
                     if g in rgi_ids:
                         rgi_ids.remove(g)
                 self.years = list(range(2000, 2020))
-                create_gridded_features_RGI(self.cfg, rgi_ids, years=self.years)
+                create_gridded_features_RGI(
+                    self.cfg, rgi_ids, years=self._gridYearsHugonnet()
+                )
             self.periods_per_glacier = {}
             self.y_target_geo = {}
             self.err_target_geo = {}
@@ -833,10 +848,15 @@ class GeoDataLoader:
         g = self._toSourceGlacierId(g)
         if self.df_X_geod is None:
             if self.geodeticSource == "Hugonnet21":
-                df_X_geod = load_grid_multi_years(g, self.years, "Hugonnet21")
+                df_X_geod = load_grid_multi_years(
+                    g, self.years, "Hugonnet21", spinup=self._surfaceType()
+                )
             else:
                 df_X_geod = load_grid_multi_years(
-                    g, self.periods_per_glacier[g], self.sourceOf(g)
+                    g,
+                    self.periods_per_glacier[g],
+                    self.sourceOf(g),
+                    spinup=self._surfaceType(),
                 )
             df_X_geod = self._withClimate(df_X_geod)
             precomputed_meta = self._metadata_groups(df_X_geod)
@@ -922,6 +942,32 @@ class GeoDataLoader:
             self.indGlacierAllGeo += 1
         self.indGlacierAllGeo = 0
 
+    def _surfaceType(self) -> bool:
+        """Whether the model has a surface type, see `cli.common.setSurfaceType`."""
+        return getattr(self.cfg, "surface_type", False)
+
+    def _gridYearsHugonnet(self):
+        """Years of the Hugonnet21 grids to generate: `self.years`, and with a
+        surface type the years whose October to December it spins up on, see
+        `gridded_utils.spinup_years_calendar`."""
+        if not self._surfaceType():
+            return self.years
+        return sorted(set(self.years).union(spinup_years_calendar(self.years)))
+
+    def _checkSpinup(self, df):
+        """The stake table `df`, checked to come with the spin-up rows of the surface
+        type when the model has one: the table built with
+        the spin-up of `transform_to_monthly`, which the WGMS source manager reads when
+        `cfg.surface_type` is set."""
+        if df is not None and self._surfaceType():
+            assert SPINUP_COLUMN in df.columns, (
+                "The surface type needs the stake table with its spin-up rows, the "
+                "months from the 1st of October to the start of every measurement, "
+                "built with the spin-up of `transform_to_monthly` (column "
+                f"{SPINUP_COLUMN}). Only the WGMS source manager builds it so far."
+            )
+        return df
+
     def _metadata_groups_stakes(self, df):
         feature_columns = self.cfg.featureColumns
         non_feature_columns = df.columns.difference(feature_columns)
@@ -938,11 +984,15 @@ class GeoDataLoader:
         idAggr = metadata["ID"].values
         int_id, unique_id = pd.factorize(idAggr)
         metadata = metadata.assign(ID_int=int_id)
-        return {
+        ret = {
             "metadata": metadata,
             "int_id": int_id,
             "nunique_ids": metadata["ID"].nunique(),
         }
+        if self._surfaceType():
+            # Time order of the rows for the surface type of the model
+            ret["sfc"] = stake_sequences(df, self.months_head_pad)
+        return ret
 
     def stakes(self, glacierName: str, overwriteDf: pd.DataFrame = None):
         """
@@ -1177,22 +1227,28 @@ class GeoDataLoader:
         if self.df_X_geod is None:
             if self.geodeticSource == "Hugonnet21":
                 years = self.years
-                df_X_geod = load_grid_multi_years(glacierName, years, "Hugonnet21")
+                df_X_geod = load_grid_multi_years(
+                    glacierName, years, "Hugonnet21", spinup=self._surfaceType()
+                )
                 precomputed_meta = load_precomputed_metadata(
                     glacierName,
                     years,
                     "Hugonnet21",
                     self.cfg.featureColumns,
+                    spinup=self._surfaceType(),
                 )
             elif self.isWindowed:
                 years = self.periods_per_glacier[glacierName]
                 source = self.sourceOf(glacierName)
-                df_X_geod = load_grid_multi_years(glacierName, years, source)
+                df_X_geod = load_grid_multi_years(
+                    glacierName, years, source, spinup=self._surfaceType()
+                )
                 precomputed_meta = load_precomputed_metadata(
                     glacierName,
                     years,
                     source,
                     self.cfg.featureColumns,
+                    spinup=self._surfaceType(),
                 )
             # else:
             #     df_X_geod = create_geodetic_input(
@@ -1237,6 +1293,12 @@ class GeoDataLoader:
         #     self.y_target_geo[glacierName],
         #     self.err_target_geo.get(glacierName),
         # )
+
+        if self._surfaceType():
+            # Time order of the grid for the surface type of the model, with the
+            # spin-up months before the windows. Computed at every call rather than
+            # cached: it is as large as the grid
+            precomputed_meta["sfc"] = grid_sequences(df_X_geod)
 
         err = self.err_target_geo[glacierName]
         window_weights = self._geoWindowWeights(glacierName, metadata)

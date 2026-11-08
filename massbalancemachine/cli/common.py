@@ -7,6 +7,7 @@ import yaml
 import pandas as pd
 
 import massbalancemachine as mbm
+from data_processing.gridded_utils import SPINUP_COLUMN
 
 # Keys of a region block holding glacier lists, merged by union over the regions
 REGION_LIST_KEYS = [
@@ -325,6 +326,28 @@ def setClimateSource(cfg, params):
         source in CLIMATE_SOURCES
     ), f"training.climate_source must be one of {CLIMATE_SOURCES}, got {source}."
     cfg.climate_source = source
+
+
+def setSurfaceType(cfg, params):
+    """Set `cfg.surface_type` from the presence of `params["model"]["sfc_type"]`, the
+    surface type (snow or ice) of the ablation of the TIlike model.
+
+    The stake tables are then the ones with the spin-up rows of the surface type, the
+    months from the 1st of October to the start of every measurement
+    (the spin-up of `data_processing.transform_to_monthly.transform_to_monthly`), whose
+    flag `SFC_SPINUP` is added to the fields of `cfg` that are not features so that
+    every selection of the stake columns keeps it. The geodetic grids are padded the
+    same way, and the dataloaders give the time order of the rows to the model
+    (`precomputed_meta["sfc"]`), see `dataloader.surface_type`. Like the climate
+    source, it must be applied wherever a config is built from the params of a model,
+    before any stake table or dataloader is built from it."""
+    surface_type = "sfc_type" in params["model"]
+    assert (
+        not surface_type or params["model"]["type"] == "TIlike"
+    ), f"Only the TIlike model has a surface type, not {params['model']['type']}."
+    cfg.surface_type = surface_type
+    if surface_type and SPINUP_COLUMN not in cfg.notMetaDataNotFeatures:
+        cfg.notMetaDataNotFeatures = list(cfg.notMetaDataNotFeatures) + [SPINUP_COLUMN]
 
 
 def setFeatures(cfg, data_train, featuresInpModel):

@@ -15,7 +15,13 @@ from data_processing.utils.hydro_year import (
     tag_hydro_year,
     _compute_months_before_after,
     months_hydro_year,
+    SPINUP_TOKEN_PREFIX,
 )
+
+# Flag of the spin-up rows of the surface type, in the stake tables
+# (the spin-up of `transform_to_monthly`) and the geodetic grids
+# (`data_processing.gridded_utils`)
+SPINUP_COLUMN = "SFC_SPINUP"
 
 
 def transform_to_monthly(
@@ -25,9 +31,25 @@ def transform_to_monthly(
     vois_topographical: "list[str]",
     output_fname: str,
     output_format: str,
+    spinup_month_list: Optional[List[str]] = None,
 ) -> pd.DataFrame:
     """
     Converts the DataFrame to a monthly format based on climate-related columns.
+
+    With `spinup_month_list`, the tokens of the climate columns of `df` in time order
+    (spin-up tokens, padded months, hydrological year, see
+    `utils.hydro_year.spinup_tokens`), every measurement also gets the spin-up rows of
+    the surface type of the TIlike model (`model.sfc_type`, `TILikeSfcModel`), whose snow cover is the
+    cumulative balance since the 1st of October: the months from the 1st of October
+    preceding its first month to that month. A measurement starting in its
+    hydrological year (e.g. a summer balance) is padded from the 1st of October of
+    that year, one starting in the months padded before it ('aug_', 'sep_') from the
+    1st of October of the year before ('_oct', ..., '_jul'). The rows are flagged in
+    the column `SFC_SPINUP`, have the ID and the other metadata of the measurement
+    (`N_MONTHS` counts its own months only), and their climate is read from the same
+    row of `df`, at the location of the stake, like its other months. They come
+    after the rows of the measurements. A measurement whose spin-up precedes the
+    climate data (missing values) is not padded.
 
     Args:
         df (pd.DataFrame): Input DataFrame with date ranges and climate-related columns + all other columns
@@ -36,6 +58,7 @@ def transform_to_monthly(
         vois_climate (list[str]): List of climate variable prefixes.
         vois_topographical (list[str]): List of topographical variable prefixes.
         output_fname (str): Name of the output CSV file.
+        spinup_month_list (list[str]): Add the spin-up rows of the surface type.
 
     Returns:
         pd.DataFrame: Original DataFrame (for consistency with previous implementation).
@@ -52,6 +75,23 @@ def transform_to_monthly(
 
     # Explode the dataframe based on the date range
     df_exploded = _explode_dataframe(df)
+    spinup = spinup_month_list is not None
+    if spinup:
+        df_exploded = pd.concat(
+            (
+                df_exploded.assign(**{SPINUP_COLUMN: False}),
+                _explode_dataframe(
+                    df.assign(
+                        MONTHS=df["MONTHS"].map(
+                            lambda m: _spinup_months(m, spinup_month_list)
+                        )
+                    )
+                )
+                .dropna(subset=["MONTHS"])
+                .assign(**{SPINUP_COLUMN: True}),
+            ),
+            ignore_index=True,
+        )
 
     # Check that we don't have inconsistent values in MONTHS, every entry should contain a month tag
     assert all(
@@ -60,9 +100,13 @@ def transform_to_monthly(
 
     # Get the column names for the new dataframe
     column_names = _get_column_names(meta_data_columns, vois_topographical)
+    if spinup:
+        column_names.append(SPINUP_COLUMN)
 
     # Create the final dataframe with the new exploded climate data
     result_df = _create_result_dataframe(df_exploded, column_names, vois_climate)
+    if spinup:
+        result_df = _drop_spinup_without_climate(result_df, vois_climate)
 
     if output_fname is not None:
         if output_format == "csv":
@@ -115,6 +159,34 @@ def _generate_monthly_ranges(df: pd.DataFrame) -> pd.DataFrame:
         ]
     )
     return df
+
+
+def _spinup_months(months: "list[str]", month_list: "list[str]") -> "list[str]":
+    """The tokens of `month_list` from the 1st of October preceding the first month of
+    `months`, a measurement, to that month: 'oct' for a month of the hydrological
+    year, '_oct' (the year before) for a month padded before it."""
+    first = months[0]
+    start = "oct" if first in months_hydro_year else SPINUP_TOKEN_PREFIX + "oct"
+    if start not in month_list:
+        # No month padded before the hydrological year: no spin-up token
+        assert first in months_hydro_year, f"No spin-up tokens before {first}."
+    return month_list[month_list.index(start) : month_list.index(first)]
+
+
+def _drop_spinup_without_climate(df: pd.DataFrame, vois_climate: "list[str]"):
+    """`df` without the spin-up rows of the measurements whose spin-up has a month
+    without climate data, see `get_climate_data._process_climate_data`."""
+    missing = df[SPINUP_COLUMN].astype(bool) & df[vois_climate].isna().all(axis=1)
+    if not missing.any():
+        return df
+    ids = df.ID[missing].unique()
+    print(
+        f"Surface type: {len(ids)} measurements are not padded, their spin-up "
+        "precedes the climate data."
+    )
+    return df[~(df[SPINUP_COLUMN].astype(bool) & df.ID.isin(ids))].reset_index(
+        drop=True
+    )
 
 
 def _add_id_column(df: pd.DataFrame) -> pd.DataFrame:

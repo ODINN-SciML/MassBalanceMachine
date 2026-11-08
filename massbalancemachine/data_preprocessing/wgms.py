@@ -15,12 +15,17 @@ def processed_stakes_folder():
     return os.path.join(wgms_folder(), "processed")
 
 
-def processed_features_stakes_path(rgi_region):
+def processed_features_stakes_path(rgi_region, spinup=False):
+    """The monthly stake table of `rgi_region`, and with `spinup` the one with the
+    spin-up rows of the surface type (see `transform_to_monthly`)."""
+    suffix = "_sfc" if spinup else ""
     if rgi_region is None:
-        return os.path.join(processed_stakes_folder(), "all.csv")
+        return os.path.join(processed_stakes_folder(), f"all{suffix}.csv")
     else:
         assert isinstance(rgi_region, int)
-        return os.path.join(processed_stakes_folder(), f"region_{rgi_region}.csv")
+        return os.path.join(
+            processed_stakes_folder(), f"region_{rgi_region}{suffix}.csv"
+        )
 
 
 def default_monthly_config():
@@ -40,23 +45,27 @@ def default_monthly_config():
     )
 
 
-def load_monthly_data(rgi_region, cfg=None):
+def load_monthly_data(rgi_region, cfg=None, spinup=False):
     """The monthly stake table of an RGI region, one row per month of every
     measurement, built from the WGMS database on first use and read from the data tree
-    afterwards. `cfg` defaults to `default_monthly_config()`."""
-    path = processed_features_stakes_path(rgi_region)
+    afterwards. `cfg` defaults to `default_monthly_config()`. With `spinup`, the
+    table also has the spin-up rows of the surface type, see
+    `data_processing.transform_to_monthly.transform_to_monthly`; it is a table of its
+    own."""
+    path = processed_features_stakes_path(rgi_region, spinup)
     product = Product(path)
     if not product.is_up_to_date():
         build_monthly_data(
             load_processed_wgms(rgi_region=rgi_region),
             default_monthly_config() if cfg is None else cfg,
             rgi_region,
+            spinup=spinup,
         )
         product.gen_chk()
     return pd.read_csv(path)
 
 
-def build_monthly_data(data, cfg, rgi_region=None):
+def build_monthly_data(data, cfg, rgi_region=None, spinup=False):
 
     assert (
         rgi_region is not None
@@ -66,7 +75,8 @@ def build_monthly_data(data, cfg, rgi_region=None):
         prepare_points(data, rgi_region),
         cfg,
         rgi_region,
-        processed_features_stakes_path(rgi_region),
+        processed_features_stakes_path(rgi_region, spinup),
+        spinup=spinup,
     )
 
 
@@ -438,13 +448,17 @@ def prepare_points(data, rgi_region):
     return data.drop(columns=["WGMS_ID"])
 
 
-def points_to_monthly(data, cfg, rgi_region, path):
+def points_to_monthly(data, cfg, rgi_region, path, spinup=False):
     """Add the topographical and climate features to the stake measurements `data` of
     `rgi_region` (filtered with `filter_points`), convert them to the monthly table and
-    write it to `path`."""
+    write it to `path`. With `spinup`, the table has the spin-up rows of the surface
+    type: the months from the 1st of October to the start of every measurement, at
+    its location (see `data_processing.transform_to_monthly.transform_to_monthly`)."""
 
     region_name = get_region_name(rgi_region)
-    dataset = Dataset(cfg, data=data, region_name=region_name, region_id=rgi_region)
+    dataset = Dataset(
+        cfg, data=data, region_name=region_name, region_id=rgi_region, spinup=spinup
+    )
 
     voi_topographical = ["aspect", "slope", "svf"]
 
@@ -478,7 +492,8 @@ def points_to_monthly(data, cfg, rgi_region, path):
 
     # For each record, convert to a monthly time resolution
     dataset.convert_to_monthly(
-        vois_climate=vois_climate, vois_topographical=voi_topographical
+        vois_climate=vois_climate,
+        vois_topographical=voi_topographical,
     )
 
     os.makedirs(os.path.dirname(path), exist_ok=True)

@@ -37,10 +37,7 @@ import geopandas as gpd
 
 from data_processing.glacier_utils import get_region_shape_file
 from data_processing.gridded_utils import MONTH_TO_ID
-from data_processing.utils.hydro_year import (
-    build_head_tail_pads_from_monthly_df,
-    _rebuild_month_index,
-)
+from data_processing.utils.hydro_year import stake_calendar_months
 
 CLIMATE_SOURCES = ("era5land", "gswp3_w5e5")
 DEFAULT_CLIMATE_SOURCE = "era5land"
@@ -123,10 +120,9 @@ def calendar_months(df, grid):
     month token `MONTHS`, with the conventions the stored ERA5-Land values were
     attached with:
 
-    - a stake table (`grid=False`) runs over hydrological years padded on both sides:
-      its tokens are those of `utils.hydro_year._rebuild_month_index` for the padding of
-      the table (`build_head_tail_pads_from_monthly_df`), consecutive months from the
-      first token, in YEAR - 1, as `get_climate_data._create_date_range` dates them;
+    - a stake table (`grid=False`) runs over hydrological years padded on both sides,
+      dated by `utils.hydro_year.stake_calendar_months` as
+      `get_climate_data._create_date_range` dates them;
     - a geodetic grid (`grid=True`) runs over calendar years: every token of a row is in
       its YEAR, numbered by `gridded_utils.MONTH_TO_ID`, as `geodetic_window_weights`
       reads them."""
@@ -134,10 +130,8 @@ def calendar_months(df, grid):
     if grid:
         months = year * 12 + df.MONTHS.map(MONTH_TO_ID) - 1
     else:
-        head, tail = build_head_tail_pads_from_monthly_df(df)
-        month_list, month_pos = _rebuild_month_index(head, tail)
-        first = list(month_abbr).index(month_list[0].strip("_").capitalize())
-        months = (year - 1) * 12 + first - 1 + df.MONTHS.map(month_pos) - 1
+        cal_year, month = stake_calendar_months(year, df.MONTHS)
+        months = pd.Series(cal_year * 12 + month - 1, index=df.index)
     assert months.notna().all(), f"unknown month tokens {set(df.MONTHS[months.isna()])}"
     months = months.astype(int).to_numpy()
     return months // 12, months % 12 + 1

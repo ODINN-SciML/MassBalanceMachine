@@ -769,8 +769,12 @@ class SourceManagerWGMS(SourceManager):
             sources = self.stake_sources.get(
                 rgi_region, data_preprocessing.stakes.DEFAULT_STAKE_SOURCES
             )
+            # With a surface type, the table with its spin-up rows
             df = data_preprocessing.stakes.load_monthly_data(
-                rgi_region, sources, self.cfg
+                rgi_region,
+                sources,
+                self.cfg,
+                spinup=getattr(self.cfg, "surface_type", False),
             )
             # The measurement IDs restart at 0 in every region
             df["ID"] = df["ID"] + offset
