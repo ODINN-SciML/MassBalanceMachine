@@ -15,6 +15,7 @@ from massbalancemachine.cli.common import (
     setFeatures,
     setNormalizationBounds,
     setClimateSource,
+    setSurfaceType,
     trainValData,
     testData,
     testSplits,
