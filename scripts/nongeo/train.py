@@ -3,6 +3,11 @@ import sys, os
 mbm_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 sys.path.append(mbm_path)  # Add root of repo to import MBM
 
+# No GUI: with the Tk backend, matplotlib/Tk objects garbage-collected from a background
+# thread (TensorBoard writer, DataLoader) crash the interpreter with Tcl_AsyncDelete
+import matplotlib
+
+matplotlib.use("Agg")
 import warnings
 import matplotlib.pyplot as plt
 import massbalancemachine as mbm
