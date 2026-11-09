@@ -52,33 +52,32 @@ model:
             - fal
             - str
         layers: [32, 16, 8]
-        # With sfc_type, cor_abl is the melt factor of SNOW, that of ice being
-        # ice_ratio * cor_abl. With beta2 = 1 it is in m w.e. K-1 month-1, the degree-day
-        # factor in mm w.e. K-1 d-1 times 30.4 / 1000.
-        # Snow 2-7 mm w.e. K-1 d-1 (0.061-0.213), so ice 2.9-10 with the default
-        # ice_ratio 1 / 0.7: the upper bound of ice is that of the single factor of the
-        # baseline (3-10). Snow: PyGEM's prior ddfsnow 4.1 +- 1.5; OGGM SfcTypeTIModel
-        # calibrated on the pre-2000 windows of the region (central_europe_oggm_sfc,
-        # 52 entities), ice melt_f of median 4.9-9.9 per source, i.e. 3.4-6.9 for the
-        # snow of the season it melts at 0.7 of ice.
+        # The temperature melt factor, the same for snow and ice (ice_ratio 1 in
+        # sfc_type): the surface type acts on R_sw only (enhanced temperature-index
+        # models, Hock 1999, Pellicciotti et al. 2005). With beta2 = 1 it is in
+        # m w.e. K-1 month-1, the degree-day factor in mm w.e. K-1 d-1 times
+        # 30.4 / 1000: 3-10 mm w.e. K-1 d-1, the range of the baseline.
         output: sigmoid
-        min: 0.085
-        max: 0.213
-    # Surface type of the ablation: snow cover from the cumulative balance since the 1st
-    # of October (snow fraction sigmoid((SWE - snow_midpoint) / snow_scale), SWE in
-    # m w.e.). With snow_midpoint 0.3 and snow_scale 0.2 every point starts the year
-    # at a snow fraction of 0.18 (close to bare ice), half snow at 0.3 m w.e. of SWE,
-    # 0.82 at 0.6. ice_ratio is learned within [min, max] from 1 / 0.7 (PyGEM, and
-    # OGGM's snow after aging, see models.TorchNeuralNetworkRegressor.DEFAULT_ICE_RATIO);
-    # without `trainable` it is fixed at `value`.
+        min: 0.091
+        max: 0.304
+    # Surface type: snow cover from the cumulative balance since the 1st of October
+    # (snow fraction sigmoid((SWE - snow_midpoint) / snow_scale), SWE in m w.e.).
+    # With snow_midpoint 0.3 and snow_scale 0.2 every point starts the year at a snow
+    # fraction of 0.18 (close to bare ice), half snow at 0.3 m w.e. of SWE, 0.82 at
+    # 0.6. It acts on the shortwave contribution only: ice_ratio (temperature melt
+    # factor of ice / snow) is fixed at 1, and sw_ratio, the absorbed shortwave of
+    # ice / snow, (1 - albedo of ice) / (1 - albedo of snow), is learned within
+    # [1.5, 3.5] (ice albedo 0.3-0.4, snow 0.7-0.85).
     sfc_type:
         snow_scale: 0.2
         snow_midpoint: 0.3
         ice_ratio:
-            value: 1.4285714
+            value: 1.0
+        sw_ratio:
+            value: 2.5
             trainable: true
-            min: 1.0
-            max: 2.0
+            min: 1.5
+            max: 3.5
     bias_cor:
         inputs:
             - POINT_LAT
@@ -89,15 +88,28 @@ model:
         inputs:
             - ELEVATION_DIFFERENCE
         layers: [16, 8]
+    # Shortwave contribution on snow, R_sw = max * sigmoid(net(terrain)) * ssrd
+    # * 30.4 / (Lf * rho_w) * gate, the network giving the fraction of the downward
+    # shortwave radiation of the month that melts snow (at most 0.2; on ice up to
+    # 0.2 * 3.5 = 0.7 with sw_ratio). The albedo comes from the surface type, so
+    # neither fal nor ELEVATION_DIFFERENCE are inputs. The gate sigmoid((T - threshold)
+    # / width), T the downscaled monthly temperature, limits it to the months with
+    # melt, its threshold learned within [-5, 1] °C.
     sw_contrib:
         inputs:
             - aspect
             - slope
             - svf
-            - ssrd
-            - fal
-            - ELEVATION_DIFFERENCE
         layers: [32, 16, 8]
+        scale_by_ssrd: true
+        max: 0.2
+        gate:
+            threshold:
+                value: 0.0
+                trainable: true
+                min: -5.0
+                max: 1.0
+            width: 1.0
     trainable:
         tau_P_c: false   # snow/rain threshold temperature: stays at 1.0
         tau_P_s: false   # snow slope: stays at snow_slope.init

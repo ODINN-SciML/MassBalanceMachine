@@ -605,9 +605,11 @@ def main(argv=None):
 
             if model.module.R_sw_contrib is not None:
                 label_sw = "Shortwave radiation contribution"
+                # With a surface type, the contribution of the snow/ice surface
+                sw_col = "R_sw_eff" if "R_sw_eff" in df_inter else "R_sw"
                 fig = mbm.plots.monthlyProfile(
                     df_inter,
-                    "R_sw",
+                    sw_col,
                     xlabel=f"{label_sw} (m w.e. month$^{{-1}}$)",
                     title=f"{rgi_id}\nshortwave radiation contribution averaged over {period}",
                 )
@@ -615,7 +617,7 @@ def main(argv=None):
 
                 fig = mbm.plots.monthlyMaps(
                     df_inter,
-                    "R_sw",
+                    sw_col,
                     rgi_id,
                     cfg,
                     gdir=gdir,
@@ -628,10 +630,10 @@ def main(argv=None):
                 # annual contribution averaged over the years
                 df_sw_annual = df_inter.groupby(
                     ["RGIId", "YEAR", "POINT_LAT", "POINT_LON"], as_index=False
-                ).R_sw.sum()
+                )[sw_col].sum()
                 fig = mbm.plots.periodMap(
                     df_sw_annual,
-                    "R_sw",
+                    sw_col,
                     rgi_id,
                     cfg,
                     gdir=gdir,

@@ -208,7 +208,10 @@ def ti_intermediates_gridded(model, geo_dataloader, glacierName):
     (T_downscaled), the temperature bias (T_bias), the precipitation correction scaling factor
     (scaling), the bias corrected precipitation (P_corrected) and the
     accumulation and ablation factors (cor_acc, cor_abl) and the shortwave radiation
-    contribution to the monthly mass balance (R_sw).
+    contribution to the monthly mass balance (R_sw). For a model with a surface type,
+    cor_abl and R_sw are those of snow, and the snow water equivalent (SWE), the snow
+    cover fraction (f_snow) and the effective factor and contribution of the surface
+    (cor_abl_eff, R_sw_eff) are added.
     """
     module = model.module
     assert hasattr(
@@ -244,12 +247,13 @@ def ti_intermediates_gridded(model, geo_dataloader, glacierName):
             }
         )
         if needs_time_order(module):
-            swe, f_snow, cor_abl_eff = module.snow_cover(
+            swe, f_snow, cor_abl_eff, R_sw_eff = module.snow_cover(
                 geoGrid, precomputed_meta["sfc"]
             )
             df["SWE"] = swe.cpu().numpy()
             df["f_snow"] = f_snow.cpu().numpy()
             df["cor_abl_eff"] = cor_abl_eff.cpu().numpy()
+            df["R_sw_eff"] = R_sw_eff.expand_as(f_snow).cpu().numpy()
         # Location columns that are model inputs are not part of the metadata, so
         # they are recovered from the normalized features
         for col in ["POINT_LAT", "POINT_LON", "POINT_ELEVATION"]:
@@ -1236,7 +1240,14 @@ def train_geo(
         """Learnable scalars of a TIlike model, as the model uses them."""
         if hasattr(model.module, "scalar_parameters"):
             values = model.module.scalar_parameters()
-            for k in ["snow_slope", "snow_threshold", "pdd_curvature", "ice_ratio"]:
+            for k in [
+                "snow_slope",
+                "snow_threshold",
+                "pdd_curvature",
+                "ice_ratio",
+                "sw_ratio",
+                "sw_gate_threshold",
+            ]:
                 if k in values:
                     writer.add_scalar(f"Parameters/{k}", values[k], step)
 

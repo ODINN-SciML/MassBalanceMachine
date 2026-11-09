@@ -90,6 +90,56 @@ def _input_encoding(netParams, n_inputs, name):
 # its snow is the seasonal snow at the time it melts, about 1 / 0.7 of ice for both.
 DEFAULT_ICE_RATIO = 1 / 0.7
 
+# Conversion of the downward shortwave radiation `ssrd` of ERA5-Land (J m-2 per day,
+# monthly means of the daily accumulations) into the depth of ice or snow (m w.e.)
+# it could melt in a month: days per month / (latent heat of fusion * density of
+# water)
+DAYS_PER_MONTH = 30.4
+LATENT_HEAT_FUSION = 3.34e5  # J kg-1
+WATER_DENSITY = 1000.0  # kg m-3
+SSRD_TO_MELT = DAYS_PER_MONTH / (LATENT_HEAT_FUSION * WATER_DENSITY)
+
+
+def _init_bounded_scalar(module, name, spec, default, default_bounds, label):
+    """Register on `module` a scalar of the model that is either fixed or learned.
+
+    `spec` is {value, trainable, min, max}. A fixed scalar is the non-persistent
+    buffer `<name>_value`: not saved in the checkpoints, it is always the value of
+    the params. A learned one is the parameter `<name>_raw`, the scalar being
+    min + (max - min) * sigmoid(raw), started at `value`. `default` is the value
+    and `default_bounds` the (min, max) when `spec` does not give them.
+    """
+    spec = spec or {}
+    unknown = set(spec) - {"value", "trainable", "min", "max"}
+    assert not unknown, f"Unknown {label} options: {sorted(unknown)}."
+    value = float(spec.get("value", default))
+    trainable = bool(spec.get("trainable", False))
+    setattr(module, f"{name}_trainable", trainable)
+    if trainable:
+        lower = float(spec.get("min", default_bounds[0]))
+        upper = float(spec.get("max", default_bounds[1]))
+        assert (
+            lower < value < upper
+        ), f"{label} must satisfy min < value < max, got min={lower}, value={value}, max={upper}."
+        setattr(module, f"{name}_min", lower)
+        setattr(module, f"{name}_max", upper)
+        frac = (value - lower) / (upper - lower)
+        setattr(module, f"{name}_raw", nn.Parameter(torch.logit(torch.ones(1) * frac)))
+    else:
+        assert (
+            "min" not in spec and "max" not in spec
+        ), f"{label}.min and max only apply with trainable: true."
+        module.register_buffer(f"{name}_value", torch.ones(1) * value, persistent=False)
+    return value
+
+
+def _bounded_scalar(module, name):
+    """Value of a scalar registered by `_init_bounded_scalar`."""
+    if not getattr(module, f"{name}_trainable"):
+        return getattr(module, f"{name}_value")
+    lower, upper = getattr(module, f"{name}_min"), getattr(module, f"{name}_max")
+    return lower + (upper - lower) * torch.sigmoid(getattr(module, f"{name}_raw"))
+
 
 class TILikeModel(nn.Module):
     # Whether the forward pass takes the time order of the rows, `forward(inputs,
@@ -264,11 +314,42 @@ class TILikeModel(nn.Module):
         assert (
             self.lapse_rate_min < self.lapse_rate_max
         ), f"The lapse rate range must satisfy min < max, got [{self.lapse_rate_min}, {self.lapse_rate_max}]."
-        # Range of the shortwave radiation contribution, R_sw = R_sw_max * sigmoid
-        self.R_sw_max = float(modelParams.get("sw_contrib", {}).get("max", 1.0))
+        # Range of the shortwave radiation contribution, R_sw = R_sw_max * sigmoid,
+        # see `_shortwave`
+        sw_params = modelParams.get("sw_contrib", {})
+        self.R_sw_max = float(sw_params.get("max", 1.0))
         assert (
             self.R_sw_max > 0
         ), f"The maximum of R_sw must be positive, got {self.R_sw_max}."
+        # With scale_by_ssrd, the network gives the fraction of the downward
+        # shortwave radiation that melts snow, R_sw_max * sigmoid, and R_sw is that
+        # fraction of the melt `ssrd` could produce
+        self.sw_scale_by_ssrd = bool(sw_params.get("scale_by_ssrd", False))
+        if self.sw_scale_by_ssrd:
+            assert (
+                "ssrd" in self.input_labels
+            ), "sw_contrib.scale_by_ssrd needs ssrd in the model inputs."
+            self.ind_ssrd_sw = self.input_labels.index("ssrd")
+        # Optional temperature gate of R_sw: sigmoid((T - threshold) / width), T the
+        # downscaled monthly temperature (°C), with its own threshold, distinct from
+        # the 0 °C of the PDD
+        gate = sw_params.get("gate")
+        self.sw_gate = gate is not None
+        if self.sw_gate:
+            unknown = set(gate) - {"threshold", "width"}
+            assert not unknown, f"Unknown sw_contrib.gate options: {sorted(unknown)}."
+            _init_bounded_scalar(
+                self,
+                "sw_gate_threshold",
+                gate.get("threshold"),
+                default=0.0,
+                default_bounds=(-5.0, 1.0),
+                label="sw_contrib.gate.threshold",
+            )
+            self.sw_gate_width = float(gate.get("width", 1.0))
+            assert (
+                self.sw_gate_width > 0
+            ), f"sw_contrib.gate.width must be positive, got {self.sw_gate_width}."
 
         if "bias_cor" in modelParams:
             self.inp_bias_cor = modelParams["bias_cor"]["inputs"]
@@ -482,6 +563,36 @@ class TILikeModel(nn.Module):
         """Monthly mass balance (m w.e.) from the terms of the forward pass."""
         return self.beta1 * cor_acc * P_solid - self.beta2 * cor_abl * PDD - R_sw
 
+    def _shortwave(self, inputs, T_downscaled):
+        """Shortwave radiation contribution R_sw (m w.e. per month) of the normalized
+        inputs, `T_downscaled` the downscaled monthly temperature (°C).
+
+        By default R_sw = R_sw_max * sigmoid(sw_contrib(inputs)). With
+        `scale_by_ssrd`, that is the fraction of the melt the downward shortwave
+        radiation could produce, ssrd * SSRD_TO_MELT. With a `gate`, R_sw is
+        multiplied by sigmoid((T_downscaled - threshold) / width). For a model with a
+        surface type, it is the contribution on snow, see `TILikeSfcModel`.
+        """
+        R_sw = self.R_sw_max * F.sigmoid(
+            self.R_sw_contrib(inputs[:, self.ind_inp_sw_contrib]).view(-1)
+        )
+        if self.sw_scale_by_ssrd:
+            ssrd = Normalizer._unorm(
+                inputs[:, self.ind_ssrd_sw],
+                self.normalizing_bounds["ssrd"][0],
+                self.normalizing_bounds["ssrd"][1],
+            )
+            R_sw = R_sw * ssrd.clamp(min=0.0) * SSRD_TO_MELT
+        if self.sw_gate:
+            R_sw = R_sw * torch.sigmoid(
+                (T_downscaled - self.sw_gate_threshold()) / self.sw_gate_width
+            )
+        return R_sw
+
+    def sw_gate_threshold(self):
+        """Threshold (°C) of the temperature gate of R_sw."""
+        return _bounded_scalar(self, "sw_gate_threshold")
+
     def snow_slope(self):
         """Slope (1/°C) of the sigmoid splitting precipitation into snow, from the
         learnable tau_P_s, within [snow_slope_min, snow_slope_max]."""
@@ -512,6 +623,11 @@ class TILikeModel(nn.Module):
                 "tau_P_s": self.tau_P_s.item(),
                 "tau_P_c": self.tau_P_c.item(),
                 "beta_pdd": self.beta_pdd.item(),
+                **(
+                    {"sw_gate_threshold": self.sw_gate_threshold().item()}
+                    if self.sw_gate
+                    else {}
+                ),
             }
 
     def _net_from_df(self, net, columns, df, name):
@@ -676,14 +792,13 @@ class TILikeModel(nn.Module):
         else:
             # In km, so that the lapse rate is in °C/km whatever the normalization
             elev_diff = elev_diff_unorm / 1000
-            inp_sw_contrib = inputs[:, self.ind_inp_sw_contrib]
             alpha = self._lapse_rate(inp_grad_T)
             bias = self.b_max * F.tanh(self.bias_T(inp_bias_T)[:, 0])
             cor_T_val = torch.stack([alpha, bias], dim=1)
             cor_T = elev_diff * alpha + bias
 
             # Short wave radiation contribution
-            R_sw = self.R_sw_max * F.sigmoid(self.R_sw_contrib(inp_sw_contrib).view(-1))
+            R_sw = self._shortwave(inputs, T + cor_T)
 
         if self.bias_cor is not None:
             # P_cor = (
@@ -787,13 +902,12 @@ class TILikeModel(nn.Module):
         else:
             # In km, so that the lapse rate is in °C/km whatever the normalization
             elev_diff = elev_diff_unorm / 1000
-            inp_sw_contrib = inputs[:, self.ind_inp_sw_contrib]
             alpha = self._lapse_rate(inp_grad_T)
             bias = self.b_max * F.tanh(self.bias_T(inp_bias_T)[:, 0])
             cor_T = elev_diff * alpha + bias
 
             # Short wave radiation contribution
-            R_sw = self.R_sw_max * F.sigmoid(self.R_sw_contrib(inp_sw_contrib).view(-1))
+            R_sw = self._shortwave(inputs, T + cor_T)
 
         if self.bias_cor is not None:
             # P_cor = (
@@ -821,17 +935,26 @@ class TILikeModel(nn.Module):
 
 
 class TILikeSfcModel(TILikeModel):
-    """TILikeModel with a surface type (snow or ice) of the ablation, the `sfc_type`
-    block of the parameters: cor_abl is the melt factor of snow, the one of ice
-    being ice_ratio * cor_abl, mixed by the snow cover fraction of every row (see
-    `_snow_cover`). Its forward pass takes the time order of the rows, `sfc`."""
+    """TILikeModel with a surface type (snow or ice), the `sfc_type` block of the
+    parameters. cor_abl and R_sw are those of snow; on ice they are multiplied by
+    ice_ratio and sw_ratio, mixed by the snow cover fraction of every row (see
+    `_snow_cover`). Its forward pass takes the time order of the rows, `sfc`.
+
+    ice_ratio (temperature melt) is 1 / 0.7 by default and sw_ratio (absorbed
+    shortwave radiation, (1 - albedo of ice) / (1 - albedo of snow)) is 1: with
+    `ice_ratio: {value: 1}` and a sw_ratio, the surface type acts on R_sw only."""
 
     needs_time_order = True
 
     def __init__(self, modelParams, normalizing_bounds, *args, **kwargs):
         super().__init__(modelParams, normalizing_bounds, *args, **kwargs)
         sfc_params = modelParams["sfc_type"] or {}
-        unknown = set(sfc_params) - {"snow_scale", "snow_midpoint", "ice_ratio"}
+        unknown = set(sfc_params) - {
+            "snow_scale",
+            "snow_midpoint",
+            "ice_ratio",
+            "sw_ratio",
+        }
         assert not unknown, f"Unknown sfc_type options: {sorted(unknown)}."
         # Width (m w.e.) of the transition from ice to snow: the snow cover fraction
         # goes from 0.27 to 0.73 between snow_midpoint -/+ snow_scale
@@ -849,32 +972,30 @@ class TILikeSfcModel(TILikeModel):
             self.snow_midpoint >= 0
         ), f"sfc_type.snow_midpoint must be non-negative, got {self.snow_midpoint}."
         # Ratio of the melt factor of ice to the one of snow. Fixed by default, at
-        # DEFAULT_ICE_RATIO; with `trainable`, learned within [min, max] from
-        # `value`
-        ice_ratio = sfc_params.get("ice_ratio") or {}
-        unknown = set(ice_ratio) - {"value", "trainable", "min", "max"}
-        assert not unknown, f"Unknown sfc_type.ice_ratio options: {sorted(unknown)}."
-        value = float(ice_ratio.get("value", DEFAULT_ICE_RATIO))
-        self.ice_ratio_trainable = bool(ice_ratio.get("trainable", False))
-        if self.ice_ratio_trainable:
-            self.ice_ratio_min = float(ice_ratio.get("min", 1.0))
-            self.ice_ratio_max = float(ice_ratio.get("max", 3.0))
-            assert (
-                0.0 < self.ice_ratio_min < value < self.ice_ratio_max
-            ), f"The ice ratio must satisfy 0 < min < value < max, got min={self.ice_ratio_min}, value={value}, max={self.ice_ratio_max}."
-            frac = (value - self.ice_ratio_min) / (
-                self.ice_ratio_max - self.ice_ratio_min
-            )
-            self.ice_ratio_raw = torch.nn.Parameter(torch.logit(torch.ones(1) * frac))
-        else:
-            assert (
-                "min" not in ice_ratio and "max" not in ice_ratio
-            ), "sfc_type.ice_ratio.min and max only apply with trainable: true."
-            assert value > 0, f"The ice ratio must be positive, got {value}."
-            # Not saved in the checkpoints: the value is always that of the params
-            self.register_buffer(
-                "ice_ratio_value", torch.ones(1) * value, persistent=False
-            )
+        # DEFAULT_ICE_RATIO; with `trainable`, learned within [min, max] (default
+        # [1, 3]) from `value`
+        ice_ratio = _init_bounded_scalar(
+            self,
+            "ice_ratio",
+            sfc_params.get("ice_ratio"),
+            default=DEFAULT_ICE_RATIO,
+            default_bounds=(1.0, 3.0),
+            label="sfc_type.ice_ratio",
+        )
+        assert ice_ratio > 0, f"The ice ratio must be positive, got {ice_ratio}."
+        # Ratio of the shortwave radiation contribution on ice to the one on snow,
+        # (1 - albedo of ice) / (1 - albedo of snow), about 2-3 for an ice albedo of
+        # 0.3-0.4 and a snow albedo of 0.7-0.85. 1 by default (no effect); learned
+        # within [min, max] (default [1, 4]) with `trainable`
+        sw_ratio = _init_bounded_scalar(
+            self,
+            "sw_ratio",
+            sfc_params.get("sw_ratio"),
+            default=1.0,
+            default_bounds=(1.0, 4.0),
+            label="sfc_type.sw_ratio",
+        )
+        assert sw_ratio > 0, f"The shortwave ratio must be positive, got {sw_ratio}."
 
     def forward(self, inputs, sfc):
         """Monthly mass balance (m w.e.) of the normalized inputs, one row per point
@@ -886,17 +1007,24 @@ class TILikeSfcModel(TILikeModel):
         """Ratio of the melt factor of ice to the one of snow: the fixed
         ice_ratio_value, or, when it is learned, from ice_ratio_raw within
         [ice_ratio_min, ice_ratio_max]."""
-        if not self.ice_ratio_trainable:
-            return self.ice_ratio_value
-        return self.ice_ratio_min + (
-            self.ice_ratio_max - self.ice_ratio_min
-        ) * torch.sigmoid(self.ice_ratio_raw)
+        return _bounded_scalar(self, "ice_ratio")
+
+    def sw_ratio(self):
+        """Ratio of the shortwave radiation contribution on ice to the one on snow,
+        fixed (sw_ratio_value) or learned (sw_ratio_raw)."""
+        return _bounded_scalar(self, "sw_ratio")
+
+    def _ice_mix(self, f_snow, ratio):
+        """Factor of a snow term on a surface with the snow fraction f_snow, `ratio`
+        being the ratio of ice to snow."""
+        return f_snow + (1 - f_snow) * ratio
 
     def _snow_cover(self, acc, melt_snow, R_sw, sfc):
         """Snow water equivalent and snow fraction of every row.
 
         The snow water equivalent (m w.e.) is the cumulative mass balance with the
-        melt factor of snow, `acc - melt_snow - R_sw`, of the previous months of the
+        melt factor and the shortwave contribution of snow, `acc - melt_snow -
+        R_sw`, of the previous months of the
         same point since the start of the hydrological year, plus half of the
         current month (its middle). It is not bounded below: once the snow is gone,
         it keeps decreasing and summer snowfalls do not bring the snow back. The snow cover
@@ -929,11 +1057,15 @@ class TILikeSfcModel(TILikeModel):
 
     def _mass_balance_sfc(self, P_solid, PDD, cor_acc, cor_abl, R_sw, sfc):
         """Monthly mass balance (m w.e.) from the terms of the forward pass, the
-        melt factor mixing snow and ice."""
+        melt factor and the shortwave contribution mixing snow and ice."""
         acc = self.beta1 * cor_acc * P_solid
         melt = self.beta2 * cor_abl * PDD
         _, f_snow = self._snow_cover(acc, melt, R_sw, sfc)
-        MB = acc - melt * (f_snow + (1 - f_snow) * self.ice_ratio()) - R_sw
+        MB = (
+            acc
+            - melt * self._ice_mix(f_snow, self.ice_ratio())
+            - R_sw * self._ice_mix(f_snow, self.sw_ratio())
+        )
         if sfc.get("spinup") is not None:
             # The spin-up rows only build the snow cover, see
             # `data_processing.transform_to_monthly.transform_to_monthly`
@@ -941,24 +1073,30 @@ class TILikeSfcModel(TILikeModel):
         return MB
 
     def snow_cover(self, inputs, sfc):
-        """Snow water equivalent (m w.e.), snow cover fraction and effective ablation
-        factor (cor_abl times the snow/ice mix) of the normalized inputs, see
+        """Snow water equivalent (m w.e.), snow cover fraction, effective ablation
+        factor and effective shortwave contribution (cor_abl and R_sw times the
+        snow/ice mix, the latter in m w.e. per month) of the normalized inputs, see
         `_snow_cover`."""
         P_solid, PDD, cor_acc, cor_abl, R_sw = self._terms(inputs)
         acc = self.beta1 * cor_acc * P_solid
         melt = self.beta2 * cor_abl * PDD
         swe, f_snow = self._snow_cover(acc, melt, R_sw, sfc)
-        cor_abl_eff = cor_abl * (f_snow + (1 - f_snow) * self.ice_ratio())
-        return swe, f_snow, cor_abl_eff
+        cor_abl_eff = cor_abl * self._ice_mix(f_snow, self.ice_ratio())
+        R_sw_eff = torch.as_tensor(R_sw, device=f_snow.device) * self._ice_mix(
+            f_snow, self.sw_ratio()
+        )
+        return swe, f_snow, cor_abl_eff, R_sw_eff
 
     def scalar_parameters(self):
-        """The scalars of `TILikeModel.scalar_parameters` and the ratio of the ice
-        to the snow melt factor (with ice_ratio_raw when it is learned)."""
+        """The scalars of `TILikeModel.scalar_parameters` and the ratios of ice to
+        snow of the melt factor and of the shortwave contribution (with their raw
+        parameters when they are learned)."""
         params = super().scalar_parameters()
         with torch.no_grad():
-            params["ice_ratio"] = self.ice_ratio().item()
-            if self.ice_ratio_trainable:
-                params["ice_ratio_raw"] = self.ice_ratio_raw.item()
+            for name in ["ice_ratio", "sw_ratio"]:
+                params[name] = _bounded_scalar(self, name).item()
+                if getattr(self, f"{name}_trainable"):
+                    params[f"{name}_raw"] = getattr(self, f"{name}_raw").item()
         return params
 
 
