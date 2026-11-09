@@ -67,7 +67,8 @@ model:
     # 0.6. It acts on the shortwave contribution only: ice_ratio (temperature melt
     # factor of ice / snow) is fixed at 1, and sw_ratio, the absorbed shortwave of
     # ice / snow, (1 - albedo of ice) / (1 - albedo of snow), is learned within
-    # [1.5, 3.5] (ice albedo 0.3-0.4, snow 0.7-0.85).
+    # [1.0, 3.5] from 2.5 (ice albedo 0.3-0.4, snow 0.7-0.85 give 2-3; 1 lets the
+    # optimization switch the contrast off).
     sfc_type:
         snow_scale: 0.2
         snow_midpoint: 0.3
@@ -76,7 +77,7 @@ model:
         sw_ratio:
             value: 2.5
             trainable: true
-            min: 1.5
+            min: 1.0
             max: 3.5
     bias_cor:
         inputs:
@@ -88,18 +89,21 @@ model:
         inputs:
             - ELEVATION_DIFFERENCE
         layers: [16, 8]
-    # Shortwave contribution on snow, R_sw = max * sigmoid(net(terrain)) * ssrd
+    # Shortwave contribution on snow, R_sw = max * sigmoid(net(inputs)) * ssrd
     # * 30.4 / (Lf * rho_w) * gate, the network giving the fraction of the downward
     # shortwave radiation of the month that melts snow (at most 0.2; on ice up to
-    # 0.2 * 3.5 = 0.7 with sw_ratio). The albedo comes from the surface type, so
-    # neither fal nor ELEVATION_DIFFERENCE are inputs. The gate sigmoid((T - threshold)
-    # / width), T the downscaled monthly temperature, limits it to the months with
-    # melt, its threshold learned within [-5, 1] °C.
+    # 0.2 * 3.5 = 0.7 with sw_ratio). ssrd is also an input of the network so that the
+    # effect of the terrain (aspect, slope) can change with the season. The albedo
+    # comes from the surface type, so neither fal nor ELEVATION_DIFFERENCE are
+    # inputs. The gate sigmoid((T - threshold) / width), T the downscaled monthly
+    # temperature, limits it to the months with melt, its threshold learned within
+    # [-5, 4] °C.
     sw_contrib:
         inputs:
             - aspect
             - slope
             - svf
+            - ssrd
         layers: [32, 16, 8]
         scale_by_ssrd: true
         max: 0.2
@@ -108,7 +112,7 @@ model:
                 value: 0.0
                 trainable: true
                 min: -5.0
-                max: 1.0
+                max: 4.0
             width: 1.0
     trainable:
         tau_P_c: false   # snow/rain threshold temperature: stays at 1.0
