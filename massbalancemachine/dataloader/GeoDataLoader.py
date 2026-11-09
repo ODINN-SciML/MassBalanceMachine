@@ -1296,9 +1296,17 @@ class GeoDataLoader:
 
         if self._surfaceType():
             # Time order of the grid for the surface type of the model, with the
-            # spin-up months before the windows. Computed at every call rather than
-            # cached: it is as large as the grid
-            precomputed_meta["sfc"] = grid_sequences(df_X_geod)
+            # spin-up months before the windows. Cached per glacier: the grid read
+            # at every step is the same, and the order (~17 bytes per row) is small
+            # next to the grid, while computing it takes ~0.1 s per glacier
+            cache = self.__dict__.setdefault("_sfcCache", {})
+            if glacierName not in cache:
+                cache[glacierName] = grid_sequences(df_X_geod)
+            sfc = cache[glacierName]
+            assert len(sfc["perm"]) == len(
+                df_X_geod
+            ), "the grid of the glacier changed since its time order was computed"
+            precomputed_meta["sfc"] = sfc
 
         err = self.err_target_geo[glacierName]
         window_weights = self._geoWindowWeights(glacierName, metadata)

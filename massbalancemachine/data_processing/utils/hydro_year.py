@@ -86,22 +86,27 @@ def stake_calendar_months(years, months, months_head_pad=None):
 
     Returns two np.ndarray of int64.
     """
-    months = pd.Series(np.asarray(months), dtype="object")
+    # The string operations run on the distinct tokens only (a few tens) and are
+    # broadcast to the rows: on a geodetic grid of ~10^6 rows, doing them row by row
+    # took ~0.5 s, at every step of the surface type (`dataloader.surface_type`)
+    codes, tokens = pd.factorize(np.asarray(months, dtype=object))
+    assert (codes >= 0).all(), "Missing month tokens."
+    tokens = pd.Series(tokens, dtype="object")
     if months_head_pad is None:
-        months_head_pad, _ = split_padded_tokens(months.unique(), whole_table=False)
+        months_head_pad, _ = split_padded_tokens(tokens, whole_table=False)
     names = [m.lower() for m in month_abbr]
-    number = months.str.strip("_").map(
+    number = tokens.str.strip("_").map(
         lambda m: names.index(m) if m in names[1:] else np.nan
     )
     assert (
         not number.isna().any()
-    ), f"Unknown months: {sorted(set(months[number.isna()]))}."
-    number = number.to_numpy(dtype=np.int64)
+    ), f"Unknown months: {sorted(set(tokens[number.isna()]))}."
+    number = number.to_numpy(dtype=np.int64)[codes]
     years = np.asarray(years, dtype=np.int64)
     autumn = number >= 10
-    spinup = months.str.startswith(SPINUP_TOKEN_PREFIX).to_numpy()
-    padded = months.str.endswith("_").to_numpy() & ~spinup
-    head = padded & months.isin(list(months_head_pad)).to_numpy()
+    spinup = tokens.str.startswith(SPINUP_TOKEN_PREFIX).to_numpy()[codes]
+    padded = tokens.str.endswith("_").to_numpy()[codes] & ~spinup
+    head = padded & tokens.isin(list(months_head_pad)).to_numpy()[codes]
     tail = padded & ~head
     core = ~padded & ~spinup
     cal_year = np.select(
