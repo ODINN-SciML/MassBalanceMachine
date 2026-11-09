@@ -99,6 +99,15 @@ LATENT_HEAT_FUSION = 3.34e5  # J kg-1
 WATER_DENSITY = 1000.0  # kg m-3
 SSRD_TO_MELT = DAYS_PER_MONTH / (LATENT_HEAT_FUSION * WATER_DENSITY)
 
+# Inputs of cor_abl that the model derives from its own inputs rather than reads from
+# the data: name -> (model inputs it needs, default normalization bounds). The bounds
+# can be overridden with the `normalization` block of the params.
+#   wind_speed   sqrt(u10^2 + v10^2), m/s: the speed of the monthly MEAN wind vector
+#                of ERA5-Land, much lower than the monthly mean speed where the
+#                direction varies (0.4 m/s median, 1.5 at most over the stakes of
+#                region 11), hence the bounds [0, 2]
+DERIVED_COR_ABL_INPUTS = {"wind_speed": (("u10", "v10"), (0.0, 2.0))}
+
 
 def _init_bounded_scalar(module, name, spec, default, default_bounds, label):
     """Register on `module` a scalar of the model that is either fixed or learned.
@@ -245,9 +254,25 @@ class TILikeModel(nn.Module):
         self.ind_inp_cor_acc = sorted(
             [self.input_labels.index(inp) for inp in self.inp_cor_acc]
         )
+        # The inputs of cor_abl read from the model inputs, in the order of the model
+        # inputs, then those derived from them (DERIVED_COR_ABL_INPUTS), in the order
+        # of the params
+        self.cor_abl_derived = [
+            inp for inp in self.inp_cor_abl if inp in DERIVED_COR_ABL_INPUTS
+        ]
         self.ind_inp_cor_abl = sorted(
-            [self.input_labels.index(inp) for inp in self.inp_cor_abl]
+            [
+                self.input_labels.index(inp)
+                for inp in self.inp_cor_abl
+                if inp not in DERIVED_COR_ABL_INPUTS
+            ]
         )
+        for inp in self.cor_abl_derived:
+            needed = DERIVED_COR_ABL_INPUTS[inp][0]
+            missing = [c for c in needed if c not in self.input_labels]
+            assert (
+                not missing
+            ), f"The cor_abl input {inp} needs {missing} in the model inputs."
         # Scaling of the accumulation term
         self.beta1 = float(modelParams.get("beta1", 10.0))
         assert self.beta1 > 0, f"beta1 must be positive, got {self.beta1}."
@@ -659,6 +684,32 @@ class TILikeModel(nn.Module):
             self.lapse_rate_max - self.lapse_rate_min
         ) * F.sigmoid(self.grad_T(inp_grad_T)[:, 0])
 
+    def _cor_abl_inputs(self, inputs):
+        """Normalized inputs of cor_abl from the normalized model inputs: the columns
+        of the model inputs, then the derived inputs (DERIVED_COR_ABL_INPUTS)."""
+        x = inputs[:, self.ind_inp_cor_abl]
+        if not self.cor_abl_derived:
+            return x
+        derived = []
+        for inp in self.cor_abl_derived:
+            if inp == "wind_speed":
+                u, v = (
+                    Normalizer._unorm(
+                        inputs[:, self.input_labels.index(c)],
+                        self.normalizing_bounds[c][0],
+                        self.normalizing_bounds[c][1],
+                    )
+                    for c in ("u10", "v10")
+                )
+                value = torch.sqrt(u**2 + v**2)
+            else:
+                raise NotImplementedError(f"Derived cor_abl input {inp}.")
+            lower, upper = self.normalizing_bounds.get(
+                inp, DERIVED_COR_ABL_INPUTS[inp][1]
+            )
+            derived.append((value - lower) / (upper - lower))
+        return torch.cat([x, torch.stack(derived, dim=1)], dim=1)
+
     def _ablation_factor(self, inp_cor_abl):
         """Ablation factor of the normalized inputs of cor_abl, unbounded (softplus) or
         within [cor_abl_min, cor_abl_max] (sigmoid)."""
@@ -740,7 +791,7 @@ class TILikeModel(nn.Module):
             inp_grad_T = inputs[:, self.ind_inp_grad_T]
             inp_bias_T = inputs[:, self.ind_inp_bias_T]
         inp_cor_acc = inputs[:, self.ind_inp_cor_acc]
-        inp_cor_abl = inputs[:, self.ind_inp_cor_abl]
+        inp_cor_abl = self._cor_abl_inputs(inputs)
 
         if self.cor_T is not None:
             # Temperature correction for precipitation and PDD
@@ -861,7 +912,7 @@ class TILikeModel(nn.Module):
             inp_grad_T = inputs[:, self.ind_inp_grad_T]
             inp_bias_T = inputs[:, self.ind_inp_bias_T]
         inp_cor_acc = inputs[:, self.ind_inp_cor_acc]
-        inp_cor_abl = inputs[:, self.ind_inp_cor_abl]
+        inp_cor_abl = self._cor_abl_inputs(inputs)
 
         if self.cor_T is not None:
             # Temperature correction for precipitation and PDD

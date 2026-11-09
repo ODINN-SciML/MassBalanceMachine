@@ -48,9 +48,15 @@ model:
             - slope
         layers: [32, 16, 8]
     cor_abl:
+        # No fal: it is the albedo of the ERA5-Land cell (mostly the snow cover around
+        # the glacier), which follows the warming, and the albedo of the glacier comes
+        # from the surface type, on R_sw. wind_speed, sqrt(u10^2 + v10^2) of the monthly
+        # mean wind (m/s), is derived by the model (DERIVED_COR_ABL_INPUTS) for the
+        # turbulent exchange. It is the speed of the mean wind VECTOR (0.4 m/s median),
+        # a weak proxy of the mean speed.
         inputs:
-            - fal
             - str
+            - wind_speed
         layers: [32, 16, 8]
         # The temperature melt factor, the same for snow and ice (ice_ratio 1 in
         # sfc_type): the surface type acts on R_sw only (enhanced temperature-index
