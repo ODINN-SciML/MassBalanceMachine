@@ -62,15 +62,23 @@ model:
         # 52 entities), ice melt_f of median 4.9-9.9 per source, i.e. 3.4-6.9 for the
         # snow of the season it melts at 0.7 of ice.
         output: sigmoid
-        min: 0.061
+        min: 0.085
         max: 0.213
     # Surface type of the ablation: snow cover from the cumulative balance since the 1st
-    # of October (snow fraction sigmoid(SWE / snow_scale), SWE in m w.e.). ice_ratio is
-    # fixed by default at 1 / 0.7 (PyGEM, and OGGM's snow after aging, see
-    # models.TorchNeuralNetworkRegressor.DEFAULT_ICE_RATIO); `trainable: true` with
-    # `min` and `max` learns it.
+    # of October (snow fraction sigmoid((SWE - snow_midpoint) / snow_scale), SWE in
+    # m w.e.). With snow_midpoint 0.3 and snow_scale 0.2 every point starts the year
+    # at a snow fraction of 0.18 (close to bare ice), half snow at 0.3 m w.e. of SWE,
+    # 0.82 at 0.6. ice_ratio is learned within [min, max] from 1 / 0.7 (PyGEM, and
+    # OGGM's snow after aging, see models.TorchNeuralNetworkRegressor.DEFAULT_ICE_RATIO);
+    # without `trainable` it is fixed at `value`.
     sfc_type:
-        snow_scale: 0.1
+        snow_scale: 0.2
+        snow_midpoint: 0.3
+        ice_ratio:
+            value: 1.4285714
+            trainable: true
+            min: 1.0
+            max: 2.0
     bias_cor:
         inputs:
             - POINT_LAT
