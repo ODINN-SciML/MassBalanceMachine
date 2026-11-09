@@ -831,13 +831,23 @@ class TILikeSfcModel(TILikeModel):
     def __init__(self, modelParams, normalizing_bounds, *args, **kwargs):
         super().__init__(modelParams, normalizing_bounds, *args, **kwargs)
         sfc_params = modelParams["sfc_type"] or {}
-        unknown = set(sfc_params) - {"snow_scale", "ice_ratio"}
+        unknown = set(sfc_params) - {"snow_scale", "snow_midpoint", "ice_ratio"}
         assert not unknown, f"Unknown sfc_type options: {sorted(unknown)}."
-        # Snow water equivalent (m w.e.) at which the snow cover fraction is 0.73
+        # Width (m w.e.) of the transition from ice to snow: the snow cover fraction
+        # goes from 0.27 to 0.73 between snow_midpoint -/+ snow_scale
         self.snow_scale = float(sfc_params.get("snow_scale", 0.1))
         assert (
             self.snow_scale > 0
         ), f"sfc_type.snow_scale must be positive, got {self.snow_scale}."
+        # Snow water equivalent (m w.e.) at which half of the surface is snow. Every
+        # point starts its hydrological year at swe = 0, so with a positive midpoint
+        # every point, in the ablation and the accumulation areas, starts close to
+        # bare ice (snow fraction sigmoid(-snow_midpoint / snow_scale)) until the
+        # snow of the autumn builds up
+        self.snow_midpoint = float(sfc_params.get("snow_midpoint", 0.0))
+        assert (
+            self.snow_midpoint >= 0
+        ), f"sfc_type.snow_midpoint must be non-negative, got {self.snow_midpoint}."
         # Ratio of the melt factor of ice to the one of snow. Fixed by default, at
         # DEFAULT_ICE_RATIO; with `trainable`, learned within [min, max] from
         # `value`
@@ -890,7 +900,7 @@ class TILikeSfcModel(TILikeModel):
         same point since the start of the hydrological year, plus half of the
         current month (its middle). It is not bounded below: once the snow is gone,
         it keeps decreasing and summer snowfalls do not bring the snow back. The snow cover
-        fraction is sigmoid(swe / snow_scale).
+        fraction is sigmoid((swe - snow_midpoint) / snow_scale).
 
         `sfc` (dict) orders the rows in time, see `dataloader.surface_type`.
 
@@ -915,7 +925,7 @@ class TILikeSfcModel(TILikeModel):
         swe_sorted = before - before[start] + 0.5 * delta
         swe = torch.empty_like(acc)
         swe[perm] = swe_sorted.to(acc.dtype)
-        return swe, torch.sigmoid(swe / self.snow_scale)
+        return swe, torch.sigmoid((swe - self.snow_midpoint) / self.snow_scale)
 
     def _mass_balance_sfc(self, P_solid, PDD, cor_acc, cor_abl, R_sw, sfc):
         """Monthly mass balance (m w.e.) from the terms of the forward pass, the

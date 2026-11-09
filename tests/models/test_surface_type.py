@@ -307,6 +307,17 @@ def test_snow_cover_is_the_cumulative_balance_of_the_sequence():
     assert torch.allclose(f_snow, torch.sigmoid(expected / 0.2))
 
 
+def test_snow_midpoint_starts_the_year_close_to_bare_ice():
+    model = _model({"snow_scale": 0.2, "snow_midpoint": 0.3})
+    acc = torch.tensor([0.0, 0.6, 0.0])
+    swe, f_snow = model._snow_cover(acc, torch.zeros(3), 0.0, _one_sequence(3))
+    assert torch.allclose(swe, torch.tensor([0.0, 0.3, 0.6]))
+    assert torch.allclose(f_snow, torch.sigmoid((swe - 0.3) / 0.2))
+    assert f_snow[0] < 0.2 and f_snow[1] == pytest.approx(0.5) and f_snow[2] > 0.8
+    with pytest.raises(AssertionError, match="snow_midpoint"):
+        _model({"snow_midpoint": -0.1})
+
+
 def test_ice_melts_faster_and_spinup_rows_are_zero():
     model = _model({"ice_ratio": {"value": 2.0}})
     assert model.ice_ratio().item() == pytest.approx(2.0)
