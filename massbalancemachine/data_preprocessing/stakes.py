@@ -51,7 +51,9 @@ def combined_stakes_folder(rgi_region):
 
 
 def combined_monthly_path(rgi_region, sources, spinup=False):
-    suffix = "_sfc" if spinup else ""
+    suffix = f"_v{data_preprocessing.wgms.STAKE_TABLE_VERSION}" + (
+        "_sfc" if spinup else ""
+    )
     return os.path.join(
         combined_stakes_folder(rgi_region), "+".join(sources) + suffix + ".csv"
     )

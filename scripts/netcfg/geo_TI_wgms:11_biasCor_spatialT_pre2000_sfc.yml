@@ -12,6 +12,9 @@ model:
         - t2m
         - tp_sum
         - svf
+        # Potential clear-sky direct radiation of the month (W m-2, Hock 1999,
+        # data_processing.potential_radiation), the terrain signal of sw_contrib
+        - pcsr
         - u10
         - v10
         - POINT_LAT
@@ -110,6 +113,7 @@ model:
             - slope
             - svf
             - ssrd
+            - pcsr
         layers: [32, 16, 8]
         scale_by_ssrd: true
         max: 0.2

@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 import data_processing.product_utils as product_utils
+import data_processing.gridded_utils as gridded_utils
 from data_processing.gridded_utils import (
     MONTH_TO_ID,
     _location_trees,
@@ -16,6 +17,16 @@ from data_processing.gridded_utils import (
     grid_tree,
 )
 from data_processing.product_utils import glacier_id_to_folders
+
+
+@pytest.fixture(autouse=True)
+def _no_pcsr(monkeypatch):
+    """The synthetic grids have no DEM to compute the potential clear-sky radiation
+    from: its value is irrelevant here."""
+    monkeypatch.setattr(
+        gridded_utils, "pcsr_for_rows", lambda df, folder: np.zeros(len(df), np.float32)
+    )
+
 
 GLACIER = "NVE-2636"
 # Points of the glacier on each outline

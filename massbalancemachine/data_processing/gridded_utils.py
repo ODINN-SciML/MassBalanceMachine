@@ -81,6 +81,7 @@ from data_processing.glacier_utils import (
     generate_svf_file,
 )
 from data_processing.utils.data_preprocessing import get_hash
+from data_processing.potential_radiation import PCSR_COLUMN, pcsr_for_rows
 
 # Defined in `data_processing.utils.years`, which the geodetic sources import too: they
 # have to know the years of a window to keep it inside one side of a split, and they are
@@ -140,6 +141,11 @@ def _window_month_bounds(window):
 # `geodetic_window_weights` leaves them out of every window.
 SPINUP_COLUMN = _SPINUP_COLUMN  # As in the stake tables, see `transform_to_monthly`
 GRID_TREE_COLUMN = "GRID_TREE"
+
+# Version of the content of the multi-year grids (`generate_grid_multi_years`), part
+# of their folder name: `Product` only checks that a file exists, so a grid prepared
+# before a change of its columns would otherwise be loaded as it is. 2: `pcsr`.
+GRID_MULTI_YEARS_VERSION = 2
 
 
 def _spinup_lower_bound(lo):
@@ -1006,6 +1012,7 @@ def _geodetic_input_windowed(glacier_id, time_range, product_source, spinup=Fals
                 )
             )
             df_grid = pd.read_parquet(file_path)
+            df_grid[PCSR_COLUMN] = pcsr_for_rows(df_grid, os.path.dirname(file_path))
             month_index = year * 12 + df_grid.MONTHS.map(MONTH_TO_ID).to_numpy() - 1
             in_a_window = np.zeros(len(df_grid), dtype=bool)
             for lo, hi in bounds_of_tree[tree]:
@@ -1111,6 +1118,7 @@ def geodetic_input_Hugonnet21(
         df_grid = pd.read_parquet(file_path)
         if year in pad_years:
             df_grid = df_grid[df_grid.MONTHS.isin(["oct_", "nov_", "dec_"])].copy()
+        df_grid[PCSR_COLUMN] = pcsr_for_rows(df_grid, os.path.dirname(file_path))
         if spinup:
             df_grid[SPINUP_COLUMN] = year in pad_years
             df_grid[GRID_TREE_COLUMN] = "Hugonnet21"
@@ -1695,13 +1703,16 @@ def _period_key(years):
 
 def prepared_grid_dir_multi_years(rgi_id, years, product_source, spinup=False):
     """Folder of the multi-year grid of a glacier; a grid with the spin-up months of
-    the surface type (`spinup`) has a folder of its own."""
+    the surface type (`spinup`) has a folder of its own, and so has every
+    `GRID_MULTI_YEARS_VERSION`."""
     _check_product_source(product_source)
     return os.path.join(
         get_data_path(),
         "grids_multiyears",
         product_source,
-        _period_key(years) + ("_sfc" if spinup else ""),
+        _period_key(years)
+        + f"_v{GRID_MULTI_YEARS_VERSION}"
+        + ("_sfc" if spinup else ""),
         *(glacier_id_to_folders(rgi_id)[:-1]),
     )
 
@@ -1929,6 +1940,7 @@ def load_grid_multi_years(rgi_id, years, product_source, spinup=False):
         "GLWD_M_ID",
         "GLWD_ID",
         "tp_sum",
+        PCSR_COLUMN,
         # "slhf_sum",
         # "sshf_sum",
         # "ssrd_sum",

@@ -9,6 +9,13 @@ from data_processing.wgms import wgms_folder, load_processed_wgms
 from data_processing.Product import Product
 import config
 from data_processing.glacier_utils import get_region_name
+from data_processing.potential_radiation import PCSR_COLUMN, pcsr_of_stakes
+
+# Version of the content of the monthly stake tables, part of their file name (here,
+# in `data_preprocessing.stakes` and `data_preprocessing.iceland`): `Product` only
+# checks that a file exists, so a table built before a change of its columns would
+# otherwise be read as it is. 2: `pcsr`.
+STAKE_TABLE_VERSION = 2
 
 
 def processed_stakes_folder():
@@ -18,7 +25,7 @@ def processed_stakes_folder():
 def processed_features_stakes_path(rgi_region, spinup=False):
     """The monthly stake table of `rgi_region`, and with `spinup` the one with the
     spin-up rows of the surface type (see `transform_to_monthly`)."""
-    suffix = "_sfc" if spinup else ""
+    suffix = f"_v{STAKE_TABLE_VERSION}" + ("_sfc" if spinup else "")
     if rgi_region is None:
         return os.path.join(processed_stakes_folder(), f"all{suffix}.csv")
     else:
@@ -495,6 +502,9 @@ def points_to_monthly(data, cfg, rgi_region, path, spinup=False):
         vois_climate=vois_climate,
         vois_topographical=voi_topographical,
     )
+
+    # The potential clear-sky direct radiation of the month of every row
+    dataset.data[PCSR_COLUMN] = pcsr_of_stakes(dataset.data)
 
     os.makedirs(os.path.dirname(path), exist_ok=True)
     dataset.data.to_csv(path, index=False)
