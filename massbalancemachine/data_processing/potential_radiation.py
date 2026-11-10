@@ -42,6 +42,7 @@ from functools import lru_cache
 import numpy as np
 import pandas as pd
 import pyproj
+import tqdm
 import rasterio
 import rasterio.merge
 import rasterio.transform
@@ -454,9 +455,22 @@ def pcsr_of_stakes(df):
     glacier, in the `Hugonnet21` tree where their sky view factor comes from. Returns
     a float32 array aligned with the rows of `df`."""
     grid_path = os.path.join(get_data_path(), "grids", "Hugonnet21")
+    groups = df.groupby("RGIId", sort=False).indices
+    folders = {
+        rgi_id: os.path.join(grid_path, *rgi_id_to_folders(rgi_id)) for rgi_id in groups
+    }
+    missing = sum(
+        not Product(os.path.join(f, PCSR_FILE)).is_up_to_date()
+        for f in folders.values()
+    )
+    print(
+        f"Potential clear-sky radiation of the stakes of {len(groups)} glaciers, "
+        f"{missing} of which need their {PCSR_FILE} computed (a few seconds each; "
+        "scripts/compute_pcsr.py computes them in parallel beforehand)."
+    )
     out = np.full(len(df), np.nan, dtype=np.float32)
-    for rgi_id, pos in df.groupby("RGIId", sort=False).indices.items():
-        out[pos] = pcsr_for_rows(
-            df.iloc[pos], os.path.join(grid_path, *rgi_id_to_folders(rgi_id))
-        )
+    with tqdm.tqdm(groups.items(), total=len(groups), desc="pcsr of the stakes") as bar:
+        for rgi_id, pos in bar:
+            bar.set_postfix_str(rgi_id)
+            out[pos] = pcsr_for_rows(df.iloc[pos], folders[rgi_id])
     return out
