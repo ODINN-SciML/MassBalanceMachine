@@ -22,6 +22,7 @@ from data_processing.rabatel16 import (
     assert_rows_describe_same_glaciers,
     keep_rabatel16_series,
     period_sigma_mwe_per_year,
+    geodetic_target_Rabatel16,
     period_smb_to_window,
     periods_from_allowed_years,
     write_dem_with_nodata,
@@ -202,3 +203,34 @@ def test_shifted_rows_are_refused():
             ["Saint Sorlin ", "Glacier de la Selle_1", "Sarennes", "Argentière"],
             ["de la Selle 1", "de Sarenne 1", "d'Argentiere", "de Saint Sorlin"],
         )
+
+
+def test_named_periods_are_summed_glacier_by_glacier():
+    periods = {"G1": [[1984, 1985], [1986, 1987]], "G2": [[1984, 1985]]}
+    target = geodetic_target_Rabatel16(
+        smb=_annual_smb(), periods=periods, min_period_years=2
+    )
+    assert list(zip(target.RGIId, target.n_years)) == [("G1", 2), ("G1", 2), ("G2", 2)]
+    assert list(target.cumulative_mwe) == pytest.approx([-0.1, -1.1, -1.8])
+    assert list(target.FROM_DATE) == [
+        pd.Timestamp("1983-10-01"),
+        pd.Timestamp("1985-10-01"),
+        pd.Timestamp("1983-10-01"),
+    ]
+    kept = geodetic_target_Rabatel16(
+        smb=_annual_smb(),
+        periods=periods,
+        min_period_years=2,
+        glacier_ids_to_keep=["G2"],
+    )
+    assert list(kept.RGIId) == ["G2"]
+
+
+def test_a_named_period_must_be_complete_and_long_enough():
+    with pytest.raises(AssertionError, match="No complete Rabatel16 series"):
+        # G2 misses 1986
+        geodetic_target_Rabatel16(
+            smb=_annual_smb(), periods={"G2": [[1985, 1987]]}, min_period_years=2
+        )
+    with pytest.raises(AssertionError, match="shorter than"):
+        geodetic_target_Rabatel16(smb=_annual_smb(), periods={"G1": [[1984, 1987]]})

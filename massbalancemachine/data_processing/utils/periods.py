@@ -26,6 +26,7 @@ def select_dem_periods(
     max_outside_years: int = 0,
     multi_period: bool = True,
     tie_break: str = "sigma",
+    periods: dict = None,
 ):
     """Keep the eligible periods of a table of geodetic periods.
 
@@ -51,6 +52,12 @@ def select_dem_periods(
         multi_period: keep every eligible period of a glacier rather than one.
         tie_break: how the single period is chosen among the longest ones, "sigma"
             or "recent". Ignored with `multi_period`.
+        periods: {glacier id: [[y0, y1], ...]} names the periods to keep, by the years
+            of their two DEMs, for instance the ones a train/validation split by
+            glacier and window assigns to each side. A named period must be eligible
+            under the other arguments, which still apply; it is an error otherwise.
+            `multi_period` and `tie_break` are then ignored: the named periods are
+            kept as they are.
 
     Returns the rows kept, sorted by glacier and start date.
     """
@@ -74,11 +81,30 @@ def select_dem_periods(
             index=df.index,
         )
     df = df[keep]
+    if periods is not None:
+        return _named_periods(df, periods, glacier_ids_to_keep)
     if not multi_period:
         keys = ["n_years"] + TIE_BREAK_KEYS[tie_break]
         df = df.sort_values(
             keys, ascending=[k == "sigma_mwe_per_year" for k in keys]
         ).drop_duplicates("RGIId")
+    return df.sort_values(["RGIId", "FROM_DATE"]).reset_index(drop=True)
+
+
+def _named_periods(df, periods, glacier_ids_to_keep=None):
+    """The rows of `df` named by `periods`, {glacier id: [[y0, y1], ...]}, see
+    `select_dem_periods`."""
+    wanted = {(str(g), int(y0), int(y1)) for g, ys in periods.items() for y0, y1 in ys}
+    if glacier_ids_to_keep is not None:
+        kept = {str(g) for g in glacier_ids_to_keep}
+        wanted = {w for w in wanted if w[0] in kept}
+    keys = list(zip(df.RGIId.astype(str), df.y0.astype(int), df.y1.astype(int)))
+    df = df[[k in wanted for k in keys]]
+    found = set(zip(df.RGIId.astype(str), df.y0.astype(int), df.y1.astype(int)))
+    assert found == wanted, f"No eligible period {sorted(wanted - found)}."
+    assert len(df) == len(
+        wanted
+    ), "Two periods of a glacier share the years of their DEMs."
     return df.sort_values(["RGIId", "FROM_DATE"]).reset_index(drop=True)
 
 

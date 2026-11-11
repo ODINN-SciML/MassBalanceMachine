@@ -680,6 +680,11 @@ class GeoDataLoader:
         lying in a glacier and in a group of glaciers of NVE goes to the one
         carrying a target (see `buildGlacierMapping`).
 
+        GLAMOS, Rabatel16, Fischer11, Hagg12, Belart20 and NVE also take `periods`,
+        {entity id: [[y0, y1], ...]}, which names the windows of every entity: this is
+        how a split by glacier and window gives each side its own windows of one entity
+        (see the target function of each source for the years the pairs hold).
+
         Several windowed sources can be combined, e.g. `geodeticSource=["GLAMOS",
         "Rabatel16"]` with `geodeticSourceOptions={"GLAMOS": {...}, "Rabatel16":
         {...}}`. Every glacier then keeps the target, the windows and the grids of its
