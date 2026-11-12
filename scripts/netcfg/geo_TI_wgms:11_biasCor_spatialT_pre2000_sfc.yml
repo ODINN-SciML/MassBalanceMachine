@@ -111,7 +111,6 @@ model:
         inputs:
             - aspect
             - slope
-            - svf
             - ssrd
             - pcsr
         layers: [32, 16, 8]
@@ -121,8 +120,8 @@ model:
             threshold:
                 value: 0.0
                 trainable: true
-                min: -5.0
-                max: 4.0
+                min: -3.0
+                max: 2.0
             width: 1.0
     trainable:
         tau_P_c: false   # snow/rain threshold temperature: stays at 1.0
@@ -150,8 +149,8 @@ training:
     lr: 2e-4
     scheduler_step_size: 500
     Nepochs: 2000
-    NepochsGeo: 200
-    wGeoSchedule: [5e-2]
+    NepochsGeo: 1000
+    wGeoSchedule: [2e-1]
     scalingStakes: full
     # Weights of the winter and summer stakes in the stake loss (annual: 1). The model
     # traded winter accumulation against summer melt (geo_20261106_160700: winter -0.5,
