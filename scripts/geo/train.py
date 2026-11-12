@@ -17,6 +17,7 @@ import argparse
 import massbalancemachine as mbm
 
 from scripts.common import loadParams
+from massbalancemachine.cli.common import geodeticEntities
 from scripts.nongeo.utils import (
     getMetaData,
     setFeatures,
@@ -487,7 +488,12 @@ def assessTestSet(testSet, testFolder, params):
     # A model trained without the geodetic term is only scored on the stakes here,
     # so that it needs no grid: its geodetic test is left to the evaluation script
     return mbm.training.assessOnTest(
-        testFolder, model, gdl_test, params, light=(wGeo == 0)
+        testFolder,
+        model,
+        gdl_test,
+        params,
+        light=(wGeo == 0),
+        entityOf=None if wGeo == 0 else geodeticEntities(testSet),
     )
 
 

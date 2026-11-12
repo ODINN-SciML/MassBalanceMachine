@@ -146,6 +146,7 @@ def testSplits(params, df_test, keyGlacier="RGIId"):
                 or training["geodetic_source"],
                 "geodeticSourceOptions": training.get("geodetic_source_test_options")
                 or training.get("geodetic_source_options"),
+                "trainingGeodetic": _trainingGeodetic(training),
             }
         }
     stakeRegion = pd.Series(rgiRegionOf(df_test.RGIId), index=df_test.index)
@@ -161,8 +162,47 @@ def testSplits(params, df_test, keyGlacier="RGIId"):
             or region["geodetic_source"],
             "geodeticSourceOptions": region.get("geodetic_source_test_options")
             or region.get("geodetic_source_options"),
+            "trainingGeodetic": _trainingGeodetic(region),
         }
     return splits
+
+
+def _trainingGeodetic(block):
+    """The geodetic sources and entities (train and validation sides) a block of the
+    training settings trains on, for `geodeticEntities`."""
+    sources = block.get("geodetic_source") or []
+    return {
+        "sources": [sources] if isinstance(sources, str) else list(sources),
+        "ids": sorted(
+            {str(g) for g in block.get("train_glaciers_geo") or []}
+            | {str(g) for g in block.get("val_glaciers_geo") or []}
+        ),
+    }
+
+
+def geodeticEntities(testSet):
+    """{test glacier: training entity} of a test set of `testSplits` tested on
+    Hugonnet21, or None.
+
+    Training is per entity of the inventory of each source (an SGI 1973 glacier, a 1985
+    French glacier, ...), which RGI 6.2 often cuts into several outlines; the geodetic
+    test is per RGI 6.2 outline. The crosswalks training uses
+    (`GeoDataLoader.buildGlacierMappingMultiSource`) give the entity of every test
+    outline, so that the test can be scored per entity, as training is
+    (`training.entityGeodeticTable`). A test glacier of no training entity is left out
+    of the mapping, and counts as an entity of its own.
+    """
+    info = testSet.get("trainingGeodetic") or {}
+    sources = [s for s in info.get("sources", []) if s != "Hugonnet21"]
+    if testSet["geodeticSource"] != "Hugonnet21" or not sources or not info.get("ids"):
+        return None
+    from dataloader.GeoDataLoader import buildGlacierMappingMultiSource
+
+    ids = set(info["ids"])
+    mapping = buildGlacierMappingMultiSource(
+        list(testSet["glaciers"]), {s: ids for s in sources}
+    )
+    return {g: e for m in mapping.values() for g, e in m.items()}
 
 
 def stakeKeys(df):

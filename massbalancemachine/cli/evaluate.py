@@ -28,6 +28,7 @@ from massbalancemachine.cli.common import (
     trainValData,
     testData,
     testSplits,
+    geodeticEntities,
     rgiRegionOf,
     geodetic_table,
     geodetic_windows,
@@ -928,6 +929,8 @@ def main(argv=None):
         """
         test_glaciers = testSet["glaciers"]
         df_X_test_subset = testSet["stakes"]
+        # Training entity of every test glacier, to score the geodetic test per entity
+        entityOf = geodeticEntities(testSet)
         test_gdl = mbm.dataloader.GeoDataLoader(
             cfg,
             test_glaciers,
@@ -948,6 +951,8 @@ def main(argv=None):
                     model, test_gdl
                 )
             df_geo = geodetic_table(geoTarget, geoErr, geoPred, test_gdl)
+            if entityOf is not None:
+                df_geo["entity"] = df_geo.RGIId.map(entityOf)
             df_geo.to_parquet(
                 f"{testFolder}/gridded_geodetic_test.parquet",
                 engine="pyarrow",
@@ -1010,7 +1015,7 @@ def main(argv=None):
         # Geodetic performance
         with torch.no_grad():
             resTest = mbm.training.assessOnTest(
-                testFolder, model, test_gdl, params, color=color
+                testFolder, model, test_gdl, params, color=color, entityOf=entityOf
             )
 
         pathFolderPred = f"{testFolder}/pred"
@@ -1042,6 +1047,8 @@ def main(argv=None):
         df_gridded_monthly = dict_df_gridded.get("monthly")
         del dict_df_gridded
         df_geo = geodetic_table(geoTarget, geoErr, geoPred, test_gdl)
+        if entityOf is not None:
+            df_geo["entity"] = df_geo.RGIId.map(entityOf)
         if savePred:
             print("Saving gridded prediction...")
             df_geo.to_parquet(

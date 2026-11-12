@@ -547,7 +547,65 @@ def scores(pred: torch.Tensor, target: torch.Tensor):
     return mse, rmse, mae, pearson_corr, r2, bias
 
 
-def assessOnTest(log_dir, model, geodataloader_test, params, light=False, color="blue"):
+def entityGeodeticTable(geoTarget, geoErr, geoPred, geoArea, entityOf):
+    """Glacier-wide test values merged per entity, one row per entity.
+
+    The geodetic test (Hugonnet21) is per RGI 6.2 glacier, whereas training is per
+    entity of its own inventory (an SGI 1973 glacier, a 1985 French glacier, ...), which
+    RGI 6.2 often cuts into several outlines. Merging the outlines of an entity scores it
+    as it was trained. Target, prediction and error are area-weighted over the outlines,
+    the errors of an entity's outlines being taken as fully correlated. A glacier that
+    `entityOf` does not map is an entity of its own. Each glacier must carry a single
+    window, which Hugonnet21 does.
+
+    Returns a dataframe indexed by entity with the columns target, pred, err, area and
+    n_glaciers.
+    """
+    rows = []
+    for g in geoPred:
+        assert (
+            len(geoPred[g]) == 1
+        ), f"{g} has {len(geoPred[g])} geodetic windows, not 1"
+        rows.append(
+            dict(
+                entity=entityOf.get(g, g),
+                target=float(geoTarget[g][0]),
+                pred=float(geoPred[g][0]),
+                err=float(geoErr[g][0]),
+                area=float(geoArea[g][0]),
+            )
+        )
+    df = pd.DataFrame(rows)
+
+    def merge(d):
+        w = d.area.to_numpy()
+        return pd.Series(
+            {
+                "target": np.average(d.target, weights=w),
+                "pred": np.average(d.pred, weights=w),
+                "err": np.average(d.err, weights=w),
+                "area": w.sum(),
+                "n_glaciers": len(d),
+            }
+        )
+
+    return df.groupby("entity").apply(merge, include_groups=False)
+
+
+def assessOnTest(
+    log_dir,
+    model,
+    geodataloader_test,
+    params,
+    light=False,
+    color="blue",
+    entityOf=None,
+):
+    """Scores of `model` on the test stakes and, unless `light`, on the glacier-wide test.
+
+    `entityOf` ({test glacier: training entity}, see `cli.common.geodeticEntities`) adds
+    the glacier-wide scores per entity (`entityGeodeticTable`), keys suffixed `Entity`.
+    """
     wWinter = params["training"].get("wWinter", 1.0)
     wSummer = params["training"].get("wSummer", 1.0)
     scalingStakes = params["training"]["scalingStakes"]
@@ -700,6 +758,16 @@ def assessOnTest(log_dir, model, geodataloader_test, params, light=False, color=
         stats["biasGeo"] = float(sGeo["bias"])
         stats["biasGeoArea"] = float(sGeo["bias_area"])
         stats["rmseGeoArea"] = float(sGeo["rmse_area"])
+
+        if entityOf is not None:
+            ent = entityGeodeticTable(geoTarget, geoErr, geoPred, geoArea, entityOf)
+            sEnt = glacierWideScores(ent.target, ent.pred, ent.err, ent.area)
+            stats["nGeoEntity"] = len(ent)
+            stats["rmseGeoEntity"] = float(sEnt["rmse_weighted"])
+            stats["rmseGeoEntityUnweighted"] = float(sEnt["rmse"])
+            stats["biasGeoEntity"] = float(sEnt["bias"])
+            stats["biasGeoEntityArea"] = float(sEnt["bias_area"])
+            stats["rmseGeoEntityArea"] = float(sEnt["rmse_area"])
 
     return stats
 
