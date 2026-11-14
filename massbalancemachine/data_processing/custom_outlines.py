@@ -313,7 +313,8 @@ def build_custom_gdirs(outlines: gpd.GeoDataFrame, spec: CustomOutlineSpec):
     merged_df["Area"] = geom_utm.area / 1e6
 
     # Replace the geometry by the convex hull of the set of geometries to get a grid that covers all of the entries
-    # That geometry is overwritten in _initialize_custom_glacier_directories by the union of all geometries since OGGM does not handle MultiPolygon
+    # That geometry is overwritten in _initialize_custom_glacier_directories by the union of all geometries since OGGM does not handle MultiPolygon,
+    # and so is the area OGGM computes from the hull (use_rgi_area is off there)
     merged_df["geometry"] = merged_df.geometry.convex_hull
 
     df = merged_df.rename(

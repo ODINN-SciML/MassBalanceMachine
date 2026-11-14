@@ -252,6 +252,7 @@ def geodetic_target_Hagg12(
     max_outside_years: int = 0,
     multi_period: bool = True,
     tie_break: str = "sigma",
+    periods: dict = None,
 ):
     """Geodetic targets of Hagg et al. (2012), one row per period between two surveys.
 
@@ -278,6 +279,7 @@ def geodetic_target_Hagg12(
         max_outside_years=max_outside_years,
         multi_period=multi_period,
         tie_break=tie_break,
+        periods=periods,
     )
 
 

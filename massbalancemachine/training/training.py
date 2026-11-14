@@ -11,17 +11,21 @@ import heapq
 import matplotlib.pyplot as plt
 import pandas as pd
 import glob
+import re
 import warnings
 import json
 import git
 import time
 
-from plots import predVSTruth, predVSTruthGlacierWide
+from plots import predVSTruth, predVSTruthGlacierWide, glacierWideScores
 from data_processing.Dataset import Normalizer
+from data_processing.gridded_utils import SPINUP_COLUMN
 from models.TorchNeuralNetworkRegressor import (
     aggrPredict,
     aggrMetadata,
     aggrPredictGlwd,
+    forward_rows,
+    needs_time_order,
 )
 
 
@@ -95,7 +99,7 @@ def compute_stake_loss(
     int_id = precomputed_meta["int_id_torch"]
 
     # Make prediction
-    pred = model.forward(stakes)[:, 0]
+    pred = forward_rows(model, stakes, precomputed_meta.get("sfc"))[:, 0]
 
     nunique = precomputed_meta["nunique_ids"]
     trueMean = torch.zeros((nunique,), device=pred.device, dtype=pred.dtype)
@@ -179,9 +183,10 @@ def timeWindowGeodeticLoss(
         return (geodetic_MB_pred - geoTarget) ** 2 / errGeoTarget, geodetic_MB_pred
 
 
-def predict_monthly_gridded(model, geoGrid, metadata):
-    # Make prediction
-    pred = model.forward(geoGrid)[:, 0]
+def predict_monthly_gridded(model, geoGrid, metadata, sfc=None):
+    # Make prediction. `sfc` is the time order of the grid that a model with a
+    # surface type needs, `precomputed_meta["sfc"]` of the dataloader
+    pred = forward_rows(model, geoGrid, sfc)[:, 0]
     return pred
 
 
@@ -203,7 +208,10 @@ def ti_intermediates_gridded(model, geo_dataloader, glacierName):
     (T_downscaled), the temperature bias (T_bias), the precipitation correction scaling factor
     (scaling), the bias corrected precipitation (P_corrected) and the
     accumulation and ablation factors (cor_acc, cor_abl) and the shortwave radiation
-    contribution to the monthly mass balance (R_sw).
+    contribution to the monthly mass balance (R_sw). For a model with a surface type,
+    cor_abl and R_sw are those of snow, and the snow water equivalent (SWE), the snow
+    cover fraction (f_snow) and the effective factor and contribution of the surface
+    (cor_abl_eff, R_sw_eff) are added.
     """
     module = model.module
     assert hasattr(
@@ -211,7 +219,7 @@ def ti_intermediates_gridded(model, geo_dataloader, glacierName):
     ), f"Model {type(module).__name__} does not expose the intermediate variables of a TIlike model."
     cfg = geo_dataloader.cfg
     with torch.no_grad():
-        geoGrid, metadata, _, _, _ = geo_dataloader.geo(glacierName)
+        geoGrid, metadata, _, _, precomputed_meta = geo_dataloader.geo(glacierName)
         geoGrid = geoGrid.to(geo_dataloader.device)
         cor_T, cor_T_val, P, T, _, P_scaling, _, _, cor_acc, cor_abl, R_sw = (
             module.get_cor_T(geoGrid)
@@ -238,6 +246,14 @@ def ti_intermediates_gridded(model, geo_dataloader, glacierName):
                 "R_sw": R_sw.cpu().numpy(),
             }
         )
+        if needs_time_order(module):
+            swe, f_snow, cor_abl_eff, R_sw_eff = module.snow_cover(
+                geoGrid, precomputed_meta["sfc"]
+            )
+            df["SWE"] = swe.cpu().numpy()
+            df["f_snow"] = f_snow.cpu().numpy()
+            df["cor_abl_eff"] = cor_abl_eff.cpu().numpy()
+            df["R_sw_eff"] = R_sw_eff.expand_as(f_snow).cpu().numpy()
         # Location columns that are model inputs are not part of the metadata, so
         # they are recovered from the normalized features
         for col in ["POINT_LAT", "POINT_LON", "POINT_ELEVATION"]:
@@ -249,11 +265,16 @@ def ti_intermediates_gridded(model, geo_dataloader, glacierName):
                     cfg.bnds[col][0],
                     cfg.bnds[col][1],
                 )
+    if SPINUP_COLUMN in metadata.columns:
+        # The spin-up months of the surface type are in no geodetic window
+        df = df[~metadata[SPINUP_COLUMN].to_numpy(bool)].reset_index(drop=True)
     return df
 
 
 def predict_annual_gridded(model, geoGrid, metadata, precomputed_meta):
-    pred = predict_monthly_gridded(model, geoGrid, metadata)
+    pred = predict_monthly_gridded(
+        model, geoGrid, metadata, sfc=precomputed_meta.get("sfc")
+    )
 
     ID_int = precomputed_meta["ID_int"]
 
@@ -366,14 +387,26 @@ def eval_geodetic(
                         model, geoGrid, metadata, precomputed_meta
                     )
                     grouped_ids["pred"] = predSumAnnual.cpu()
+                    if SPINUP_COLUMN in metadata.columns:
+                        # The point-years made only of spin-up months of the surface
+                        # type are in no window
+                        spinup_only = metadata.groupby("ID_int")[SPINUP_COLUMN].all()
+                        grouped_ids = grouped_ids[
+                            ~spinup_only.reindex(grouped_ids.index).to_numpy()
+                        ]
                     if callback_annual is not None:
                         callback_annual(current_g, grouped_ids)
                     if return_annual:
                         grouped_ids = grouped_ids.drop(columns=["PERIOD"])
                         df_gridded_annual = pd.concat([df_gridded_annual, grouped_ids])
                 if callback_monthly is not None or return_monthly:
-                    predMonthly = predict_monthly_gridded(model, geoGrid, metadata)
-                    metadata["pred"] = predMonthly.cpu()
+                    predMonthly = predict_monthly_gridded(
+                        model, geoGrid, metadata, sfc=precomputed_meta.get("sfc")
+                    )
+                    metadata = metadata.assign(pred=predMonthly.cpu().numpy())
+                    if SPINUP_COLUMN in metadata.columns:
+                        # The spin-up months of the surface type are in no window
+                        metadata = metadata[~metadata[SPINUP_COLUMN].to_numpy(bool)]
                     if callback_monthly is not None:
                         callback_monthly(current_g, metadata)
                     if return_monthly:
@@ -400,7 +433,9 @@ def eval_geodetic(
 
 
 def predict_geo(model, geoGrid, metadata, ygeo, geod_periods, precomputed_meta):
-    pred = predict_monthly_gridded(model, geoGrid, metadata)
+    pred = predict_monthly_gridded(
+        model, geoGrid, metadata, sfc=precomputed_meta.get("sfc")
+    )
 
     idAggr = precomputed_meta["GLWD_M_ID_int"]
 
@@ -426,10 +461,19 @@ def compute_geo_loss(
     geod_periods,
     precomputed_meta,
     scalingGeo,
+    windowWeights=None,
+    errFloor=None,
 ):
     # TODO: update docstring
     """
     Computes the geodetic loss term.
+
+    `windowWeights` (torch.Tensor, one value per geodetic window) weights the loss term
+    of every window, see `geodeticAreaWeights`; by default every window counts the same.
+
+    `errFloor` (float, m w.e. a-1) is a lower bound on the 1 sigma error of the windows
+    in the loss, so that a window with a very small error does not dominate the loss;
+    by default the errors are used as they are.
 
     Args:
         model (CustomTorchNeuralNetRegressor): Model to evaluate.
@@ -445,7 +489,7 @@ def compute_geo_loss(
 
     # Make prediction
     with record_function("geo_forward"):
-        pred = model.forward(geoGrid)[:, 0]
+        pred = forward_rows(model, geoGrid, precomputed_meta.get("sfc"))[:, 0]
 
     with record_function("aggregation_GLWD_M_ID"):
 
@@ -456,6 +500,9 @@ def compute_geo_loss(
             (nunique,), device=pred.device, dtype=pred.dtype
         )
         aggrPredictGlwd(pred, idAggr, out=predSumGeodPeriod)
+
+    if errFloor:
+        errgeo = torch.clamp(errgeo, min=errFloor)
 
     # Compute the geodetic MB for the different time windows
     with record_function("timeWindowGeodeticLoss"):
@@ -468,7 +515,24 @@ def compute_geo_loss(
             scalingGeo,
         )
 
+    if windowWeights is not None:
+        lossGeo = lossGeo * windowWeights.to(lossGeo.device)
     return lossGeo.mean(), ypred  # Compute mean of the different time window scores
+
+
+def geodeticAreaWeights(geodataloader, glaciers):
+    """Weight of the geodetic loss term of every window of `glaciers`, proportional to
+    the area of the window (`GeoDataLoader.geodetic_areas`) and normalized so that the
+    windows of `glaciers` average to 1: `wGeo` keeps its scale, only the share of the
+    large glaciers grows.
+
+    Returns {glacier: torch.Tensor with one weight per window}.
+    """
+    areas = {g: geodataloader.geodetic_areas(g) for g in glaciers}
+    meanArea = np.concatenate(list(areas.values())).mean()
+    return {
+        g: torch.tensor(a / meanArea, dtype=torch.float32) for g, a in areas.items()
+    }
 
 
 def scores(pred: torch.Tensor, target: torch.Tensor):
@@ -483,7 +547,65 @@ def scores(pred: torch.Tensor, target: torch.Tensor):
     return mse, rmse, mae, pearson_corr, r2, bias
 
 
-def assessOnTest(log_dir, model, geodataloader_test, params, light=False, color="blue"):
+def entityGeodeticTable(geoTarget, geoErr, geoPred, geoArea, entityOf):
+    """Glacier-wide test values merged per entity, one row per entity.
+
+    The geodetic test (Hugonnet21) is per RGI 6.2 glacier, whereas training is per
+    entity of its own inventory (an SGI 1973 glacier, a 1985 French glacier, ...), which
+    RGI 6.2 often cuts into several outlines. Merging the outlines of an entity scores it
+    as it was trained. Target, prediction and error are area-weighted over the outlines,
+    the errors of an entity's outlines being taken as fully correlated. A glacier that
+    `entityOf` does not map is an entity of its own. Each glacier must carry a single
+    window, which Hugonnet21 does.
+
+    Returns a dataframe indexed by entity with the columns target, pred, err, area and
+    n_glaciers.
+    """
+    rows = []
+    for g in geoPred:
+        assert (
+            len(geoPred[g]) == 1
+        ), f"{g} has {len(geoPred[g])} geodetic windows, not 1"
+        rows.append(
+            dict(
+                entity=entityOf.get(g, g),
+                target=float(geoTarget[g][0]),
+                pred=float(geoPred[g][0]),
+                err=float(geoErr[g][0]),
+                area=float(geoArea[g][0]),
+            )
+        )
+    df = pd.DataFrame(rows)
+
+    def merge(d):
+        w = d.area.to_numpy()
+        return pd.Series(
+            {
+                "target": np.average(d.target, weights=w),
+                "pred": np.average(d.pred, weights=w),
+                "err": np.average(d.err, weights=w),
+                "area": w.sum(),
+                "n_glaciers": len(d),
+            }
+        )
+
+    return df.groupby("entity").apply(merge, include_groups=False)
+
+
+def assessOnTest(
+    log_dir,
+    model,
+    geodataloader_test,
+    params,
+    light=False,
+    color="blue",
+    entityOf=None,
+):
+    """Scores of `model` on the test stakes and, unless `light`, on the glacier-wide test.
+
+    `entityOf` ({test glacier: training entity}, see `cli.common.geodeticEntities`) adds
+    the glacier-wide scores per entity (`entityGeodeticTable`), keys suffixed `Entity`.
+    """
     wWinter = params["training"].get("wWinter", 1.0)
     wSummer = params["training"].get("wSummer", 1.0)
     scalingStakes = params["training"]["scalingStakes"]
@@ -561,7 +683,7 @@ def assessOnTest(log_dir, model, geodataloader_test, params, light=False, color=
     mse_winter, rmse_winter, mae_winter, pearson_corr_winter, r2_winter, bias_winter = (
         scores(predWinter, targetWinter)
     )
-    if len(targetSummer) > 0:
+    if len(targetSummer) > 1:
         (
             mse_summer,
             rmse_summer,
@@ -594,7 +716,7 @@ def assessOnTest(log_dir, model, geodataloader_test, params, light=False, color=
         "r2_winter": r2_winter.item(),
         "bias_winter": bias_winter.item(),
     }
-    if len(targetSummer) > 0:
+    if len(targetSummer) > 1:
         stats["mse_summer"] = mse_summer.item()
         stats["rmse_summer"] = rmse_summer.item()
         stats["mae_summer"] = mae_summer.item()
@@ -605,6 +727,7 @@ def assessOnTest(log_dir, model, geodataloader_test, params, light=False, color=
     if not light:
         # Geodetic prediction
         geoPred, geoTarget, geoErr, _ = eval_geodetic(model, geodataloader_test)
+        geoArea = {g: geodataloader_test.geodetic_areas(g) for g in geoPred}
         fig = predVSTruthGlacierWide(
             geoTarget,
             geoPred,
@@ -613,6 +736,7 @@ def assessOnTest(log_dir, model, geodataloader_test, params, light=False, color=
             color=color,
             ax_xlim=(-4, 3),
             ax_ylim=(-4, 3),
+            geoArea=geoArea,
         )
         plt.savefig(os.path.join(log_dir, "geodetic_test.png"))
         plt.close(fig)
@@ -624,6 +748,26 @@ def assessOnTest(log_dir, model, geodataloader_test, params, light=False, color=
         w = 1 / sigmaAllGeo**2
         rmse_geo = np.sqrt((w * (targetAllGeo - predAllGeo) ** 2).sum() / (w.sum()))
         stats["rmseGeo"] = rmse_geo.item()
+        # The scores of the figure, unweighted and area-weighted
+        sGeo = glacierWideScores(
+            targetAllGeo,
+            predAllGeo,
+            sigmaAllGeo,
+            np.concatenate([geoArea[k] for k in kGl]),
+        )
+        stats["biasGeo"] = float(sGeo["bias"])
+        stats["biasGeoArea"] = float(sGeo["bias_area"])
+        stats["rmseGeoArea"] = float(sGeo["rmse_area"])
+
+        if entityOf is not None:
+            ent = entityGeodeticTable(geoTarget, geoErr, geoPred, geoArea, entityOf)
+            sEnt = glacierWideScores(ent.target, ent.pred, ent.err, ent.area)
+            stats["nGeoEntity"] = len(ent)
+            stats["rmseGeoEntity"] = float(sEnt["rmse_weighted"])
+            stats["rmseGeoEntityUnweighted"] = float(sEnt["rmse"])
+            stats["biasGeoEntity"] = float(sEnt["bias"])
+            stats["biasGeoEntityArea"] = float(sEnt["bias_area"])
+            stats["rmseGeoEntityArea"] = float(sEnt["rmse_area"])
 
     return stats
 
@@ -650,6 +794,7 @@ def assessOnVal(
     wGeo = params["training"]["wGeo"]
     scalingGeo = params["training"].get("scalingGeo", "quad")
     assert scalingGeo in ["quad", "linear"]
+    errGeoFloor = params["training"].get("errGeoFloor")
     scalingStakes = params["training"]["scalingStakes"]
     # Accessors of the validation side, which are the train-side ones of a loader built
     # for the validation set alone
@@ -662,6 +807,19 @@ def assessOnVal(
     )
     stakesVal = geodataloader.stakes if separateLoader else geodataloader.stakesVal
     iterPerEpoch = lenGeoVal() if wGeo > 0 else len(geodataloader)
+    # The validation windows are weighted as the training ones, on their own mean area
+    areaWeights = (
+        geodeticAreaWeights(
+            geodataloader,
+            (
+                geodataloader.glacierListGeo
+                if separateLoader
+                else geodataloader.glacierListValGeo
+            ),
+        )
+        if wGeo > 0 and params["training"].get("areaWeightGeo", False)
+        else None
+    )
     nColsProgressBar = 500 if _inJupyterNotebook else 85
     wWinter = params["training"].get("wWinter", 1.0)
     wSummer = params["training"].get("wSummer", 1.0)
@@ -845,6 +1003,10 @@ def assessOnVal(
                         geod_periods,
                         precomputed_meta,
                         scalingGeo,
+                        windowWeights=(
+                            areaWeights[current_g] if areaWeights is not None else None
+                        ),
+                        errFloor=errGeoFloor,
                     )
                     targetAllGeo.append(ygeo.detach())
                     predAllGeo.append(ypredgeo.detach())
@@ -896,14 +1058,19 @@ def assessOnVal(
                 r2_annual,
                 bias_annual,
             ) = scores(predAnnual, targetAnnual)
-            (
-                mse_winter,
-                rmse_winter,
-                mae_winter,
-                pearson_corr_winter,
-                r2_winter,
-                bias_winter,
-            ) = scores(predWinter, targetWinter)
+            if targetWinter.shape[0] > 1:
+                (
+                    mse_winter,
+                    rmse_winter,
+                    mae_winter,
+                    pearson_corr_winter,
+                    r2_winter,
+                    bias_winter,
+                ) = scores(predWinter, targetWinter)
+            else:
+                mse_winter = rmse_winter = mae_winter = pearson_corr_winter = (
+                    r2_winter
+                ) = bias_winter = torch.tensor(torch.nan)
         else:
             mse = rmse = mae = pearson_corr = r2 = bias = torch.tensor(torch.nan)
             mse_annual = rmse_annual = mae_annual = pearson_corr_annual = r2_annual = (
@@ -959,37 +1126,33 @@ def bestModelFile(log_dir):
     best = None
     bestVal = None
     bestEpoch = None
-    for i, f in enumerate(files):
-        s = os.path.basename(f).replace("model_epoch", "").replace(".pt", "")
-        epoch = s.split("_")[0]
-        val = s.split("_")[1]
-        for metric in _criterionVal:
-            if metric in val:
-                higherBetter = metric in _maxCriterion
-                val = val.replace(metric, "")
+    for f in files:
+        # Checkpoints are named model_epoch<epoch>_<criterion><score>.pt
+        match = re.fullmatch(
+            r"model_epoch(\d+)_([A-Za-z]+)(.+)\.pt", os.path.basename(f)
+        )
+        if match is None or match.group(2) not in _criterionVal:
+            warnings.warn(f"Ignoring checkpoint {f} whose name cannot be parsed.")
+            continue
+        epoch = int(match.group(1))
+        higherBetter = match.group(2) in _maxCriterion
+        val = float(match.group(3))
         if bestVal is None:
-            best = i
-            bestVal = val
-            bestEpoch = epoch
-        elif val == bestVal and (epoch > bestEpoch):
+            better = True
+        elif val == bestVal:
             warnings.warn(
                 "Two models have exactly the same validation score. Taking the one with the largest epoch number."
             )
-            best = i
+            better = epoch > bestEpoch
+        else:
+            better = val > bestVal if higherBetter else val < bestVal
+        if better:
+            best = f
             bestVal = val
             bestEpoch = epoch
-        elif higherBetter and val > bestVal:
-            best = i
-            bestVal = val
-            bestEpoch = epoch
-        elif not higherBetter and val < bestVal:
-            best = i
-            bestVal = val
-            bestEpoch = epoch
-        val = float(val)
     if best is None:
         raise Exception("No model found.")
-    return files[best], bestVal
+    return best, bestVal
 
 
 def loadBestModel(log_dir, model):
@@ -1028,6 +1191,10 @@ def train_geo(
     wGeo = params["training"]["wGeo"]
     scalingGeo = params["training"].get("scalingGeo", "quad")
     assert scalingGeo in ["quad", "linear"]
+    errGeoFloor = params["training"].get("errGeoFloor")
+    # One optimizer step per epoch, on the gradient averaged over the geodetic glaciers,
+    # instead of one step per geodetic glacier
+    geoStepPerEpoch = wGeo > 0 and params["training"].get("geoStepPerEpoch", False)
     freqVal = params["training"]["freqVal"]
     bestModelCriterion = params["training"]["bestModelCriterion"]
     assert bestModelCriterion in _criterionVal
@@ -1044,9 +1211,18 @@ def train_geo(
     if wWinter == 1.0 and wSummer == 1.0:
         weightStakes = None
     useStakes = scalingStakes != "none"
+    # Geodetic loss term of every window weighted by its area, see `geodeticAreaWeights`
+    areaWeights = (
+        geodeticAreaWeights(geodataloader, geodataloader.glacierListGeo)
+        if wGeo > 0 and params["training"].get("areaWeightGeo", False)
+        else None
+    )
 
     # Setup logging
-    run_name = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    # Given when several runs make one experiment, so that their folders share it
+    run_name = params["training"].get("run_name") or datetime.datetime.now().strftime(
+        "%Y%m%d_%H%M%S"
+    )
     log_suffix = params["training"]["log_suffix"]
     if log_suffix != "":
         log_suffix = "_" + log_suffix
@@ -1128,6 +1304,23 @@ def train_geo(
         "rmseGeo": "RMSEGeo/val",
     }
 
+    def logScalarParameters(step):
+        """Learnable scalars of a TIlike model, as the model uses them."""
+        if hasattr(model.module, "scalar_parameters"):
+            values = model.module.scalar_parameters()
+            for k in [
+                "snow_slope",
+                "snow_threshold",
+                "pdd_curvature",
+                "ice_ratio",
+                "sw_ratio",
+                "sw_gate_threshold",
+            ]:
+                if k in values:
+                    writer.add_scalar(f"Parameters/{k}", values[k], step)
+
+    logScalarParameters(-1)
+
     # Validation of the model before any update, logged at step -1 so that epoch e
     # keeps step e. It is kept apart from the per-epoch statistics and is not a
     # checkpoint candidate.
@@ -1154,6 +1347,8 @@ def train_geo(
             avg_training_loss = 0.0
             iter_counter = 0
             model.train()
+            if geoStepPerEpoch:
+                optim.zero_grad()
             with tqdm.tqdm(
                 total=iterPerEpoch,
                 desc=f"Batch (train)",
@@ -1262,7 +1457,8 @@ def train_geo(
                     )
                     with prof_ctx as prof:
 
-                        optim.zero_grad()
+                        if not geoStepPerEpoch:
+                            optim.zero_grad()
 
                         if useStakes:
                             if not geodataloader.allStakesPerIter:
@@ -1391,6 +1587,12 @@ def train_geo(
                                 geod_periods,
                                 precomputed_meta,
                                 scalingGeo,
+                                windowWeights=(
+                                    areaWeights[current_g]
+                                    if areaWeights is not None
+                                    else None
+                                ),
+                                errFloor=errGeoFloor,
                             )
                             if timeExec:
                                 torch.cuda.synchronize()
@@ -1411,8 +1613,13 @@ def train_geo(
                             st = time.time()
                         with record_function("backward"):
                             if not torch.isnan(loss):
-                                loss.backward()
-                                optim.step()
+                                if geoStepPerEpoch:
+                                    # Accumulated over the epoch: the stake term, the
+                                    # same at every iteration, keeps its weight
+                                    (loss / iterPerEpoch).backward()
+                                else:
+                                    loss.backward()
+                                    optim.step()
                         if timeExec:
                             torch.cuda.synchronize()
                             backwardOptimTime = time.time() - st
@@ -1469,9 +1676,13 @@ def train_geo(
                     )
                     batch_bar.update(1)
 
+            if geoStepPerEpoch:
+                optim.step()
             avg_training_loss /= iter_counter
             if scheduler is not None:
                 scheduler.step()
+
+            logScalarParameters(epoch)
 
             if freqVal and hasVal:
                 statsValEpoch = runVal()
@@ -1500,10 +1711,12 @@ def train_geo(
                     f"model_epoch{epoch}_{bestModelCriterion}{scalarBestModelCriterion:.4f}.pt",
                 )
 
+                # The heap is keyed by higherBetterCriterion * score, so its first
+                # element is the worst of the kept models whatever the criterion
                 if (
                     len(top_models) < 5
-                    or scalarBestModelCriterion
-                    < higherBetterCriterion * top_models[0][0]
+                    or higherBetterCriterion * scalarBestModelCriterion
+                    > top_models[0][0]
                 ):
 
                     if len(top_models) >= 5:

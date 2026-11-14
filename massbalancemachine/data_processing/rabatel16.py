@@ -545,6 +545,19 @@ def period_smb_to_window(
     return df.sort_values("RGIId").reset_index(drop=True)
 
 
+# Columns of a Rabatel16 target, also those of an empty one
+TARGET_COLUMNS = [
+    "RGIId",
+    "name",
+    "n_years",
+    "cumulative_mwe",
+    "FROM_DATE",
+    "TO_DATE",
+    "mwe_per_year",
+    "sigma_mwe_per_year",
+]
+
+
 def periods_from_allowed_years(
     allowed_years, available_years, min_period_years: int = 5
 ):
@@ -588,6 +601,7 @@ def geodetic_target_Rabatel16(
     min_period_years: int = 5,
     smb=None,
     verbose: bool = True,
+    periods: dict = None,
 ):
     """Mass balance of French glaciers over the hydrological years `start_year` to
     `end_year`, summed from their annual glacier-wide balances (see
@@ -627,10 +641,44 @@ def geodetic_target_Rabatel16(
             candidate of a split search.
         verbose: report the glaciers and the periods left out. Worth turning off in a
             search, which calls this once per candidate.
+        periods: {GLIMS id: [[start_year, end_year], ...]} names the periods of every
+            glacier instead, by their first and last hydrological year, for instance
+            the ones a train/validation split by glacier and window assigns to each
+            side. Each must be at least `min_period_years` long and fully covered by
+            the series of its glacier; it is an error otherwise.
     """
     smb = load_rabatel16_smb() if smb is None else smb
     if glacier_ids_to_keep is not None:
         smb = smb[smb.GLIMS_ID.isin(list(glacier_ids_to_keep))]
+
+    if periods is not None:
+        assert (start_year, end_year, allowed_years) == (
+            None,
+            None,
+            None,
+        ), "periods names the periods: leave start_year, end_year and allowed_years out."
+        kept = None if glacier_ids_to_keep is None else set(glacier_ids_to_keep)
+        windows = []
+        for g, ys in periods.items():
+            if kept is not None and g not in kept:
+                continue
+            for start, end in ys:
+                start, end = int(start), int(end)
+                assert end - start + 1 >= min_period_years, (
+                    f"Rabatel16 period {start}-{end} of {g} is shorter than "
+                    f"{min_period_years} years."
+                )
+                w = period_smb_to_window(
+                    smb[smb.GLIMS_ID == g], start, end, verbose=False
+                )
+                assert (
+                    len(w) == 1
+                ), f"No complete Rabatel16 series for {g} over {start}-{end}."
+                windows.append(w)
+        if not windows:
+            return pd.DataFrame(columns=TARGET_COLUMNS)
+        windows = pd.concat(windows, ignore_index=True)
+        return windows.sort_values(["RGIId", "FROM_DATE"]).reset_index(drop=True)
 
     if allowed_years is None:
         assert (
@@ -650,18 +698,7 @@ def geodetic_target_Rabatel16(
                 "Rabatel16: no period of at least "
                 f"{min_period_years} years fits in the years given, no target."
             )
-        return pd.DataFrame(
-            columns=[
-                "RGIId",
-                "name",
-                "n_years",
-                "cumulative_mwe",
-                "FROM_DATE",
-                "TO_DATE",
-                "mwe_per_year",
-                "sigma_mwe_per_year",
-            ]
-        )
+        return pd.DataFrame(columns=TARGET_COLUMNS)
     windows = pd.concat(
         [
             period_smb_to_window(smb, start, end, verbose=verbose)
