@@ -467,8 +467,9 @@ provenance:
   - t2m
   - tp
   - svf
+  - pcsr
   - u10
   - v10
   max_measurements_per_glacier: 10000
   n_trials: 500
-  score: 0.4470280408859253
+  score: 0.43844062089920044
