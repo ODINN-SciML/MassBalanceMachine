@@ -119,6 +119,35 @@ def get_region_shape_file(region: str):
     return shp_path
 
 
+def rgi_complexes(rgi_ids):
+    """{RGIId: its complex} for RGI 6 ids: the entities connected through the RGI 6.2
+    intersects (glacier outlines sharing a divide), which can exchange ice, form one
+    complex, named after its smallest RGIId. An entity touching no other is its own
+    complex. The connectivity is taken over the whole RGI regions of `rgi_ids`, so that
+    two entities linked through a third one not in `rgi_ids` share their complex."""
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    rgi_ids = sorted(set(rgi_ids))
+    regions = sorted({rgi_id.split("-")[1].split(".")[0] for rgi_id in rgi_ids})
+    pairs = pd.concat(
+        [
+            gpd.read_file(
+                oggm.utils.get_rgi_intersects_region_file(region, version="62"),
+                ignore_geometry=True,
+            )[["RGIId_1", "RGIId_2"]]
+            for region in regions
+        ],
+        ignore_index=True,
+    )
+    nodes = pd.Index(sorted(set(rgi_ids) | set(pairs.RGIId_1) | set(pairs.RGIId_2)))
+    i, j = nodes.get_indexer(pairs.RGIId_1), nodes.get_indexer(pairs.RGIId_2)
+    graph = coo_matrix((np.ones(len(i)), (i, j)), shape=(len(nodes), len(nodes)))
+    _, labels = connected_components(graph, directed=False)
+    name = pd.Series(nodes, index=nodes).groupby(labels).transform("min")
+    return {rgi_id: name[rgi_id] for rgi_id in rgi_ids}
+
+
 def get_region_name(region: Union[str, int]):
     if isinstance(region, int):
         region = f"{region:02d}"

@@ -339,3 +339,24 @@ def test_train_val_data_per_glacier_and_year():
     )
     assert sorted(df_X_val.ID.unique()) == [1, 4]
     assert sorted(df_X_train.ID.unique()) == [0, 2, 3]
+
+
+def test_stake_sources_per_rgi_region_of_a_block():
+    from dataloader.SourceManager import stakeSourcesPerRgiRegion
+
+    # A list applies to every RGI region of the block, a mapping to the regions it names
+    params = {
+        "training": {
+            "regions": {
+                "europe": {**EUROPE, "stake_sources": ["wgms", "glacioclim"]},
+                "himalaya": {**HIMALAYA, "stake_sources": {15: ["wgms", "glacioclim"]}},
+            }
+        }
+    }
+    assert stakeSourcesPerRgiRegion(params) == {
+        11: ["wgms", "glacioclim"],
+        15: ["wgms", "glacioclim"],
+    }
+    params["training"]["regions"]["himalaya"]["stake_sources"] = {11: ["wgms"]}
+    with pytest.raises(AssertionError):
+        stakeSourcesPerRgiRegion(params)

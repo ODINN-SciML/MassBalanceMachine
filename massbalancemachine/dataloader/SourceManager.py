@@ -232,16 +232,28 @@ def _default_input(sourceData):
 def stakeSourcesPerRgiRegion(params):
     """{RGI region: its stake sources} from `training.stake_sources`, which maps RGI
     regions to lists of sources (e.g. {8: ["wgms", "nve"]}), or, with
-    `training.regions`, from the `stake_sources` of each region block. The RGI regions
-    left out take `data_preprocessing.stakes.DEFAULT_STAKE_SOURCES`."""
+    `training.regions`, from the `stake_sources` of each region block: a list of sources
+    for all the RGI regions of the block, or a mapping of some of them to their sources
+    (e.g. {15: ["wgms", "glacioclim"]} in a block of regions 13, 14 and 15). The RGI
+    regions left out take `data_preprocessing.stakes.DEFAULT_STAKE_SOURCES`."""
     sources = {
         int(r): list(s)
         for r, s in (params["training"].get("stake_sources") or {}).items()
     }
-    for block in (params["training"].get("regions") or {}).values():
-        if block.get("stake_sources"):
+    for name, block in (params["training"].get("regions") or {}).items():
+        blockSources = block.get("stake_sources")
+        if not blockSources:
+            continue
+        if isinstance(blockSources, dict):
+            blockRegions = {int(r) for r in block["rgi_regions"]}
+            for r, s in blockSources.items():
+                assert (
+                    int(r) in blockRegions
+                ), f"Region {name}: stake_sources names RGI region {r}, not one of {sorted(blockRegions)}."
+                sources[int(r)] = list(s)
+        else:
             for r in block["rgi_regions"]:
-                sources[int(r)] = list(block["stake_sources"])
+                sources[int(r)] = list(blockSources)
     for regionSources in sources.values():
         for source in regionSources:
             assert (
