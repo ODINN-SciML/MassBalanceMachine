@@ -9,6 +9,8 @@ from data_processing.utils import get_rgi
 from data_retrieval.iceland import download_all_stakes_data
 from data_processing.Product import Product
 from data_processing.Dataset import Dataset
+from data_processing.potential_radiation import PCSR_COLUMN, pcsr_of_stakes
+from data_preprocessing.wgms import STAKE_TABLE_VERSION
 
 
 def iceland_path():
@@ -19,8 +21,15 @@ def raw_stakes_path():
     return os.path.join(iceland_path(), "stakes.csv")
 
 
+# Prefix of the monthly tables generated in the folder of the raw stake files, which
+# `parse_raw_data` must not read as stakes, whatever their version
+PROCESSED_PREFIX = "processed"
+
+
 def processed_features_stakes_path():
-    return os.path.join(iceland_path(), "processed.csv")
+    return os.path.join(
+        iceland_path(), f"{PROCESSED_PREFIX}_v{STAKE_TABLE_VERSION}.csv"
+    )
 
 
 def raw_data():
@@ -35,7 +44,14 @@ def raw_data():
 def parse_raw_data():
     # download_all_stakes_data()
 
-    all_files = glob.glob(os.path.join(iceland_path(), "*.csv"))
+    # One file per stake, the tables generated in the same folder excluded (the
+    # monthly tables of every version)
+    all_files = [
+        f
+        for f in glob.glob(os.path.join(iceland_path(), "*.csv"))
+        if os.path.abspath(f) != os.path.abspath(raw_stakes_path())
+        and not os.path.basename(f).startswith(PROCESSED_PREFIX)
+    ]
 
     # Initialize empty list to store dataframes
     dfs = []
@@ -307,5 +323,8 @@ def build_monthly_data(data, cfg):
     dataset.convert_to_monthly(
         vois_climate=vois_climate, vois_topographical=voi_topographical
     )
+
+    # The potential clear-sky direct radiation of the month of every row
+    dataset.data[PCSR_COLUMN] = pcsr_of_stakes(dataset.data)
 
     dataset.data.to_csv(processed_features_stakes_path(), index=False)

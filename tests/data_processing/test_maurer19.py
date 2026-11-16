@@ -207,3 +207,93 @@ def test_averaged_product_reproduces_the_paper():
     # Fig. 2A: mean -0.21 m w.e. per year; the regional mean of Table 1 is -0.22
     assert periods.mwe_per_year.mean() == pytest.approx(-0.21, abs=0.02)
     assert (periods.sigma_mwe_per_year > 0).all()
+
+
+def test_rgi50_ids_are_native_to_maurer19_with_hugonnet21():
+    assert isNativeGlacierId("RGI50-15.02201", "Maurer19_Hugonnet21")
+    assert not isNativeGlacierId("RGI60-15.02201", "Maurer19_Hugonnet21")
+
+
+def _windows(rows):
+    return pd.DataFrame(
+        [
+            {
+                "RGIId": g,
+                "name": g,
+                "y0": pd.Timestamp(start).year,
+                "y1": pd.Timestamp(end).year,
+                "n_years": 1.0,
+                "FROM_DATE": pd.Timestamp(start),
+                "TO_DATE": pd.Timestamp(end),
+                "mwe_per_year": rate,
+                "cumulative_mwe": rate,
+                "sigma_mwe_per_year": 0.1,
+                "n_rgi": 1,
+            }
+            for g, start, end, rate in rows
+        ]
+    )
+
+
+def test_target_with_hugonnet21_chains_the_two_windows(monkeypatch):
+    import data_processing.maurer19 as maurer19
+
+    maurer = _windows(
+        [
+            ("RGI50-15.00002", "1975-01-01", "2000-01-01", -0.3),
+            ("RGI50-14.00001", "1974-02-01", "2000-01-01", -0.2),
+        ]
+    ).drop(columns="n_rgi")
+    # The second glacier has no Hugonnet rate: it keeps its Maurer19 window only
+    hugonnet = _windows([("RGI50-15.00002", "2000-01-01", "2010-01-01", -0.4)])
+    monkeypatch.setattr(maurer19, "geodetic_target_Maurer19", lambda **kw: maurer)
+    monkeypatch.setattr(
+        maurer19, "geodetic_target_Maurer19_Hugonnet21", lambda **kw: hugonnet
+    )
+    target = maurer19.geodetic_target_Maurer19_with_Hugonnet21()
+    assert list(zip(target.RGIId, target.target, target.mwe_per_year)) == [
+        ("RGI50-14.00001", "Maurer19", -0.2),
+        ("RGI50-15.00002", "Maurer19", -0.3),
+        ("RGI50-15.00002", "Hugonnet21", -0.4),
+    ]
+
+    # A Hugonnet window starting before the switch of outlines is refused
+    early = _windows([("RGI50-15.00002", "1990-01-01", "2000-01-01", -0.4)])
+    monkeypatch.setattr(
+        maurer19, "geodetic_target_Maurer19_Hugonnet21", lambda **kw: early
+    )
+    with pytest.raises(AssertionError):
+        maurer19.geodetic_target_Maurer19_with_Hugonnet21()
+
+
+def test_maurer19_hugonnet21_grids_follow_the_outlines_of_their_epoch(monkeypatch):
+    import data_processing.gridded_utils as gridded_utils
+
+    assert gridded_utils.maurer19_hugonnet21_tree(1999) == "Maurer19"
+    assert gridded_utils.maurer19_hugonnet21_tree(2000) == "Maurer19_2000"
+
+    calls = []
+    monkeypatch.setattr(
+        gridded_utils,
+        "create_gridded_features_Maurer19",
+        lambda cfg, time_ranges, epoch, **kw: calls.append((epoch, time_ranges)),
+    )
+    maurer = (pd.Timestamp("1975-01-01"), END_DATE)
+    hugonnet = (END_DATE, pd.Timestamp("2010-01-01"))
+    gridded_utils.create_gridded_features_Maurer19_Hugonnet21(
+        None, {"RGI50-15.00002": [maurer, hugonnet], "RGI50-14.00001": [maurer]}
+    )
+    assert calls == [
+        (1975, {"RGI50-15.00002": [maurer], "RGI50-14.00001": [maurer]}),
+        (2000, {"RGI50-15.00002": [hugonnet]}),
+    ]
+    # A window spanning the switch of outlines has no grid
+    with pytest.raises(AssertionError):
+        gridded_utils.create_gridded_features_Maurer19_Hugonnet21(
+            None,
+            {
+                "RGI50-15.00002": [
+                    (pd.Timestamp("1990-01-01"), pd.Timestamp("2010-01-01"))
+                ]
+            },
+        )

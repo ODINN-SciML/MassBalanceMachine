@@ -1,0 +1,42 @@
+model:
+    grad_T:
+        layers:
+            - [16, 8, 8]
+            - [32, 16, 16]
+    bias_T:
+        layers:
+            - [32, 16, 8]
+            - [16, 8]
+    cor_acc:
+        layers:
+            - [32, 16, 8]
+            - [16, 8]
+    cor_abl:
+        layers:
+            - [32, 16, 8]
+            - [16, 8]
+    bias_cor:
+        layers:
+            - [32, 16, 8]
+            - [16, 8]
+    bias_cor_elev:
+        layers:
+            - [32, 16, 8]
+            - [16, 8]
+    sw_contrib:
+        layers:
+            - [32, 16, 8]
+            - [16, 8]
+training:
+    Nepochs:
+        - 2000
+    scheduler_step_size:
+        - 500
+    weight_decay:
+        - 0.0
+    lr:
+        - 0.001
+    NepochsGeo:
+        - 200
+    wGeoSchedule:
+        - [1e-3, 1e-2]

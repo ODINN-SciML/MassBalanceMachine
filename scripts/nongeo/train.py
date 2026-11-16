@@ -3,6 +3,11 @@ import sys, os
 mbm_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 sys.path.append(mbm_path)  # Add root of repo to import MBM
 
+# No GUI: with the Tk backend, matplotlib/Tk objects garbage-collected from a background
+# thread (TensorBoard writer, DataLoader) crash the interpreter with Tcl_AsyncDelete
+import matplotlib
+
+matplotlib.use("Agg")
 import warnings
 import matplotlib.pyplot as plt
 import massbalancemachine as mbm
@@ -20,6 +25,8 @@ from torch.utils.tensorboard import SummaryWriter
 from scripts.common import loadParams
 from scripts.nongeo.utils import (
     getMetaData,
+    setNormalizationBounds,
+    setClimateSource,
     getDatasets,
     buildArgs,
     trainValData,
@@ -80,6 +87,8 @@ elif "wgms" in sourceData:
     )
 else:
     raise ValueError(f"source_data={sourceData} is unknown")
+setNormalizationBounds(cfg, params)
+setClimateSource(cfg, params)
 
 
 if torch.cuda.is_available():

@@ -106,3 +106,18 @@ def test_crosswalk_maps_every_rgi_outline_once():
     assert dict(zip(table.RGIId, table.custom_id)) == expected
     assert (table.groupby("custom_id").frac_custom.sum().round(6) == 1).all()
     assert table_RGI62_to_Hagg12(region_id=12).empty
+
+
+def test_named_periods_are_kept():
+    periods = {"HTF": [[1959, 1970], [1989, 1999]], "NSF": [[1979, 1990]]}
+    target = geodetic_target_Hagg12(periods=periods)
+    assert list(zip(target.RGIId, target.y0, target.y1)) == [
+        ("HTF", 1959, 1970),
+        ("HTF", 1989, 1999),
+        ("NSF", 1979, 1990),
+    ]
+    assert list(
+        geodetic_target_Hagg12(periods=periods, glacier_ids_to_keep=["NSF"]).RGIId
+    ) == ["NSF"]
+    with pytest.raises(AssertionError, match="No eligible period"):
+        geodetic_target_Hagg12(periods={"HTF": [[1960, 1970]]})

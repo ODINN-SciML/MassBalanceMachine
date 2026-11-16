@@ -20,7 +20,11 @@ import pandas as pd
 
 import config
 from data_processing.climate_data_download import path_climate_data
-from data_processing.utils.hydro_year import months_hydro_year, _rebuild_month_index
+from data_processing.utils.hydro_year import (
+    months_hydro_year,
+    _rebuild_month_index,
+    is_spinup_token,
+)
 
 
 def get_climate_features_(
@@ -530,6 +534,7 @@ def _create_date_range(
     year: int,
     start_month: str,
     end_month: str,
+    start_years_back: int = 1,
 ) -> pd.DatetimeIndex:
     """Create a date range for a given hydrological year based on start_month and end_month."""
     if pd.isna(year):
@@ -537,8 +542,9 @@ def _create_date_range(
     year = int(year)
     # Period from 2000-10-01 to 2001-09-30 corresponds to the 2001 hydrological year
 
-    # start month is always in the PREVIOUS year
-    start = f"{year - 1}-{start_month}-01"
+    # start month is in the PREVIOUS year, or with the spin-up tokens of the surface
+    # type (from '_oct', see `utils.hydro_year.spinup_tokens`) the one before
+    start = f"{year - start_years_back}-{start_month}-01"
     # end month can be either the CURRENT year, or the NEXT one depending on the head padding
     if int(end_month) <= 6:
         # If end month is before June this is likely that the measurement associated with hydrological year Y spans after (Y-1)-12-31
@@ -566,16 +572,20 @@ def _create_month_range(months_tail_pad, months_head_pad):
 
     start_month = token_to_num(start_token)
     end_month = token_to_num(end_token)
+    # The spin-up token '_m' is month m of the hydrological year YEAR - 1
+    start_years_back = 1 + int(is_spinup_token(start_token) and int(start_month) >= 10)
 
-    return start_month, end_month
+    return start_month, end_month, start_years_back
 
 
 def _add_date_range(df: pd.DataFrame, months_tail_pad, months_head_pad) -> pd.DataFrame:
-    start_month, end_month = _create_month_range(months_tail_pad, months_head_pad)
+    start_month, end_month, start_years_back = _create_month_range(
+        months_tail_pad, months_head_pad
+    )
 
     return df.assign(
         range_date=df["YEAR"].map(
-            lambda y: _create_date_range(y, start_month, end_month)
+            lambda y: _create_date_range(y, start_month, end_month, start_years_back)
         )
     )
 
@@ -710,6 +720,15 @@ def _process_climate_data(
     result_df.columns = _generate_climate_variable_names(
         ds_climate, months_tail_pad, months_head_pad
     )
+    # The spin-up months of the surface type may precede the climate data (from the
+    # 1st of October two years before YEAR): the nearest month would stand in for
+    # them, they are left missing instead
+    month_list, _ = _rebuild_month_index(months_head_pad, months_tail_pad)
+    outside = date_array < start_climate
+    for j, token in enumerate(month_list):
+        if is_spinup_token(token) and outside[:, j].any():
+            columns = [f"{v}_{token}" for v in ds_climate.keys()]
+            result_df.loc[outside[:, j], columns] = np.nan
     return result_df
 
 

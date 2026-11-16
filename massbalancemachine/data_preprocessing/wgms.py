@@ -9,18 +9,30 @@ from data_processing.wgms import wgms_folder, load_processed_wgms
 from data_processing.Product import Product
 import config
 from data_processing.glacier_utils import get_region_name
+from data_processing.potential_radiation import PCSR_COLUMN, pcsr_of_stakes
+
+# Version of the content of the monthly stake tables, part of their file name (here,
+# in `data_preprocessing.stakes` and `data_preprocessing.iceland`): `Product` only
+# checks that a file exists, so a table built before a change of its columns would
+# otherwise be read as it is. 2: `pcsr`.
+STAKE_TABLE_VERSION = 2
 
 
 def processed_stakes_folder():
     return os.path.join(wgms_folder(), "processed")
 
 
-def processed_features_stakes_path(rgi_region):
+def processed_features_stakes_path(rgi_region, spinup=False):
+    """The monthly stake table of `rgi_region`, and with `spinup` the one with the
+    spin-up rows of the surface type (see `transform_to_monthly`)."""
+    suffix = f"_v{STAKE_TABLE_VERSION}" + ("_sfc" if spinup else "")
     if rgi_region is None:
-        return os.path.join(processed_stakes_folder(), "all.csv")
+        return os.path.join(processed_stakes_folder(), f"all{suffix}.csv")
     else:
         assert isinstance(rgi_region, int)
-        return os.path.join(processed_stakes_folder(), f"region_{rgi_region}.csv")
+        return os.path.join(
+            processed_stakes_folder(), f"region_{rgi_region}{suffix}.csv"
+        )
 
 
 def default_monthly_config():
@@ -40,52 +52,46 @@ def default_monthly_config():
     )
 
 
-def load_monthly_data(rgi_region, cfg=None):
+def load_monthly_data(rgi_region, cfg=None, spinup=False):
     """The monthly stake table of an RGI region, one row per month of every
     measurement, built from the WGMS database on first use and read from the data tree
-    afterwards. `cfg` defaults to `default_monthly_config()`."""
-    path = processed_features_stakes_path(rgi_region)
+    afterwards. `cfg` defaults to `default_monthly_config()`. With `spinup`, the
+    table also has the spin-up rows of the surface type, see
+    `data_processing.transform_to_monthly.transform_to_monthly`; it is a table of its
+    own."""
+    path = processed_features_stakes_path(rgi_region, spinup)
     product = Product(path)
     if not product.is_up_to_date():
         build_monthly_data(
             load_processed_wgms(rgi_region=rgi_region),
             default_monthly_config() if cfg is None else cfg,
             rgi_region,
+            spinup=spinup,
         )
         product.gen_chk()
     return pd.read_csv(path)
 
 
-def build_monthly_data(data, cfg, rgi_region=None):
+def build_monthly_data(data, cfg, rgi_region=None, spinup=False):
 
     assert (
         rgi_region is not None
     ), "For the moment only one single RGI region can be used at a time with the WGMS data."
 
-    # Correct coordinates before they are used to assign the RGIId, hence the selection by stake name and position
-
-    # RGI60-15
-    # Rikha Samba: latitude of S1/S2/S3/S5 shifted by ~-0.0063° (~700 m south) in 2018-2021 compared to 2012-2017 and 2024 at the same elevation, which puts S2/S3 off the glacier and S1 on a neighbouring glacier
-    mask_sel = (
-        data.WGMS_ID.isin(
-            ["S1_2017", "S1_2018", "S1_2019", "S2_2016", "S2_2017", "S2_2018"]
-            + ["S3_2016", "S3_2017", "S3_2018", "S5_2015", "S5_2017"]
-        )
-        & data.YEAR.isin([2018, 2019, 2021])
-        & data.POINT_LAT.between(28.79, 28.84)
-        & data.POINT_LON.between(83.48, 83.51)
+    points_to_monthly(
+        prepare_points(data, rgi_region),
+        cfg,
+        rgi_region,
+        processed_features_stakes_path(rgi_region, spinup),
+        spinup=spinup,
     )
-    data.loc[mask_sel, "POINT_LAT"] = data[mask_sel].POINT_LAT + 0.0063
 
-    # Yala 2025 S6_1124: latitude 28.3847 is 15 km north of the glacier, all the other positions of S6 are at 28.2346
-    mask_sel = (
-        (data.WGMS_ID == "S6_1124")
-        & (data.YEAR == 2025)
-        & data.POINT_LON.between(85.61, 85.63)
-    )
-    data.loc[mask_sel, "POINT_LAT"] = 28.2347
 
-    data = get_rgi(data=data, region=rgi_region)
+def filter_points(data):
+    """Drop the stake measurements that MBM cannot use, whatever their source: no RGIId,
+    no elevation, unrealistic balance, time window too short or too long to be padded,
+    or before 1950 (not covered by ERA5-Land). Adds the columns FROM_DATE_DT,
+    TO_DATE_DT and MONTH_DIFF."""
 
     # Drop measurements where no RGIId was found
     data = data[data.RGIId.notnull()]
@@ -116,6 +122,64 @@ def build_monthly_data(data, cfg, rgi_region=None):
     # Filter out measurements with period too small
     data = data[data.MONTH_DIFF > 0]
     data = data[(data.TO_DATE_DT - data.FROM_DATE_DT).dt.days >= 30]
+
+    # Discard points before 1950 since ERA5 Land does not cover this period
+    data = data[data.YEAR > 1950]
+
+    return data
+
+
+def prepare_points(data, rgi_region):
+    """The WGMS stake measurements of `rgi_region` (table of `load_processed_wgms`)
+    corrected, assigned to their RGI glacier and filtered with `filter_points`."""
+
+    # Drop the copies of a measurement that WGMS lists several times, identical in every
+    # field but their record ID: a stake shared by several WGMS glaciers (Hofsjökull
+    # summit stake H18 under HOFSJOEKULL E, N and SW; Adler and Findelen stakes 200 and
+    # 600 in 2021) or a measurement submitted twice (Grand Etret and Garabashi 2024, several
+    # Swiss glaciers in 2023, Lemon Creek 2014).
+    data = data[
+        ~data.duplicated(
+            subset=[
+                "WGMS_ID",
+                "YEAR",
+                "FROM_DATE",
+                "TO_DATE",
+                "PERIOD",
+                "POINT_BALANCE",
+                "POINT_LAT",
+                "POINT_LON",
+                "POINT_ELEVATION",
+            ]
+        )
+    ]
+
+    # Correct coordinates before they are used to assign the RGIId, hence the selection by stake name and position
+
+    # RGI60-15
+    # Rikha Samba: latitude of S1/S2/S3/S5 shifted by ~-0.0063° (~700 m south) in 2018-2021 compared to 2012-2017 and 2024 at the same elevation, which puts S2/S3 off the glacier and S1 on a neighbouring glacier
+    mask_sel = (
+        data.WGMS_ID.isin(
+            ["S1_2017", "S1_2018", "S1_2019", "S2_2016", "S2_2017", "S2_2018"]
+            + ["S3_2016", "S3_2017", "S3_2018", "S5_2015", "S5_2017"]
+        )
+        & data.YEAR.isin([2018, 2019, 2021])
+        & data.POINT_LAT.between(28.79, 28.84)
+        & data.POINT_LON.between(83.48, 83.51)
+    )
+    data.loc[mask_sel, "POINT_LAT"] = data[mask_sel].POINT_LAT + 0.0063
+
+    # Yala 2025 S6_1124: latitude 28.3847 is 15 km north of the glacier, all the other positions of S6 are at 28.2346
+    mask_sel = (
+        (data.WGMS_ID == "S6_1124")
+        & (data.YEAR == 2025)
+        & data.POINT_LON.between(85.61, 85.63)
+    )
+    data.loc[mask_sel, "POINT_LAT"] = 28.2347
+
+    data = get_rgi(data=data, region=rgi_region)
+
+    data = filter_points(data)
 
     # Filter out specific measurements with a time window that is too large and that prevent from correctly computing the padding
     # RGI60-11
@@ -343,14 +407,65 @@ def build_monthly_data(data, cfg, rgi_region=None):
     )
     data = data[~mask_sel]
 
-    # Discard points before 1950 since ERA5 Land does not cover this period
-    data = data[data.YEAR > 1950]
+    # RGI60-08
+    # Winter balances dated from one autumn survey to the next (11-12 months) while their
+    # values are those of a winter (0.6-1.2 m w.e. at median): the end date is that of the
+    # annual survey and the date of the spring survey is not known
+    mask_sel = (
+        data.RGIId.isin(
+            ["RGI60-08.00006", "RGI60-08.00188", "RGI60-08.00199", "RGI60-08.00213"]
+        )
+        & data.YEAR.isin([2023, 2024])
+        & (data.PERIOD == "winter")
+        & (data.MONTH_DIFF >= 11)
+    )
+    data = data[~mask_sel]  # Riukojietna, Rabots, Mårma, Storglaciären
+
+    # Annual balance ending on the date of the winter survey (2023-03-28): it ends at the
+    # start of the annual balance of 2024
+    mask_sel = (
+        (data.RGIId == "RGI60-08.00213")
+        & (data.YEAR == 2023)
+        & (data.PERIOD == "annual")
+        & (data.TO_DATE == "20230328")
+    )
+    data.loc[mask_sel, "TO_DATE_DT"] = pd.Timestamp("2023-09-03")
+    data.loc[mask_sel, "TO_DATE"] = "20230903"
+    data.loc[mask_sel, "MONTH_DIFF"] = 12  # Storglaciären
+
+    # Annual balance starting on the date of the winter survey (2022-04-14): it starts at
+    # the end of the annual balance of 2021
+    mask_sel = (
+        (data.RGIId == "RGI60-08.00006")
+        & (data.YEAR == 2022)
+        & (data.PERIOD == "annual")
+        & (data.FROM_DATE == "20220414")
+    )
+    data.loc[mask_sel, "FROM_DATE_DT"] = pd.Timestamp("2021-09-11")
+    data.loc[mask_sel, "FROM_DATE"] = "20210911"
+    data.loc[mask_sel, "MONTH_DIFF"] = 12  # Riukojietna
+
+    # Measurements labelled as index, a winter (ending in May-June) and an annual balance
+    # (ending in September-October) every year, as the NVE copies of the same measurements
+    mask_sel = (data.RGIId == "RGI60-08.00868") & (data.PERIOD == "index")
+    data.loc[mask_sel & (data.MONTH_DIFF <= 8), "PERIOD"] = "winter"  # Juvfonne
+    data.loc[mask_sel & (data.MONTH_DIFF > 8), "PERIOD"] = "annual"  # Juvfonne
 
     # User does not need this
-    data = data.drop(columns=["WGMS_ID"])
+    return data.drop(columns=["WGMS_ID"])
+
+
+def points_to_monthly(data, cfg, rgi_region, path, spinup=False):
+    """Add the topographical and climate features to the stake measurements `data` of
+    `rgi_region` (filtered with `filter_points`), convert them to the monthly table and
+    write it to `path`. With `spinup`, the table has the spin-up rows of the surface
+    type: the months from the 1st of October to the start of every measurement, at
+    its location (see `data_processing.transform_to_monthly.transform_to_monthly`)."""
 
     region_name = get_region_name(rgi_region)
-    dataset = Dataset(cfg, data=data, region_name=region_name, region_id=rgi_region)
+    dataset = Dataset(
+        cfg, data=data, region_name=region_name, region_id=rgi_region, spinup=spinup
+    )
 
     voi_topographical = ["aspect", "slope", "svf"]
 
@@ -384,8 +499,12 @@ def build_monthly_data(data, cfg, rgi_region=None):
 
     # For each record, convert to a monthly time resolution
     dataset.convert_to_monthly(
-        vois_climate=vois_climate, vois_topographical=voi_topographical
+        vois_climate=vois_climate,
+        vois_topographical=voi_topographical,
     )
 
-    os.makedirs(processed_stakes_folder(), exist_ok=True)
-    dataset.data.to_csv(processed_features_stakes_path(rgi_region), index=False)
+    # The potential clear-sky direct radiation of the month of every row
+    dataset.data[PCSR_COLUMN] = pcsr_of_stakes(dataset.data)
+
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    dataset.data.to_csv(path, index=False)

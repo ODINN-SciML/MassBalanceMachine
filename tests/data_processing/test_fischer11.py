@@ -136,3 +136,13 @@ def test_ties_on_length_go_to_the_lowest_sigma_or_the_most_recent(monkeypatch):
 def test_an_unknown_tie_break_is_refused():
     with pytest.raises(AssertionError):
         geodetic_target_Fischer11(multi_period=False, tie_break="longest")
+
+
+def test_named_periods_are_kept():
+    target = geodetic_target_Fischer11(periods={"2125": [[1969, 1979]]})
+    assert list(zip(target.RGIId, target.y0, target.y1)) == [("2125", 1969, 1979)]
+    with pytest.raises(AssertionError, match="No eligible period"):
+        geodetic_target_Fischer11(periods={"2125": [[1969, 1980]]})
+    # still subject to the other criteria
+    with pytest.raises(AssertionError, match="No eligible period"):
+        geodetic_target_Fischer11(min_period_years=11, periods={"2125": [[1969, 1979]]})

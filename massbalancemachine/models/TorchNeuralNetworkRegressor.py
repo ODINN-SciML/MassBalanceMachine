@@ -8,8 +8,153 @@ import copy
 
 from data_processing.Dataset import Normalizer
 
+# Hidden-layer activations of the precipitation correction networks (bias_cor and
+# bias_cor_elev), chosen per network by its `activation` key in the model config
+ACTIVATIONS = {"relu": nn.ReLU, "leaky_relu": nn.LeakyReLU}
+
+
+def _activation(netParams, name):
+    """Activation class of the network `name` of the model config: `activation`, "relu"
+    (default) or "leaky_relu". With ReLU, the units of the small last hidden layer can all
+    die, which leaves the correction constant."""
+    key = netParams.get("activation", "relu")
+    assert (
+        key in ACTIVATIONS
+    ), f"{name}.activation must be one of {sorted(ACTIVATIONS)}, got {key!r}."
+    return ACTIVATIONS[key]
+
+
+class FourierFeatures(nn.Module):
+    """Random Fourier features of the normalized inputs of a network (Tancik et al.,
+    2020): x -> [x, sin(2 pi x B), cos(2 pi x B)], with B a fixed (not trained) matrix of
+    n_frequencies columns drawn from N(0, sigma^2) with `seed`. sigma is in cycles per unit
+    of normalized input: a feature normalized over [lower, upper] is resolved down to
+    about (upper - lower) / sigma, so that a larger sigma lets the network that follows
+    vary over shorter distances. B is a buffer, saved with the checkpoint."""
+
+    def __init__(self, n_inputs, n_frequencies, sigma, seed=0, include_input=True):
+        super().__init__()
+        generator = torch.Generator().manual_seed(int(seed))
+        self.register_buffer(
+            "B",
+            float(sigma) * torch.randn(n_inputs, n_frequencies, generator=generator),
+        )
+        self.include_input = include_input
+        self.n_out = 2 * n_frequencies + (n_inputs if include_input else 0)
+
+    def forward(self, x):
+        projection = 2 * np.pi * x @ self.B
+        features = [torch.sin(projection), torch.cos(projection)]
+        if self.include_input:
+            features.insert(0, x)
+        return torch.cat(features, dim=1)
+
+
+FOURIER_FEATURES_KEYS = {"n_frequencies", "sigma", "seed", "include_input"}
+
+
+def _input_encoding(netParams, n_inputs, name):
+    """Layers that encode the inputs of the network `name` before its first linear
+    layer, and the number of features they give. Optional `fourier_features` of the
+    network config (`FourierFeatures`, keys n_frequencies and sigma, and seed (0) and
+    include_input (true)); without it, none: the network reads its inputs as they are.
+    """
+    options = netParams.get("fourier_features")
+    if options is None:
+        return [], n_inputs
+    unknown = set(options) - FOURIER_FEATURES_KEYS
+    assert not unknown, (
+        f"Unknown {name}.fourier_features options {sorted(unknown)}, expected some of "
+        f"{sorted(FOURIER_FEATURES_KEYS)}."
+    )
+    for key in ("n_frequencies", "sigma"):
+        assert key in options, f"{name}.fourier_features needs {key}."
+    assert (
+        int(options["n_frequencies"]) > 0 and float(options["sigma"]) > 0
+    ), f"{name}.fourier_features needs n_frequencies > 0 and sigma > 0."
+    encoding = FourierFeatures(
+        n_inputs,
+        int(options["n_frequencies"]),
+        float(options["sigma"]),
+        seed=options.get("seed", 0),
+        include_input=bool(options.get("include_input", True)),
+    )
+    return [encoding], encoding.n_out
+
+
+# Default ratio of the melt factor of ice to the one of snow of the surface type
+# (`sfc_type`). PyGEM uses ddf_snow / ddf_ice = 0.7 (`ddfsnow_iceratio`). OGGM's
+# SfcTypeTIModel starts fresh snow at half the ice melt factor and ages it towards
+# ice, melt_f(t) = melt_f_ice * (1 - 0.5 * exp(-t / 1 yr)): the winter snow melted in
+# summer, 3 to 9 months old, melts at 0.6 to 0.75 of ice. The model has no aging, so
+# its snow is the seasonal snow at the time it melts, about 1 / 0.7 of ice for both.
+DEFAULT_ICE_RATIO = 1 / 0.7
+
+# Conversion of the downward shortwave radiation `ssrd` of ERA5-Land (J m-2 per day,
+# monthly means of the daily accumulations) into the depth of ice or snow (m w.e.)
+# it could melt in a month: days per month / (latent heat of fusion * density of
+# water)
+DAYS_PER_MONTH = 30.4
+LATENT_HEAT_FUSION = 3.34e5  # J kg-1
+WATER_DENSITY = 1000.0  # kg m-3
+SSRD_TO_MELT = DAYS_PER_MONTH / (LATENT_HEAT_FUSION * WATER_DENSITY)
+
+# Inputs of cor_abl that the model derives from its own inputs rather than reads from
+# the data: name -> (model inputs it needs, default normalization bounds). The bounds
+# can be overridden with the `normalization` block of the params.
+#   wind_speed   sqrt(u10^2 + v10^2), m/s: the speed of the monthly MEAN wind vector
+#                of ERA5-Land, much lower than the monthly mean speed where the
+#                direction varies (0.4 m/s median, 1.5 at most over the stakes of
+#                region 11), hence the bounds [0, 2]
+DERIVED_COR_ABL_INPUTS = {"wind_speed": (("u10", "v10"), (0.0, 2.0))}
+
+
+def _init_bounded_scalar(module, name, spec, default, default_bounds, label):
+    """Register on `module` a scalar of the model that is either fixed or learned.
+
+    `spec` is {value, trainable, min, max}. A fixed scalar is the non-persistent
+    buffer `<name>_value`: not saved in the checkpoints, it is always the value of
+    the params. A learned one is the parameter `<name>_raw`, the scalar being
+    min + (max - min) * sigmoid(raw), started at `value`. `default` is the value
+    and `default_bounds` the (min, max) when `spec` does not give them.
+    """
+    spec = spec or {}
+    unknown = set(spec) - {"value", "trainable", "min", "max"}
+    assert not unknown, f"Unknown {label} options: {sorted(unknown)}."
+    value = float(spec.get("value", default))
+    trainable = bool(spec.get("trainable", False))
+    setattr(module, f"{name}_trainable", trainable)
+    if trainable:
+        lower = float(spec.get("min", default_bounds[0]))
+        upper = float(spec.get("max", default_bounds[1]))
+        assert (
+            lower < value < upper
+        ), f"{label} must satisfy min < value < max, got min={lower}, value={value}, max={upper}."
+        setattr(module, f"{name}_min", lower)
+        setattr(module, f"{name}_max", upper)
+        frac = (value - lower) / (upper - lower)
+        setattr(module, f"{name}_raw", nn.Parameter(torch.logit(torch.ones(1) * frac)))
+    else:
+        assert (
+            "min" not in spec and "max" not in spec
+        ), f"{label}.min and max only apply with trainable: true."
+        module.register_buffer(f"{name}_value", torch.ones(1) * value, persistent=False)
+    return value
+
+
+def _bounded_scalar(module, name):
+    """Value of a scalar registered by `_init_bounded_scalar`."""
+    if not getattr(module, f"{name}_trainable"):
+        return getattr(module, f"{name}_value")
+    lower, upper = getattr(module, f"{name}_min"), getattr(module, f"{name}_max")
+    return lower + (upper - lower) * torch.sigmoid(getattr(module, f"{name}_raw"))
+
 
 class TILikeModel(nn.Module):
+    # Whether the forward pass takes the time order of the rows, `forward(inputs,
+    # sfc)`: only a model with a surface type, see `TILikeSfcModel`
+    needs_time_order = False
+
     def __init__(self, modelParams, normalizing_bounds, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.input_labels = modelParams["inputs"]
@@ -109,25 +254,66 @@ class TILikeModel(nn.Module):
         self.ind_inp_cor_acc = sorted(
             [self.input_labels.index(inp) for inp in self.inp_cor_acc]
         )
+        # The inputs of cor_abl read from the model inputs, in the order of the model
+        # inputs, then those derived from them (DERIVED_COR_ABL_INPUTS), in the order
+        # of the params
+        self.cor_abl_derived = [
+            inp for inp in self.inp_cor_abl if inp in DERIVED_COR_ABL_INPUTS
+        ]
         self.ind_inp_cor_abl = sorted(
-            [self.input_labels.index(inp) for inp in self.inp_cor_abl]
+            [
+                self.input_labels.index(inp)
+                for inp in self.inp_cor_abl
+                if inp not in DERIVED_COR_ABL_INPUTS
+            ]
         )
-        self.beta1 = 10.0
-        self.beta2 = 0.0049
-        init_tau_P_s = 1.5
+        for inp in self.cor_abl_derived:
+            needed = DERIVED_COR_ABL_INPUTS[inp][0]
+            missing = [c for c in needed if c not in self.input_labels]
+            assert (
+                not missing
+            ), f"The cor_abl input {inp} needs {missing} in the model inputs."
+        # Scaling of the accumulation term
+        self.beta1 = float(modelParams.get("beta1", 10.0))
+        assert self.beta1 > 0, f"beta1 must be positive, got {self.beta1}."
+        # Scaling of the ablation term, melt = beta2 * cor_abl * PDD in m w.e. per month.
+        # With beta2 = 1, cor_abl is the degree-day factor in m w.e. K-1 month-1
+        self.beta2 = float(modelParams.get("beta2", 0.0049))
+        assert self.beta2 > 0, f"beta2 must be positive, got {self.beta2}."
+        # Range of the slope of the snow fraction sigmoid,
+        # slope = s_min + (s_max - s_min) * (tanh(tau_P_s) + 1) / 2
+        snow_slope_params = modelParams.get("snow_slope", {})
+        self.snow_slope_min = float(snow_slope_params.get("min", 0.0))
+        self.snow_slope_max = float(snow_slope_params.get("max", 4.0))
+        init_tau_P_s = float(snow_slope_params.get("init", 1.5))
+        assert (
+            0.0 <= self.snow_slope_min < init_tau_P_s < self.snow_slope_max
+        ), f"The snow slope must satisfy 0 <= min < init < max, got min={self.snow_slope_min}, init={init_tau_P_s}, max={self.snow_slope_max}."
         init_tau_P_c = 1.0
         init_beta_pdd = 1.0
         init_lapse_rate_P_cor = 0.1
         self.tau_P_s = torch.nn.Parameter(
-            torch.arctanh((torch.ones(1) * init_tau_P_s / 2) - 1.1)
+            torch.arctanh(
+                torch.ones(1)
+                * (
+                    2
+                    * (init_tau_P_s - self.snow_slope_min)
+                    / (self.snow_slope_max - self.snow_slope_min)
+                    - 1
+                )
+            )
         )
         self.tau_P_c = torch.nn.Parameter(torch.ones(1) * init_tau_P_c)
         self.beta_pdd = torch.nn.Parameter(
             torch.arctanh((torch.ones(1) * init_beta_pdd / 2) - 1)
         )
-        self.tau_P_s.requires_grad = True
-        self.tau_P_c.requires_grad = True
-        self.beta_pdd.requires_grad = True
+        # Whether each scalar is optimized, otherwise it keeps its initial value
+        trainable = modelParams.get("trainable", {})
+        unknown = set(trainable) - {"tau_P_c", "tau_P_s", "beta_pdd"}
+        assert not unknown, f"Unknown trainable parameters: {sorted(unknown)}."
+        self.tau_P_s.requires_grad = bool(trainable.get("tau_P_s", True))
+        self.tau_P_c.requires_grad = bool(trainable.get("tau_P_c", True))
+        self.beta_pdd.requires_grad = bool(trainable.get("beta_pdd", True))
         self.lapse_rate_P_cor = torch.nn.Parameter(
             torch.arctanh((torch.ones(1) * (init_lapse_rate_P_cor / 0.2) * 2) - 1)
         )  # 0.2*(tanh(x)+1)/2
@@ -144,6 +330,51 @@ class TILikeModel(nn.Module):
         # Range of the temperature bias, bias = b_max * tanh
         self.b_max = float(modelParams.get("bias_T", {}).get("b_max", 5.0))
         assert self.b_max > 0, f"b_max must be positive, got {self.b_max}."
+        # Range of the temperature lapse rate, alpha = max - (max - min) * sigmoid, in
+        # °C/km. The default range is [-15, -2]
+        default_lapse_rate = (-15.0, -2.0)
+        grad_T_bnds = modelParams.get("grad_T", {})
+        self.lapse_rate_min = float(grad_T_bnds.get("min", default_lapse_rate[0]))
+        self.lapse_rate_max = float(grad_T_bnds.get("max", default_lapse_rate[1]))
+        assert (
+            self.lapse_rate_min < self.lapse_rate_max
+        ), f"The lapse rate range must satisfy min < max, got [{self.lapse_rate_min}, {self.lapse_rate_max}]."
+        # Range of the shortwave radiation contribution, R_sw = R_sw_max * sigmoid,
+        # see `_shortwave`
+        sw_params = modelParams.get("sw_contrib", {})
+        self.R_sw_max = float(sw_params.get("max", 1.0))
+        assert (
+            self.R_sw_max > 0
+        ), f"The maximum of R_sw must be positive, got {self.R_sw_max}."
+        # With scale_by_ssrd, the network gives the fraction of the downward
+        # shortwave radiation that melts snow, R_sw_max * sigmoid, and R_sw is that
+        # fraction of the melt `ssrd` could produce
+        self.sw_scale_by_ssrd = bool(sw_params.get("scale_by_ssrd", False))
+        if self.sw_scale_by_ssrd:
+            assert (
+                "ssrd" in self.input_labels
+            ), "sw_contrib.scale_by_ssrd needs ssrd in the model inputs."
+            self.ind_ssrd_sw = self.input_labels.index("ssrd")
+        # Optional temperature gate of R_sw: sigmoid((T - threshold) / width), T the
+        # downscaled monthly temperature (°C), with its own threshold, distinct from
+        # the 0 °C of the PDD
+        gate = sw_params.get("gate")
+        self.sw_gate = gate is not None
+        if self.sw_gate:
+            unknown = set(gate) - {"threshold", "width"}
+            assert not unknown, f"Unknown sw_contrib.gate options: {sorted(unknown)}."
+            _init_bounded_scalar(
+                self,
+                "sw_gate_threshold",
+                gate.get("threshold"),
+                default=0.0,
+                default_bounds=(-5.0, 1.0),
+                label="sw_contrib.gate.threshold",
+            )
+            self.sw_gate_width = float(gate.get("width", 1.0))
+            assert (
+                self.sw_gate_width > 0
+            ), f"sw_contrib.gate.width must be positive, got {self.sw_gate_width}."
 
         if "bias_cor" in modelParams:
             self.inp_bias_cor = modelParams["bias_cor"]["inputs"]
@@ -152,15 +383,19 @@ class TILikeModel(nn.Module):
             )
 
             bias_cor_params = modelParams["bias_cor"]
-            bias_cor = [nn.Linear(len(self.inp_bias_cor), bias_cor_params["layers"][0])]
+            act = _activation(bias_cor_params, "bias_cor")
+            encoding, n_features = _input_encoding(
+                bias_cor_params, len(self.inp_bias_cor), "bias_cor"
+            )
+            bias_cor = encoding + [nn.Linear(n_features, bias_cor_params["layers"][0])]
             for i in range(len(bias_cor_params["layers"]) - 1):
-                bias_cor.append(nn.ReLU())
+                bias_cor.append(act())
                 bias_cor.append(
                     nn.Linear(
                         bias_cor_params["layers"][i], bias_cor_params["layers"][i + 1]
                     )
                 )
-            bias_cor.append(nn.ReLU())
+            bias_cor.append(act())
             bias_cor.append(nn.Linear(bias_cor_params["layers"][-1], 1))
             self.bias_cor = nn.Sequential(*bias_cor)
         else:
@@ -180,20 +415,21 @@ class TILikeModel(nn.Module):
             )
 
             bias_cor_elev_params = modelParams["bias_cor_elev"]
+            act = _activation(bias_cor_elev_params, "bias_cor_elev")
             bias_cor_elev = [
                 nn.Linear(
                     len(self.inp_bias_cor_elev), bias_cor_elev_params["layers"][0]
                 )
             ]
             for i in range(len(bias_cor_elev_params["layers"]) - 1):
-                bias_cor_elev.append(nn.ReLU())
+                bias_cor_elev.append(act())
                 bias_cor_elev.append(
                     nn.Linear(
                         bias_cor_elev_params["layers"][i],
                         bias_cor_elev_params["layers"][i + 1],
                     )
                 )
-            bias_cor_elev.append(nn.ReLU())
+            bias_cor_elev.append(act())
             bias_cor_elev.append(nn.Linear(bias_cor_elev_params["layers"][-1], 1))
             self.bias_cor_elev = nn.Sequential(*bias_cor_elev)
         else:
@@ -230,7 +466,10 @@ class TILikeModel(nn.Module):
             self.grad_T = None
         if "bias_T" in modelParams:
             bias_T_params = modelParams["bias_T"]
-            bias_T = [nn.Linear(len(self.inp_bias_T), bias_T_params["layers"][0])]
+            encoding, n_features = _input_encoding(
+                bias_T_params, len(self.inp_bias_T), "bias_T"
+            )
+            bias_T = encoding + [nn.Linear(n_features, bias_T_params["layers"][0])]
             for i in range(len(bias_T_params["layers"]) - 1):
                 bias_T.append(nn.ReLU())
                 bias_T.append(
@@ -318,8 +557,103 @@ class TILikeModel(nn.Module):
             )
         cor_abl.append(nn.ReLU())
         cor_abl.append(nn.Linear(cor_abl_params["layers"][-1], 1))
-        cor_abl.append(nn.Softplus())
         self.cor_abl = nn.Sequential(*cor_abl)
+        # Output of the ablation factor: "softplus" (unbounded, the default) or
+        # "sigmoid", cor_abl = min + (max - min) * sigmoid, within prescribed bounds
+        self.cor_abl_output = cor_abl_params.get("output", "softplus")
+        assert self.cor_abl_output in (
+            "softplus",
+            "sigmoid",
+        ), f"cor_abl.output must be 'softplus' or 'sigmoid', got {self.cor_abl_output}."
+        if self.cor_abl_output == "sigmoid":
+            assert (
+                "min" in cor_abl_params and "max" in cor_abl_params
+            ), "cor_abl.output 'sigmoid' needs the bounds cor_abl.min and cor_abl.max."
+            self.cor_abl_min = float(cor_abl_params["min"])
+            self.cor_abl_max = float(cor_abl_params["max"])
+            assert (
+                0.0 <= self.cor_abl_min < self.cor_abl_max
+            ), f"The ablation factor range must satisfy 0 <= min < max, got [{self.cor_abl_min}, {self.cor_abl_max}]."
+        else:
+            assert (
+                "min" not in cor_abl_params and "max" not in cor_abl_params
+            ), "cor_abl.min and cor_abl.max only apply with cor_abl.output 'sigmoid'."
+
+        assert self.needs_time_order or "sfc_type" not in modelParams, (
+            "A model with a surface type (sfc_type) is a TILikeSfcModel, see "
+            "`createModel`."
+        )
+
+    def _mass_balance(self, P_solid, PDD, cor_acc, cor_abl, R_sw):
+        """Monthly mass balance (m w.e.) from the terms of the forward pass."""
+        return self.beta1 * cor_acc * P_solid - self.beta2 * cor_abl * PDD - R_sw
+
+    def _shortwave(self, inputs, T_downscaled):
+        """Shortwave radiation contribution R_sw (m w.e. per month) of the normalized
+        inputs, `T_downscaled` the downscaled monthly temperature (°C).
+
+        By default R_sw = R_sw_max * sigmoid(sw_contrib(inputs)). With
+        `scale_by_ssrd`, that is the fraction of the melt the downward shortwave
+        radiation could produce, ssrd * SSRD_TO_MELT. With a `gate`, R_sw is
+        multiplied by sigmoid((T_downscaled - threshold) / width). For a model with a
+        surface type, it is the contribution on snow, see `TILikeSfcModel`.
+        """
+        R_sw = self.R_sw_max * F.sigmoid(
+            self.R_sw_contrib(inputs[:, self.ind_inp_sw_contrib]).view(-1)
+        )
+        if self.sw_scale_by_ssrd:
+            ssrd = Normalizer._unorm(
+                inputs[:, self.ind_ssrd_sw],
+                self.normalizing_bounds["ssrd"][0],
+                self.normalizing_bounds["ssrd"][1],
+            )
+            R_sw = R_sw * ssrd.clamp(min=0.0) * SSRD_TO_MELT
+        if self.sw_gate:
+            R_sw = R_sw * torch.sigmoid(
+                (T_downscaled - self.sw_gate_threshold()) / self.sw_gate_width
+            )
+        return R_sw
+
+    def sw_gate_threshold(self):
+        """Threshold (°C) of the temperature gate of R_sw."""
+        return _bounded_scalar(self, "sw_gate_threshold")
+
+    def snow_slope(self):
+        """Slope (1/°C) of the sigmoid splitting precipitation into snow, from the
+        learnable tau_P_s, within [snow_slope_min, snow_slope_max]."""
+        return (
+            self.snow_slope_min
+            + (self.snow_slope_max - self.snow_slope_min)
+            * (torch.tanh(self.tau_P_s) + 1)
+            / 2
+        )
+
+    def pdd_curvature(self):
+        """Curvature (1/°C) of the softplus giving the positive degree days, from
+        the learnable beta_pdd. The larger, the closer to max(T, 0)."""
+        return (torch.tanh(self.beta_pdd) + 1) * 2
+
+    def scalar_parameters(self):
+        """Values of the learnable scalars as the model uses them.
+
+        Returns a dict with the slope of the snow fraction sigmoid (1/°C), its
+        threshold temperature tau_P_c (°C), the curvature of the PDD softplus
+        (1/°C), together with the raw parameters they are computed from.
+        """
+        with torch.no_grad():
+            return {
+                "snow_slope": self.snow_slope().item(),
+                "snow_threshold": self.tau_P_c.item(),
+                "pdd_curvature": self.pdd_curvature().item(),
+                "tau_P_s": self.tau_P_s.item(),
+                "tau_P_c": self.tau_P_c.item(),
+                "beta_pdd": self.beta_pdd.item(),
+                **(
+                    {"sw_gate_threshold": self.sw_gate_threshold().item()}
+                    if self.sw_gate
+                    else {}
+                ),
+            }
 
     def _net_from_df(self, net, columns, df, name):
         """Raw output of `net` on the unnormalized `columns` of df."""
@@ -343,6 +677,48 @@ class TILikeModel(nn.Module):
                 inputs[:, column_index], lower_bound, upper_bound
             )
         return net(inputs)[:, 0]
+
+    def _lapse_rate(self, inp_grad_T):
+        """Temperature lapse rate, within [lapse_rate_min, lapse_rate_max]."""
+        return self.lapse_rate_max - (
+            self.lapse_rate_max - self.lapse_rate_min
+        ) * F.sigmoid(self.grad_T(inp_grad_T)[:, 0])
+
+    def _cor_abl_inputs(self, inputs):
+        """Normalized inputs of cor_abl from the normalized model inputs: the columns
+        of the model inputs, then the derived inputs (DERIVED_COR_ABL_INPUTS)."""
+        x = inputs[:, self.ind_inp_cor_abl]
+        if not self.cor_abl_derived:
+            return x
+        derived = []
+        for inp in self.cor_abl_derived:
+            if inp == "wind_speed":
+                u, v = (
+                    Normalizer._unorm(
+                        inputs[:, self.input_labels.index(c)],
+                        self.normalizing_bounds[c][0],
+                        self.normalizing_bounds[c][1],
+                    )
+                    for c in ("u10", "v10")
+                )
+                value = torch.sqrt(u**2 + v**2)
+            else:
+                raise NotImplementedError(f"Derived cor_abl input {inp}.")
+            lower, upper = self.normalizing_bounds.get(
+                inp, DERIVED_COR_ABL_INPUTS[inp][1]
+            )
+            derived.append((value - lower) / (upper - lower))
+        return torch.cat([x, torch.stack(derived, dim=1)], dim=1)
+
+    def _ablation_factor(self, inp_cor_abl):
+        """Ablation factor of the normalized inputs of cor_abl, unbounded (softplus) or
+        within [cor_abl_min, cor_abl_max] (sigmoid)."""
+        raw = self.cor_abl(inp_cor_abl).view(-1)
+        if self.cor_abl_output == "sigmoid":
+            return self.cor_abl_min + (self.cor_abl_max - self.cor_abl_min) * F.sigmoid(
+                raw
+            )
+        return F.softplus(raw)
 
     def _P_cor(self, inputs):
         """Precipitation correction of the normalized model inputs."""
@@ -415,7 +791,7 @@ class TILikeModel(nn.Module):
             inp_grad_T = inputs[:, self.ind_inp_grad_T]
             inp_bias_T = inputs[:, self.ind_inp_bias_T]
         inp_cor_acc = inputs[:, self.ind_inp_cor_acc]
-        inp_cor_abl = inputs[:, self.ind_inp_cor_abl]
+        inp_cor_abl = self._cor_abl_inputs(inputs)
 
         if self.cor_T is not None:
             # Temperature correction for precipitation and PDD
@@ -427,12 +803,13 @@ class TILikeModel(nn.Module):
             # grad_T_val = self.grad_T(inp_grad_T)
             # bias_T_val = self.bias_T(inp_bias_T)
             # cor_T_val = torch.concatenate([grad_T_val, bias_T_val], dim=1)
-            elev_diff = inputs[:, self.ind_elev_diff]
+            # In km, so that the lapse rate is in °C/km whatever the normalization
+            elev_diff = elev_diff_unorm / 1000
             # cor_T = elev_diff * cor_T_val[:, 0] + cor_T_val[:, 1]
 
             inp_dir = inputs[:, self.ind_inp_dir]
             inp_terrain = inputs[:, self.ind_inp_terrain]
-            alpha = 1 - 15 * F.sigmoid(self.grad_T(inp_grad_T)[:, 0])
+            alpha = self._lapse_rate(inp_grad_T)
             # alpha = self.grad_T(inp_grad_T)[:, 0]
             bias = self.b_max * F.tanh(self.bias_T(inp_bias_T)[:, 0])
             svf_unorm = Normalizer._unorm(
@@ -464,15 +841,15 @@ class TILikeModel(nn.Module):
 
             R_sw = 0.0
         else:
-            elev_diff = inputs[:, self.ind_elev_diff]
-            inp_sw_contrib = inputs[:, self.ind_inp_sw_contrib]
-            alpha = -2 - 13 * F.sigmoid(self.grad_T(inp_grad_T)[:, 0])
+            # In km, so that the lapse rate is in °C/km whatever the normalization
+            elev_diff = elev_diff_unorm / 1000
+            alpha = self._lapse_rate(inp_grad_T)
             bias = self.b_max * F.tanh(self.bias_T(inp_bias_T)[:, 0])
             cor_T_val = torch.stack([alpha, bias], dim=1)
             cor_T = elev_diff * alpha + bias
 
             # Short wave radiation contribution
-            R_sw = F.sigmoid(self.R_sw_contrib(inp_sw_contrib).view(-1))
+            R_sw = self._shortwave(inputs, T + cor_T)
 
         if self.bias_cor is not None:
             # P_cor = (
@@ -485,16 +862,12 @@ class TILikeModel(nn.Module):
             P_cor = self._P_cor(inputs)
         else:
             P_cor = 1.0
-        P_solid = (
-            P
-            * P_cor
-            * F.sigmoid((torch.tanh(self.tau_P_s) + 1) * 2 * (self.tau_P_c - cor_T - T))
-        )
-        curv_pdd = (torch.tanh(self.beta_pdd) + 1) * 2
+        snow_slope, curv_pdd = self.snow_slope(), self.pdd_curvature()
+        P_solid = P * P_cor * F.sigmoid(snow_slope * (self.tau_P_c - cor_T - T))
         PDD = F.softplus((T + cor_T) * curv_pdd) / curv_pdd
 
-        cor_acc = F.sigmoid(self.cor_acc(inp_cor_acc).view(-1))
-        cor_abl = self.cor_abl(inp_cor_abl).view(-1)
+        cor_acc = self.cor_acc(inp_cor_acc).view(-1)
+        cor_abl = self._ablation_factor(inp_cor_abl)
 
         return (
             cor_T,
@@ -511,6 +884,13 @@ class TILikeModel(nn.Module):
         )
 
     def forward(self, inputs):
+        """Monthly mass balance (m w.e.) of the normalized inputs, one row per point
+        and month, shape (n, 1)."""
+        return self._mass_balance(*self._terms(inputs)).view(-1, 1)
+
+    def _terms(self, inputs):
+        """Terms of the mass balance of the normalized inputs: P_solid, PDD,
+        cor_acc, cor_abl and R_sw, one value per row."""
         P = Normalizer._unorm(
             inputs[:, self.ind_precip],
             self.normalizing_bounds["tp_sum"][0],
@@ -532,7 +912,7 @@ class TILikeModel(nn.Module):
             inp_grad_T = inputs[:, self.ind_inp_grad_T]
             inp_bias_T = inputs[:, self.ind_inp_bias_T]
         inp_cor_acc = inputs[:, self.ind_inp_cor_acc]
-        inp_cor_abl = inputs[:, self.ind_inp_cor_abl]
+        inp_cor_abl = self._cor_abl_inputs(inputs)
 
         if self.cor_T is not None:
             # Temperature correction for precipitation and PDD
@@ -544,12 +924,13 @@ class TILikeModel(nn.Module):
             # grad_T_val = self.grad_T(inp_grad_T)
             # bias_T_val = self.bias_T(inp_bias_T)
             # cor_T_val = torch.concatenate([grad_T_val, bias_T_val], dim=1)
-            elev_diff = inputs[:, self.ind_elev_diff]
+            # In km, so that the lapse rate is in °C/km whatever the normalization
+            elev_diff = elev_diff_unorm / 1000
             # cor_T = elev_diff * cor_T_val[:, 0] + cor_T_val[:, 1]
 
             inp_dir = inputs[:, self.ind_inp_dir]
             inp_terrain = inputs[:, self.ind_inp_terrain]
-            alpha = 1 - 15 * F.sigmoid(self.grad_T(inp_grad_T)[:, 0])
+            alpha = self._lapse_rate(inp_grad_T)
             # alpha = self.grad_T(inp_grad_T)[:, 0]
             bias = self.b_max * F.tanh(self.bias_T(inp_bias_T)[:, 0])
             # svf_unorm = Normalizer._unorm(
@@ -570,14 +951,14 @@ class TILikeModel(nn.Module):
 
             R_sw = 0.0
         else:
-            elev_diff = inputs[:, self.ind_elev_diff]
-            inp_sw_contrib = inputs[:, self.ind_inp_sw_contrib]
-            alpha = -2 - 13 * F.sigmoid(self.grad_T(inp_grad_T)[:, 0])
+            # In km, so that the lapse rate is in °C/km whatever the normalization
+            elev_diff = elev_diff_unorm / 1000
+            alpha = self._lapse_rate(inp_grad_T)
             bias = self.b_max * F.tanh(self.bias_T(inp_bias_T)[:, 0])
             cor_T = elev_diff * alpha + bias
 
             # Short wave radiation contribution
-            R_sw = F.sigmoid(self.R_sw_contrib(inp_sw_contrib).view(-1))
+            R_sw = self._shortwave(inputs, T + cor_T)
 
         if self.bias_cor is not None:
             # P_cor = (
@@ -590,23 +971,199 @@ class TILikeModel(nn.Module):
             P_cor = self._P_cor(inputs)
         else:
             P_cor = 1.0
-        P_solid = (
-            P
-            * P_cor
-            * F.sigmoid((torch.tanh(self.tau_P_s) + 1) * 2 * (self.tau_P_c - cor_T - T))
-        )
-        curv_pdd = (torch.tanh(self.beta_pdd) + 1) * 2
+        snow_slope, curv_pdd = self.snow_slope(), self.pdd_curvature()
+        P_solid = P * P_cor * F.sigmoid(snow_slope * (self.tau_P_c - cor_T - T))
         PDD = F.softplus((T + cor_T) * curv_pdd) / curv_pdd
 
         # Accumulation factor correction
-        cor_acc = F.sigmoid(self.cor_acc(inp_cor_acc).view(-1))
+        cor_acc = self.cor_acc(inp_cor_acc).view(-1)
 
         # Ablation factor correction
-        cor_abl = self.cor_abl(inp_cor_abl).view(-1)
+        cor_abl = self._ablation_factor(inp_cor_abl)
 
-        MB = self.beta1 * cor_acc * P_solid - self.beta2 * cor_abl * PDD - R_sw
         # TODO: changer scaling de beta2 pour correspondre aux valeurs typiques calées avec ODINN
-        return MB.view(-1, 1)
+        return P_solid, PDD, cor_acc, cor_abl, R_sw
+
+
+class TILikeSfcModel(TILikeModel):
+    """TILikeModel with a surface type (snow or ice), the `sfc_type` block of the
+    parameters. cor_abl and R_sw are those of snow; on ice they are multiplied by
+    ice_ratio and sw_ratio, mixed by the snow cover fraction of every row (see
+    `_snow_cover`). Its forward pass takes the time order of the rows, `sfc`.
+
+    ice_ratio (temperature melt) is 1 / 0.7 by default and sw_ratio (absorbed
+    shortwave radiation, (1 - albedo of ice) / (1 - albedo of snow)) is 1: with
+    `ice_ratio: {value: 1}` and a sw_ratio, the surface type acts on R_sw only."""
+
+    needs_time_order = True
+
+    def __init__(self, modelParams, normalizing_bounds, *args, **kwargs):
+        super().__init__(modelParams, normalizing_bounds, *args, **kwargs)
+        sfc_params = modelParams["sfc_type"] or {}
+        unknown = set(sfc_params) - {
+            "snow_scale",
+            "snow_midpoint",
+            "ice_ratio",
+            "sw_ratio",
+        }
+        assert not unknown, f"Unknown sfc_type options: {sorted(unknown)}."
+        # Width (m w.e.) of the transition from ice to snow: the snow cover fraction
+        # goes from 0.27 to 0.73 between snow_midpoint -/+ snow_scale
+        self.snow_scale = float(sfc_params.get("snow_scale", 0.1))
+        assert (
+            self.snow_scale > 0
+        ), f"sfc_type.snow_scale must be positive, got {self.snow_scale}."
+        # Snow water equivalent (m w.e.) at which half of the surface is snow. Every
+        # point starts its hydrological year at swe = 0, so with a positive midpoint
+        # every point, in the ablation and the accumulation areas, starts close to
+        # bare ice (snow fraction sigmoid(-snow_midpoint / snow_scale)) until the
+        # snow of the autumn builds up
+        self.snow_midpoint = float(sfc_params.get("snow_midpoint", 0.0))
+        assert (
+            self.snow_midpoint >= 0
+        ), f"sfc_type.snow_midpoint must be non-negative, got {self.snow_midpoint}."
+        # Ratio of the melt factor of ice to the one of snow. Fixed by default, at
+        # DEFAULT_ICE_RATIO; with `trainable`, learned within [min, max] (default
+        # [1, 3]) from `value`
+        ice_ratio = _init_bounded_scalar(
+            self,
+            "ice_ratio",
+            sfc_params.get("ice_ratio"),
+            default=DEFAULT_ICE_RATIO,
+            default_bounds=(1.0, 3.0),
+            label="sfc_type.ice_ratio",
+        )
+        assert ice_ratio > 0, f"The ice ratio must be positive, got {ice_ratio}."
+        # Ratio of the shortwave radiation contribution on ice to the one on snow,
+        # (1 - albedo of ice) / (1 - albedo of snow), about 2-3 for an ice albedo of
+        # 0.3-0.4 and a snow albedo of 0.7-0.85. 1 by default (no effect); learned
+        # within [min, max] (default [1, 4]) with `trainable`
+        sw_ratio = _init_bounded_scalar(
+            self,
+            "sw_ratio",
+            sfc_params.get("sw_ratio"),
+            default=1.0,
+            default_bounds=(1.0, 4.0),
+            label="sfc_type.sw_ratio",
+        )
+        assert sw_ratio > 0, f"The shortwave ratio must be positive, got {sw_ratio}."
+
+    def forward(self, inputs, sfc):
+        """Monthly mass balance (m w.e.) of the normalized inputs, one row per point
+        and month, shape (n, 1). `sfc` is the time order of the rows
+        (`precomputed_meta["sfc"]` of the dataloader), see `_snow_cover`."""
+        return self._mass_balance_sfc(*self._terms(inputs), sfc).view(-1, 1)
+
+    def ice_ratio(self):
+        """Ratio of the melt factor of ice to the one of snow: the fixed
+        ice_ratio_value, or, when it is learned, from ice_ratio_raw within
+        [ice_ratio_min, ice_ratio_max]."""
+        return _bounded_scalar(self, "ice_ratio")
+
+    def sw_ratio(self):
+        """Ratio of the shortwave radiation contribution on ice to the one on snow,
+        fixed (sw_ratio_value) or learned (sw_ratio_raw)."""
+        return _bounded_scalar(self, "sw_ratio")
+
+    def _ice_mix(self, f_snow, ratio):
+        """Factor of a snow term on a surface with the snow fraction f_snow, `ratio`
+        being the ratio of ice to snow."""
+        return f_snow + (1 - f_snow) * ratio
+
+    def _snow_cover(self, acc, melt_snow, R_sw, sfc):
+        """Snow water equivalent and snow fraction of every row.
+
+        The snow water equivalent (m w.e.) is the cumulative mass balance with the
+        melt factor and the shortwave contribution of snow, `acc - melt_snow -
+        R_sw`, of the previous months of the
+        same point since the start of the hydrological year, plus half of the
+        current month (its middle). It is not bounded below: once the snow is gone,
+        it keeps decreasing and summer snowfalls do not bring the snow back. The snow cover
+        fraction is sigmoid((swe - snow_midpoint) / snow_scale).
+
+        `sfc` (dict) orders the rows in time, see `dataloader.surface_type`.
+
+        Returns two torch.Tensor with one value per row: swe and the snow cover
+        fraction f_snow.
+        """
+        if sfc is None:
+            raise ValueError(
+                "This model has a surface type (sfc_type) and needs the time order of "
+                "its inputs, `precomputed_meta['sfc']` built by the dataloader when "
+                "`cfg.surface_type` is set (see `cli.common.setSurfaceType`)."
+            )
+        perm = sfc["perm"].to(acc.device)
+        start = sfc["start"].to(acc.device)
+        assert perm.shape[0] == acc.shape[0], (
+            f"The time order covers {perm.shape[0]} rows but the inputs have "
+            f"{acc.shape[0]}."
+        )
+        # In double precision: the cumulative sum runs over all the sequences
+        delta = (acc - melt_snow - R_sw)[perm].double()
+        before = torch.cumsum(delta, 0) - delta
+        swe_sorted = before - before[start] + 0.5 * delta
+        swe = torch.empty_like(acc)
+        swe[perm] = swe_sorted.to(acc.dtype)
+        return swe, torch.sigmoid((swe - self.snow_midpoint) / self.snow_scale)
+
+    def _mass_balance_sfc(self, P_solid, PDD, cor_acc, cor_abl, R_sw, sfc):
+        """Monthly mass balance (m w.e.) from the terms of the forward pass, the
+        melt factor and the shortwave contribution mixing snow and ice."""
+        acc = self.beta1 * cor_acc * P_solid
+        melt = self.beta2 * cor_abl * PDD
+        _, f_snow = self._snow_cover(acc, melt, R_sw, sfc)
+        MB = (
+            acc
+            - melt * self._ice_mix(f_snow, self.ice_ratio())
+            - R_sw * self._ice_mix(f_snow, self.sw_ratio())
+        )
+        if sfc.get("spinup") is not None:
+            # The spin-up rows only build the snow cover, see
+            # `data_processing.transform_to_monthly.transform_to_monthly`
+            MB = MB.masked_fill(sfc["spinup"].to(MB.device), 0.0)
+        return MB
+
+    def snow_cover(self, inputs, sfc):
+        """Snow water equivalent (m w.e.), snow cover fraction, effective ablation
+        factor and effective shortwave contribution (cor_abl and R_sw times the
+        snow/ice mix, the latter in m w.e. per month) of the normalized inputs, see
+        `_snow_cover`."""
+        P_solid, PDD, cor_acc, cor_abl, R_sw = self._terms(inputs)
+        acc = self.beta1 * cor_acc * P_solid
+        melt = self.beta2 * cor_abl * PDD
+        swe, f_snow = self._snow_cover(acc, melt, R_sw, sfc)
+        cor_abl_eff = cor_abl * self._ice_mix(f_snow, self.ice_ratio())
+        R_sw_eff = torch.as_tensor(R_sw, device=f_snow.device) * self._ice_mix(
+            f_snow, self.sw_ratio()
+        )
+        return swe, f_snow, cor_abl_eff, R_sw_eff
+
+    def scalar_parameters(self):
+        """The scalars of `TILikeModel.scalar_parameters` and the ratios of ice to
+        snow of the melt factor and of the shortwave contribution (with their raw
+        parameters when they are learned)."""
+        params = super().scalar_parameters()
+        with torch.no_grad():
+            for name in ["ice_ratio", "sw_ratio"]:
+                params[name] = _bounded_scalar(self, name).item()
+                if getattr(self, f"{name}_trainable"):
+                    params[f"{name}_raw"] = getattr(self, f"{name}_raw").item()
+        return params
+
+
+def needs_time_order(model) -> bool:
+    """Whether the forward pass of `model` (a module or its
+    CustomTorchNeuralNetRegressor) takes the time order of the rows, see
+    `TILikeSfcModel`."""
+    return getattr(getattr(model, "module", model), "needs_time_order", False)
+
+
+def forward_rows(model, inputs, sfc=None):
+    """Forward pass of `model` on the rows `inputs`, given the time order `sfc` of
+    the rows (`precomputed_meta.get("sfc")`) when the model needs it."""
+    if needs_time_order(model):
+        return model.forward(inputs, sfc)
+    return model.forward(inputs)
 
 
 def createModel(cfg, modelParams, nInp=None):
@@ -630,6 +1187,8 @@ def createModel(cfg, modelParams, nInp=None):
         assert len(modelParams["layers"]) > 0
         return SequentialDownscaledModel(modelParams, cfg.bnds)
     elif modelParams["type"] == "TIlike":
+        if "sfc_type" in modelParams:
+            return TILikeSfcModel(modelParams, cfg.bnds)
         return TILikeModel(modelParams, cfg.bnds)
     else:
         raise ValueError(f"Model {modelParams['type']} is not supported.")
@@ -767,11 +1326,18 @@ class CustomTorchNeuralNetRegressor(nn.Module):
         super().__init__(*args, **kwargs)
         self.module = module
 
-    def forward(self, x):
+    @property
+    def needs_time_order(self):
+        """Whether the forward pass takes the time order of the rows, see
+        `TILikeSfcModel`."""
+        return needs_time_order(self.module)
+
+    def forward(self, x, *args):
         """
-        Forward evaluation of the model.
+        Forward evaluation of the model, with the time order of the rows for a
+        model that needs it (`forward_rows`).
         """
-        return self.module(x)
+        return self.module(x, *args)
 
     def predict(self):
         # TODO: implement
@@ -798,7 +1364,9 @@ class CustomTorchNeuralNetRegressor(nn.Module):
                 stakesTorch = torch.tensor(stakes.astype(np.float32)).to(
                     geodataloader.device
                 )
-                pred = self.forward(stakesTorch)[:, 0]
+                pred = forward_rows(self, stakesTorch, precomputed_meta.get("sfc"))[
+                    :, 0
+                ]
 
                 # Aggregate per stake and periods
                 groundTruthTorch = torch.tensor(point_balance.astype(np.float32)).to(
@@ -820,6 +1388,7 @@ class CustomTorchNeuralNetRegressor(nn.Module):
                 d = {
                     "target": trueMean.cpu(),
                     "ID_int": grouped_ids_glacier.index,
+                    "ID": grouped_ids_glacier.ID,
                     "pred": predSum.cpu(),
                     "PERIOD": grouped_ids_glacier.PERIOD,
                     "YEAR": grouped_ids_glacier.YEAR,

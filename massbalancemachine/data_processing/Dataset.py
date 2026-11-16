@@ -39,6 +39,7 @@ from data_processing.climate_data_download import (
     path_climate_data,
 )
 from data_processing.utils import _rebuild_month_index, _compute_head_tail_pads_from_df
+from data_processing.utils.hydro_year import spinup_tokens
 import config
 
 logging.basicConfig(
@@ -62,6 +63,10 @@ class Dataset:
         output_format (str): csv or parquet
         months_tail_pad (list of str): Months to pad the start of the hydrological year
         months_head_pad (list of str): Months to pad the end of the hydrological year
+        spinup (bool): Whether the monthly table gets the spin-up rows of the surface
+            type of the TIlike model, see `transform_to_monthly`. The climate is then
+            also read over the months before `months_tail_pad` from the 1st of
+            October of the previous hydrological year (`utils.hydro_year.spinup_tokens`).
     """
 
     def __init__(
@@ -74,6 +79,7 @@ class Dataset:
         output_format: str = "csv",
         months_tail_pad=None,  #: List[str] = ['aug_', 'sep_'], # before 'oct'
         months_head_pad=None,  #: List[str] = ['oct_'], # after 'sep'
+        spinup: bool = False,
     ):
         self.cfg = cfg
         self.data = self._clean_data(data=data.copy())
@@ -95,6 +101,10 @@ class Dataset:
             )
         self.months_head_pad = months_head_pad
         self.months_tail_pad = months_tail_pad
+        self.spinup = spinup
+        # Tokens of the climate columns before the hydrological year: the spin-up ones
+        # of the surface type, then the padded months
+        self.months_spinup = spinup_tokens(months_tail_pad) if spinup else []
 
     def get_topo_features(self, vois: list[str], custom_working_dir: str = "") -> None:
         """
@@ -154,7 +164,7 @@ class Dataset:
             climate_data,
             geopotential_data,
             change_units,
-            self.months_tail_pad,
+            self.months_spinup + list(self.months_tail_pad),
             self.months_head_pad,
             vois_climate,
             vois_other,
@@ -214,6 +224,9 @@ class Dataset:
             vois_climate (list[str]): variables of interest from the climate data
             vois_topographical (list[str]): variables of interest from the topographical data
             meta_data_columns (list[str]): metadata columns
+
+        With `self.spinup`, the table gets the spin-up rows of the surface type of the
+        TIlike model, see `transform_to_monthly`.
         """
         if meta_data_columns is None:
             meta_data_columns = self.cfg.metaData
@@ -225,6 +238,14 @@ class Dataset:
             vois_topographical,
             output_fname,
             self.output_format,
+            spinup_month_list=(
+                _rebuild_month_index(
+                    self.months_head_pad,
+                    self.months_spinup + list(self.months_tail_pad),
+                )[0]
+                if self.spinup
+                else None
+            ),
         )
 
     def get_glacier_mask(

@@ -7,6 +7,115 @@ months_hydro_year = [
     month.lower() for month in month_abbr[10:] + month_abbr[1:10]
 ]  # Standard hydro year (oct..sep)
 
+# Months of the spin-up of the surface type that precede the months padded before the
+# hydrological year (`months_tail_pad`): the months of the previous hydrological year,
+# from its 1st of October, tagged with a leading underscore ('_oct', ..., '_jul' before
+# 'aug_'). The token '_m' of a row of YEAR is month m of the hydrological year
+# YEAR - 1. They only appear in the stake tables built with the spin-up of the surface
+# type, see the spin-up of `transform_to_monthly`.
+SPINUP_TOKEN_PREFIX = "_"
+
+
+def is_spinup_token(token: str) -> bool:
+    return token.startswith(SPINUP_TOKEN_PREFIX)
+
+
+def spinup_tokens(months_tail_pad: List[str]) -> List[str]:
+    """The spin-up tokens from the 1st of October of the previous hydrological year
+    to the first of the `months_tail_pad`, none without padding before the
+    hydrological year."""
+    if not months_tail_pad:
+        return []
+    first = months_hydro_year.index(months_tail_pad[0].strip("_"))
+    return [SPINUP_TOKEN_PREFIX + m for m in months_hydro_year[:first]]
+
+
+def split_padded_tokens(tokens, whole_table=True) -> Tuple[List[str], List[str]]:
+    """The months padded after and before the hydrological year among the month
+    tokens of a stake table, `(months_head_pad, months_tail_pad)` in time order.
+
+    Both are written 'm_', so they are told apart by their position in the table:
+    the padding after the hydrological year is the unbroken run of tokens from
+    'oct_' ('oct_', 'nov_', ...), the one before it the unbroken run ending at 'sep_'
+    (..., 'aug_', 'sep_'). The two runs cannot overlap since a table pads 12 months
+    at most (`_compute_head_tail_pads_from_df`), but all 12 tokens leave the split
+    undetermined. The spin-up tokens of the surface type ('_m') are ignored.
+
+    With `whole_table`, the tokens are those of a whole table, whose run before the
+    hydrological year must end at 'sep_'; otherwise they may be those of some rows
+    only, the padded tokens outside the run from 'oct_' being before it.
+    """
+    order = [m + "_" for m in months_hydro_year]
+    padded = {t for t in tokens if t.endswith("_") and not is_spinup_token(t)}
+    unknown = padded - set(order)
+    assert not unknown, f"Unknown month tokens {sorted(unknown)}."
+    if len(padded) == len(order):
+        raise ValueError(
+            "Every month is padded in this table: the months padded before and "
+            "after the hydrological year cannot be told apart."
+        )
+    head = []
+    for t in order:
+        if t not in padded:
+            break
+        head.append(t)
+    tail = [t for t in order if t in padded and t not in head]
+    if whole_table and tail != order[len(order) - len(tail) :]:
+        raise ValueError(
+            f"The months padded before the hydrological year {tail} do not end at "
+            "'sep_' without a gap."
+        )
+    return head, tail
+
+
+def stake_calendar_months(years, months, months_head_pad=None):
+    """Calendar year and month number (1-12) of the rows of a stake table from their
+    `YEAR` (hydrological year) and `MONTHS` token:
+
+    - 'oct', 'nov', 'dec': YEAR - 1; 'jan' to 'sep': YEAR;
+    - a month padded before the hydrological year ('aug_', ...): YEAR - 1;
+    - a month padded after it: 'oct_' to 'dec_' in YEAR, 'jan_', ... in YEAR + 1;
+    - a spin-up token of the surface type '_m': month m of the hydrological year
+      YEAR - 1 (`spinup_tokens`).
+
+    The geodetic grids, in calendar years ('jan' to 'sep' then 'oct_' to 'dec_' of
+    YEAR), follow the same rule. `months_head_pad` are the months padded after the
+    hydrological year, by default those of `split_padded_tokens(months)`; give the
+    ones of the whole table for a subset of it: a subset without 'oct_' would date
+    its other months padded after the hydrological year as if they were before it.
+
+    Returns two np.ndarray of int64.
+    """
+    # The string operations run on the distinct tokens only (a few tens) and are
+    # broadcast to the rows: on a geodetic grid of ~10^6 rows, doing them row by row
+    # took ~0.5 s, at every step of the surface type (`dataloader.surface_type`)
+    codes, tokens = pd.factorize(np.asarray(months, dtype=object))
+    assert (codes >= 0).all(), "Missing month tokens."
+    tokens = pd.Series(tokens, dtype="object")
+    if months_head_pad is None:
+        months_head_pad, _ = split_padded_tokens(tokens, whole_table=False)
+    names = [m.lower() for m in month_abbr]
+    number = tokens.str.strip("_").map(
+        lambda m: names.index(m) if m in names[1:] else np.nan
+    )
+    assert (
+        not number.isna().any()
+    ), f"Unknown months: {sorted(set(tokens[number.isna()]))}."
+    number = number.to_numpy(dtype=np.int64)[codes]
+    years = np.asarray(years, dtype=np.int64)
+    autumn = number >= 10
+    spinup = tokens.str.startswith(SPINUP_TOKEN_PREFIX).to_numpy()[codes]
+    padded = tokens.str.endswith("_").to_numpy()[codes] & ~spinup
+    head = padded & tokens.isin(list(months_head_pad)).to_numpy()[codes]
+    tail = padded & ~head
+    core = ~padded & ~spinup
+    cal_year = np.select(
+        [core, tail, head, spinup],
+        [years - autumn, years - 1, years + ~autumn, years - 1 - autumn],
+    )
+    return cal_year, number
+
+
 # ---------------- Flexible month mapping ----------------
 
 
@@ -274,24 +383,9 @@ def _make_month_abbr_hydr(
 
 
 def build_head_tail_pads_from_monthly_df(data):
+    """`(months_head_pad, months_tail_pad)` of a monthly stake table, see
+    `split_padded_tokens`."""
     assert (
         "MONTHS" in data.keys()
     ), "The dataframe must be in monthly format but the provided dataframe has no 'MONTHS' field."
-    hydro_months = [m.lower() for m in month_abbr[10:] + month_abbr[1:10]]
-    headMonths = [m.lower() for m in month_abbr[10:] + month_abbr[1:4]]
-    tailMonths = list(set(hydro_months).difference(headMonths))
-    uniqueMonths = list(data.MONTHS.unique())
-    for m in hydro_months:
-        uniqueMonths.remove(m)
-    uniqueMonths = [m.strip("_") for m in uniqueMonths]
-    tail = sorted(
-        set(uniqueMonths).intersection(tailMonths),
-        key=lambda x: np.argwhere(np.array(hydro_months) == x)[0, 0],
-    )
-    tail = [m + "_" for m in tail]
-    head = sorted(
-        set(uniqueMonths).intersection(headMonths),
-        key=lambda x: np.argwhere(np.array(hydro_months) == x)[0, 0],
-    )
-    head = [m + "_" for m in head]
-    return head, tail
+    return split_padded_tokens(data.MONTHS.unique())

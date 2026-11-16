@@ -125,3 +125,33 @@ def test_the_longest_window_of_an_entity_still_wins_inside_the_allowed_years():
 def test_allowed_years_are_ignored_when_not_given():
     windows = _windows([("A", 1960, 1995, 0.1)])
     assert len(select_glamos_windows(windows, min_year=1950, min_window_years=10)) == 1
+
+
+def test_named_windows_are_kept_whatever_the_chain():
+    windows = _windows(
+        [
+            ("A", 1960, 1975, 0.1),
+            ("A", 1975, 1995, 0.1),
+            ("A", 1960, 1995, 0.1),  # spans both: never in the same side as them
+            ("B", 1970, 1990, 0.1),
+        ]
+    )
+    options = dict(min_year=1950, min_window_years=10, multi_period=True)
+    late = select_glamos_windows(windows, periods={"A": [[1975, 1995]]}, **options)
+    assert list(zip(late.index, late.y0, late.y1)) == [("A", 1975, 1995)]
+    both = select_glamos_windows(
+        windows, periods={"A": [[1960, 1975]], "B": [[1970, 1990]]}, **options
+    )
+    assert list(zip(both.index, both.y0, both.y1)) == [
+        ("A", 1960, 1975),
+        ("B", 1970, 1990),
+    ]
+
+
+def test_a_named_window_must_be_eligible():
+    windows = _windows([("A", 1960, 1975, 0.1), ("A", 1975, 1980, 0.1)])
+    with pytest.raises(AssertionError, match="No eligible GLAMOS window"):
+        # five years, shorter than min_window_years
+        select_glamos_windows(
+            windows, min_window_years=10, periods={"A": [[1975, 1980]]}
+        )

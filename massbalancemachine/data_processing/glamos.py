@@ -260,6 +260,7 @@ def select_glamos_windows(
     tie_break: str = "sigma",
     allowed_years=None,
     max_outside_years: int = 0,
+    periods: dict = None,
 ):
     """Pick the geodetic windows of every SGI entity.
 
@@ -297,6 +298,12 @@ def select_glamos_windows(
             Keeps a glacier whose only long window crosses a boundary by a year or two
             instead of dropping it; the cost is that the two sides of a split then
             share those years.
+        periods: {SGI id: [[y0, y1], ...]} names the windows to keep, by their
+            calendar bounds `y0` and `y1` (see `load_glamos_volume_change`), for
+            instance the ones a train/validation split by glacier and window assigns
+            to each side. A named window must be eligible under the other criteria,
+            which still apply; it is an error otherwise. `multi_period` and
+            `tie_break` are then ignored: the named windows are kept as they are.
 
     Returns the selected rows indexed by SGI id, sorted by start year within a
     glacier. The index is unique only without `multi_period`.
@@ -320,6 +327,18 @@ def select_glamos_windows(
                 for row in candidates.itertuples()
             ]
         ]
+    if periods is not None:
+        wanted = {
+            (str(g), int(y0), int(y1)) for g, ys in periods.items() for y0, y1 in ys
+        }
+        keys = list(zip(candidates["SGI-ID"].astype(str), candidates.y0, candidates.y1))
+        chosen = candidates.loc[[k in wanted for k in keys]]
+        found = set(zip(chosen["SGI-ID"].astype(str), chosen.y0, chosen.y1))
+        assert found == wanted, f"No eligible GLAMOS window {sorted(wanted - found)}."
+        assert len(chosen) == len(
+            wanted
+        ), "Two GLAMOS windows of an entity share y0 and y1."
+        return chosen.sort_values(["SGI-ID", "y0"]).set_index("SGI-ID")
     if not multi_period:
         keys = ["dur"] + tie_break_keys[tie_break]
         return (
@@ -346,6 +365,7 @@ def geodetic_target_GLAMOS(
     allowed_years=None,
     max_outside_years: int = 0,
     glamos=None,
+    periods: dict = None,
 ):
     """GLAMOS geodetic targets, one window per SGI entity or, with `multi_period`,
     a chain of non-overlapping windows per entity (see `select_glamos_windows`).
@@ -355,7 +375,8 @@ def geodetic_target_GLAMOS(
 
     `allowed_years` and `max_outside_years` restrict the selection to the windows that
     stay inside a given set of years, which is how one side of a split by year gets its
-    own targets; see `select_glamos_windows`.
+    own targets; see `select_glamos_windows`. `periods` names the windows of every
+    entity instead, which is how a split by glacier and window gives each side its own.
 
     Returns a dataframe shaped like the one `data_processing.pgo.geodetic_target_PGO`
     returns, so that both can drive the same code path in `GeoDataLoader`, with one
@@ -383,6 +404,7 @@ def geodetic_target_GLAMOS(
         tie_break=tie_break,
         allowed_years=allowed_years,
         max_outside_years=max_outside_years,
+        periods=periods,
     )
     if sgi_ids_to_keep is not None:
         chosen = chosen.loc[chosen.index.isin(list(sgi_ids_to_keep))]

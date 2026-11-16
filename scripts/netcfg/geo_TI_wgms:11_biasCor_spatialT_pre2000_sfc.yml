@@ -1,0 +1,162 @@
+model:
+    type: TIlike
+    inputs:
+        - ELEVATION_DIFFERENCE
+        - aspect
+        - fal
+        - slhf
+        - slope
+        - sshf
+        - ssrd
+        - str
+        - t2m
+        - tp_sum
+        - svf
+        # Potential clear-sky direct radiation of the month (W m-2, Hock 1999,
+        # data_processing.potential_radiation), the terrain signal of sw_contrib
+        - pcsr
+        - u10
+        - v10
+        - POINT_LAT
+        - POINT_LON
+        - POINT_ELEVATION
+    # Normalization bounds [lower, upper] replacing the global ones of
+    # config.DEFAULT_BNDS; a feature not listed keeps its global bounds. With the global
+    # (-90, 90) and (-180, 180), the Alps span about 0.02 of the normalized range, and
+    # the networks on POINT_LAT/POINT_LON learned a correction that is constant over the
+    # region (P_cor 0.682 +- 0.001 in geo_20261106_160700_stage1). The RGI outlines of the
+    # glaciers of splits/central_europe.yml (stakes and geodetic windows) span
+    # 44.9-47.6 N and 6.1-13.6 E; the Pyrenees (42.5 N, -0.3 E) lie outside.
+    normalization:
+        POINT_LAT: [44.5, 48.0]
+        POINT_LON: [5.5, 14.0]
+    grad_T:
+        inputs:
+            - t2m
+            - ssrd
+            - str
+        layers: [32, 16, 16]
+        min: -8.0
+        max: -6.0
+    bias_T:
+        inputs:
+            - POINT_LAT
+            - POINT_LON
+        layers: [32, 16, 8]
+        b_max: 3.0
+    cor_acc:
+        inputs:
+            - u10
+            - v10
+            - slope
+        layers: [32, 16, 8]
+    cor_abl:
+        # No fal: it is the albedo of the ERA5-Land cell (mostly the snow cover around
+        # the glacier), which follows the warming, and the albedo of the glacier comes
+        # from the surface type, on R_sw. wind_speed, sqrt(u10^2 + v10^2) of the monthly
+        # mean wind (m/s), is derived by the model (DERIVED_COR_ABL_INPUTS) for the
+        # turbulent exchange. It is the speed of the mean wind VECTOR (0.4 m/s median),
+        # a weak proxy of the mean speed.
+        inputs:
+            - str
+            - wind_speed
+        layers: [32, 16, 8]
+        # The temperature melt factor, the same for snow and ice (ice_ratio 1 in
+        # sfc_type): the surface type acts on R_sw only (enhanced temperature-index
+        # models, Hock 1999, Pellicciotti et al. 2005). With beta2 = 1 it is in
+        # m w.e. K-1 month-1, the degree-day factor in mm w.e. K-1 d-1 times
+        # 30.4 / 1000: 3-10 mm w.e. K-1 d-1, the range of the baseline.
+        output: sigmoid
+        min: 0.091
+        max: 0.304
+    # Surface type: snow cover from the cumulative balance since the 1st of October
+    # (snow fraction sigmoid((SWE - snow_midpoint) / snow_scale), SWE in m w.e.).
+    # With snow_midpoint 0.3 and snow_scale 0.2 every point starts the year at a snow
+    # fraction of 0.18 (close to bare ice), half snow at 0.3 m w.e. of SWE, 0.82 at
+    # 0.6. It acts on the shortwave contribution only: ice_ratio (temperature melt
+    # factor of ice / snow) is fixed at 1, and sw_ratio, the absorbed shortwave of
+    # ice / snow, (1 - albedo of ice) / (1 - albedo of snow), is learned within
+    # [1.0, 3.5] from 2.5 (ice albedo 0.3-0.4, snow 0.7-0.85 give 2-3; 1 lets the
+    # optimization switch the contrast off).
+    sfc_type:
+        snow_scale: 0.2
+        snow_midpoint: 0.3
+        ice_ratio:
+            value: 1.0
+        sw_ratio:
+            value: 2.5
+            trainable: true
+            min: 1.0
+            max: 3.5
+    bias_cor:
+        inputs:
+            - POINT_LAT
+            - POINT_LON
+        layers: [32, 16, 8]
+        p_min: 0.25
+    bias_cor_elev:
+        inputs:
+            - ELEVATION_DIFFERENCE
+        layers: [16, 8]
+    # Shortwave contribution on snow, R_sw = max * sigmoid(net(inputs)) * ssrd
+    # * 30.4 / (Lf * rho_w) * gate, the network giving the fraction of the downward
+    # shortwave radiation of the month that melts snow (at most 0.2; on ice up to
+    # 0.2 * 3.5 = 0.7 with sw_ratio). ssrd is also an input of the network so that the
+    # effect of the terrain (aspect, slope) can change with the season. The albedo
+    # comes from the surface type, so neither fal nor ELEVATION_DIFFERENCE are
+    # inputs. The gate sigmoid((T - threshold) / width), T the downscaled monthly
+    # temperature, limits it to the months with melt, its threshold learned within
+    # [-5, 4] °C.
+    sw_contrib:
+        inputs:
+            - aspect
+            - slope
+            - ssrd
+            - pcsr
+        layers: [32, 16, 8]
+        scale_by_ssrd: true
+        max: 0.2
+        gate:
+            threshold:
+                value: 0.0
+                trainable: true
+                min: -3.0
+                max: 2.0
+            width: 1.0
+    trainable:
+        tau_P_c: false   # snow/rain threshold temperature: stays at 1.0
+        tau_P_s: false   # snow slope: stays at snow_slope.init
+        beta_pdd: false  # PDD curvature: stays at 1.0
+    # Scaling of the ablation term (default 0.0049): 1 makes cor_abl a physical
+    # degree-day factor in m w.e. K-1 month-1.
+    beta2: 1.0
+training:
+    # Central Europe (RGI 11) and the Himalayas (RGI 13, 14, 15), each with its own
+    # validation split, written by its split notebook. source_data, the glacier lists and
+    # the geodetic sources are merged from the region blocks (cli.common.mergeRegions).
+    regions:
+        central_europe:
+            split_file: splits/central_europe.yml
+    splitTest: YEAR:<2000
+    # 0 trains on the stakes only. The geodetic run reuses this file with --wGeo, so that
+    # both experiments share the same split.
+    wGeo: 0.0
+    # Weight the geodetic loss term of every window by its area (normalized to a mean
+    # of 1, see training.geodeticAreaWeights). The stake term is not weighted.
+    areaWeightGeo: false
+    optim: ADAM
+    scheduler: StepLR
+    lr: 2e-4
+    scheduler_step_size: 500
+    Nepochs: 2000
+    NepochsGeo: 1000
+    wGeoSchedule: [2e-1]
+    scalingStakes: full
+    # Weights of the winter and summer stakes in the stake loss (annual: 1). The model
+    # traded winter accumulation against summer melt (geo_20261106_160700: winter -0.5,
+    # summer +0.4 m w.e. on the training stakes), which are ~1200 each against ~8700
+    # annual stakes.
+    wWinter: 5.0
+    wSummer: 5.0
+    bestModelCriterion: lossVal
+    climate_source: gswp3_w5e5

@@ -206,6 +206,7 @@ def geodetic_target_Fischer11(
     max_outside_years: int = 0,
     multi_period: bool = True,
     tie_break: str = "sigma",
+    periods: dict = None,
 ):
     """Geodetic targets of Fischer (2011), one row per period between two DEMs.
 
@@ -246,6 +247,7 @@ def geodetic_target_Fischer11(
         max_outside_years=max_outside_years,
         multi_period=multi_period,
         tie_break=tie_break,
+        periods=periods,
     )
 
 
