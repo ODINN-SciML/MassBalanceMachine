@@ -1,7 +1,9 @@
 """
 GLACIOCLIM stake measurements of the French Alps (https://glacioclim.osug.fr/Donnees-des-Alpes):
 Saint-Sorlin, Gébroulaz, Argentière (with Tour Noir), Mer de Glace (with Tacul, Leschaux
-and Talèfre) and Sarennes, winter, summer and annual balances, 1957-2022.
+and Talèfre) and Sarennes, winter, summer and annual balances, 1957-2022; and of the
+Khumbu, Nepal (https://glacioclim.osug.fr/Donnees-du-Nepal-region-du-Khumbu): Mera
+(Mera and Naulek branches) and West Changri Nup, annual balances, 2007-2024.
 
 The shares downloaded by `data_retrieval.glacioclim` are assembled into one table,
 `assembled_path()`, with one row per measurement and the stake positions in WGS84. It is
@@ -19,8 +21,10 @@ from pyproj import Transformer
 
 from data_processing.utils.hydro_year import _compute_months_before_after
 from data_retrieval.glacioclim import (
+    KHUMBU_SHARES,
     SARENNES_SHARE,
     SHARES,
+    all_tokens,
     download_all,
     glacioclim_path,
     share_file,
@@ -174,6 +178,15 @@ LAMBERT3 = "EPSG:27563"
 LAMBERT2 = "EPSG:27562"
 LAMBERT2E = "EPSG:27572"
 LAMBERT3_GLACIERS = ["saint_sorlin", "gebroulaz", "sarennes"]
+# The Khumbu workbooks give their positions in UTM zone 45 N (WGS84)
+UTM45N = "EPSG:32645"
+KHUMBU_GLACIERS = [glacier for _, glacier in KHUMBU_SHARES]
+
+# GLACIOCLIM glaciers of each RGI region
+GLACIERS_PER_RGI_REGION = {
+    11: [glacier for _, glacier, *_ in SHARES] + ["sarennes"],
+    15: KHUMBU_GLACIERS,
+}
 
 COLUMNS = [
     "GLACIER",
@@ -328,13 +341,93 @@ def _parse_sarennes():
     return points
 
 
+def _parse_khumbu_date(value):
+    """Dates of the Khumbu workbooks: Excel dates, or text written dd/mm/yyyy."""
+    if isinstance(value, str):
+        return pd.to_datetime(value.strip(), format="%d/%m/%Y").strftime("%Y%m%d")
+    return pd.Timestamp(value).strftime("%Y%m%d")
+
+
+def _parse_khumbu_share(token, glacier):
+    """The measurements of a Khumbu archive: one workbook per year, named
+    AnnualMB_<glacier>_<yy>_<yy>.xlsx (Bi_AnnualMB_... for the two-year balance of West
+    Changri Nup, 2010-2012), with a single sheet. Its first three rows are the header
+    (glacier, column names, units); the rows below are the stakes: name (#station,
+    "<number>_<setup year>", or the name of a site such as AWS6400), position at the
+    start (easting, northing, altitude, date, quality) and at the end of the period,
+    annual balance (m w.e.) and a zone label (branch of Mera, debris-free or
+    debris-covered surface of West Changri Nup). Empty rows separate the zones. The
+    position is the one at the start of the period, or at its end when the start is
+    missing. Other files of the archive (the field sheet of the Changri Nup stakes of
+    November 2024, which has no balance) are skipped."""
+    rows = []
+    with zipfile.ZipFile(share_file(token)) as z:
+        for info in z.infolist():
+            name = os.path.basename(info.filename)
+            if info.is_dir() or not re.match(r"(Bi_)?AnnualMB_.*\.xlsx$", name):
+                continue
+            df = pd.read_excel(io.BytesIO(z.read(info)), header=None)
+            assert df.iloc[1, 0] == "#station" and str(df.iloc[1, 11]).startswith(
+                "Mass balance"
+            ), f"Unexpected header in {info.filename}: {list(df.iloc[1])}"
+            body = df.iloc[3:]
+            # Without a start or an end date the period of a balance is unknown
+            # (AWS58-E and AWS58-W of Mera, 2023-24, have no start)
+            body = body[
+                body[0].notna() & body[11].notna() & body[4].notna() & body[9].notna()
+            ]
+            for _, row in body.iterrows():
+                station = str(row[0]).strip()
+                number, _, setup = station.partition("_")
+                if not setup.isdigit():
+                    number, setup = station, ""
+                elif len(setup) == 2:
+                    setup = "20" + setup
+                start_ok = pd.notna(row[1]) and pd.notna(row[2]) and pd.notna(row[3])
+                x, y, z_ = (
+                    (row[1], row[2], row[3]) if start_ok else (row[6], row[7], row[8])
+                )
+                rows.append(
+                    {
+                        "PROFILE": glacier,
+                        "STAKE_YEAR_SETUP": float(setup) if setup else np.nan,
+                        "STAKE_NUMBER": number,
+                        "FROM_DATE": _parse_khumbu_date(row[4]),
+                        "TO_DATE": _parse_khumbu_date(row[9]),
+                        "X": float(x),
+                        "Y": float(y),
+                        "CRS_LABEL": "utm45n",
+                        "ALTITUDE": float(z_),
+                        "BALANCE": float(row[11]),
+                        "ZONE": (
+                            re.sub(r"\W+", "_", str(row[12]).strip().lower())
+                            if pd.notna(row[12])
+                            else "all"
+                        ),
+                        "FILE": info.filename,
+                    }
+                )
+    points = pd.DataFrame(rows).assign(GLACIER=glacier, SHARE=token)
+    # The workbooks hold annual balances (November to November), except
+    # AnnualMB_West_Changri_Nup_11_12, from April to December 2012: the periods shorter
+    # than 10 months, which all cover the monsoon, are summer balances
+    days = (pd.to_datetime(points.TO_DATE) - pd.to_datetime(points.FROM_DATE)).dt.days
+    points["PERIOD"] = np.where(days >= 300, "annual", "summer")
+    return points
+
+
 def _epsg(points):
-    """Coordinate system of each point, see `LAMBERT3_GLACIERS`."""
+    """Coordinate system of each point, see `LAMBERT3_GLACIERS` and `UTM45N`."""
+    khumbu = points.GLACIER.isin(KHUMBU_GLACIERS)
     lambert3 = points.GLACIER.isin(LAMBERT3_GLACIERS)
     assert (
         points.Y[lambert3] < 1e6
     ).all(), "Lambert III northing above 1e6, unknown coordinate system"
-    return np.where(lambert3, LAMBERT3, np.where(points.Y < 1e6, LAMBERT2, LAMBERT2E))
+    return np.where(
+        khumbu,
+        UTM45N,
+        np.where(lambert3, LAMBERT3, np.where(points.Y < 1e6, LAMBERT2, LAMBERT2E)),
+    )
 
 
 def build_assembled_table():
@@ -342,7 +435,9 @@ def build_assembled_table():
     positions to WGS84 and write the measurements to `assembled_path()`."""
     download_all()
     points = pd.concat(
-        [_parse_share(*share) for share in SHARES] + [_parse_sarennes()],
+        [_parse_share(*share) for share in SHARES]
+        + [_parse_sarennes()]
+        + [_parse_khumbu_share(*share) for share in KHUMBU_SHARES],
         ignore_index=True,
     )
     points["EPSG"] = _epsg(points)
@@ -358,10 +453,7 @@ def build_assembled_table():
     return points
 
 
-def raw_data():
-    """The assembled GLACIOCLIM table, one row per measurement, built on first use."""
-    if not os.path.isfile(assembled_path()):
-        build_assembled_table()
+def _read_assembled():
     return pd.read_csv(
         assembled_path(),
         dtype={"FROM_DATE": str, "TO_DATE": str, "STAKE_NUMBER": str, "CRS_LABEL": str},
@@ -370,10 +462,24 @@ def raw_data():
     )
 
 
-def load_points():
-    """The GLACIOCLIM stake measurements in the format of the WGMS point table: one row
-    per measurement period (winter, summer and annual all kept), dates as YYYYMMDD
-    strings and YEAR the year of TO_DATE.
+def raw_data():
+    """The assembled GLACIOCLIM table, one row per measurement, built on first use, and
+    rebuilt when it lacks the measurements of a share (a table assembled before the
+    share was added)."""
+    if not os.path.isfile(assembled_path()):
+        build_assembled_table()
+    table = _read_assembled()
+    if not set(all_tokens()) <= set(table.SHARE):
+        build_assembled_table()
+        table = _read_assembled()
+    return table
+
+
+def load_points(rgi_region):
+    """The GLACIOCLIM stake measurements of the glaciers of `rgi_region` (see
+    `GLACIERS_PER_RGI_REGION`: 11 for the Alps, 15 for the Khumbu) in the format of the
+    WGMS point table: one row per measurement period (winter, summer and annual all
+    kept), dates as YYYYMMDD strings and YEAR the year of TO_DATE.
 
     An elevation of 0 is a missing elevation: it is set to NaN, and the measurement is
     dropped by `wgms.filter_points`, as is the annual balance of the Langue of the Mer
@@ -387,7 +493,16 @@ def load_points():
     table cannot hold them.
 
     Stakes off the RGI outlines (early Saint-Sorlin stakes below the 2003 front, Sarennes
-    1994-2005) get no RGIId and are dropped by `wgms.filter_points`."""
+    1994-2005) get no RGIId and are dropped by `wgms.filter_points`.
+
+    In the Khumbu, the two-year balances of West Changri Nup (October 2010 to December
+    2012) are dropped with the measurements reaching outside their hydrological year.
+    The large residuals from the neighbouring stakes recur at the same sites every year
+    (Naulek stake 31, the lowest debris-free stake 11 of West Changri Nup): no Khumbu
+    measurement is listed as erroneous."""
+    assert (
+        rgi_region in GLACIERS_PER_RGI_REGION
+    ), f"GLACIOCLIM has no stakes in RGI region {rgi_region}."
     raw = raw_data()
     erroneous = pd.Series(list(zip(stake_id(raw), raw.PERIOD, raw.TO_DATE))).isin(
         ERRONEOUS_MEASUREMENTS
@@ -397,8 +512,12 @@ def load_points():
         == len(set(ERRONEOUS_MEASUREMENTS))
         == len(ERRONEOUS_MEASUREMENTS)
     ), "Erroneous GLACIOCLIM measurements not found: the dataset has changed"
-    print(f"GLACIOCLIM: {erroneous.sum()} erroneous measurement(s) dropped")
-    raw = raw[~erroneous.to_numpy()].reset_index(drop=True)
+    in_region = raw.GLACIER.isin(GLACIERS_PER_RGI_REGION[rgi_region]).to_numpy()
+    erroneous = erroneous.to_numpy()
+    print(
+        f"GLACIOCLIM: {(erroneous & in_region).sum()} erroneous measurement(s) dropped"
+    )
+    raw = raw[~erroneous & in_region].reset_index(drop=True)
     points = pd.DataFrame(
         {
             "POINT_LAT": raw.POINT_LAT,

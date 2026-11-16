@@ -199,7 +199,7 @@ _stake_source_credits = {
         ],
     ),
     "glacioclim": (
-        "GLACIOCLIM: Données des bilans de masse des Alpes. GLACIOCLIM. Retrieved from https://glacioclim.osug.fr/Donnees-des-Alpes",
+        "GLACIOCLIM: Données des bilans de masse des Alpes et du Népal (région du Khumbu). GLACIOCLIM. Retrieved from https://glacioclim.osug.fr/Donnees-des-Alpes and https://glacioclim.osug.fr/Donnees-du-Nepal-region-du-Khumbu",
         'Acknowledge with: "Les auteurs remercient le Service National d\'Observation GLACIOCLIM (programme du CNRS-INSU, OSUG, IRD, INRAE, IPEV, Météo France) pour les données fournies."',
         [],
     ),

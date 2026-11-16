@@ -6,7 +6,8 @@ from data_processing.product_utils import get_data_path
 """
 This script downloads the stake mass balance measurements of the GLACIOCLIM observatory
 for the French Alps, published at https://glacioclim.osug.fr/Donnees-des-Alpes
-("Données de bilans de masse").
+("Données de bilans de masse"), and for the Khumbu, Nepal, published at
+https://glacioclim.osug.fr/Donnees-du-Nepal-region-du-Khumbu (`KHUMBU_SHARES`).
 
 Every dataset of the page is a public share of the OSUG Nextcloud, downloaded at
 `<NEXTCLOUD>/<token>/download`. The tokens are those of the links of the page. Each
@@ -68,6 +69,17 @@ SHARES = [
 # Excel workbook of the stakes of Sarennes, 1994-2020
 SARENNES_SHARE = "DEgEWn3NpD6L5Ab"
 
+# (token, glacier) of the stake archives of the Khumbu, Nepal, published at
+# https://glacioclim.osug.fr/Donnees-du-Nepal-region-du-Khumbu: the "Toute l'archive"
+# share of each glacier, a zip archive with one Excel workbook per year of annual point
+# balances (Mera 2007-2024, West Changri Nup 2010-2024), the same files as the shares of
+# the single years listed on the page. The page also links weather, precipitation and
+# map files, which are not mass balances.
+KHUMBU_SHARES = [
+    ("ZAyHZgWA63QnsxG", "mera"),
+    ("TX4mNaY8ScNrpgn", "west_changri_nup"),
+]
+
 
 def glacioclim_path():
     return os.path.join(get_data_path(), "stakes", "glacioclim")
@@ -84,7 +96,11 @@ def share_file(token):
 
 
 def all_tokens():
-    return [token for token, *_ in SHARES] + [SARENNES_SHARE]
+    return (
+        [token for token, *_ in SHARES]
+        + [SARENNES_SHARE]
+        + [token for token, _ in KHUMBU_SHARES]
+    )
 
 
 def download_all(overwrite=False):

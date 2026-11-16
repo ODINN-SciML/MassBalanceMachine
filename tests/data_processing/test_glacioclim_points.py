@@ -1,6 +1,6 @@
-"""Tests of the GLACIOCLIM stake measurements: positions projected onto the right glaciers
-whatever the label of their coordinate system, erroneous measurements dropped, and periods
-fitting the monthly table. Skipped when the GLACIOCLIM shares have not been assembled."""
+"""Tests of the GLACIOCLIM stake measurements (French Alps and Khumbu): positions projected
+onto the right glaciers whatever the label of their coordinate system, erroneous
+measurements dropped, and periods fitting the monthly table. Skipped when the GLACIOCLIM shares have not been assembled."""
 
 import os
 
@@ -29,7 +29,7 @@ def test_stakes_lie_on_their_glacier():
     from data_preprocessing.glacioclim import load_points
     from data_processing.utils import get_rgi
 
-    points = get_rgi(data=load_points(), region=11)
+    points = get_rgi(data=load_points(11), region=11)
     assert points.POINT_LAT.between(45.0, 46.1).all()
     assert points.POINT_LON.between(6.0, 7.1).all()
     for glacier, rgi_ids in EXPECTED_RGI.items():
@@ -62,14 +62,15 @@ def test_erroneous_measurements_are_dropped():
     keys = pd.Series(list(zip(stake_id(raw), raw.PERIOD, raw.TO_DATE)))
     # Each listed measurement is one row of the assembled table
     assert keys.isin(ERRONEOUS_MEASUREMENTS).sum() == len(ERRONEOUS_MEASUREMENTS)
-    assert len(load_points()) == len(raw) - len(ERRONEOUS_MEASUREMENTS)
+    alps = raw.GLACIER.isin(EXPECTED_RGI)
+    assert len(load_points(11)) == alps.sum() - len(ERRONEOUS_MEASUREMENTS)
 
 
 def test_points_are_clean():
     from data_preprocessing.glacioclim import load_points, MAX_PADDING_MONTHS
     from data_processing.utils.hydro_year import _compute_months_before_after
 
-    points = load_points()
+    points = load_points(11)
     assert set(points.PERIOD) == {"annual", "winter", "summer"}
     assert set(points.GLACIER) == set(EXPECTED_RGI)
     assert not (points.POINT_ELEVATION <= 0).any()
@@ -89,5 +90,58 @@ def test_points_are_clean():
         TO_DATE=pd.to_datetime(points.TO_DATE),
     )
     padding = _compute_months_before_after(dates[dates.TO_DATE >= dates.FROM_DATE])
+    assert padding.MONTHS_BEFORE.max() <= MAX_PADDING_MONTHS
+    assert padding.MONTHS_AFTER.max() <= MAX_PADDING_MONTHS
+
+
+# RGI60-15 glaciers of the Khumbu stakes: Mera is split into several RGI entities (the
+# same as in WGMS)
+EXPECTED_RGI_KHUMBU = {
+    "mera": {
+        "RGI60-15.03581",
+        "RGI60-15.03583",
+        "RGI60-15.03584",
+        "RGI60-15.03585",
+        "RGI60-15.03586",
+        "RGI60-15.03591",
+        "RGI60-15.03592",
+    },
+    "west_changri_nup": {"RGI60-15.03734"},
+}
+
+
+def test_khumbu_stakes_lie_on_their_glacier():
+    from data_preprocessing.glacioclim import load_points
+    from data_processing.utils import get_rgi
+
+    points = get_rgi(data=load_points(15), region=15)
+    assert set(points.GLACIER) == set(EXPECTED_RGI_KHUMBU)
+    for glacier, rgi_ids in EXPECTED_RGI_KHUMBU.items():
+        found = set(points[points.GLACIER == glacier].RGIId.dropna())
+        assert found == rgi_ids, (glacier, found)
+    assert points.RGIId.notna().all()
+
+
+def test_khumbu_points_are_clean():
+    from data_preprocessing.glacioclim import load_points, MAX_PADDING_MONTHS
+    from data_processing.utils.hydro_year import _compute_months_before_after
+
+    points = load_points(15)
+    # Annual balances, and the April-December 2012 balances of West Changri Nup
+    assert set(points.PERIOD) == {"annual", "summer"}
+    summer = points[points.PERIOD == "summer"]
+    assert (summer.GLACIER == "west_changri_nup").all()
+    assert (summer.TO_DATE == "20121205").all()
+    # The two-year balances of West Changri Nup (2010-2012) are dropped
+    assert not (points.FROM_DATE == "20101031").any()
+    assert points.POINT_ELEVATION.between(4900, 6400).all()
+    assert points.POINT_BALANCE.between(-6, 2).all()
+    assert points.YEAR.min() == 2008
+
+    dates = points.assign(
+        FROM_DATE=pd.to_datetime(points.FROM_DATE),
+        TO_DATE=pd.to_datetime(points.TO_DATE),
+    )
+    padding = _compute_months_before_after(dates)
     assert padding.MONTHS_BEFORE.max() <= MAX_PADDING_MONTHS
     assert padding.MONTHS_AFTER.max() <= MAX_PADDING_MONTHS

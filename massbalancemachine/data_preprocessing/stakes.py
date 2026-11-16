@@ -26,7 +26,7 @@ STAKE_SOURCES = {
     "wgms": None,
     "nve": [8],
     "iceland": [6],
-    "glacioclim": [11],
+    "glacioclim": [11, 15],
 }
 DEFAULT_STAKE_SOURCES = ["wgms"]
 
@@ -81,7 +81,7 @@ def load_points(source, rgi_region):
         points = get_rgi(data=points, region=rgi_region)
         points = data_preprocessing.wgms.filter_points(points)
     elif source == "glacioclim":
-        points = data_preprocessing.glacioclim.load_points()
+        points = data_preprocessing.glacioclim.load_points(rgi_region)
         points = get_rgi(data=points, region=rgi_region)
         points = data_preprocessing.wgms.filter_points(points)
     elif source == "iceland":
