@@ -1,6 +1,23 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from calendar import month_abbr
+
+from data_processing.utils.hydro_year import months_hydro_year
+
+
+def bins_from_df(df_gl, bin_width):
+    nbins = int(
+        np.ceil(
+            (df_gl["POINT_ELEVATION"].max() - df_gl["POINT_ELEVATION"].min())
+            / bin_width
+        )
+    )
+    center = (df_gl["POINT_ELEVATION"].max() + df_gl["POINT_ELEVATION"].min()) / 2
+    start = center - bin_width * nbins / 2
+    stop = center + bin_width * nbins / 2
+    bins = np.linspace(start, stop, nbins + 1)
+    return bins
 
 
 def profilePerGlacier(
@@ -15,6 +32,8 @@ def profilePerGlacier(
     mean_linestyle="-",
     title="",
     color=None,
+    show_stakes_pred=False,
+    average_stakes=True,
 ):
     assert "POINT_ELEVATION" in df_gridded.columns
     if df_stakes is not None:
@@ -36,8 +55,11 @@ def profilePerGlacier(
     else:
         fig = None
 
+    # TODO: ignore years outside of geodetic range
     for i, test_gl in enumerate(custom_order):
         df_gl = df_gridded[df_gridded[order_key] == test_gl].copy()
+        if df_gl.shape[0] == 0:
+            continue
         min_year = df_gl.YEAR.min()
         max_year = df_gl.YEAR.max()
         if df_stakes is not None:
@@ -45,19 +67,15 @@ def profilePerGlacier(
         else:
             df_gl_stakes = None
 
-        ax = (axs if isinstance(axs, list) else axs.flatten())[i]
+        if len(custom_order) == 1:
+            if isinstance(axs, list):
+                ax = axs[0]
+            else:
+                ax = axs
+        else:
+            ax = (axs if isinstance(axs, list) else axs.flatten())[i]
 
-        nbins = int(
-            np.ceil(
-                (df_gl["POINT_ELEVATION"].max() - df_gl["POINT_ELEVATION"].min())
-                / bin_width
-            )
-        )
-        center = (df_gl["POINT_ELEVATION"].max() + df_gl["POINT_ELEVATION"].min()) / 2
-        start = center - bin_width * nbins / 2
-        stop = center + bin_width * nbins / 2
-        bins = np.linspace(start, stop, nbins + 1)
-
+        bins = bins_from_df(df_gl, bin_width)
         df_gl["altitude_interval"] = pd.cut(df_gl["POINT_ELEVATION"], bins=bins)
         centers = {
             iv: round((iv.left + iv.right) / 2)
@@ -66,11 +84,19 @@ def profilePerGlacier(
         df_gl["altitude_interval"] = df_gl["altitude_interval"].map(centers)
 
         altitude_interval = (
-            df_gl.groupby(["altitude_interval"])["altitude_interval"].first().values
+            df_gl.groupby(["altitude_interval"], observed=False)["altitude_interval"]
+            .first()
+            .values
         )
-        mean_per_bin = df_gl.groupby(["altitude_interval"])["pred"].mean().values
-        min_per_bin = df_gl.groupby(["altitude_interval"])["pred"].min().values
-        max_per_bin = df_gl.groupby(["altitude_interval"])["pred"].max().values
+        mean_per_bin = (
+            df_gl.groupby(["altitude_interval"], observed=False)["pred"].mean().values
+        )
+        min_per_bin = (
+            df_gl.groupby(["altitude_interval"], observed=False)["pred"].min().values
+        )
+        max_per_bin = (
+            df_gl.groupby(["altitude_interval"], observed=False)["pred"].max().values
+        )
         ax.fill_betweenx(
             altitude_interval,
             min_per_bin,
@@ -92,11 +118,49 @@ def profilePerGlacier(
                 (df_gl_stakes.YEAR >= min_year) & (df_gl_stakes.YEAR <= max_year)
             ]
             selected_stakes = selected_stakes[selected_stakes.PERIOD == "annual"]
-            grouped_df = selected_stakes.groupby("POINT_ELEVATION").mean(
-                numeric_only=True
-            )
-            ax.scatter(grouped_df.target, grouped_df.index, marker="+", color=color)
-            ax.scatter(grouped_df.pred, grouped_df.index, marker="o", color=color)
+
+            if selected_stakes.shape[0] > 0:
+                if average_stakes:
+                    bins = bins_from_df(selected_stakes, bin_width)
+                    selected_stakes["altitude_interval"] = pd.cut(
+                        selected_stakes["POINT_ELEVATION"], bins=bins
+                    )
+                    centers = {
+                        iv: round((iv.left + iv.right) / 2)
+                        for iv in selected_stakes["altitude_interval"].cat.categories
+                    }
+                    selected_stakes["altitude_interval"] = selected_stakes[
+                        "altitude_interval"
+                    ].map(centers)
+                    elev = (
+                        selected_stakes.groupby(["altitude_interval"])[
+                            "altitude_interval"
+                        ]
+                        .first()
+                        .values
+                    )
+
+                    tgt = (
+                        selected_stakes.groupby(["altitude_interval"])["target"]
+                        .mean()
+                        .values
+                    )
+                    pred = (
+                        selected_stakes.groupby(["altitude_interval"])["pred"]
+                        .mean()
+                        .values
+                    )
+                else:
+                    grouped_df = selected_stakes.groupby("POINT_ELEVATION").mean(
+                        numeric_only=True
+                    )
+                    elev = grouped_df.index
+                    tgt = grouped_df.target
+                    pred = grouped_df.pred
+                ax.scatter(tgt, elev, marker="+", color=color)
+                if show_stakes_pred:
+                    # TODO: it seems there is a bug since the averaged prediction on stakes measurements falls outside of the geodetic min/max bounds
+                    ax.scatter(pred, elev, marker="o", color=color)
 
         ax.grid()
 
@@ -108,6 +172,107 @@ def profilePerGlacier(
     #     ax.set_xlim(ax_xlim)
     # if ax_ylim is not None:
     #     ax.set_ylim(ax_ylim)
+
+    plt.tight_layout()
+
+    return fig
+
+
+def profilePerGlacierPerMonth(
+    df_gridded,
+    axs=None,
+    titles={},
+    custom_order=None,
+    bin_width=100,
+    band_alpha=0.25,
+    lw=1.2,
+    mean_linestyle="-",
+    title="",
+    color=None,
+):
+    assert "POINT_ELEVATION" in df_gridded.columns
+
+    order_key = "GLACIER" if "GLACIER" in df_gridded.keys() else "RGIId"
+    custom_order = custom_order or sorted(df_gridded[order_key].unique())
+
+    if axs is None:
+        nRows = len(custom_order)
+        nCols = len(months_hydro_year)  # Number of months
+        fig, axs = plt.subplots(
+            nRows, nCols, figsize=(20 * nCols / 3, 30 * nRows / 8), sharex=False
+        )
+    else:
+        fig = None
+
+    id_to_month = [month_abbr[i].lower() + ("_" if i > 9 else "") for i in range(1, 13)]
+    # TODO: ignore years outside of geodetic range
+    for i, test_gl in enumerate(custom_order):
+        df_gl = df_gridded[df_gridded[order_key] == test_gl].copy()
+        bins = bins_from_df(df_gl, bin_width)
+        df_gl["altitude_interval"] = pd.cut(df_gl["POINT_ELEVATION"], bins=bins)
+        centers = {
+            iv: round((iv.left + iv.right) / 2)
+            for iv in df_gl["altitude_interval"].cat.categories
+        }
+        df_gl["altitude_interval"] = df_gl["altitude_interval"].map(centers)
+
+        altitude_interval = (
+            df_gl.groupby(["altitude_interval"], observed=False)["altitude_interval"]
+            .first()
+            .values
+        )
+        for month_id in range(len(months_hydro_year)):
+            if len(custom_order) == 1:
+                ax = axs[month_id]
+            else:
+                ax = axs[
+                    i, month_id
+                ]  # (axs if isinstance(axs, list) else axs.flatten())[i]
+
+            month_str = id_to_month[month_id]
+            df_gl_m = df_gl[df_gridded.MONTHS == month_str].copy()
+            if df_gl_m.shape[0] == 0:
+                print(f"Skipping for month_id={month_id}")
+                continue
+
+            mean_per_bin = (
+                df_gl_m.groupby(["altitude_interval"], observed=False)["pred"]
+                .mean()
+                .values
+            )
+            min_per_bin = (
+                df_gl_m.groupby(["altitude_interval"], observed=False)["pred"]
+                .min()
+                .values
+            )
+            max_per_bin = (
+                df_gl_m.groupby(["altitude_interval"], observed=False)["pred"]
+                .max()
+                .values
+            )
+            ax.fill_betweenx(
+                altitude_interval,
+                min_per_bin,
+                max_per_bin,
+                color=color,
+                alpha=band_alpha,
+                # label=f"{label_prefix} band (annual)",
+            )
+            ax.plot(
+                mean_per_bin,
+                altitude_interval,
+                color=color,
+                linestyle=mean_linestyle,
+                linewidth=lw,
+                # label=f"{label_prefix} mean (annual)",
+            )
+            ax.grid()
+
+            glacier_title = titles.get(test_gl) if titles is not None else None
+            ax.set_title(
+                str(glacier_title or test_gl.capitalize()) + f" ({month_str})",
+                fontsize=20,
+            )
 
     plt.tight_layout()
 

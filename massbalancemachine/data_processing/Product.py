@@ -11,9 +11,12 @@ import git, json, datetime
 class Product:
     def __init__(self, file_path, commit_dependent=False):
         self.file_path = os.path.abspath(file_path)
-        repo = git.Repo(search_parent_directories=True)
-        self.commit_hash = repo.head.object.hexsha
         self.commit_dependent = commit_dependent
+        if self.commit_dependent:
+            repo = git.Repo(search_parent_directories=True)
+            self.commit_hash = repo.head.object.hexsha
+        else:
+            self.commit_hash = None
         d = os.path.dirname(self.file_path)
         if not os.path.isdir(d):
             os.makedirs(d)
@@ -23,9 +26,9 @@ class Product:
         if os.path.isfile(self.file_path + ".chk"):
             with open(self.file_path + ".chk", "r") as f:
                 d = json.load(f)
-                if (
-                    d.get("commit_hash") == self.commit_hash and self.commit_dependent
-                ) or (not self.commit_dependent):
+                if self.commit_dependent:
+                    up_to_date = d.get("commit_hash") == self.commit_hash
+                else:
                     up_to_date = True
         if not os.path.isfile(self.file_path):
             up_to_date = False

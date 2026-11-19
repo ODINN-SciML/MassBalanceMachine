@@ -6,9 +6,11 @@ import time
 import urllib3
 import tqdm
 
-from data_processing.product_utils import mbm_path
+from data_processing.product_utils import get_data_path
 
-iceland_path = os.path.join(mbm_path, ".data/stakes/iceland/")
+
+def iceland_path():
+    return os.path.join(get_data_path(), "stakes", "iceland") + "/"
 
 
 """
@@ -121,7 +123,7 @@ def download_stake_data(stake_id, data_path):
 
 def download_all_stakes_data():
     print("Downloading Iceland stakes data")
-    os.makedirs(iceland_path, exist_ok=True)
+    os.makedirs(iceland_path(), exist_ok=True)
 
     urllib3.disable_warnings()
     stake_ids = get_all_stake_ids()
@@ -129,7 +131,7 @@ def download_all_stakes_data():
 
     pbar = tqdm.tqdm(stake_ids, total=len(stake_ids))
     for stake_id in pbar:
-        success, ndata = download_stake_data(stake_id, iceland_path)
+        success, ndata = download_stake_data(stake_id, iceland_path())
         if success:
             pbar.set_description(f"✓ {stake_id}: {ndata} records", refresh=True)
             success_count += 1

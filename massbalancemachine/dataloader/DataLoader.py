@@ -17,7 +17,12 @@ import numpy as np
 import pandas as pd
 
 from numpy import ndarray
-from sklearn.model_selection import GroupKFold, KFold, GroupShuffleSplit
+from sklearn.model_selection import (
+    GroupKFold,
+    KFold,
+    train_test_split,
+    GroupShuffleSplit,
+)
 
 from dataloader.utils.correct_for_elevation import correct_T_P
 

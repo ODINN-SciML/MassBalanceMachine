@@ -15,6 +15,7 @@ __all__ = [
     "metrics",
     "sampling",
     "utils",
+    "aws",
 ]
 
 import dataloader
@@ -26,10 +27,12 @@ import geodata
 import training
 import plots
 import metrics
+import aws
 
 # import sampling # Do not import by default since this is an advanced feature
 import utils
 from .config import *  # Load config at the top level of the package
+from data_processing.product_utils import get_data_path, set_data_path
 
 
 # Import only if the user asks for it

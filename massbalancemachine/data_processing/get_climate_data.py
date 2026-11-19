@@ -12,11 +12,14 @@ Date Created: 21/07/2024
 
 import os
 from calendar import month_abbr
+from functools import lru_cache
+from typing import Optional
 import xarray as xr
 import numpy as np
 import pandas as pd
 
 import config
+from data_processing.climate_data_download import path_climate_data
 from data_processing.utils.hydro_year import months_hydro_year, _rebuild_month_index
 
 
@@ -30,6 +33,7 @@ def get_climate_features_(
     months_head_pad,  # after 'sep'
     vois_climate: list = None,
     vois_other: list = None,
+    monthly: bool = False,
 ) -> pd.DataFrame:
     """
     Takes as input ERA5-Land monthly averaged climate data (pre-downloaded), and matches this with the locations
@@ -56,14 +60,47 @@ def get_climate_features_(
             f"Geopotential data file {geopotential_data} does not exist."
         )
 
-    # Load the two climate datasets
-    ds_climate, ds_geopotential = _load_datasets(climate_data, geopotential_data)
+    # Load the two climate datasets. Shared between calls, hence read-only here.
+    ds_climate, ds_geopotential = _load_datasets(
+        climate_data, geopotential_data, change_units
+    )
 
-    # Makes things easier down the line
-    # Change temperature to Celsius and precipitation to m.w.e
-    if change_units:
-        ds_climate["t2m"] = ds_climate["t2m"] - 273.15
+    return climate_features_from_datasets(
+        df,
+        ds_climate,
+        ds_geopotential,
+        output_fname,
+        months_tail_pad,
+        months_head_pad,
+        vois_climate,
+        vois_other,
+        monthly,
+    )
 
+
+def climate_features_from_datasets(
+    df: pd.DataFrame,
+    ds_climate: xr.Dataset,
+    ds_geopotential: xr.Dataset,
+    output_fname: str,
+    months_tail_pad,
+    months_head_pad,
+    vois_climate: list = None,
+    vois_other: list = None,
+    monthly: bool = False,
+) -> pd.DataFrame:
+    """Match already loaded climate data with the locations of the stake
+    measurements, see `get_climate_features_`.
+
+    Split from it so that another climate source on the ERA5 grid, such as the
+    bias-corrected CMIP6 projections, goes through the same processing.
+
+    Args:
+        ds_climate (xr.Dataset): monthly climate on a (latitude, longitude) grid,
+            with a datetime64 time axis of month starts.
+        ds_geopotential (xr.Dataset): the ERA5 geopotential, which gives the
+            altitude of the climate cells.
+    """
     # Get latitudes and longitudes from the climate dataset.
     lat, lon = ds_climate.latitude, ds_climate.longitude
 
@@ -80,9 +117,15 @@ def get_climate_features_(
     # Calculate the geopotential height in meters
     ds_geopotential_metric = _calculate_geopotential_height(ds_geopotential_cropped)
 
-    if "expver" in ds_climate.dims:
-        # Reduce expver dimension
-        ds_climate = ds_climate.reduce(np.nansum, "expver")
+    if monthly:
+        return _get_monthly_climate_features(
+            df,
+            ds_climate,
+            ds_geopotential_metric,
+            vois_climate=vois_climate,
+            vois_other=vois_other,
+            output_fname=output_fname,
+        )
 
     # Create a date range for one hydrological year
     df = _add_date_range(df, months_tail_pad, months_head_pad)
@@ -102,6 +145,27 @@ def get_climate_features_(
     # Combine the climate data with the altitude climate data
     df = _combine_dataframes(df, climate_df, altitude_df)
 
+    # Compute the sum of the fluxes per month from the average fluxes per day
+    # Cf https://confluence.ecmwf.int/spaces/CKB/pages/76414402/ERA5+data+documentation#ERA5:datadocumentation-Meanrates/fluxesandaccumulations
+    fluxes_cols = ["tp", "slhf", "str", "sshf", "ssrd"]
+    df_cols = df.columns.values
+    month_to_id = {(month_abbr[i].lower()): i for i in range(1, 13)}
+    new_cols = {}
+    for col_df in df_cols:
+        m = [col_df.startswith(c) for c in fluxes_cols]
+        if any(m):
+            assert np.sum(m) == 1
+            flux_col = np.array(fluxes_cols)[np.array(m)][0]
+            suffix = col_df.replace(flux_col + "_", "")
+            id_month = str(month_to_id[suffix.replace("_", "")])
+            # Incorrect because we retrieve the year of the hydrological year and not the true year associated to the measurement
+            days_in_month = pd.to_datetime(
+                df.YEAR.astype(str) + "-" + id_month + "-01"
+            ).dt.days_in_month
+            sum_col = flux_col + "_sum_" + suffix
+            new_cols[sum_col] = df[col_df].values * days_in_month
+    df = pd.concat([df, pd.DataFrame(new_cols, index=df.index)], axis=1)
+
     # Remove climate artifacts
     df = smooth_era5land_by_mode(df, vois_climate, vois_other)
 
@@ -113,6 +177,52 @@ def get_climate_features_(
         df.to_csv(output_fname, index=False)
 
     return df
+
+
+def _get_monthly_climate_features(
+    df,
+    ds_climate,
+    ds_geopotential,
+    vois_climate,
+    vois_other,
+    output_fname,
+):
+    """Append ERA5 features selected at each row's monthly ``Date``."""
+    if "Date" not in df:
+        raise ValueError("Monthly climate extraction requires a Date column.")
+
+    df = df.copy()
+    df["Date"] = pd.to_datetime(df["Date"])
+    df["range_date"] = df["Date"].map(lambda date: pd.DatetimeIndex([date]))
+    climate_df = _process_climate_data(
+        ds_climate,
+        df,
+        months_tail_pad=[],
+        months_head_pad=[],
+        monthly=True,
+        vois_climate=vois_climate,
+    )
+
+    # Compute the sum of the fluxes per month from the average fluxes per day
+    # Cf https://confluence.ecmwf.int/spaces/CKB/pages/76414402/ERA5+data+documentation#ERA5:datadocumentation-Meanrates/fluxesandaccumulations
+    fluxes_cols = ["tp", "slhf", "str", "sshf", "ssrd"]
+    days_in_month = df["Date"].dt.days_in_month.to_numpy()
+    for variable in fluxes_cols:
+        if variable in climate_df and f"{variable}_sum" in (vois_climate or []):
+            climate_df[f"{variable}_sum"] = climate_df[variable] * days_in_month
+
+    altitude_df = _process_altitude_data(ds_geopotential, df)
+    result = _combine_dataframes(df, climate_df, altitude_df)
+    result = _calculate_elevation_difference(result)
+    # Note: smooth_era5land_by_mode is NOT applied here. It removes ERA5-Land
+    # grid-cell artifacts by collapsing a column to its single most frequent
+    # value across all rows, which is appropriate when rows are multiple
+    # spatial points sharing one hydrological year. Here rows are consecutive
+    # months at a single, fixed station, so that would wipe out the real
+    # month-to-month climate signal instead of removing noise.
+    if output_fname is not None:
+        result.to_csv(output_fname, index=False)
+    return result
 
 
 def get_first_last_month(df):
@@ -242,13 +352,131 @@ def smooth_era5land_by_mode(df, vois_climate=None, vois_other=None):
     return df
 
 
-def _load_datasets(climate_data: str, geopotential_data: str) -> tuple:
-    """Load climate and geopotential datasets."""
+def _file_stamp(path: str) -> tuple:
+    """Cheap identity of a file, so that replacing it invalidates the cache below."""
+    stat = os.stat(path)
+    return (stat.st_mtime_ns, stat.st_size)
+
+
+@lru_cache(maxsize=2)
+def _load_datasets_cached(
+    climate_data: str, geopotential_data: str, change_units: bool, stamps: tuple
+) -> tuple:
+    """Load the ERA5 files and apply the preparation that depends only on them.
+
+    Kept behind a cache because the whole regional climate file is read into
+    memory - close to a gigabyte for an Alpine region - and the gridded feature
+    generation asks for it once per glacier *and per year*. Reloading it every time
+    dominated the cost of a task and made memory use sawtooth, since a worker
+    allocated a fresh copy before the previous one was collected.
+
+    `stamps` is not used: it is part of the cache key so that a climate file
+    replaced on disk is reloaded instead of served from a stale entry.
+    """
+    del stamps  # only a cache key
     with (
         xr.open_dataset(climate_data) as dataset_climate,
         xr.open_dataset(geopotential_data) as dataset_geopotential,
     ):
-        return dataset_climate.load(), dataset_geopotential.load()
+        ds_climate = dataset_climate.load()
+        ds_geopotential = dataset_geopotential.load()
+
+    # Makes things easier down the line
+    # Change temperature to Celsius and precipitation to m.w.e
+    if change_units:
+        # Not an in-place assignment: the datasets are shared between calls.
+        ds_climate = ds_climate.assign(t2m=ds_climate["t2m"] - 273.15)
+
+    if "expver" in ds_climate.dims:
+        # Reduce expver dimension
+        ds_climate = ds_climate.reduce(np.nansum, "expver")
+
+    return ds_climate, ds_geopotential
+
+
+def _load_datasets(
+    climate_data: str, geopotential_data: str, change_units: bool = False
+) -> tuple:
+    """Load climate and geopotential datasets.
+
+    The returned datasets are shared with every other caller asking for the same
+    files, so they must be treated as read-only: derive new datasets with
+    `assign`, `sel` or `reduce` rather than assigning into them.
+    """
+    stamps = (_file_stamp(climate_data), _file_stamp(geopotential_data))
+    return _load_datasets_cached(climate_data, geopotential_data, change_units, stamps)
+
+
+def climate_file_paths(region_id) -> tuple:
+    """The ERA5 climate and geopotential files of a region."""
+    local_path = path_climate_data(region_id)
+    return (
+        local_path + "era5_monthly_averaged_data.nc",
+        local_path + "era5_geopotential_pressure.nc",
+    )
+
+
+def altitude_climate_at(region_id, lat, lon) -> np.ndarray:
+    """Altitude of the ERA5 cell of each point, `ALTITUDE_CLIMATE` in the features.
+
+    Computed as `climate_features_from_datasets` does: the geopotential is taken on the
+    grid of the climate file and each point gets its nearest cell. Only the coordinates
+    of the climate file are read.
+
+    Args:
+        region_id (int): RGI region whose ERA5 files to read.
+        lat, lon (array-like): Coordinates of the points, longitude in -180..180.
+    """
+    climate_data, geopotential_data = climate_file_paths(region_id)
+    with (
+        xr.open_dataset(climate_data) as ds_climate,
+        xr.open_dataset(geopotential_data) as ds_geopotential,
+    ):
+        ds = _crop_geopotential(
+            _adjust_longitude(ds_geopotential.load()),
+            ds_climate.latitude,
+            ds_climate.longitude,
+        )
+    ds = ds.drop_duplicates(dim="latitude").drop_duplicates(dim="longitude")
+    altitude = _calculate_geopotential_height(ds).altitude_climate
+    for dim in ("time", "valid_time"):
+        if dim in altitude.dims:
+            altitude = altitude.isel({dim: 0})
+    return altitude.sel(
+        latitude=xr.DataArray(np.asarray(lat), dims="points"),
+        longitude=xr.DataArray(np.asarray(lon), dims="points"),
+        method="nearest",
+    ).values
+
+
+def climate_memory_footprint(region_id) -> Optional[int]:
+    """Bytes the ERA5 data of a region occupies once loaded, or None if it is not
+    downloaded yet.
+
+    Read from the file headers, without loading anything: `nbytes` of a lazily
+    opened dataset is computed from the variable shapes and dtypes. This is what a
+    worker generating gridded features holds for as long as it lives, and therefore
+    the term that decides how many of them fit in memory.
+    """
+    climate_data, geopotential_data = climate_file_paths(region_id)
+    if not (os.path.isfile(climate_data) and os.path.isfile(geopotential_data)):
+        return None
+    with (
+        xr.open_dataset(climate_data) as ds_climate,
+        xr.open_dataset(geopotential_data) as ds_geopotential,
+    ):
+        return ds_climate.nbytes + ds_geopotential.nbytes
+
+
+def warm_climate_cache(region_id, change_units: bool = True) -> None:
+    """Load the climate data of a region into the cache of the current process.
+
+    Called before a pool of workers is forked: the workers inherit the loaded
+    arrays instead of each reading the files themselves.
+    """
+    climate_data, geopotential_data = climate_file_paths(region_id)
+    if os.path.isfile(climate_data) and os.path.isfile(geopotential_data):
+        _load_datasets(climate_data, geopotential_data, change_units)
 
 
 def _calculate_geopotential_height(ds_geopotential: xr.Dataset) -> xr.Dataset:
@@ -357,6 +585,8 @@ def _process_climate_data(
     df: pd.DataFrame,
     months_tail_pad,
     months_head_pad,
+    monthly: bool = False,
+    vois_climate: list = None,
 ) -> pd.DataFrame:
     """Process climate data for all points and times.
 
@@ -373,10 +603,10 @@ def _process_climate_data(
     # Check that the time window of all the entries is included in the range of the climate data
     start_climate = ds_climate.time.min().values
     end_climate = ds_climate.time.max().values
-    min_start_df = pd.to_datetime(df.FROM_DATE).min()
-    max_end_df = pd.to_datetime(df.TO_DATE).max() + pd.tseries.offsets.MonthBegin(
-        0
-    )  # Offset to beginning of next month for the end of the period
+    min_start_df = pd.to_datetime(df["Date"] if monthly else df.FROM_DATE).min()
+    max_end_df = pd.to_datetime(
+        df["Date"] if monthly else df.TO_DATE
+    ).max() + pd.tseries.offsets.MonthBegin(0)
     assert (
         min_start_df >= start_climate
     ), f"The measurement periods start outside of the climate time range. Climate data start on {start_climate} but measurements start up to {min_start_df}."
@@ -424,9 +654,26 @@ def _process_climate_data(
     lat_da = xr.DataArray(pts_lat, dims="points")
     lon_da = xr.DataArray(pts_lon_chk if ds_uses_0360 else pts_lon, dims="points")
 
-    # Create a 2D array of date ranges
-    date_array = np.array([r.values for r in df["range_date"].values])
-    time_da = xr.DataArray(date_array, dims=["points", "time"])
+    if monthly:
+        climate_variables = [
+            variable
+            for variable in (vois_climate or [])
+            if not variable.endswith("_sum") and variable in ds_climate
+        ]
+        missing_variables = [
+            variable
+            for variable in (vois_climate or [])
+            if not variable.endswith("_sum") and variable not in ds_climate
+        ]
+        if missing_variables:
+            raise ValueError(
+                f"Climate variables not found in dataset: {missing_variables}"
+            )
+        ds_climate = ds_climate[climate_variables]
+        time_da = xr.DataArray(df["Date"].to_numpy(), dims="points")
+    else:
+        date_array = np.array([r.values for r in df["range_date"].values])
+        time_da = xr.DataArray(date_array, dims=["points", "time"])
 
     climate_data_points = ds_climate.sel(
         latitude=lat_da,
@@ -446,7 +693,12 @@ def _process_climate_data(
         climate_data_points.to_dataframe().drop(columns=dropColumns).reset_index()
     )
 
-    climate_df = climate_df.drop(columns=["points", "time"])
+    climate_df = climate_df.drop(
+        columns=[column for column in ["points", "time"] if column in climate_df]
+    )
+
+    if monthly:
+        return climate_df
 
     num_rows, num_cols = climate_df.shape
     N_MONTHS = date_array.shape[1]
@@ -489,7 +741,7 @@ def _combine_dataframes(
     df: pd.DataFrame, climate_df: pd.DataFrame, altitude_df: pd.DataFrame
 ) -> pd.DataFrame:
     """Combine DataFrames and add altitude data."""
-    df = df.drop(columns=["range_date"]).reset_index(drop=True)
+    df = df.drop(columns=["range_date"], errors="ignore").reset_index(drop=True)
     climate_df = climate_df.reset_index(drop=True)
     altitude_df = altitude_df.drop(columns=["latitude", "longitude", "z"]).reset_index(
         drop=True

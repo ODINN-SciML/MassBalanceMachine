@@ -28,6 +28,7 @@ def create_glacier_grid_RGI(
     gdir: oggm.GlacierDirectory,
     rgi_gl: str,
     ds_svf=None,
+    calendar_year=False,
 ) -> pd.DataFrame:
     """Creates a DataFrame of glacier grid data for each year
 
@@ -37,6 +38,10 @@ def create_glacier_grid_RGI(
         glacier_indices (np.array): indices of glacier mask in the OGGM grid
         gdir (oggm directory): oggm glacier directory
         rgi_gl (str): RGI Id of the glacier
+        ds_svf (xarray.Dataset): Sky view factor data.
+        calendar_year (bool): Whether the glacier grid must be generated for
+            the calendar year or the hydrological year. This influences the
+            fields FROM_DATE and TO_DATE.
     Returns:
         df_grid (pd.DataFrame): dataframe of glacier grid data, for each year
     """
@@ -64,10 +69,13 @@ def create_glacier_grid_RGI(
         "aspect": ds.masked_aspect.values[gl_mask_bool],
         "slope": ds.masked_slope.values[gl_mask_bool],
         "topo": ds.masked_elev.values[gl_mask_bool],
-        "dis_from_border": ds.masked_dis.values[gl_mask_bool],
-        "hugonnet_dhdt": ds.masked_hug.values[gl_mask_bool],
-        "consensus_ice_thickness": ds.masked_cit.values[gl_mask_bool],
     }
+    if "dis_from_border" in ds:
+        data_grid["dis_from_border"] = ds.masked_dis.values[gl_mask_bool]
+    if "hugonnet_dhdt" in ds:
+        data_grid["hugonnet_dhdt"] = ds.masked_hug.values[gl_mask_bool]
+    if "consensus_ice_thickness" in ds:
+        data_grid["consensus_ice_thickness"] = ds.masked_cit.values[gl_mask_bool]
     if "millan_ice_thickness" in ds:
         data_grid["millan_ice_thickness"] = ds.masked_mit.values[gl_mask_bool]
     if "masked_miv" in ds:
@@ -94,8 +102,12 @@ def create_glacier_grid_RGI(
     df_grid["YEAR"] = np.repeat(
         years, num_rows_per_year
     )  # 'year' column that has len(df_grid) instances of year
-    df_grid["FROM_DATE"] = df_grid["YEAR"].apply(lambda x: str(x) + "1001")
-    df_grid["TO_DATE"] = df_grid["YEAR"].apply(lambda x: str(x + 1) + "0930")
+    if calendar_year:
+        df_grid["FROM_DATE"] = df_grid["YEAR"].apply(lambda x: str(x) + "0101")
+        df_grid["TO_DATE"] = df_grid["YEAR"].apply(lambda x: str(x) + "1231")
+    else:
+        df_grid["FROM_DATE"] = df_grid["YEAR"].apply(lambda x: str(x - 1) + "1001")
+        df_grid["TO_DATE"] = df_grid["YEAR"].apply(lambda x: str(x) + "0930")
     df_grid["PERIOD"] = "annual"
 
     return df_grid
@@ -104,7 +116,6 @@ def create_glacier_grid_RGI(
 def get_region_shape_file(region: str):
     rgi_version = "62"
     shp_path = oggm.utils.get_rgi_region_file(region, version=rgi_version)
-    print(f"Shapefile for region {region}: {shp_path}")
     return shp_path
 
 
@@ -150,6 +161,20 @@ def get_glacier_dem(rgi_id: str, custom_working_dir: str, cfg: config.Config):
     return ds
 
 
+def create_custom_dem_file(gdir, path_rgi_id):
+    out_path = os.path.abspath(os.path.join(path_rgi_id, f"dem.nc"))
+    p = Product(out_path)
+    if not p.is_up_to_date():
+        with xr.open_dataset(gdir.get_filepath("gridded_data")) as ds:
+            ds = ds.load()
+        lkeys = list(ds.keys())
+        lkeys.remove("topo")
+        ds_topo = ds.drop_vars(lkeys)
+        ds_topo.to_netcdf(out_path)
+
+        p.gen_chk()
+
+
 def create_dem_file_RGI(cfg, rgi_id, path_rgi_id):
     out_path = os.path.abspath(os.path.join(path_rgi_id, f"dem.nc"))
     p = Product(out_path)
@@ -165,7 +190,7 @@ def create_dem_file_RGI(cfg, rgi_id, path_rgi_id):
 
 def create_venv_rtv():
     # Define the absolute path for the RTV virtual environment
-    venv_path = os.path.abspath(os.path.join(mbm_path, "venv/rvt_env/"))
+    venv_path = rvt_venv_path()
 
     # Create the virtual environment
     venv.create(venv_path, with_pip=True)
@@ -198,11 +223,49 @@ def create_venv_rtv():
     return venv_path
 
 
+def rvt_venv_path():
+    """Where the sky view factor virtual environment lives. It is separate from the
+    main environment because rvt-py needs a GDAL build that conflicts with it."""
+    return os.path.abspath(os.path.join(mbm_path, "venv/rvt_env/"))
+
+
+def is_usable_rvt_venv(venv_path):
+    """Whether `venv_path` already holds a working rvt environment.
+
+    Checked by importing rvt rather than by the directory existing: building the
+    environment needs libgdal, so a machine that lacks it can end up with a bare
+    skeleton that would otherwise be mistaken for a finished one.
+    """
+    venv_python = os.path.join(venv_path, "bin", "python")
+    if not os.path.isfile(venv_python):
+        return False
+    return (
+        subprocess.run(
+            [venv_python, "-c", "import rvt.vis, xarray, netCDF4"],
+            capture_output=True,
+        ).returncode
+        == 0
+    )
+
+
 def generate_svf_file(path_rgi_id):
     global venv_rtv
     if venv_rtv is None:
-        venv_rtv = create_venv_rtv()
+        # Reuse the environment if a previous run already built it: creating it needs
+        # libgdal, which the machine generating the grids then does not have to have.
+        existing = rvt_venv_path()
+        venv_rtv = existing if is_usable_rvt_venv(existing) else create_venv_rtv()
     path_script_rtv = os.path.abspath(
         os.path.join(mbm_path, "massbalancemachine/data_processing/sky_view_factor.py")
     )
-    subprocess.run([os.path.join(venv_rtv, "bin/python"), path_script_rtv, path_rgi_id])
+    ret = subprocess.run(
+        [os.path.join(venv_rtv, "bin/python"), path_script_rtv, path_rgi_id],
+        capture_output=True,
+    )
+    if ret.returncode:
+        print(ret.stderr.decode("utf-8"))
+        raise Exception(
+            f"Sky view factor generation failed for {path_rgi_id} (see above). "
+            "It runs in the separate environment at "
+            f"{rvt_venv_path()}, which needs libgdal to be built."
+        )

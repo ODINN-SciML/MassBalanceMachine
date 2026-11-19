@@ -1,6 +1,9 @@
 from models.CustomXGBoostRegressor import CustomXGBoostRegressor
 from models.NeuralNetworkRegressor import CustomNeuralNetRegressor
-from models.TorchNeuralNetworkRegressor import CustomTorchNeuralNetRegressor, buildModel
+from models.TorchNeuralNetworkRegressor import (
+    CustomTorchNeuralNetRegressor,
+    buildModel,
+)
 from models.LSTM import LSTM_MB
 from models.LSTM_DAN import LSTM_MB_DAN
 from models.Transformer import Transformer_MB, BottleneckAdapter

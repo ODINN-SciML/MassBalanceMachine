@@ -4,30 +4,38 @@ import pandas as pd
 import geopandas as gpd
 import oggm.utils
 
-from data_processing.product_utils import mbm_path
+from data_processing.product_utils import get_data_path
 from data_processing.utils import get_rgi
 from data_retrieval.iceland import download_all_stakes_data
 from data_processing.Product import Product
 from data_processing.Dataset import Dataset
 
-iceland_path = os.path.join(mbm_path, ".data/stakes/iceland/")
-raw_stakes_path = os.path.join(iceland_path, "stakes.csv")
-processed_features_stakes_path = os.path.join(iceland_path, "processed.csv")
+
+def iceland_path():
+    return os.path.join(get_data_path(), "stakes", "iceland") + "/"
+
+
+def raw_stakes_path():
+    return os.path.join(iceland_path(), "stakes.csv")
+
+
+def processed_features_stakes_path():
+    return os.path.join(iceland_path(), "processed.csv")
 
 
 def raw_data():
-    p = Product(raw_stakes_path)
+    p = Product(raw_stakes_path())
     if not p.is_up_to_date():
         parse_raw_data()
         p.gen_chk()
-    data = pd.read_csv(raw_stakes_path)
+    data = pd.read_csv(raw_stakes_path())
     return data
 
 
 def parse_raw_data():
     # download_all_stakes_data()
 
-    all_files = glob.glob(os.path.join(iceland_path, "*.csv"))
+    all_files = glob.glob(os.path.join(iceland_path(), "*.csv"))
 
     # Initialize empty list to store dataframes
     dfs = []
@@ -152,7 +160,7 @@ def parse_raw_data():
     # Remove (nine) stakes without RGIId, as they wont have OGGM data anyways
     df_stakes_renamed_rgiid = df_stakes_renamed_rgiid.dropna(subset=["RGIId"])
 
-    df_stakes_renamed_rgiid.to_csv(raw_stakes_path, index=False)
+    df_stakes_renamed_rgiid.to_csv(raw_stakes_path(), index=False)
 
 
 def split_stake_measurements(df_stakes):
@@ -300,4 +308,4 @@ def build_monthly_data(data, cfg):
         vois_climate=vois_climate, vois_topographical=voi_topographical
     )
 
-    dataset.data.to_csv(processed_features_stakes_path, index=False)
+    dataset.data.to_csv(processed_features_stakes_path(), index=False)

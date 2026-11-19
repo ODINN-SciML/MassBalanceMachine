@@ -1,0 +1,25 @@
+# Environment for `1.3 Create_skyview_factor.ipynb` only (sky-view factor with the
+# Relief Visualization Toolbox, which is not part of the MassBalanceMachine environment).
+# Create with:  conda env create -f environment_rvt.yml
+# Versions are those of the environment used for the paper.
+name: rvt
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - gdal=3.10.3
+  - rasterio=1.4.3
+  - rioxarray=0.19.0
+  - xarray=2025.9.1
+  - netcdf4=1.7.2
+  - h5netcdf=1.6.4
+  - numpy=2.3.3
+  - pandas=2.3.3
+  - scipy=1.16.2
+  - pyproj
+  - ipykernel
+  - pip
+  - pip:
+      - rvt-py==2.2.3
+      - matplotlib==3.10.6
+      - tqdm==4.67.1
