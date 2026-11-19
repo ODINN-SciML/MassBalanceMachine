@@ -195,7 +195,7 @@ The tables are printed by the notebooks (not saved to file) and were copied into
 
 ### Archived results
 
-The result tables behind the figures (RMSE and other metrics of every experiment, the grid-search log and the fine-tuning sensitivity) are written to `paper_results/` by the last cell of notebooks 2.2, 2.3, 3.1 and 3.2 (see [`paper_results/README.md`](paper_results/README.md)). The tables of the paper are not tracked on the development branch; they are archived in release v0.1.3 (<CODE_DOI>), together with the Icelandic stake inventory (`PMB_sources/RGI_06_Iceland/ISL_stake_inventory.csv`) and the software environment (`poetry.lock`, `environment_paper.yml`). The trained model weights are archived separately on Zenodo (https://doi.org/10.5281/zenodo.24373039); `paper_results/export_weights.py` packs them and writes their checksums to `paper_results/weights_manifest.csv`.
+The result tables behind the figures (RMSE and other metrics of every experiment, the grid-search log and the fine-tuning sensitivity) are written to `paper_results/` by the last cell of notebooks 2.2, 2.3, 3.1 and 3.2 (see [`paper_results/README.md`](paper_results/README.md)). The tables of the paper are not tracked on the development branch; they are archived in release v0.1.3, together with the Icelandic stake inventory (`PMB_sources/RGI_06_Iceland/ISL_stake_inventory.csv`) and the software environment (`poetry.lock`, `environment_paper.yml`). The trained model weights are archived separately on Zenodo (https://doi.org/10.5281/zenodo.24373039); `paper_results/export_weights.py` packs them and writes their checksums to `paper_results/weights_manifest.csv`.
 
 ## `scripts/`
 

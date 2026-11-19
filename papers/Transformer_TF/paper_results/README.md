@@ -1,6 +1,6 @@
 # paper_results — archived result tables
 
-Result tables behind the figures and tables of the paper, so that a re-run can be compared with the published values without retraining. The CSV files listed below are not tracked on the development branch; the versions of the paper are archived in release v0.1.3 (<CODE_DOI>). All tables are written by the last cell ("Save result tables") of the notebook listed below. RMSE and bias are in m w.e.; `_annual` and `_winter` refer to annual and winter point mass balance.
+Result tables behind the figures and tables of the paper, so that a re-run can be compared with the published values without retraining. The CSV files listed below are not tracked on the development branch; the versions of the paper are archived in release v0.1.3. All tables are written by the last cell ("Save result tables") of the notebook listed below. RMSE and bias are in m w.e.; `_annual` and `_winter` refer to annual and winter point mass balance.
 
 The trained model weights are archived separately on Zenodo (https://doi.org/10.5281/zenodo.24373039; see [Model weights](#model-weights)).
 

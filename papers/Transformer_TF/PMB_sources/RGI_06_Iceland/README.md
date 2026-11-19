@@ -29,7 +29,7 @@ To compare a new download, rerun `1.0` and `1.1` and then, from the repository r
 python -m papers.Transformer_TF.PMB_sources.RGI_06_Iceland.scripts.stake_inventory
 ```
 
-and compare the rewritten `ISL_stake_inventory.csv` with the archived one. The inventory of the paper is not tracked on the development branch; it is archived in release v0.1.3 (<CODE_DOI>).
+and compare the rewritten `ISL_stake_inventory.csv` with the archived one. The inventory of the paper is not tracked on the development branch; it is archived in release v0.1.3.
 
 The processed dataset renames the stakes by elevation, so the script links each measurement to its IMO stake through its coordinates, which are copied unchanged from the raw files. A few coordinates are shared by two IMO stakes; these rows list both IDs separated by `;` (e.g. `Br0;Br0a`). Some IMO stake IDs (e.g. `D12`, `L07`) occur on two glaciers and therefore appear in two rows.
 
