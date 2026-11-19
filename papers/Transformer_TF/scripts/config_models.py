@@ -67,6 +67,9 @@ PARAMS_FT = {
     "lr_factor": 0.1,
 }  # max epochs; lr = PARAMS_TRANSFORMER lr x lr_factor
 
+# NOT USED IN THE PAPER: settings of the exploratory domain-adversarial (DAN)
+# fine-tuning (models/xreg_lstm_training.py, dataset/fd_model.py). The paper uses
+# head-only and full fine-tuning only (PARAMS_FT above).
 PARAMS_DAN = {
     "grl_lambda": 1.0,
     "lr_backbone": 5e-05,

@@ -1,8 +1,8 @@
 # Transformer_TF — data preparation, models and paper figures
 
-This folder holds everything behind the paper (`manuscript.tex`): the climate and glacier-grid preparation (notebooks `1.x`), the regional stake (PMB) preprocessing (`PMB_sources/`), the model experiments and figures (notebooks `2.x` and `3.x`), and the shared helpers in `scripts/`.
+This folder holds everything behind the paper *Towards a Global Data-Driven Glacier Mass Balance Model Using Transformers*: the climate and glacier-grid preparation (notebooks `1.x`), the regional stake (PMB) preprocessing (`PMB_sources/`), the model experiments and figures (notebooks `2.x` and `3.x`), and the shared helpers in `scripts/`.
 
-This README gives the order in which to run the notebooks, describes the data preparation notebooks `1.1.1`–`1.4`, and lists where each figure of the paper is made. Each `2.x`/`3.x` notebook explains its own steps in its first cell, and `PMB_sources/README.md` covers the stake preprocessing.
+This README gives the order in which to run the notebooks, describes the data preparation notebooks `1.1.1`–`1.4`, and lists where each figure and table of the paper is made. Each `2.x`/`3.x` notebook explains its own steps in its first cell, and `PMB_sources/README.md` covers the stake preprocessing.
 
 ## Installation
 
@@ -13,7 +13,9 @@ Two conda environments are used:
 | `MassBalanceMachine` (Python 3.11) | everything except 1.3 | `conda env create -f environment_gpu.yml` (or `environment_cpu.yml` without a GPU) in the repository root, then `conda activate MassBalanceMachine` and `poetry install` to install the `massbalancemachine` package and its dependencies (`pyproject.toml`) |
 | `rvt` (Python 3.11) | `1.3 Create_skyview_factor` only (Relief Visualization Toolbox) | `conda env create -f environment_rvt.yml` in this folder |
 
-See also the [MBM installation instructions](https://massbalancemachine.readthedocs.io/en/latest/install.html). The model notebooks (2.2–3.4) are meant to run on a GPU. Each notebook adds the repository root to `sys.path`, so run it from its own folder. The data root (`cfg.dataPath`) is set in the MBM config (`mbm.EuropeTFConfig()`); 1.3 sets it by hand (`cfg_datapath`).
+See also the [MBM installation instructions](https://massbalancemachine.readthedocs.io/en/latest/install.html). The model notebooks (2.2–3.4) are meant to run on a GPU. Each notebook adds the repository root to `sys.path`, so run it from its own folder.
+
+The Sinkhorn distances (train/test splits in 2.2, domain shift in 3.4) are computed with GeomLoss, whose default backend (`sinkhorn_backend="auto"`) uses KeOps (`pykeops`) for large problems; KeOps compiles CUDA code on first use and needs a working compiler setup. Without KeOps, pass `sinkhorn_backend="tensorized"` (plain PyTorch, more memory) to the split and distance functions in `scripts/dataset/sinkhorn.py`. The data root (`cfg.dataPath`) is set in the MBM config (`mbm.EuropeTFConfig()`); 1.3 sets it by hand (`cfg_datapath`).
 
 ## Model settings
 
@@ -22,7 +24,7 @@ All model settings of the paper are in `scripts/config_models.py`:
 | Setting | Value | Name in `config_models.py` |
 |---|---|---|
 | Transformer hyperparameters | best configuration of the 3.1 search | `PARAMS_TRANSFORMER` |
-| LSTM hyperparameters | | `PARAMS_LSTM` |
+| LSTM hyperparameters | configuration selected for the LSTM-based MBM of van der Meer et al. (2026); not searched here | `PARAMS_LSTM` |
 | Maximum training epochs (early stopping on the validation loss) | 150 | `N_EPOCHS` |
 | Hyperparameter search | random search, 150 configurations sampled (seed `cfg.seed`) from the grid in 3.1, up to 150 epochs each | `GS_N_TRIALS`, `GS_MAX_EPOCHS` |
 | Search validation data and selection rule | test glaciers of the within-region splits of 2.2 (about 16–24% of each source region's measurements); lowest pooled validation loss | `GS_SELECTION_METRIC`, `GS_LOG` |
@@ -40,13 +42,14 @@ All model settings of the paper are in `scripts/config_models.py`:
  └─> 1.3  Sky-view factor (rvt env)                              │
       └─> 1.4 part 1: masked glacier grids                       │
            └─> PMB preprocessing (PMB_sources/RGI_*/1.1*)        │
+                └─> rerun 1.2–1.4 part 1 for stake glaciers      │
                 └─> 1.4 part 2: monthly inputs + glacier grids <─┘
                      │
-                     ├─> 2.1 Study regions          (Fig. 1, A3b)
-                     ├─> 2.2 Within-region          (Fig. 3, A2, A3a, A4)
+                     ├─> 2.1 Study regions          (Fig. 1, A3b; Table A1)
+                     ├─> 2.2 Within-region          (Fig. 3, A2, A3a, A4; Table A2)
                      └─> 2.3 Cross-region           (Fig. 4, A5)
-                         └─> 3.1 Multi-region grid search -> PARAMS_TRANSFORMER
-                         └─> 3.2 Multi-region model (Fig. 5, 6, A6–A9; uses PARAMS_TRANSFORMER)
+                         └─> 3.1 Multi-region grid search -> PARAMS_TRANSFORMER (Table A2)
+                         └─> 3.2 Multi-region model (Fig. 5, 6, A6–A9; Table A3; uses PARAMS_TRANSFORMER)
                                ├─> 3.3 Predictions   (Fig. 7, A11–A16)
                                └─> 3.4 Distance      (Fig. A10)
 ```
@@ -141,9 +144,9 @@ The grids can be run in three ways:
 - for named glaciers (`run_for_glaciers`)
 - for all glaciers larger than 1 km² of the regions in `REGIONS_TO_RUN` (`run_all_glacier_grids`; off by default, `RUN = False`)
 
-## Paper figures
+## Paper figures and tables
 
-Where each figure in `manuscript.tex` is made. Notebooks save to `figures/paperTF/` (appendix figures to `figures/paperTF/appendix/`), under the file name used in the paper unless **Saved as** says otherwise. Cell numbers count all cells (markdown included) from 0; the section is the markdown heading above the cell.
+Where each figure and table of the paper is made. Notebooks save to `figures/paperTF/` (appendix figures to `figures/paperTF/appendix/`), under the file name used in the paper unless **Saved as** says otherwise. Cell numbers count all cells (markdown included) from 0; the section is the markdown heading above the cell.
 
 Figures marked *assembled* are combined outside the code from the listed panels or legends. Figures 2 and A1 are schematics that are not made by any code in this folder.
 
@@ -180,6 +183,19 @@ Figures marked *assembled* are combined outside the code from the listed panels 
 | A15 | `A15_gradients_CA.png` | `3.3 Pooled_model_pred` | Fig. A11–A16: elevation gradients of all stake glaciers (15) | |
 | A16 | `A16_gradients_ALA.png` | `3.3 Pooled_model_pred` | Fig. A11–A16: elevation gradients of all stake glaciers (15) | |
 
+### Tables
+
+The tables are printed by the notebooks (not saved to file) and were copied into the paper.
+
+| Table | Content | Notebook | Section (cell) | Notes |
+|---|---|---|---|---|
+| A1 | Glaciers and PMB measurements per RGI region and sub-region | `2.1 Study_regions` | Table A1: stake data per region (19) | DataFrame `table_a1`, from the processed stake datasets of `PMB_sources/` |
+| A2 | Hyperparameter search spaces and selected configurations | `3.1 Pooled_model_grid_search`; `2.2 Within_region` | Transformer search space: Grid search (9); trainable parameters: Train models (18) | Selected values are `PARAMS_TRANSFORMER` and `PARAMS_LSTM` in `scripts/config_models.py` |
+| A3 | Number of fine-tuning measurements per target region and fraction | `3.2 Pooled_model` | Sensitivity to the fine-tuning fraction (22) | Printed by `build_ft_fraction_splits` (`scripts/models/ft_sensitivity.py`): `n_ft_seqs` per fraction and `n_test_seqs` (Test column), returned as `df_sens_sizes` |
+
+### Archived results
+
+The result tables behind the figures (RMSE and other metrics of every experiment, the grid-search log and the fine-tuning sensitivity) are written to `paper_results/` by the last cell of notebooks 2.2, 2.3, 3.1 and 3.2 (see [`paper_results/README.md`](paper_results/README.md)). The tables of the paper are not tracked on the development branch; they are archived in release v0.1.3 (<CODE_DOI>), together with the Icelandic stake inventory (`PMB_sources/RGI_06_Iceland/ISL_stake_inventory.csv`) and the software environment (`poetry.lock`, `environment_paper.yml`). The trained model weights are archived separately on Zenodo (https://doi.org/10.5281/zenodo.24373039); `paper_results/export_weights.py` packs them and writes their checksums to `paper_results/weights_manifest.csv`.
 
 ## `scripts/`
 

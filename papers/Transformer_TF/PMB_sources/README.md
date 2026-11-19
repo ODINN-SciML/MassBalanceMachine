@@ -15,9 +15,9 @@ Run these notebooks after `1.4 Create_grids` part 1 (masked glacier grids with S
 | `RGI_11_Switzerland` | `1.1 GLAMOS-prepro` | GLAMOS | `WGMS/Switzerland/csv/CH_wgms_dataset_all.csv` |
 | `RGI_13_14_15_HMA` | `1.1. Stakes-prepro_HMA` | WGMS | `WGMS/HMA/csv/CentralAsia_…`, `SouthAsiaWest_…`, `SouthAsiaEast_wgms_dataset_all.csv` |
 
-The paper (`manuscript.tex`, section "Target Variable: Point Mass Balance" and table `tab:region_overview`) uses RGI regions 01, 06, 07, 08, 11 and 13: the files `ALA`, `ISL`, `SJM`, `NOR`, `CH`, `FR`, `IT_AT` and `CentralAsia`. The HMA notebook also writes `SouthAsiaWest`/`SouthAsiaEast` (RGI 14/15); these are not used in the paper. Western Canada & USA (RGI 02) is not processed.
+The paper (Section 2.1.1, "Target Variable: Point Mass Balance", and Table A1) uses RGI regions 01, 06, 07, 08, 11 and 13: the files `ALA`, `ISL`, `SJM`, `NOR`, `CH`, `FR`, `IT_AT` and `CentralAsia`. The HMA notebook also writes `SouthAsiaWest`/`SouthAsiaEast` (RGI 14/15); these are not used in the paper. Western Canada & USA (RGI 02) is not processed.
 
-Data sources as cited in the paper: GLAMOS (Switzerland), GLACIOCLIM (France), NVE (Norway; Elvehøy et al., 2025), the Icelandic GlacierWeb portal (Björnsson et al., 1998; Aðalgeirsdóttir et al., 2020), and WGMS (2023) for Italy, Austria, Svalbard, Central Asia and Alaska.
+Data sources as cited in the paper: GLAMOS (Switzerland), GLACIOCLIM (France), NVE (Norway; Elvehøy et al., 2025), the Icelandic GlacierWeb portal (Björnsson et al., 1998; Aðalgeirsdóttir et al., 2020), and WGMS (2023) for Italy, Austria, Svalbard, Central Asia and Alaska. For Alaska, additional stake data not in WGMS are taken from USGS and the Alaska DGGS (`RGI_01_02_US_CA/01_Alaska.csv`; sources listed in `RGI_01_02_US_CA/README.md`).
 
 ## Common steps
 

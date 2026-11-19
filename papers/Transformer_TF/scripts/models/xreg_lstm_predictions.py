@@ -1,3 +1,10 @@
+"""
+NOT USED IN THE PAPER. Evaluation of the earlier LSTM transfer-learning experiments
+(see xreg_lstm_training.py).
+None of its functions are called by the paper notebooks (1.x-3.x); the module is
+kept for exploratory work and is only star-imported by the package.
+"""
+
 import logging
 import os
 import matplotlib.pyplot as plt

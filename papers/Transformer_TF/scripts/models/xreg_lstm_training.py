@@ -1,3 +1,10 @@
+"""
+NOT USED IN THE PAPER. Earlier LSTM transfer-learning experiments: fine-tuning strategies
+(safe, two_stage, disc_full, adapter) and domain-adversarial training (DAN).
+None of its functions are called by the paper notebooks (1.x-3.x); the module is
+kept for exploratory work and is only star-imported by the package.
+"""
+
 from torch.utils.data import DataLoader, Subset, WeightedRandomSampler
 import numpy as np
 import random as rd

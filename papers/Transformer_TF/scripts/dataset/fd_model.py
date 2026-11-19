@@ -549,6 +549,8 @@ def plot_pred_vs_truth_grid(
     return fig
 
 
+# NOT USED IN THE PAPER: domain-adversarial (DAN) fine-tuning, an exploratory
+# alternative to finetune_transformer_on_target. Not called by the paper notebooks.
 def finetune_dan_transformer_on_target(
     cfg,
     model_foundation,  # trained Transformer_MB

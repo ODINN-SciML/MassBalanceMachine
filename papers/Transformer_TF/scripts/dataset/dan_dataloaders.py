@@ -1,3 +1,9 @@
+"""
+NOT USED IN THE PAPER. Data loaders for domain-adversarial (DAN) fine-tuning.
+None of its functions are called by the paper notebooks (1.x-3.x); the module is
+kept for exploratory work and is only star-imported by the package.
+"""
+
 import numpy as np
 import random as rd
 import torch

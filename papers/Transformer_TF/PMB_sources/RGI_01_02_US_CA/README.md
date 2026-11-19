@@ -15,10 +15,12 @@ RGI_01_02_US_CA/
 ```
 
 - **`1.1. US_CA-prepro.ipynb`**: the main notebook. It reads the raw stake data, adds topographic and sky-view factor variables, cleans the measurement periods and writes the Alaska CSV.
-- **`01_Alaska.csv`**: additional Alaskan stake measurements (`;`-separated, latin1 encoded, dates as `DD.MM.YYYY`) that are not in the WGMS database. It uses the WGMS column layout but has no glacier/RGI IDs. Sources are given per row in the `source` column (e.g. USGS, https://doi.org/10.5066/F7MP51CB).
+- **`01_Alaska.csv`**: additional Alaskan stake measurements (`;`-separated, latin1 encoded, dates as `DD.MM.YYYY`) that are not in the WGMS database. It uses the WGMS column layout but has no glacier/RGI IDs. Sources are given per row in the `source` column:
+  - U.S. Geological Survey (USGS): https://doi.org/10.5066/F7MP51CB (108 rows) and https://doi.org/10.5066/F7HD7SRF (21 rows)
+  - Alaska Division of Geological & Geophysical Surveys (DGGS): https://doi.org/10.14509/30138 (241 rows)
 - **`scripts/config_US_CA.py`**: the output folder `path_PMB_WGMS_csv`, relative to the data root `cfg.dataPath`.
 
-`01_Alaska.csv` matches the `papers/**/*.csv` rule in `.gitignore`, so it is not tracked by git. Add it with `git add -f` if it should be versioned.
+`01_Alaska.csv` is an input file, not a generated one, so it is tracked by git (excepted from the `papers/**/*.csv` rule in `.gitignore`).
 
 ## Required input data
 

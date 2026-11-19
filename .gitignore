@@ -29,6 +29,8 @@ papers/**/cache/
 papers/**/results/
 papers/**/logs/
 papers/**/*.csv
+# ...but keep the extra Alaska stake data (input, not generated; not in WGMS)
+!papers/Transformer_TF/PMB_sources/RGI_01_02_US_CA/01_Alaska.csv
 papers/**/*.png
 papers/**/*.pdf
 papers/**/*.svg
